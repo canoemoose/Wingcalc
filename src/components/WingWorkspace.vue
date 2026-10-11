@@ -2,7 +2,7 @@
 // Full-window wing editor: a results strip across the top, panel fields on the left (the
 // same side as the inputs column on the page) and the plan filling the rest. Rendered next
 // to the calculator rather than inside it, so fixed positioning doesn't depend on how a
-// browser treats it inside a container-query element, and it works in the shadow-DOM embed.
+// browser treats it inside a container-query element.
 import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 
 const open = defineModel('open', { type: Boolean, default: false })

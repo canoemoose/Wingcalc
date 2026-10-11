@@ -7,8 +7,8 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - UK English everywhere (UI copy, comments, docs).
 - All calculation code works in SI base units (m, m², kg, m/s); conversion happens only at the edges (`src/lib/units.js`, `UnitInput.vue`).
 - Pure logic lives in `src/lib/` with no Vue imports, so it can be unit-tested directly.
-- Styles live in one file, `src/styles/wingcalc.css`, scoped under `.wingcalc` / `wc-` class names. No `<style>` blocks in components: the embed build injects that single stylesheet into a shadow root.
-- Aerofoil data is bundled at build time (`npm run fetch-airfoils`), never fetched from the internet in the browser. `airfoils.json` (polar-backed, eager) and `uiuc.json` (full UIUC catalogue, lazy chunk; inlined in the IIFE embed).
+- Styles live in one file, `src/styles/wingcalc.css`, scoped under `.wingcalc` / `wc-` class names. No `<style>` blocks in components.
+- Aerofoil data is bundled at build time (`npm run fetch-airfoils`), never fetched from the internet in the browser. `airfoils.json` (polar-backed, eager) and `uiuc.json` (full UIUC catalogue, lazy chunk).
 - Wing geometry for panel mode lives in `src/lib/wing.js` (flat s / projected y coordinates, Bézier edges); `calc.js` delegates to it.
 - Decisions for later rounds are in `docs/scope-v2.md` and `docs/scope-v3.md`.
 - Projects: `src/lib/projects.js` (storage injected, every access guarded). Saved state is `{ units, input, airfoil }`; anything added to `input` must also go in `defaultState()` so older saves migrate.

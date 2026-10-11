@@ -26,31 +26,16 @@ npm install
 npm run dev
 ```
 
-The dev server serves the standalone page at `/` and an embedding demo at `/embed-demo.html`.
+The dev server serves the app at `/`.
 
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Development server |
 | `npm test` | Run the unit tests (Vitest) |
-| `npm run build` | Standalone page into `dist/` (relative paths, host anywhere) |
-| `npm run build:embed` | Embeddable widget into `dist-embed/` |
+| `npm run build` | The app into `dist/` (relative paths, host anywhere) |
 | `npm run fetch-airfoils` | Refresh the bundled aerofoil data |
 
-## Embedding
-
-`npm run build:embed` produces a single self-contained script (Vue, styles and all aerofoil data included; about 1.7 MB, 530 KB gzipped) that registers a `<wing-calc>` custom element:
-
-```html
-<script src="wingcalc.js"></script>
-<wing-calc units="imperial" theme="light"></wing-calc>
-```
-
-- `units`: `metric` (default) or `imperial`
-- `theme`: `auto` (default, follows the OS light/dark setting) or `light`
-
-The widget renders in a shadow root, so host page styles don't reach it and its styles don't leak out. Its layout responds to its own width (container queries), not the viewport, so it works in a narrow sidebar as well as full width. `wingcalc.mjs` is the ES-module version of the same thing; it loads the UIUC catalogue as a second file (`uiuc-*.js`) on demand, so copy both. In the standalone build the catalogue is likewise a separate chunk, loaded after first paint.
-
-To use the Vue component directly inside another Vue app instead, import `src/WingCalc.vue` and `src/styles/wingcalc.css`.
+The UIUC catalogue is a separate chunk, loaded after first paint. Layout responds to the calculator's own width (container queries) rather than the viewport.
 
 ## Projects
 
@@ -63,13 +48,13 @@ The bar at the top holds the project name and its controls, then the units and t
 - The work in progress also **autosaves** and comes back on reload, saved or not.
 - **Export file** downloads the project as a `.wingcalc.json` file; **Import file** opens one. Use these to back up or move projects between browsers, since localStorage belongs to one browser on one machine and is lost if site data is cleared.
 
-A project holds the units, weight, wing shape (including stations, tip and dimensions) and the aerofoil choice. Files carry a format version, and anything missing from an older file is filled from the defaults. If the browser blocks storage, saving is disabled with a note and Export still works. On a page embedding more than one `<wing-calc>`, the instances share the same saved projects and autosave.
+A project holds the units, weight, wing shape (including stations, tip and dimensions) and the aerofoil choice. Files carry a format version, and anything missing from an older file is filled from the defaults. If the browser blocks storage, saving is disabled with a note and Export still works.
 
 ## Wing plan editor
 
 In "Chords & panels" mode the results column shows the wing plan: one half of the wing, drawn flat (as built), with the other half ghosted.
 
-**Open wing editor** expands it to fill the browser window: the plan takes most of the space, the wing and panel settings sit on the left (tabs switch between panels), and a strip along the top keeps span, area, aspect ratio, cube loading and stall speed in view as you edit. Done or Esc returns to the page. It works the same way when the calculator is embedded.
+**Open wing editor** expands it to fill the browser window: the plan takes most of the space, the wing and panel settings sit on the left (tabs switch between panels), and a strip along the top keeps span, area, aspect ratio, cube loading and stall speed in view as you edit. Done or Esc returns to the page.
 
 - **Select** a panel by clicking it (or its heading in the inputs column); the two stay in step.
 - **Drag** the round handles at a panel's tip to change its length and sweep (leading edge) or its tip chord (trailing edge). Hold Shift to change length without changing sweep. The handle on the root trailing edge sets the root chord; the diamond ahead of the root sets the fuselage width.

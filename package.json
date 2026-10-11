@@ -8,7 +8,6 @@
     "dev": "vite",
     "dev:lan": "vite --host",
     "build": "vite build",
-    "build:embed": "vite build --config vite.embed.config.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

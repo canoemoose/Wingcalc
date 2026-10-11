@@ -67,12 +67,11 @@ Time box: about half a day. If blocked (toolchain won't install, the code won't 
 - **Licence for Wingcalc:** must be GPL-compatible. Check the exact GPL versions of XFOIL and XFLR5, then choose (likely GPL-3.0-or-later). Also remove `"private": true` from `package.json` when publishing.
 - **Bundled data licences:** the UIUC coordinates and airfoiltools.com polars still have no stated terms (see README). Generating our own polars would remove the airfoiltools question; UIUC remains.
 - **How the app would use it:** live polars for custom sections only, or on demand for every section with caching, replacing the bundled polars? Probably both, decided after the spike.
-- **Embed:** inline the `.wasm` into the single-file embed (larger) or load it as a second file.
 
 ### Decided after the spike (2026-10-11)
 
 - **Where our polars differ from airfoiltools, warn the user** rather than hide or reconcile the difference.
-- **Embed:** load the `.wasm` as a second file, not inlined.
+- **No embed:** the embeddable build has been removed, so the `.wasm` and the worker are ordinary files emitted by the app build.
 - **No self-built WebXFOIL:** depend on the pinned npm package; no Docker/flang-wasm toolchain.
 
 ## Findings
@@ -137,14 +136,13 @@ Drag and moment, checked against the full airfoiltools CSVs in `scripts/.cache/`
 
 The browser figures came from the app's built-in browser pane while it was hidden, which may throttle the worker. Treat them as an upper bound.
 
-### Effort to integrate (estimate: 4 to 6 days)
+### Effort to integrate (estimate: 4 to 5 days)
 
 1. **Our own thin wrapper** over `dist/xfoil.js` (half a day). It builds the command script, discards stdout, and parses the polar file. The npm wrapper keeps every output line, and a fully failing polar pushed Node's RSS to about 1 GB.
 2. **Worker plus composable** (1 day): queue, cancel (terminate and respawn costs about 20 ms), and a cache keyed by coordinates hash + Re + Ncrit + settings.
 3. **App use** (1 to 2 days): live polars for custom sections; on-demand polars at the actual stall Re for catalogue sections; show non-converged points as gaps.
-4. **Embed** (half a day): load the `.wasm` as a second file, or inline it as base64 (1.34 MB raw, 480 KB gzipped, on top of the current embed).
-5. **Tests** (half a day): the module loads in Node in about 10 ms, so Vitest can run real polars, for example NACA 2412 at 200k against the bundled data.
-6. **Licensing and source** (half a day plus): GPL-3.0-or-later for Wingcalc is compatible with XFOIL's and WebXFOIL's GPL-2.0-or-later. Ship a link to the WebXFOIL tag and the XFOIL tarball as corresponding source. Optional: reproduce the WebXFOIL build ourselves (needs Docker and the flang-wasm image, probably 1 to 2 GB) so we aren't tied to a one-maintainer package.
+4. **Tests** (half a day): the module loads in Node in about 10 ms, so Vitest can run real polars, for example NACA 2412 at 200k against the bundled data.
+5. **Licensing and source** (half a day plus): GPL-3.0-or-later for Wingcalc is compatible with XFOIL's and WebXFOIL's GPL-2.0-or-later. Ship a link to the WebXFOIL tag and the XFOIL tarball as corresponding source. Optional: reproduce the WebXFOIL build ourselves (needs Docker and the flang-wasm image, probably 1 to 2 GB) so we aren't tied to a one-maintainer package.
 
 ### Risks
 
@@ -165,6 +163,6 @@ The browser figures came from the app's built-in browser pane while it was hidde
 ### Not done or not verified
 
 - XFLR5's C++ and the `f2c` fallback: not attempted; not needed.
-- Browser timings in a foreground tab or in Firefox and Safari (the embed audience).
+- Browser timings in a foreground tab or in Firefox and Safari.
 - `performance.measureUserAgentSpecificMemory` in the browser; the 28.4 MB is the wasm heap only.
 - Which XFOIL build airfoiltools used.

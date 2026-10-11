@@ -4,12 +4,12 @@
 **Autonomous.** Work through the whole build with minimal interruption. Batch any questions rather than stopping for each one. Finish with a summary of what was built, assumptions made, and anything flagged for review.
 
 ## Purpose
-An embedded web app for RC fixed-wing aircraft. The user enters weight, wing geometry and an airfoil section; the app reports whether the wing loading is sensible, the expected stall speed, and how forgiving the airfoil is likely to be at the stall.
+A web app for RC fixed-wing aircraft. The user enters weight, wing geometry and an airfoil section; the app reports whether the wing loading is sensible, the expected stall speed, and how forgiving the airfoil is likely to be at the stall.
 
 ## Stack and conventions
 - Vue 3, plain JavaScript (no TypeScript), served with Vite.
 - UK English throughout (UI copy, comments, docs).
-- Built to be embeddable (self-contained component/app, no assumptions about the host page).
+- Standalone app only. An embeddable `<wing-calc>` build was made from an earlier reading of this brief and removed on 2026-10-11; embedding was never wanted.
 - Runs on Windows for development.
 
 ## Scope
@@ -30,7 +30,7 @@ An embedded web app for RC fixed-wing aircraft. The user enters weight, wing geo
 
 ## Airfoil data
 - Source NACA and Eppler section data from **airfoiltools.com** (coordinates and polar data, including max lift coefficient and stall angle at RC-relevant Reynolds numbers).
-- **Bundle the data as static JSON at build time** via a small fetch/scrape script in the repo, rather than fetching live in the browser (avoids CORS and keeps the app working offline when embedded).
+- **Bundle the data as static JSON at build time** via a small fetch/scrape script in the repo, rather than fetching live in the browser (avoids CORS and keeps the app working offline).
 - Record the source URL and Reynolds number used for each section in the data file.
 - Check airfoiltools.com's terms of use and note them in the README. If the site can't be reached from the build environment, flag it and leave the fetch script ready to run locally.
 
@@ -61,7 +61,7 @@ For each airfoil, the tool will also flag its stall character — whether it bre
 ## Build status (initial version, 2026-10-11)
 
 Done:
-- Vue 3 + Vite app (`src/WingCalc.vue`), standalone page and `<wing-calc>` embed build (shadow DOM, container queries).
+- Vue 3 + Vite app (`src/WingCalc.vue`), standalone page (container queries). The embed build listed here originally has since been removed.
 - Metric/imperial toggle with per-field unit choice; converted values shown alongside results.
 - Geometry from root chord plus panels (length, outer chord, dihedral as an angle or as the rise of the outer end: covers taper, cranked planforms, dihedral and polyhedral), mean chord, or area. Span 600 mm to 3 m validated with warnings.
 - Top and true-scale front view of the wing; stall speed uses projected area, loadings use flat area.
