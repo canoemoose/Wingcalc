@@ -9,7 +9,9 @@ A wing loading calculator for RC fixed-wing aircraft with spans of 600 mm to 3 m
 
 Every input and output works in metric or imperial, with a global toggle and per-field unit choice.
 
-The wing can be entered as a root chord plus one or more panels per side (each with its own length, outer chord and dihedral), which covers straight, tapered, cranked, dihedral and polyhedral wings. Mean chord or area can be entered instead for a quick check.
+The wing can be drawn in a CAD-style **wing plan editor** or entered numerically: fuselage width, root chord, then one or more panels per side, each with its own length, outer chord, sweep, dihedral, and straight or curved leading and trailing edges. That covers straight, tapered, cranked, swept, elliptical-tipped, dihedral and polyhedral wings. Mean chord or area can be entered instead for a quick check.
+
+Aerofoils come from a browsable catalogue of the whole UIUC Airfoil Coordinates Database (about 1,660 sections) in NACA, Eppler and Other tabs, with 78 popular sections backed by XFOIL polar data. A custom section can also be defined by its parameters.
 
 Built with Vue 3 (plain JavaScript) and Vite.
 
@@ -34,7 +36,7 @@ The dev server serves the standalone page at `/` and an embedding demo at `/embe
 
 ## Embedding
 
-`npm run build:embed` produces a single self-contained script (Vue, styles and aerofoil data included) that registers a `<wing-calc>` custom element:
+`npm run build:embed` produces a single self-contained script (Vue, styles and all aerofoil data included; about 1.7 MB, 530 KB gzipped) that registers a `<wing-calc>` custom element:
 
 ```html
 <script src="wingcalc.js"></script>
@@ -44,31 +46,53 @@ The dev server serves the standalone page at `/` and an embedding demo at `/embe
 - `units`: `metric` (default) or `imperial`
 - `theme`: `auto` (default, follows the OS light/dark setting) or `light`
 
-The widget renders in a shadow root, so host page styles don't reach it and its styles don't leak out. Its layout responds to its own width (container queries), not the viewport, so it works in a narrow sidebar as well as full width. `wingcalc.mjs` is the ES-module version of the same thing.
+The widget renders in a shadow root, so host page styles don't reach it and its styles don't leak out. Its layout responds to its own width (container queries), not the viewport, so it works in a narrow sidebar as well as full width. `wingcalc.mjs` is the ES-module version of the same thing; it loads the UIUC catalogue as a second file (`uiuc-*.js`) on demand, so copy both. In the standalone build the catalogue is likewise a separate chunk, loaded after first paint.
 
 To use the Vue component directly inside another Vue app instead, import `src/WingCalc.vue` and `src/styles/wingcalc.css`.
 
+## Wing plan editor
+
+In "Chords & panels" mode the results column shows the wing plan: one half of the wing, drawn flat (as built), with the other half ghosted.
+
+- **Select** a panel by clicking it (or its heading in the inputs column); the two stay in step.
+- **Drag** the round handles at a panel's tip to change its length and sweep (leading edge) or its tip chord (trailing edge). Hold Shift to change length without changing sweep. The handle on the root trailing edge sets the root chord; the diamond ahead of the root sets the fuselage width.
+- **Curves**: on the selected panel, drag the small dashed handle in the middle of either edge to curve it. That creates a square control handle (a quadratic Bézier control point); drag it to shape the curve, double-click it to straighten the edge again.
+- **Snap** to the grid is on by default; the grid adapts to the zoom (10 mm at the default view), and Alt disables snapping during a drag.
+- **Navigate**: scroll to zoom about the pointer, drag empty space or a panel to pan, Fit to frame the wing.
+- **Keyboard** (with the plan focused): arrow keys move the selected panel's tip leading edge one grid step (left/right for length, up/down for sweep), Alt with up/down changes its tip chord, Delete removes it, Escape deselects, Ctrl+Z / Ctrl+Y undo and redo.
+- **Add panel** appends a new section at the tip, continuing the leading-edge line and dihedral of the last panel at about 40% of its length and 75% of its tip chord. Panels can be deleted from either the plan or the inputs column.
+- **Undo/redo** covers the whole wing shape: each drag is one step, and typed changes are grouped once they pause.
+
+The same values can be typed in the inputs column, which is the precise route; the plan updates as you type.
+
 ## Formulas
 
-All calculation is done in SI units (`src/lib/calc.js`); conversion happens only at input and display.
+All calculation is done in SI units (`src/lib/calc.js`, `src/lib/wing.js`); conversion happens only at input and display.
 
 | Quantity | Formula |
 | --- | --- |
-| Flat wing area (panels) | S = 2 Σ l<sub>i</sub> (c<sub>i−1</sub> + c<sub>i</sub>) / 2, over the panels of one side |
-| Projected wing area | S<sub>p</sub> = 2 Σ l<sub>i</sub> cos Γ<sub>i</sub> (c<sub>i−1</sub> + c<sub>i</sub>) / 2 |
-| Wingspan (tip to tip, projected) | b = 2 Σ l<sub>i</sub> cos Γ<sub>i</sub> |
+| Flat wing area (panels) | S = w c<sub>r</sub> + 2 Σ ∫ c ds, over the panels of one side |
+| Projected wing area | S<sub>p</sub> = w c<sub>r</sub> + 2 Σ cos Γ<sub>i</sub> ∫ c ds |
+| Exposed area | S − w c<sub>r</sub> |
+| Wingspan (tip to tip, projected) | b = w + 2 Σ l<sub>i</sub> cos Γ<sub>i</sub> |
 | Wing area (mean chord) | S = b c̄ |
 | Mean aerodynamic chord | MAC = ∫c² dy / ∫c dy over a half wing (projected y). For a single straight taper this is ⅔ c<sub>r</sub> (1 + λ + λ²) / (1 + λ); it equals the mean chord when entered as mean chord or area |
 | Aspect ratio | AR = b² / S<sub>p</sub> |
 | Wing loading | WL = W / S |
 | Wing cube loading | WCL = W / S<sup>1.5</sup> |
 | Stall speed | V<sub>s</sub> = √(2 m g / (ρ S<sub>p</sub> C<sub>L,max</sub>)) |
-| Wing C<sub>L,max</sub> | 0.9 × section C<sub>l,max</sub> |
+| Wing C<sub>L,max</sub> | 0.9 × cos Λ<sub>¼</sub> × section C<sub>l,max</sub> |
 | Reynolds number | Re = V<sub>s</sub> × MAC / ν |
 
 Constants: g = 9.80665 m/s², ρ = 1.225 kg/m³ and ν = 1.4607 × 10⁻⁵ m²/s (ISA sea level).
 
-Here l<sub>i</sub> is a panel's length measured flat along the panel, c<sub>i</sub> its outer chord (c<sub>0</sub> is the root chord) and Γ<sub>i</sub> its dihedral angle to the horizontal.
+Here w is the fuselage width, c<sub>r</sub> the root chord, l<sub>i</sub> a panel's length measured flat along the panel, c its chord at each point along the panel, Γ<sub>i</sub> its dihedral angle to the horizontal and Λ<sub>¼</sub> the quarter-chord sweep.
+
+**Panel shape.** Each panel runs from the previous panel's tip (or the fuselage side) to its own tip. The tip leading edge sits `sweep` behind the inner leading edge; the tip chord is set directly. Each edge is either straight or a quadratic Bézier curve with one control point, stored as a fraction along the panel plus an offset from the straight edge, so the curve keeps its shape when the panel is resized. Curved panels are integrated numerically (32 intervals per panel, exact for straight edges), and a panel whose edges cross is rejected with a warning.
+
+**Fuselage width.** Panels start at the fuselage sides. The section inside the fuselage is taken as flat with the root chord, and counted in the area used for loadings and stall speed, as is conventional (the fuselage carries roughly the lift of the wing it replaces). The exposed area outside the fuselage is shown separately.
+
+**Sweep.** Λ<sub>¼</sub> is the slope of a chord-weighted straight-line fit to the quarter-chord line across the half wing, so a curved tip doesn't distort it. Sweep reduces the maximum lift a wing can reach roughly in proportion to cos Λ, the usual first-order correction, which is applied to wing C<sub>L,max</sub>. A straight-tapered wing with a straight leading edge has a slight forward quarter-chord sweep; the app only mentions sweep once it reaches 3°, since below that the effect is under 0.2%.
 
 Dihedral can be entered per panel either as that angle or as the **rise** of the panel's outer end: how far it sits above the panel's inner end with the wing level (so for a polyhedral tip panel, measured from the break, not from the centre section). The two are related by Γ = asin(rise / l), and each entry mode shows the other as a hint. This is not the same as the "block the tip up X" figure on some plans, where the inner panel is pinned flat on the board: for a tip panel that measures the angle relative to the inner panel, so add the inner panel's angle to get Γ.
 
@@ -76,7 +100,9 @@ Dihedral can be entered per panel either as that angle or as the **rise** of the
 
 **Wing C<sub>L,max</sub> factor.** A finite wing reaches a lower maximum lift coefficient than its 2D section. 0.9 is a common rule of thumb for straight, moderately tapered wings; it is a single constant (`WING_CLMAX_FACTOR`) if you want to change it.
 
-**Clmax depends on Reynolds number, which depends on stall speed.** For library sections the app looks up section C<sub>l,max</sub> at the stall's own Reynolds number, interpolating linearly in log(Re) between the bundled polars (clamped at the ends of the 50k to 1M range), and iterates until stall speed and Reynolds number agree. Polars where XFOIL stopped converging at the peak are left out of the Clmax lookup, because their maximum is unreliable.
+**Clmax depends on Reynolds number, which depends on stall speed.** For sections with polars the app looks up section C<sub>l,max</sub> at the stall's own Reynolds number, interpolating linearly in log(Re) between the bundled polars (clamped at the ends of the 50k to 1M range), and iterates until stall speed and Reynolds number agree. Polars where XFOIL stopped converging at the peak are left out of the Clmax lookup, because their maximum is unreliable.
+
+**Clmax for sections without polars.** For the UIUC sections that have coordinates only, C<sub>l,max</sub> is estimated from camber and thickness: at each bundled Reynolds number, a least-squares fit of C<sub>l,max</sub> = a + b·camber + c·thickness + d·thickness² (in % chord) across all 78 polar-backed sections, interpolated in log(Re) and iterated with stall speed as above. The fit's RMS error is 0.07 to 0.17 depending on Reynolds number (about 6–10%, so roughly 3–5% on stall speed); it is weakest for unusual high-lift sections (S1223: 2.20 from its polar, 1.94 estimated). The estimate is labelled as such, and a known C<sub>l,max</sub> can be entered to override it.
 
 ### Units
 
@@ -118,9 +144,9 @@ The lift curve is drawn in the app with the peak and the 2° band marked, so the
 
 Thresholds were chosen by looking at all 39 bundled sections at 100k, 200k and 500k. At 200k they put well-known gentle sections (NACA 4412, 4415, 4418) in Gentle and thin sections (NACA 0009, NACA 1408, E180, E230) in Sharp, and show the expected trend with Reynolds number: at Re 50,000 most sections rate Sharp (laminar bubbles burst abruptly), at 1,000,000 most rate Gentle.
 
-### Custom sections: geometry heuristic
+### Sections without polars: geometry heuristic
 
-With no polar, the rating comes from the section shape, after Gault's (1957) correlation of stall type with the **upper-surface ordinate at 1.25% chord**. That one number captures thickness, leading-edge radius and camber near the nose together.
+For custom sections and the coordinates-only UIUC sections, the rating comes from the section shape, after Gault's (1957) correlation of stall type with the **upper-surface ordinate at 1.25% chord**. That one number captures thickness, leading-edge radius and camber near the nose together.
 
 - under 1.6% chord: **Sharp** (thin, sharp nose)
 - 1.6% to 2.1%: **Moderate**
@@ -131,7 +157,9 @@ Then, one step each:
 - Reynolds number at the stall below 100,000: sharper
 - Reynolds number at the stall of 400,000 or more: gentler
 
-Checked against the polar method across all 39 library sections at all five Reynolds numbers, the heuristic agrees exactly in 122 of 195 cases (63%), is one step out in 70, and two steps out in 3 (NACA 0015, NACA 2415 and E474 at low Reynolds number, which the heuristic calls Gentle and the polar calls Sharp). It is marked low confidence in the app.
+Checked against the polar method across all 78 polar-backed sections at all five Reynolds numbers, the heuristic agrees exactly in 228 of 390 cases (58%), is one step out in 155, and two steps out in 7 (NACA 0015, 2415 and 63-3618, AG35, E474, S1223 and S8036 at low Reynolds number, which the heuristic calls Gentle and the polar calls Sharp). It is marked low confidence in the app.
+
+**Indicative lift curve.** So the rating can still be read as a picture, sections without polars get an indicative lift curve, drawn dashed and captioned "Indicative curve, not computed data". It is linear from the zero-lift angle (computed from the section's mean line by thin-aerofoil theory, about −2.1° for NACA 2412) at the lift-curve slope averaged across the polar library at that Reynolds number, rounds over to C<sub>l,max</sub>, then falls away at a rate set by the rating (1.2%, 5% or 12% of C<sub>l,max</sub> per degree for Gentle, Moderate and Sharp, with pre-stall rounding to match). The shapes are chosen so that rating the drawn curve with the polar method returns the same rating, which the tests check.
 
 ### Custom section shape
 
@@ -139,7 +167,9 @@ The custom section is drawn from the NACA modified four-digit thickness form, wi
 
 ## Aerofoil data
 
-`src/data/airfoils.json` is generated by `scripts/fetch-airfoils.mjs` and committed, so the app works offline and never fetches anything in the browser. It holds 18 NACA (four-digit and 230-series) and 21 Eppler sections. For each it records:
+Both data files are generated by `scripts/fetch-airfoils.mjs` and committed, so the app works offline and never fetches anything from the internet in the browser.
+
+`src/data/airfoils.json` holds the 78 sections with polars: 19 NACA, 22 Eppler and 37 popular RC sections from other families (Clark Y, the Selig and Selig/Donovan S and SD series, Martin Hepperle MH, Drela AG, RG14/15, Wortmann FX 63-137, Göttingen 398 and others). For each it records:
 
 - name, description and source URL
 - thickness and camber (and their positions) as published by airfoiltools.com
@@ -147,21 +177,23 @@ The custom section is drawn from the NACA modified four-digit thickness form, wi
 - coordinates, decimated to about 90 points for drawing
 - XFOIL lift curves (alpha and Cl from −4°) at Re 50k, 100k, 200k, 500k and 1M, Ncrit 9, each with its source URL and Reynolds number
 
+`src/data/uiuc.json` holds every section in the UIUC Airfoil Coordinates Database (1,662; three malformed files are skipped): id, name, description from the UIUC index page, family, thickness and camber with positions, leading-edge radius and 1.25% ordinate measured from the full coordinates, and about 60 points for drawing, packed as integers. Sections are sorted into the NACA (`n…`, `naca…`), Eppler (`e` + digit) and Other tabs by their file name. Where a section also has polars it is listed once, from the polar library.
+
 ### Refreshing the data
 
 ```bash
 npm run fetch-airfoils
 ```
 
-Edit the `SECTIONS` list at the top of the script to add or remove sections (use the airfoiltools.com id, e.g. `e205-il`). Responses are cached in `scripts/.cache/` (gitignored), so re-runs only fetch what's missing; delete that folder to force a full refresh.
+Edit the `SECTIONS` list at the top of the script to add or remove polar-backed sections (use the airfoiltools.com id, e.g. `e205-il`); the family is worked out from the id. The UIUC part downloads the database's single coordinate archive and its index page, two requests in all. Responses are cached in `scripts/.cache/` (gitignored), so re-runs only fetch what's missing; delete that folder to force a full refresh.
 
-The script makes one request at a time with a 1.5 s gap, and backs off and retries on HTTP 403 or 429. airfoiltools.com started refusing requests after about 40 in quick succession during development, so please don't lower the delay. A full uncached run is about 270 requests and takes 7 to 8 minutes.
+The script makes one request at a time with a 1.5 s gap, and backs off and retries on HTTP 403 or 429. airfoiltools.com started refusing requests after about 40 in quick succession during development, so please don't lower the delay. A full uncached run is about 550 requests to airfoiltools.com and takes about 15 minutes.
 
 ### Source and terms of use
 
 - Data comes from [airfoiltools.com](http://airfoiltools.com). Coordinates there come from the [UIUC Airfoil Coordinates Database](https://m-selig.ae.illinois.edu/ads/coord_database.html); the polars are XFOIL predictions generated by airfoiltools.com.
 - airfoiltools.com does not publish terms of use. The site has a [privacy policy](http://airfoiltools.com/site/privacy) and a footer reading "Copyright © 2026 All Rights Reserved"; there is no licence for reuse of the data.
-- The UIUC coordinate database is publicly available; its reuse terms weren't checked for this build, so check its own notes too. The XFOIL polars are airfoiltools.com's own output and presumably fall under that copyright notice.
+- The UIUC Airfoil Coordinates Database is publicly available, but neither its database page nor its home page states terms of use or a licence. The XFOIL polars are airfoiltools.com's own output and presumably fall under that copyright notice.
 - Before publishing this app publicly, it is worth asking airfoiltools.com (via its contact page) for permission to redistribute the polar data, or regenerating the polars yourself with XFOIL from the UIUC coordinates.
 
 ## Tests
@@ -170,4 +202,4 @@ The script makes one request at a time with a 1.5 s gap, and backs off and retri
 npm test
 ```
 
-Covers unit conversions and formatting, wing geometry, wing and cube loading, the cube-loading bands, stall speed and Reynolds number, input validation, section generation and measurement (checked against tabulated NACA 0012), the polar and geometry stall ratings, and the bundled data (sources recorded, sensible values, Reynolds lookup and the stall-speed iteration). The Vue components are not unit-tested.
+Covers unit conversions and formatting; wing geometry including panels, fuselage width, sweep, curved edges and dihedral or rise; wing and cube loading and the bands; stall speed, sweep correction and Reynolds number; input validation; section generation, measurement and zero-lift angle (checked against tabulated NACA 0012 and thin-aerofoil theory); the polar and geometry stall ratings and the indicative curve; the bundled data and UIUC catalogue; the Clmax estimate; and undo/redo history. The Vue components themselves are not unit-tested; the plan editor was exercised in the running app.

@@ -8,12 +8,15 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - All calculation code works in SI base units (m, m², kg, m/s); conversion happens only at the edges (`src/lib/units.js`, `UnitInput.vue`).
 - Pure logic lives in `src/lib/` with no Vue imports, so it can be unit-tested directly.
 - Styles live in one file, `src/styles/wingcalc.css`, scoped under `.wingcalc` / `wc-` class names. No `<style>` blocks in components: the embed build injects that single stylesheet into a shadow root.
-- Aerofoil data is bundled at build time (`npm run fetch-airfoils`), never fetched in the browser.
+- Aerofoil data is bundled at build time (`npm run fetch-airfoils`), never fetched from the internet in the browser. `airfoils.json` (polar-backed, eager) and `uiuc.json` (full UIUC catalogue, lazy chunk; inlined in the IIFE embed).
+- Wing geometry for panel mode lives in `src/lib/wing.js` (flat s / projected y coordinates, Bézier edges); `calc.js` delegates to it.
+- Work in progress and decisions for the second round are in `docs/scope-v2.md`.
 
 ## Testing
 
 - Runner: **Vitest** (`npm test`). Chosen because it shares Vite's config and transform pipeline, so tests import the same modules (including the bundled JSON) with no extra setup.
-- Tests live in `tests/` and cover `src/lib/`. Components are not unit-tested; check them in the running app.
+- Tests live in `tests/` and cover `src/lib/` and `src/composables/`. Components are not unit-tested; check them in the running app.
+- The browser pane may be hidden, in which case the page gets no animation frames and ResizeObserver never fires. Don't mistake that for a bug, but don't rely on either for first paint.
 
 ## Data fetch etiquette
 

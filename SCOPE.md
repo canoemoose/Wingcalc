@@ -76,3 +76,7 @@ Open questions / for review:
 - Top cube-loading band named "Racer / hotliner"; hotliners often sit lower than that. Band names and thresholds want a sanity check.
 - Wing CLmax = 0.9 × section Clmax is a fixed rule of thumb; could be made adjustable.
 - Visual layout not yet reviewed by eye.
+
+## Second round
+
+See [docs/scope-v2.md](docs/scope-v2.md): UIUC catalogue and picker, indicative lift curve for sections without polars, CAD-style wing plan editor with swept and curved panels, fuselage width.
