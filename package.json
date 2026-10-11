@@ -1,0 +1,27 @@
+{
+  "name": "wingcalc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wing loading, cube loading, stall speed and stall character calculator for RC fixed-wing aircraft",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:embed": "vite build --config vite.embed.config.js",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "fetch-airfoils": "node scripts/fetch-airfoils.mjs"
+  },
+  "volta": {
+    "node": "24.21.0"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
