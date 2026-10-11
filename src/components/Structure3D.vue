@@ -94,7 +94,7 @@ function build() {
   const skinMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(cssColour('--wc-accent', '#1f6feb')),
     transparent: true,
-    opacity: 0.16,
+    opacity: 0.35,
     depthWrite: false,
     side: THREE.DoubleSide,
     roughness: 0.4,
