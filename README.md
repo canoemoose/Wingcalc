@@ -5,7 +5,8 @@ A wing loading calculator for RC fixed-wing aircraft with spans of 600 mm to 3 m
 - **Wing cube loading** with a verdict band (the headline figure)
 - **Stall speed**, side by side with the verdict
 - **Wing loading**, area, mean aerodynamic chord, aspect ratio and the Reynolds number at the stall
-- **Stall character** of the aerofoil: Gentle, Moderate or Sharp
+- **Stall character** of the wing: Gentle, Moderate or Sharp, with where along the span it stalls first
+- **Structure and ribs** for a built-up wing: spar, covering and rib spacing checked against a design load, with ribs, gussets, braces and webs exported as DXF for a laser or router
 
 Every input and output works in metric or imperial, with a global toggle and per-field unit choice. Numeric boxes accept sums (`700 - 20`, `(120 + 80) / 2`) and numbers with their own units (`24in + 50mm` in a millimetre box); commas are thousands separators. An unfinished sum leaves the last good value in place, and the result shows under the box while you type.
 
@@ -63,7 +64,7 @@ The bar at the top holds the project name and its controls, then the units and t
 - The work in progress also **autosaves** and comes back on reload, saved or not.
 - **Export file** downloads the project as a `.wingcalc.json` file; **Import file** opens one. Use these to back up or move projects between browsers, since localStorage belongs to one browser on one machine and is lost if site data is cleared.
 
-A project holds the units, weight, wing shape (including stations, tip and dimensions) and the aerofoil choice. Files carry a format version, and anything missing from an older file is filled from the defaults. If the browser blocks storage, saving is disabled with a note and Export still works. On a page embedding more than one `<wing-calc>`, the instances share the same saved projects and autosave.
+A project holds the units, weight, wing shape (including stations, tip, washout, thickness taper and dimensions), the aerofoil choice, the structure and the export options. Files carry a format version, and anything missing from an older file is filled from the defaults. If the browser blocks storage, saving is disabled with a note and Export still works. On a page embedding more than one `<wing-calc>`, the instances share the same saved projects and autosave.
 
 ## Wing plan editor
 
@@ -93,6 +94,70 @@ In "Chords & panels" mode the results column shows the wing plan: one half of th
 
 The same values can be typed in the inputs column, which is the precise route; the plan updates as you type.
 
+## Structure, ribs and export
+
+In "Chords & panels" mode a **Structure and ribs** card sums up the built-up structure: spar, covering, rib count and spacing, the lowest margin of safety at the design load, the root bending moment and an estimate of the bare structure's weight. **Open structure editor** fills the window: settings on the left; the plan with every rib, the loads along the span and a preview of any part on the right. **Export…** in its top strip opens the export options.
+
+### What you set
+
+- **Design loads**: load factor (6 g sport, 10 g or more for aerobatics or hard launches), a negative load factor, and a safety factor (1.5 by default) applied on top.
+- **Spar**: caps and shear web, box (webs both faces), carbon tube, or a single solid spar (through a slot, or notched into the top or bottom of each rib). Its position is a chord fraction held at every panel end and straight across each panel; blank puts it at the section's thickest point. A tube can stop short of the tip.
+- **Covering**: open (film covered, optional cap strips on each rib), D-box (sheeted from the leading edge back to the spar, cap strips behind it) or fully sheeted. The ribs are inset by whatever covers them.
+- **Leading and trailing edges**: the depth of the stock along the chord, which the ribs are cut back by; triangular or flat trailing edge.
+- **Stringers**: any number, by chord position, on the top, bottom or both surfaces. Each is notched into every rib and counted in bending; a top stringer just behind the leading edge doubles as a turbulator spar.
+- **Ribs**: material and thickness; streamwise or square to the spar (the root, panel-break and tip ribs always stay streamwise so the panels and fuselage meet cleanly); one-piece wing (a centre rib shared by both halves) or two halves plugging in at the fuselage side. Spacing is **from loads** (as close as the structure needs, never wider than a maximum set for the covering), **even**, **tapered** from root to tip, or **manual**. **Hard points** add ribs at set distances (servo bays, aileron ends). Optional **lightening holes** (not in the root, break or tip ribs) and **jig tabs**.
+- **Corner gussets** where ribs meet the leading or trailing edge, on the root, break and tip ribs or on every rib, one side or both. Each is cut to the actual angle between rib and edge.
+- **Dihedral braces**: ply plates on both faces of the spar at every dihedral break, folded to the angle. Left blank, the thickness is the next standard ply thickness above what the bending at the break needs.
+
+**Washout and thickness taper** are set per panel in the wing's own fields: washout is the total twist at a panel's outer end relative to the root (nose down), varying evenly across the panel; thickness is the section thickness at the outer end, blank to keep the inner end's. Only the thickness is scaled; the camber line stays the aerofoil's own. The section drawing shows the tip section dashed over the root.
+
+### Loads and margins (Stage A)
+
+Implementation: `src/lib/structure.js`. A first-order sizing check, and the app says so.
+
+- **Load**: the lifting line's spanwise lift distribution at the stall (the design point at manoeuvring speed, where full load factor is reached at maximum lift), scaled so the half wing carries n × weight / 2. Negative g uses the distribution at the matching negative lift. The wing's own weight is ignored, which errs on the safe side.
+- **Shear and bending** come from integrating that load inward from the tip.
+- **Section**: modulus-weighted, so a D-box or fully sheeted wing's sheeting shares the bending with the spar (it typically carries more than half), and stringers count too. Stresses come from M·E·z / EI at each element's extreme fibre.
+- **Margins of safety**, allowable ÷ (stress × safety factor) − 1, so 0 is just enough:
+  - spar in compression and in tension (positive and negative g);
+  - sheeting crushing;
+  - shear web in shear (the D-box's own shear path is ignored, on the safe side);
+  - shear web buckling between ribs (orthotropic balsa approximated with an effective modulus √(E<sub>L</sub>·E<sub>T</sub>), E<sub>T</sub> ≈ 5% E<sub>L</sub>);
+  - **buckling between ribs**: in an open structure the compressed spar cap buckling sideways (Euler, pinned at each rib); in a sheeted one each sheet panel between its supports (leading edge stock, stringers, spar) buckling as a simply supported plate, σ<sub>cr</sub> = k π² E / 12(1 − ν²) · (t / b)², with k minimised over the number of half-waves for the panel's length between ribs.
+- **Rib spacing from loads**: the buckling checks give the largest spacing allowed at each station. Each interval between hard points (root, fuselage side, panel breaks, tip, your hard points) gets the fewest bays that keep every bay within that limit along its whole length, never wider than the covering maximum. They're spaced out from the root taking the largest bay allowed each time, then evened out so there's no stub of a bay at the end.
+- **Materials** are typical values along the grain, on the conservative side: three grades of balsa, spruce, basswood, birch and lite ply, pultruded carbon strip and carbon tube. Balsa varies two to three times from sheet to sheet, so weigh your wood and pick the grade it matches.
+
+**Not covered**: torsion, flutter and divergence, glue joints, the wing joiner of a two-piece wing (the root bending moment is shown for sizing it), and local loads at fittings.
+
+### Ribs and parts
+
+Implementation: `src/lib/ribs.js`. Each rib is the wing cut along the rib's line through the lofted wing (each point along it takes the chord, thickness and twist of the streamwise section it crosses), so streamwise and square-to-spar ribs come from the same code. A rib square to a swept spar comes out shorter than the streamwise chord, by about cos Λ, at much the same depth. Then:
+
+- inset for the covering, measured square to the surface;
+- cut back square for the leading and trailing edge stock;
+- notched for the spar caps (or holed for a tube, slotted or notched for a solid spar) and for each stringer;
+- **washout** built in by rotating each section about the spar line, trailing edge up;
+- **jig tabs** on every rib in a panel reach down to one flat line (below the lowest rib by the least tab height you set), so the panel builds on a flat board with its washout in; the line where each tab is cut off is etched;
+- **lightening holes**: the largest circles that fit ahead of and behind the spar, leaving the margin you set around each and clear of notches;
+- the rib's name (R1 from the root outward), etched in its deepest clear spot.
+
+Ribs at dihedral breaks note their cant, half the change in dihedral. The same module makes the corner gussets (grouped by angle), dihedral braces (sized from the bending moment at the break; the fold line is etched), shear webs (one per bay, two for a box spar), approximate developed sheeting templates per panel and surface, and a plan template for a rounded tip's block. It also writes a cut list of strip stock (caps, leading and trailing edges, stringers, cap strips, tube), and estimates the structure's weight from every part's area or length and density, plus 10% for glue, without the covering.
+
+### Export
+
+Implementation: `src/lib/dxf.js`. Three downloads:
+
+- **Parts (DXF)**: every part laid out flat in rows no longer than the sheet length you set, grouped by stock (material and thickness), each group titled. Grain runs left to right along the sheet; shear webs are turned so theirs runs up the web. One copy per piece needed, or one of each.
+- **Plan (DXF)**: full size, to build over: the wing outline, leading and trailing edge stock, spar, stringers and every rib at its true thickness, with rib names. Right half, left half (mirrored) or both.
+- **Cut list (CSV)**: every part with quantity, stock and size, and every length of strip.
+
+The DXF is AutoCAD R12 (AC1009) in millimetres, which nearly all laser, router and CAD software reads, as closed polylines or (for older software) separate lines. Layers are cut (red), etch (blue) and notes (grey), with names you can change. Labels are single-stroke vector lines by default, so they etch the same everywhere; DXF text is an option.
+
+- **Laser**: every cut moves half the kerf into the waste, so parts come out true size (set the kerf to 0 if your laser software compensates).
+- **CNC router**: dogbones in every inside corner (a round cutter can't cut a square inside corner, and spar caps need one), and optionally the cutter-radius offset if your CAM doesn't apply it. Corners too tight for the cutter are listed.
+
+Export options are saved with the project, so a re-export comes out the same.
+
 ## Formulas
 
 All calculation is done in SI units (`src/lib/calc.js`, `src/lib/wing.js`); conversion happens only at input and display.
@@ -109,7 +174,7 @@ All calculation is done in SI units (`src/lib/calc.js`, `src/lib/wing.js`); conv
 | Wing loading | WL = W / S |
 | Wing cube loading | WCL = W / S<sup>1.5</sup> |
 | Stall speed | V<sub>s</sub> = √(2 m g / (ρ S<sub>p</sub> C<sub>L,max</sub>)) |
-| Wing C<sub>L,max</sub> | 0.9 × cos Λ<sub>¼</sub> × section C<sub>l,max</sub> |
+| Wing C<sub>L,max</sub> | Panels: from the lifting line (below) × cos Λ<sub>¼</sub>. Mean chord or area: 0.9 × cos Λ<sub>¼</sub> × section C<sub>l,max</sub> |
 | Reynolds number | Re = V<sub>s</sub> × MAC / ν |
 
 Constants: g = 9.80665 m/s², ρ = 1.225 kg/m³ and ν = 1.4607 × 10⁻⁵ m²/s (ISA sea level).
@@ -134,7 +199,9 @@ Dihedral can be entered per panel either as that angle or as the **rise** of the
 
 **Flat versus projected area.** Wing and cube loading use the flat (developed) area, because that's the figure normally quoted for a model and the one the cube-loading bands were drawn up against. Stall speed uses the projected area: each panel's lift acts perpendicular to the panel, so only its cos Γ component supports the weight. The difference is small for ordinary dihedral (0.4% at 5°) and becomes noticeable only with steep polyhedral tips (about 6% for a tip panel at 20°). Mean chord and area modes assume a flat wing.
 
-**Wing C<sub>L,max</sub> factor.** A finite wing reaches a lower maximum lift coefficient than its 2D section. 0.9 is a common rule of thumb for straight, moderately tapered wings; it is a single constant (`WING_CLMAX_FACTOR`) if you want to change it.
+**Wing C<sub>L,max</sub> from the lifting line.** In panel mode the wing's maximum lift comes from its spanwise lift distribution (`src/lib/liftingLine.js`): Prandtl's lifting-line theory, solved by Glauert's Fourier series with 24 odd terms (symmetric loading) collocated between root and tip on the projected span. Each station has its own chord, twist, section lift-curve slope (the polar library's mean at its own Reynolds number) and section C<sub>l,max</sub> (at its own Reynolds number and, with a thickness taper, adjusted by the change the library fit predicts for its thickness at the same camber). The solution is linear in angle of attack, so it is solved once for unit angle and once for the twist alone, and the wing stalls at the angle where the first station reaches its own C<sub>l,max</sub>; C<sub>L,max</sub> is the wing's lift there, and that station is where the stall starts. Sweep isn't modelled by the lifting line, so the usual cos Λ<sub>¼</sub> correction is applied afterwards. It is checked in the tests against the closed-form elliptic wing (C<sub>L,α</sub> = a₀ / (1 + a₀ / π AR), uniform lift) and the published rectangular-wing result (Glauert's τ ≈ 0.17 at AR 6). For the default 1.4 m wing it agrees with the old rule of thumb to within 3%.
+
+**Wing C<sub>L,max</sub> factor.** In mean chord and area modes there's no planform to work from, so a finite wing is taken to reach 0.9 of its section's maximum lift, a common rule of thumb for straight, moderately tapered wings (`WING_CLMAX_FACTOR`).
 
 **Clmax depends on Reynolds number, which depends on stall speed.** For sections with polars the app looks up section C<sub>l,max</sub> at the stall's own Reynolds number, interpolating linearly in log(Re) between the bundled polars (clamped at the ends of the 50k to 1M range), and iterates until stall speed and Reynolds number agree. Polars where XFOIL stopped converging at the peak are left out of the Clmax lookup, because their maximum is unreliable.
 
@@ -162,6 +229,8 @@ The thresholds are shown in the app under "Cube-loading bands" and live in `CUBE
 ## Stall character
 
 Implementation: `src/lib/stall.js`. The rating is indicative only and the app says so: it is not a substitute for flight testing.
+
+The section's own character is rated as below. In panel mode the wing's is then adjusted by **where it stalls first** along the span, from the lifting line: past 60% of the semi-span the stall starts where the ailerons are, which drops a wing and costs roll control when it's most needed, so the rating goes one step sharper (the app says the section alone rates otherwise). Inside 40% it's described as the benign inboard stall. A chart shows each station's local C<sub>l</sub> at the stall against the C<sub>l,max</sub> its own section can reach, so the effect of taper, washout and a thinner tip can be seen directly.
 
 ### Library sections: from the polar
 
@@ -238,4 +307,4 @@ The script makes one request at a time with a 1.5 s gap, and backs off and retri
 npm test
 ```
 
-Covers unit conversions and formatting; wing geometry including panels, fuselage width, sweep, curved edges and dihedral or rise; wing and cube loading and the bands; stall speed, sweep correction and Reynolds number; input validation; section generation, measurement and zero-lift angle (checked against tabulated NACA 0012 and thin-aerofoil theory); the polar and geometry stall ratings and the indicative curve; the bundled data and UIUC catalogue; the Clmax estimate; and undo/redo history. The Vue components themselves are not unit-tested; the plan editor was exercised in the running app.
+Covers the lifting line (against the elliptic closed form and the rectangular-wing result) and the wing stall built on it; washout and thickness taper; Stage A loads (against textbook shear and bending), plate buckling, rib spacing and the structure analysis; rib and part geometry (notch sizes, jig tab datum, twist, the c·cos Λ length of a rib square to a swept spar, holes inside outlines, no self-intersecting outlines); the DXF writer (read back to check layers, sizes, kerf, dogbones and the plan); migration of saved structure settings; a server-side render of the whole app that fails on any error or Vue warning; unit conversions and formatting; wing geometry including panels, fuselage width, sweep, curved edges and dihedral or rise; wing and cube loading and the bands; stall speed, sweep correction and Reynolds number; input validation; section generation, measurement and zero-lift angle (checked against tabulated NACA 0012 and thin-aerofoil theory); the polar and geometry stall ratings and the indicative curve; the bundled data and UIUC catalogue; the Clmax estimate; and undo/redo history. The Vue components themselves are not unit-tested beyond that render; the plan editor, structure editor and export panel were exercised in the running app.

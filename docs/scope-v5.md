@@ -66,5 +66,16 @@ Each step lands with tests. Steps 3 to 7 landed as library code first; their UI 
 5. [x] Rib generation (`src/lib/ribs.js`): stations from spacing (manual, suggested, hard points), streamwise or perpendicular, skin inset, LE/TE cut-backs, spar and stringer notches, lightening holes, jig tabs, labels, tip block outline. Single-rib preview.
 6. [x] Gussets and dihedral braces (brace sized from the bending moment at the break).
 7. [x] DXF writer (`src/lib/dxf.js`) with kerf / tool offset and dogbones; parse-back tests on dimensions.
-8. [ ] Export options panel and plan-view export; settings stored with the project.
-9. [ ] README, scope, commit.
+8. [x] Export options panel and plan-view export; settings stored with the project.
+9. [x] README, scope, commit.
+
+## Status (2026-10-12)
+
+All steps done on the `ribs` branch; 196 tests pass. Exercised in the browser: washout moving the stall inboard, the structure editor (plan, rib selection, loads chart, part preview), switching the spar to a tube, the export panel (laser and router), and closing it again. Downloads were not clicked in the browser (they save to disk); the DXF and CSV they produce are covered by the tests, which read them back.
+
+### Not done, or worth a look
+
+- The DXF has not been opened in real CAM or laser software yet. It's plain R12, so it should be fine, but try one in LightBurn or your CAM before cutting wood.
+- Developed sheeting templates are approximate (straight between ribs); cut oversize.
+- Stage B (inertia relief, torsion, D-box torsional stiffness) is undecided.
+- Nesting onto stock sheets is still simple rows.
