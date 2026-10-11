@@ -1,11 +1,12 @@
 <script setup>
-import { ref, reactive, computed, shallowRef, onMounted } from 'vue'
+import { ref, reactive, computed, shallowRef, onMounted, watch } from 'vue'
 import UnitInput from './components/UnitInput.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
+import ProjectBar from './components/ProjectBar.vue'
 import { useHistory } from './composables/useHistory.js'
 import LiftCurve from './components/LiftCurve.vue'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
@@ -19,8 +20,21 @@ import {
   WING_CLMAX_FACTOR,
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
-import { resolveAirfoil, airfoilPerformance, sectionsIn, loadCatalogue, estimateClMax } from './lib/airfoils.js'
-import { normalisePanels } from './lib/wing.js'
+import { resolveAirfoil, airfoilPerformance, loadCatalogue, estimateClMax } from './lib/airfoils.js'
+import {
+  defaultState,
+  browserStorage,
+  listProjects,
+  saveProject,
+  loadProject,
+  deleteProject,
+  findByName,
+  writeAutosave,
+  readAutosave,
+  exportProject,
+  importProject,
+  fileName,
+} from './lib/projects.js'
 import { RATINGS } from './lib/stall.js'
 
 const props = defineProps({
@@ -28,30 +42,154 @@ const props = defineProps({
   theme: { type: String, default: 'auto' }, // 'auto' follows the OS; 'light' forces light
 })
 
-const system = ref(SYSTEMS[props.units] ? props.units : 'metric')
+// --- State and projects ------------------------------------------------------------------
+
+// The working state restores from the last session's autosave if there is one; otherwise a
+// new project (a typical 1.4 m sport model), in the units the host page asked for.
+const storage = browserStorage()
+const restored = readAutosave(storage)
+const start = restored?.state ?? { ...defaultState(), units: SYSTEMS[props.units] ? props.units : 'metric' }
+
+const system = ref(start.units)
 const alt = computed(() => otherSystem(system.value))
 const u = (q, s = system.value) => defaultUnit(s, q)
 
-// All values in SI base units. Defaults describe a typical 1.4 m sport model.
-const input = reactive({
-  mass: 1.4,
-  span: 1.4,
-  geometryMode: 'panels',
-  fuselageWidth: 0,
-  rootChord: 0.25,
-  panels: normalisePanels([{ length: 0.7, tipChord: 0.18, dihedral: 0 }]),
-  meanChord: 0.215,
-  area: 0.301,
-})
+// All values in SI base units.
+const input = reactive({ ...start.input })
+const airfoilSel = ref(start.airfoil)
 
-const firstNaca = sectionsIn('naca').find((s) => s.id === 'naca2412-il') ?? sectionsIn('naca')[0]
-const airfoilSel = ref({
-  source: 'naca',
-  id: firstNaca?.id ?? null,
-  lastLibraryId: firstNaca?.id ?? null,
-  clMaxOverride: null,
-  custom: { clMax: 1.25, thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 },
-})
+const currentState = () => ({ units: system.value, input: { ...input }, airfoil: airfoilSel.value })
+const snapshot = () => JSON.stringify(currentState())
+
+// The saved project the restored work belongs to, if it still exists.
+const restoredFrom = restored?.projectId ? loadProject(storage, restored.projectId) : null
+const project = reactive({ id: restoredFrom?.id ?? null, name: restored?.name ?? '' })
+const projects = ref(listProjects(storage))
+// What was last saved or opened, to tell whether there are unsaved changes. Restored work
+// that was never saved compares against a blank project.
+const blank = () => JSON.stringify({ ...defaultState(), units: system.value })
+const savedSnapshot = ref(restoredFrom ? JSON.stringify(restoredFrom.state) : restored ? blank() : snapshot())
+const savedName = ref(restoredFrom?.name ?? '')
+const dirty = computed(() => snapshot() !== savedSnapshot.value || project.name.trim() !== savedName.value)
+const status = ref('')
+let statusTimer = null
+function say(text) {
+  status.value = text
+  clearTimeout(statusTimer)
+  statusTimer = setTimeout(() => (status.value = ''), 3000)
+}
+
+function applyState(state) {
+  system.value = state.units
+  for (const k of Object.keys(input)) delete input[k]
+  Object.assign(input, state.input)
+  airfoilSel.value = state.airfoil
+  selectedPanel.value = null
+  // Opening a project shouldn't be undoable back into the previous one.
+  queueMicrotask(() => history.reset())
+}
+
+function refreshList() {
+  projects.value = listProjects(storage)
+}
+
+function save({ copy = false } = {}) {
+  let id = copy ? null : project.id
+  let name = project.name.trim() || 'Untitled'
+  if (copy) name = `${name} copy`
+  if (!id) {
+    const existing = findByName(storage, name)
+    if (existing && !window.confirm(`Replace the saved project "${existing.name}"?`)) return
+    id = existing?.id ?? null
+  }
+  const res = saveProject(storage, { id, name, state: currentState() })
+  if (!res.ok) {
+    say("Couldn't save: storage is full or blocked. Try Export instead.")
+    return
+  }
+  project.id = res.id
+  project.name = name
+  savedName.value = name
+  savedSnapshot.value = snapshot()
+  refreshList()
+  say(`Saved "${name}"`)
+}
+
+function confirmDiscard() {
+  return !dirty.value || window.confirm('Discard unsaved changes to this project?')
+}
+
+function open(id) {
+  if (id === project.id && !dirty.value) return
+  if (!confirmDiscard()) return
+  const p = loadProject(storage, id)
+  if (!p) {
+    say("That project couldn't be read.")
+    refreshList()
+    return
+  }
+  applyState(p.state)
+  project.id = p.id
+  project.name = p.name
+  savedName.value = p.name
+  savedSnapshot.value = snapshot()
+  say(`Opened "${p.name}"`)
+}
+
+function remove(id) {
+  const p = projects.value.find((q) => q.id === id)
+  if (!p || !window.confirm(`Delete the saved project "${p.name}"? This can't be undone.`)) return
+  deleteProject(storage, id)
+  if (project.id === id) project.id = null
+  refreshList()
+  say(`Deleted "${p.name}"`)
+}
+
+function newProject() {
+  if (!confirmDiscard()) return
+  const state = { ...defaultState(), units: system.value }
+  applyState(state)
+  project.id = null
+  project.name = ''
+  savedName.value = ''
+  savedSnapshot.value = snapshot()
+}
+
+function exportFile() {
+  const blob = new Blob([exportProject({ name: project.name || 'Untitled', state: currentState() })], {
+    type: 'application/json',
+  })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = fileName(project.name)
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+function importFile(text) {
+  if (!confirmDiscard()) return
+  try {
+    const p = importProject(text)
+    applyState(p.state)
+    project.id = null
+    project.name = p.name
+    savedName.value = ''
+    savedSnapshot.value = ''
+    say(`Imported "${p.name}". Save to keep it in this browser.`)
+  } catch (e) {
+    say(e.message)
+  }
+}
+
+// Autosave the working state, so a reload or a closed tab loses nothing.
+let autosaveTimer = null
+watch(
+  [snapshot, () => project.id, () => project.name],
+  () => {
+    clearTimeout(autosaveTimer)
+    autosaveTimer = setTimeout(() => writeAutosave(storage, { projectId: project.id, name: project.name, state: currentState() }), 500)
+  },
+)
 
 // The UIUC catalogue (~1,600 sections) loads after first paint.
 const uiuc = shallowRef(null)
@@ -65,9 +203,15 @@ onMounted(() => {
 // Selected panel, shared by the numeric panel editor and the plan editor.
 const selectedPanel = ref(null)
 
-// Undo/redo covers the wing shape.
+// Undo/redo covers the wing shape and the plan's dimensions.
 const history = useHistory(
-  () => ({ fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels }),
+  () => ({
+    fuselageWidth: input.fuselageWidth,
+    rootChord: input.rootChord,
+    panels: input.panels,
+    tip: input.tip,
+    dimensions: input.dimensions,
+  }),
   (v) => Object.assign(input, v),
 )
 
@@ -151,6 +295,21 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         <h2 class="wc-title">Wing loading calculator</h2>
         <p class="wc-subtitle">RC fixed-wing aircraft, 600 mm to 3 m span</p>
       </div>
+      <ProjectBar
+        v-model:name="project.name"
+        :projects="projects"
+        :current-id="project.id"
+        :dirty="dirty"
+        :storage-ok="!!storage"
+        :status="status"
+        @save="save()"
+        @save-copy="save({ copy: true })"
+        @open="open"
+        @delete="remove"
+        @new="newProject"
+        @export="exportFile"
+        @import="importFile"
+      />
       <div class="wc-toggle" role="radiogroup" aria-label="Unit system">
         <button
           v-for="(s, key) in SYSTEMS"
@@ -200,6 +359,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-model:fuselage-width="input.fuselageWidth"
           v-model:root-chord="input.rootChord"
           v-model:panels="input.panels"
+          v-model:tip="input.tip"
           v-model:selected="selectedPanel"
           :system="system"
           :warn-fields="warnFields"
@@ -404,6 +564,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:fuselage-width="input.fuselageWidth"
             v-model:root-chord="input.rootChord"
             v-model:panels="input.panels"
+            v-model:tip="input.tip"
+            v-model:dimensions="input.dimensions"
             v-model:selected="selectedPanel"
             :system="system"
             :can-undo="history.canUndo.value"
