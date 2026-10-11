@@ -64,3 +64,18 @@ describe('undo history', () => {
     expect(h.canRedo.value).toBe(false)
   })
 })
+
+describe('history reset', () => {
+  it('forgets earlier steps', () => {
+    const state = reactive({ a: 1 })
+    const h = useHistory(
+      () => ({ a: state.a }),
+      (v) => Object.assign(state, v),
+    )
+    state.a = 2
+    h.commit()
+    h.reset()
+    expect(h.canUndo.value).toBe(false)
+    expect(h.canRedo.value).toBe(false)
+  })
+})
