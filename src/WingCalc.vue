@@ -21,7 +21,7 @@ import {
   WING_CLMAX_FACTOR,
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
-import { resolveAirfoil, airfoilPerformance, loadCatalogue, estimateClMax } from './lib/airfoils.js'
+import { resolveAirfoil, airfoilPerformance, loadCatalogue } from './lib/airfoils.js'
 import {
   defaultState,
   browserStorage,
@@ -290,16 +290,6 @@ const warnings = computed(() =>
     panels: input.geometryMode === 'panels' ? input.panels : null,
   }),
 )
-// Shown as the placeholder for the Clmax override on sections without polars.
-const estimatedClMax = computed(() => {
-  const a = airfoil.value
-  if (a?.kind !== 'catalogue') return null
-  return estimateClMax(
-    { camberPct: a.params.camber * 100, thicknessPct: a.params.thickness * 100 },
-    results.value.perf?.reynolds ?? 200000,
-  )
-})
-
 const warnFor = (field) => warnings.value.some((w) => w.field === field)
 const warnFields = computed(() => warnings.value.map((w) => w.field))
 
@@ -460,7 +450,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </p>
 
         <h3 class="wc-panel__title">Aerofoil</h3>
-        <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" :estimated-cl-max="estimatedClMax" />
+        <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" />
         <p v-if="catalogueError" class="wc-field__hint wc-text-warn">
           The full aerofoil catalogue couldn't be loaded; only sections with polar data are listed.
         </p>
@@ -510,10 +500,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
               section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
               <template v-if="results.perf.clMaxSource === 'polar'">at Re {{ fmtRe(results.perf.reynolds) }}</template>
-              <template v-else-if="results.perf.clMaxSource === 'estimated'"
-                >(estimated from camber and thickness at Re {{ fmtRe(results.perf.reynolds) }})</template
-              >
-              <template v-else>(entered)</template>.
+              <template v-else>(estimated from camber and thickness at Re {{ fmtRe(results.perf.reynolds) }})</template>.
             </p>
           </article>
         </div>
@@ -658,7 +645,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         <p v-if="airfoil?.kind === 'catalogue'" class="wc-source">
           Section data: <a :href="airfoil.source" target="_blank" rel="noopener">UIUC Airfoil Coordinates Database</a>
           ({{ airfoil.description }}). Coordinates only: Clmax is
-          {{ airfoil.clMaxOverride !== null ? 'as entered' : 'estimated' }} and the lift curve is indicative.
+          estimated and the lift curve is indicative.
         </p>
         <p v-if="airfoil?.kind === 'library'" class="wc-source">
           Section data:

@@ -29,8 +29,7 @@ export function defaultState() {
       source: 'naca',
       id: 'naca2412-il',
       lastLibraryId: 'naca2412-il',
-      clMaxOverride: null,
-      custom: { clMax: 1.25, thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 },
+      custom: { thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 },
     },
   }
 }
@@ -44,6 +43,9 @@ export function migrate(state) {
   input.dimensions = Array.isArray(input.dimensions) ? input.dimensions : []
   const airfoil = { ...d.airfoil, ...(s.airfoil ?? {}) }
   airfoil.custom = { ...d.airfoil.custom, ...(s.airfoil?.custom ?? {}) }
+  // Typed Clmax values (custom sections, catalogue overrides) were dropped; ignore them in older saves.
+  delete airfoil.clMaxOverride
+  delete airfoil.custom.clMax
   return { units: s.units === 'imperial' ? 'imperial' : 'metric', input, airfoil }
 }
 

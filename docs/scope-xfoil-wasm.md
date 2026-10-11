@@ -72,6 +72,10 @@ Time box: about half a day. If blocked (toolchain won't install, the code won't 
 
 - **Where our polars differ from airfoiltools, warn the user** rather than hide or reconcile the difference.
 - **No embed:** the embeddable build has been removed, so the `.wasm` and the worker are ordinary files emitted by the app build.
+- **All sections get computed polars, estimate first:** today's figures show instantly and are replaced when the solver finishes.
+- **Cache in memory only** (per page load).
+- **Licence: GPL-3.0-or-later.**
+- Integration is scoped in [scope-xfoil.md](scope-xfoil.md).
 - **No self-built WebXFOIL:** depend on the pinned npm package; no Docker/flang-wasm toolchain.
 
 ## Findings

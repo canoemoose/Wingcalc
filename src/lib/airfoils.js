@@ -194,8 +194,8 @@ const paramsFrom = (s) => ({
 })
 
 // Resolve the user's airfoil selection to drawable coordinates and section parameters.
-// selection: { source, id, clMaxOverride?, custom? }; uiuc is the loaded catalogue or null.
-// custom: { clMax, thicknessPct, thicknessPosPct, camberPct, camberPosPct, leRadiusPct }
+// selection: { source, id, custom? }; uiuc is the loaded catalogue or null.
+// custom: { thicknessPct, thicknessPosPct, camberPct, camberPosPct, leRadiusPct }
 export function resolveAirfoil(selection, uiuc = null) {
   if (selection.source === 'custom') {
     const c = selection.custom
@@ -207,7 +207,7 @@ export function resolveAirfoil(selection, uiuc = null) {
       leRadius: c.leRadiusPct / 100,
     }
     const { coords, valid } = generateSection(params)
-    return { kind: 'custom', name: 'Custom section', coords, valid, params, clMax: c.clMax }
+    return { kind: 'custom', name: 'Custom section', coords, valid, params }
   }
   if (selection.id?.startsWith(UIUC_PREFIX)) {
     const s = findUiuc(uiuc, selection.id)
@@ -222,7 +222,6 @@ export function resolveAirfoil(selection, uiuc = null) {
       valid: true,
       params: paramsFrom(s),
       upper125: s.upper125Pct / 100,
-      clMaxOverride: selection.clMaxOverride ?? null,
     }
   }
   const s = findSection(selection.id)
@@ -248,9 +247,7 @@ export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = W
   const clMaxAt =
     airfoil.kind === 'library'
       ? (re) => sectionClMaxAt(airfoil.section, re)
-      : airfoil.kind === 'catalogue' && airfoil.clMaxOverride === null
-        ? (re) => estimateClMax({ camberPct: airfoil.params.camber * 100, thicknessPct: airfoil.params.thickness * 100 }, re)
-        : () => (airfoil.kind === 'custom' ? airfoil.clMax : airfoil.clMaxOverride)
+      : (re) => estimateClMax({ camberPct: airfoil.params.camber * 100, thicknessPct: airfoil.params.thickness * 100 }, re)
 
   let re = 200000
   let sectionClMax = clMaxAt(re)
@@ -266,7 +263,7 @@ export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = W
     sectionClMax,
     wingClMax: sectionClMax * clMaxFactor,
     clMaxFactor,
-    clMaxSource: airfoil.kind === 'library' ? 'polar' : airfoil.kind === 'custom' || airfoil.clMaxOverride !== null ? 'entered' : 'estimated',
+    clMaxSource: airfoil.kind === 'library' ? 'polar' : 'estimated',
     stallSpeed: vs,
     reynolds: vs ? re : null,
   }

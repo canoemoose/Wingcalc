@@ -2,14 +2,13 @@
 // Aerofoil selection: browse the NACA, Eppler and other families (polar-backed sections
 // first, then the rest of the UIUC catalogue), or define a custom section by parameters.
 import { computed, ref, watch, nextTick } from 'vue'
-import { FAMILIES, catalogueFor, entryCoords, findSection, findUiuc, sectionClMaxAt, estimateClMax } from '../lib/airfoils.js'
+import { FAMILIES, catalogueFor, entryCoords, findSection, findUiuc } from '../lib/airfoils.js'
 import ParamInput from './ParamInput.vue'
 import AirfoilThumb from './AirfoilThumb.vue'
 
 const model = defineModel({ type: Object, required: true })
 const props = defineProps({
   uiuc: { type: Object, default: null }, // the loaded UIUC catalogue, or null while loading
-  estimatedClMax: { type: Number, default: null }, // for the selected no-polar section
 })
 
 const PAGE = 120
@@ -73,13 +72,12 @@ function setSource(source) {
     const list = catalogueFor(source, props.uiuc)
     if (!list.some((e) => e.key === next.id)) next.id = list[0]?.key ?? null
     next.lastLibraryId = next.id
-    next.clMaxOverride = null
   }
   model.value = next
 }
 
 function select(entry) {
-  model.value = { ...model.value, id: entry.key, lastLibraryId: entry.key, clMaxOverride: null }
+  model.value = { ...model.value, id: entry.key, lastLibraryId: entry.key }
 }
 
 function onKey(e) {
@@ -99,18 +97,11 @@ function setCustom(key, value) {
   model.value = { ...model.value, custom: { ...model.value.custom, [key]: value } }
 }
 
-function setOverride(e) {
-  const n = Number.parseFloat(e.target.value)
-  model.value = { ...model.value, clMaxOverride: Number.isFinite(n) && n > 0 ? n : null }
-}
-
 // Seed the custom parameters from the last library section viewed.
 const lastLibrary = computed(() => {
   const id = model.value.lastLibraryId
   const lib = findSection(id)
-  if (lib) return { ...lib, clMax: sectionClMaxAt(lib, 200000) }
-  const u = findUiuc(props.uiuc, id)
-  return u ? { ...u, clMax: estimateClMax(u, 200000) } : null
+  return lib ?? findUiuc(props.uiuc, id) ?? null
 })
 
 function copyFromLibrary() {
@@ -120,7 +111,6 @@ function copyFromLibrary() {
   model.value = {
     ...model.value,
     custom: {
-      clMax: Math.round(s.clMax * 100) / 100,
       thicknessPct: Math.min(25, Math.max(4, r1(s.thicknessPct))),
       thicknessPosPct: Math.round(Math.min(60, Math.max(20, s.thicknessPosPct))),
       camberPct: Math.min(9, Math.max(0, r1(s.camberPct))),
@@ -165,27 +155,6 @@ const total = computed(() => all.value.length.toLocaleString('en-GB'))
           </span>
         </div>
       </div>
-      <div v-if="selected && !selected.hasPolar" class="wc-field wc-override">
-        <label for="wc-clmax-override" class="wc-field__label">Max lift coefficient (section Clmax)</label>
-        <div class="wc-field__control">
-          <input
-            id="wc-clmax-override"
-            class="wc-input"
-            type="number"
-            min="0.3"
-            max="2.5"
-            step="0.01"
-            :value="model.clMaxOverride ?? ''"
-            :placeholder="estimatedClMax ? `${estimatedClMax.toFixed(2)} (estimated)` : 'estimated'"
-            @change="setOverride"
-          />
-        </div>
-        <p class="wc-field__hint">
-          No polar data for this section, so Clmax is estimated from its camber and thickness. Enter a value from
-          your own data to override it.
-        </p>
-      </div>
-
       <div class="wc-browse">
         <input
           v-model="query"
@@ -251,16 +220,6 @@ const total = computed(() => all.value.length.toLocaleString('en-GB'))
     </template>
 
     <div v-else class="wc-custom">
-      <ParamInput
-        id="wc-clmax"
-        :model-value="model.custom.clMax"
-        label="Max lift coefficient (section Clmax)"
-        :min="0.6"
-        :max="2.2"
-        :step="0.01"
-        hint="Typically 1.0 to 1.2 for symmetrical sections, 1.2 to 1.6 for cambered RC sections at model Reynolds numbers."
-        @update:model-value="setCustom('clMax', $event)"
-      />
       <ParamInput
         id="wc-thickness"
         :model-value="model.custom.thicknessPct"

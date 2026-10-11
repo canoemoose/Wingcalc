@@ -834,10 +834,6 @@
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
-.wc-override .wc-input {
-  max-width: 200px;
-}
-
 /* Panel editor additions */
 .wc-panelset {
   position: relative;

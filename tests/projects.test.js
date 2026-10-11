@@ -99,8 +99,15 @@ describe('migration', () => {
     expect(s.input.panels[0].id).toBeDefined()
     expect(s.input.panels[0].stations).toBeNull()
     expect(s.input.dimensions).toEqual([])
-    expect(s.airfoil.custom.clMax).toBe(1.25)
+    expect(s.airfoil.custom.thicknessPct).toBe(12)
     expect(s.units).toBe('metric')
+  })
+
+  it('drops typed Clmax values from older saves', () => {
+    const s = migrate({ airfoil: { source: 'other', id: 'x', clMaxOverride: 1.5, custom: { clMax: 1.3, camberPct: 4 } } })
+    expect('clMaxOverride' in s.airfoil).toBe(false)
+    expect('clMax' in s.airfoil.custom).toBe(false)
+    expect(s.airfoil.custom.camberPct).toBe(4)
   })
 
   it('survives rubbish', () => {

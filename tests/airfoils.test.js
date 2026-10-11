@@ -83,11 +83,12 @@ describe('airfoil performance', () => {
     expect(['gentle', 'moderate', 'sharp']).toContain(perf.stall.rating)
   })
 
-  it('uses the entered Clmax and the geometry heuristic for a custom section', () => {
-    const custom = { clMax: 1.2, thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 }
+  it('estimates Clmax from camber and thickness and uses the geometry heuristic for a custom section', () => {
+    const custom = { thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 }
     const perf = airfoilPerformance(resolveAirfoil({ source: 'custom', custom }), wing)
-    expect(perf.sectionClMax).toBe(1.2)
-    expect(perf.stallSpeed).toBeCloseTo(stallSpeed(wing.mass, wing.area, 1.2 * WING_CLMAX_FACTOR), 12)
+    expect(perf.clMaxSource).toBe('estimated')
+    expect(perf.sectionClMax).toBeCloseTo(estimateClMax(custom, perf.reynolds), 2)
+    expect(perf.stallSpeed).toBeCloseTo(stallSpeed(wing.mass, wing.area, perf.sectionClMax * WING_CLMAX_FACTOR), 9)
     expect(perf.stall.method).toBe('geometry')
     expect(perf.polar).toBeNull()
   })
@@ -115,15 +116,11 @@ describe('UIUC catalogue', async () => {
 
   it('estimates Clmax and draws an indicative curve for a coordinates-only section', () => {
     const entry = catalogueFor('other', uiuc).find((e) => !e.hasPolar)
-    const a = resolveAirfoil({ source: 'other', id: entry.key, clMaxOverride: null }, uiuc)
+    const a = resolveAirfoil({ source: 'other', id: entry.key }, uiuc)
     const perf = airfoilPerformance(a, { mass: 1.4, area: 0.3, chord: 0.22 })
     expect(perf.clMaxSource).toBe('estimated')
     expect(perf.curve.indicative).toBe(true)
     expect(perf.stall.method).toBe('geometry')
-
-    const overridden = airfoilPerformance({ ...a, clMaxOverride: 1.5 }, { mass: 1.4, area: 0.3, chord: 0.22 })
-    expect(overridden.sectionClMax).toBe(1.5)
-    expect(overridden.clMaxSource).toBe('entered')
   })
 })
 
