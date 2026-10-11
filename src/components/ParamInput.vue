@@ -1,5 +1,9 @@
 <script setup>
-// Slider plus number box for a dimensionless parameter (custom aerofoil inputs).
+// Slider plus number box for a dimensionless parameter. The box accepts arithmetic
+// ("2.5 * 4"); see src/lib/expr.js.
+import { ref, watch } from 'vue'
+import { evaluate } from '../lib/expr.js'
+
 const props = defineProps({
   modelValue: { type: Number, required: true },
   label: { type: String, required: true },
@@ -13,9 +17,30 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 function set(v) {
-  const n = Number.parseFloat(v)
-  if (!Number.isFinite(n)) return
+  const n = typeof v === 'number' ? v : evaluate(String(v))
+  if (n === null || !Number.isFinite(n)) return
   emit('update:modelValue', Math.min(props.max, Math.max(props.min, n)))
+}
+
+// The box keeps what's typed until Enter or leaving it, then shows the (clamped) value.
+const text = ref(String(props.modelValue))
+const focused = ref(false)
+watch(
+  () => props.modelValue,
+  (v) => {
+    if (!focused.value) text.value = String(v)
+  },
+)
+function commit() {
+  const n = evaluate(text.value)
+  if (n === null) {
+    text.value = String(props.modelValue)
+    return
+  }
+  // Show the clamped value straight away; the prop only catches up on the next render.
+  const v = Math.min(props.max, Math.max(props.min, n))
+  emit('update:modelValue', v)
+  text.value = String(v)
 }
 </script>
 
@@ -31,17 +56,21 @@ function set(v) {
         :step="step"
         :value="modelValue"
         :aria-label="label"
-        @input="set($event.target.value)"
+        @input="set(Number($event.target.value))"
       />
       <input
         :id="id"
+        v-model="text"
         class="wc-input wc-input--short"
-        type="number"
-        :min="min"
-        :max="max"
-        :step="step"
-        :value="modelValue"
-        @change="set($event.target.value)"
+        type="text"
+        inputmode="decimal"
+        autocomplete="off"
+        @focus="focused = true"
+        @blur="
+          focused = false;
+          commit()
+        "
+        @keydown.enter="commit"
       />
       <span class="wc-param__suffix">{{ suffix }}</span>
     </div>
