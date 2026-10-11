@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:lan", "--", "--port", "5178", "--strictPort"],
       "port": 5178
+    },
+    {
+      "name": "xfoil-spike",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["spikes/xfoil-wasm/serve.mjs", "8765"],
+      "port": 8765
     }
   ]
 }

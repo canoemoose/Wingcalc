@@ -2,3 +2,6 @@ node_modules/
 dist/
 dist-embed/
 scripts/.cache/
+spikes/xfoil-wasm/node_modules/
+spikes/xfoil-wasm/vendor/
+spikes/xfoil-wasm/results/
