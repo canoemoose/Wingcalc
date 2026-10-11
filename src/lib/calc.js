@@ -13,35 +13,104 @@ export const WING_CLMAX_FACTOR = 0.9
 export const SPAN_MIN = 0.6 // m
 export const SPAN_MAX = 3.0 // m
 
-// Planform from one of three entry modes:
-//   'chords' – span, root and tip chord (straight-tapered wing)
+// Planform from one of four entry modes:
+//   'panels' – root chord plus one or more panels per side, each with its length (measured
+//              flat along the panel), outer chord and dihedral angle to the horizontal
+//              (degrees). Covers straight, tapered, dihedral and polyhedral wings.
+//   'chords' – span, root and tip chord (a single flat, straight-tapered panel)
 //   'mean'   – span and mean chord
 //   'area'   – span and area entered directly
-export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area }) {
-  const g = { span, rootChord: null, tipChord: null, area: null, meanChord: null, mac: null, taper: null }
-  if (!(span > 0)) return g
+//
+// Areas: `area` is the flat (developed) area, the figure usually quoted for a model and
+// used for wing and cube loading. `projectedArea` is the area seen from above; it is what
+// supports the weight (each panel's lift tilts inwards by its dihedral angle), so it is
+// used for stall speed. `span` is the projected tip-to-tip span.
+export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area, panels }) {
   if (mode === 'chords') {
-    if (!(rootChord > 0) || !(tipChord >= 0)) return g
-    const taper = tipChord / rootChord
-    g.rootChord = rootChord
-    g.tipChord = tipChord
-    g.taper = taper
-    g.area = (span * (rootChord + tipChord)) / 2
-    g.meanChord = g.area / span
-    // Mean aerodynamic chord of a straight-tapered wing
-    g.mac = ((2 / 3) * rootChord * (1 + taper + taper * taper)) / (1 + taper)
-  } else if (mode === 'mean') {
+    return wingGeometry({
+      mode: 'panels',
+      rootChord,
+      panels: span > 0 ? [{ length: span / 2, tipChord, dihedral: 0 }] : [],
+    })
+  }
+  const g = {
+    span: mode === 'panels' ? null : span,
+    flatSpan: null,
+    rootChord: null,
+    tipChord: null,
+    area: null,
+    projectedArea: null,
+    meanChord: null,
+    mac: null,
+    macY: null,
+    aspectRatio: null,
+    stations: null,
+    hasDihedral: false,
+  }
+  if (mode === 'panels') return panelGeometry(g, rootChord, panels)
+  if (!(span > 0)) return g
+  if (mode === 'mean') {
     if (!(meanChord > 0)) return g
     g.area = span * meanChord
     g.meanChord = meanChord
-    g.mac = meanChord
   } else if (mode === 'area') {
     if (!(area > 0)) return g
     g.area = area
     g.meanChord = area / span
-    g.mac = g.meanChord
+  } else return g
+  g.flatSpan = span
+  g.projectedArea = g.area
+  g.mac = g.meanChord
+  g.macY = span / 4
+  g.aspectRatio = (span * span) / g.area
+  g.stations = [
+    { y: 0, z: 0, c: g.meanChord },
+    { y: span / 2, z: 0, c: g.meanChord },
+  ]
+  return g
+}
+
+function panelGeometry(g, rootChord, panels) {
+  if (!(rootChord > 0) || !panels?.length) return g
+  if (!panels.every((p) => p.length > 0 && p.tipChord >= 0 && Number.isFinite(p.dihedral))) return g
+  // Integrate over one half-wing, panel by panel, in both flat and projected coordinates.
+  const stations = [{ y: 0, z: 0, c: rootChord }]
+  let flatHalf = 0
+  let projHalf = 0
+  let flatLen = 0
+  let c2Integral = 0 // ∫ c² dy (projected)
+  let cyIntegral = 0 // ∫ c y dy (projected)
+  let y = 0
+  let z = 0
+  let c0 = rootChord
+  for (const p of panels) {
+    const rad = (p.dihedral * Math.PI) / 180
+    const L = p.length * Math.cos(rad) // projected width of the panel
+    const c1 = p.tipChord
+    const trap = ((c0 + c1) / 2)
+    flatHalf += p.length * trap
+    projHalf += L * trap
+    c2Integral += (L * (c0 * c0 + c0 * c1 + c1 * c1)) / 3
+    const dc = c1 - c0
+    cyIntegral += L * (c0 * y + (c0 * L) / 2 + (dc * y) / 2 + (dc * L) / 3)
+    flatLen += p.length
+    y += L
+    z += p.length * Math.sin(rad)
+    c0 = c1
+    stations.push({ y, z, c: c1 })
+    if (p.dihedral !== 0) g.hasDihedral = true
   }
-  g.aspectRatio = g.area ? (span * span) / g.area : null
+  g.span = 2 * y
+  g.flatSpan = 2 * flatLen
+  g.rootChord = rootChord
+  g.tipChord = c0
+  g.area = 2 * flatHalf
+  g.projectedArea = 2 * projHalf
+  g.meanChord = g.area / g.flatSpan
+  g.mac = projHalf > 0 ? c2Integral / projHalf : null
+  g.macY = projHalf > 0 ? cyIntegral / projHalf : null
+  g.aspectRatio = g.projectedArea > 0 ? (g.span * g.span) / g.projectedArea : null
+  g.stations = stations
   return g
 }
 
@@ -89,7 +158,7 @@ export function reynolds(speed, chord, nu = NU_SEA_LEVEL) {
 // Input sanity checks. Returns a list of { field, level: 'warn', message }.
 export function validate({ mass, geometry }) {
   const out = []
-  const { span, area, rootChord, tipChord, aspectRatio } = geometry
+  const { span, stations, aspectRatio } = geometry
   if (span > 0 && (span < SPAN_MIN || span > SPAN_MAX)) {
     out.push({
       field: 'span',
@@ -99,9 +168,15 @@ export function validate({ mass, geometry }) {
   if (mass > 0 && (mass < 0.05 || mass > 25)) {
     out.push({ field: 'mass', message: 'All-up weight looks unusual for an RC model (expected 50 g to 25 kg).' })
   }
-  if (rootChord > 0 && tipChord > rootChord) {
-    out.push({ field: 'tipChord', message: 'Tip chord is larger than root chord. Check the values are the right way round.' })
-  }
+  // Chord growing outboard is unusual enough to be worth a check.
+  stations?.forEach((s, i) => {
+    if (i > 0 && s.c > stations[i - 1].c) {
+      out.push({
+        field: `panel-${i - 1}`,
+        message: `Panel ${i}: the outer chord is larger than the inner chord. Check the values are the right way round.`,
+      })
+    }
+  })
   if (aspectRatio && (aspectRatio < 3 || aspectRatio > 25)) {
     out.push({
       field: 'area',

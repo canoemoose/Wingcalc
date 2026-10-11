@@ -36,6 +36,72 @@ describe('wing geometry', () => {
     expect(g.aspectRatio).toBeCloseTo(8, 12)
   })
 
+  it('treats a single flat panel exactly like root and tip chord', () => {
+    const a = wingGeometry({ mode: 'chords', span: 1.4, rootChord: 0.25, tipChord: 0.18 })
+    const b = wingGeometry({ mode: 'panels', rootChord: 0.25, panels: [{ length: 0.7, tipChord: 0.18, dihedral: 0 }] })
+    for (const k of ['span', 'area', 'projectedArea', 'mac', 'aspectRatio']) expect(b[k], k).toBeCloseTo(a[k], 12)
+    expect(b.hasDihedral).toBe(false)
+  })
+
+  it('adds up panels with different chords', () => {
+    // Constant 0.25 m centre panel (0.4 m each side), then tapering to 0.15 over 0.3 m
+    const g = wingGeometry({
+      mode: 'panels',
+      rootChord: 0.25,
+      panels: [
+        { length: 0.4, tipChord: 0.25, dihedral: 0 },
+        { length: 0.3, tipChord: 0.15, dihedral: 0 },
+      ],
+    })
+    expect(g.span).toBeCloseTo(1.4, 12)
+    expect(g.area).toBeCloseTo(2 * (0.4 * 0.25 + 0.3 * 0.2), 12)
+    // MAC = ∫c² dy / ∫c dy over a half wing
+    const c2 = 0.4 * 0.0625 + (0.3 * (0.0625 + 0.0375 + 0.0225)) / 3
+    expect(g.mac).toBeCloseTo(c2 / (0.4 * 0.25 + 0.3 * 0.2), 12)
+    expect(g.tipChord).toBe(0.15)
+  })
+
+  it('uses projected area and span for dihedral, flat area for loading', () => {
+    const g = wingGeometry({ mode: 'panels', rootChord: 0.2, panels: [{ length: 0.75, tipChord: 0.2, dihedral: 10 }] })
+    const cos = Math.cos((10 * Math.PI) / 180)
+    expect(g.area).toBeCloseTo(0.3, 12)
+    expect(g.projectedArea).toBeCloseTo(0.3 * cos, 12)
+    expect(g.flatSpan).toBeCloseTo(1.5, 12)
+    expect(g.span).toBeCloseTo(1.5 * cos, 12)
+    expect(g.mac).toBeCloseTo(0.2, 12)
+    expect(g.stations.at(-1).z).toBeCloseTo(0.75 * Math.sin((10 * Math.PI) / 180), 12)
+    expect(g.hasDihedral).toBe(true)
+  })
+
+  it('handles polyhedral: flat centre, angled tips', () => {
+    const g = wingGeometry({
+      mode: 'panels',
+      rootChord: 0.2,
+      panels: [
+        { length: 0.5, tipChord: 0.2, dihedral: 0 },
+        { length: 0.5, tipChord: 0.2, dihedral: 60 },
+      ],
+    })
+    // Tip panels project to half their length
+    expect(g.span).toBeCloseTo(1.5, 12)
+    expect(g.projectedArea).toBeCloseTo(0.3, 12)
+    expect(g.area).toBeCloseTo(0.4, 12)
+    expect(g.stations.map((s) => s.z)).toEqual([0, 0, expect.closeTo(0.5 * Math.sin(Math.PI / 3), 12)])
+    // Constant chord: MAC sits at the middle of the projected half-span
+    expect(g.macY).toBeCloseTo(0.375, 12)
+  })
+
+  it('places the MAC of a straight taper at the textbook spanwise station', () => {
+    const g = wingGeometry({ mode: 'chords', span: 2, rootChord: 0.3, tipChord: 0.15 })
+    // y = (b/6)(1 + 2λ)/(1 + λ)
+    expect(g.macY).toBeCloseTo((2 / 6) * (2 / 1.5), 12)
+  })
+
+  it('rejects incomplete panels', () => {
+    expect(wingGeometry({ mode: 'panels', rootChord: 0.2, panels: [{ length: 0, tipChord: 0.2, dihedral: 0 }] }).area).toBeNull()
+    expect(wingGeometry({ mode: 'panels', rootChord: 0.2, panels: [] }).area).toBeNull()
+  })
+
   it('returns nulls for incomplete input', () => {
     expect(wingGeometry({ mode: 'chords', span: 1.4, rootChord: null, tipChord: 0.1 }).area).toBeNull()
     expect(wingGeometry({ mode: 'area', span: 0, area: 0.3 }).area).toBeNull()
@@ -125,6 +191,6 @@ describe('validation', () => {
   })
 
   it('warns about a tip chord bigger than the root', () => {
-    expect(validate({ mass: 1, geometry: geom({ tipChord: 0.3 }) }).map((w) => w.field)).toContain('tipChord')
+    expect(validate({ mass: 1, geometry: geom({ tipChord: 0.3 }) }).map((w) => w.field)).toContain('panel-0')
   })
 })

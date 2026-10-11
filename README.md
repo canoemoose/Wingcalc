@@ -9,6 +9,8 @@ A wing loading calculator for RC fixed-wing aircraft with spans of 600 mm to 3 m
 
 Every input and output works in metric or imperial, with a global toggle and per-field unit choice.
 
+The wing can be entered as a root chord plus one or more panels per side (each with its own length, outer chord and dihedral), which covers straight, tapered, cranked, dihedral and polyhedral wings. Mean chord or area can be entered instead for a quick check.
+
 Built with Vue 3 (plain JavaScript) and Vite.
 
 ## Setup
@@ -52,17 +54,23 @@ All calculation is done in SI units (`src/lib/calc.js`); conversion happens only
 
 | Quantity | Formula |
 | --- | --- |
-| Wing area (root & tip chord) | S = b (c<sub>r</sub> + c<sub>t</sub>) / 2 |
+| Flat wing area (panels) | S = 2 Σ l<sub>i</sub> (c<sub>i−1</sub> + c<sub>i</sub>) / 2, over the panels of one side |
+| Projected wing area | S<sub>p</sub> = 2 Σ l<sub>i</sub> cos Γ<sub>i</sub> (c<sub>i−1</sub> + c<sub>i</sub>) / 2 |
+| Wingspan (tip to tip, projected) | b = 2 Σ l<sub>i</sub> cos Γ<sub>i</sub> |
 | Wing area (mean chord) | S = b c̄ |
-| Mean aerodynamic chord | MAC = ⅔ c<sub>r</sub> (1 + λ + λ²) / (1 + λ), λ = c<sub>t</sub> / c<sub>r</sub> (equals the mean chord when entered as mean chord or area) |
-| Aspect ratio | AR = b² / S |
+| Mean aerodynamic chord | MAC = ∫c² dy / ∫c dy over a half wing (projected y). For a single straight taper this is ⅔ c<sub>r</sub> (1 + λ + λ²) / (1 + λ); it equals the mean chord when entered as mean chord or area |
+| Aspect ratio | AR = b² / S<sub>p</sub> |
 | Wing loading | WL = W / S |
 | Wing cube loading | WCL = W / S<sup>1.5</sup> |
-| Stall speed | V<sub>s</sub> = √(2 m g / (ρ S C<sub>L,max</sub>)) |
+| Stall speed | V<sub>s</sub> = √(2 m g / (ρ S<sub>p</sub> C<sub>L,max</sub>)) |
 | Wing C<sub>L,max</sub> | 0.9 × section C<sub>l,max</sub> |
 | Reynolds number | Re = V<sub>s</sub> × MAC / ν |
 
 Constants: g = 9.80665 m/s², ρ = 1.225 kg/m³ and ν = 1.4607 × 10⁻⁵ m²/s (ISA sea level).
+
+Here l<sub>i</sub> is a panel's length measured flat along the panel, c<sub>i</sub> its outer chord (c<sub>0</sub> is the root chord) and Γ<sub>i</sub> its dihedral angle to the horizontal.
+
+**Flat versus projected area.** Wing and cube loading use the flat (developed) area, because that's the figure normally quoted for a model and the one the cube-loading bands were drawn up against. Stall speed uses the projected area: each panel's lift acts perpendicular to the panel, so only its cos Γ component supports the weight. The difference is small for ordinary dihedral (0.4% at 5°) and becomes noticeable only with steep polyhedral tips (about 6% for a tip panel at 20°). Mean chord and area modes assume a flat wing.
 
 **Wing C<sub>L,max</sub> factor.** A finite wing reaches a lower maximum lift coefficient than its 2D section. 0.9 is a common rule of thumb for straight, moderately tapered wings; it is a single constant (`WING_CLMAX_FACTOR`) if you want to change it.
 

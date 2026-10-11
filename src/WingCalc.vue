@@ -4,6 +4,7 @@ import UnitInput from './components/UnitInput.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
+import PanelEditor from './components/PanelEditor.vue'
 import LiftCurve from './components/LiftCurve.vue'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
@@ -32,9 +33,9 @@ const u = (q, s = system.value) => defaultUnit(s, q)
 const input = reactive({
   mass: 1.4,
   span: 1.4,
-  geometryMode: 'chords',
+  geometryMode: 'panels',
   rootChord: 0.25,
-  tipChord: 0.18,
+  panels: [{ length: 0.7, tipChord: 0.18, dihedral: 0 }],
   meanChord: 0.215,
   area: 0.301,
 })
@@ -48,7 +49,7 @@ const airfoilSel = ref({
 })
 
 const geometryModes = [
-  { id: 'chords', label: 'Root & tip chord' },
+  { id: 'panels', label: 'Chords & panels' },
   { id: 'mean', label: 'Mean chord' },
   { id: 'area', label: 'Area' },
 ]
@@ -61,13 +62,15 @@ const results = computed(() => {
   const wl = wingLoading(input.mass, g.area)
   const wcl = cubeLoading(input.mass, g.area)
   const perf = airfoil.value?.valid
-    ? airfoilPerformance(airfoil.value, { mass: input.mass, area: g.area, chord: g.mac })
+    ? // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
+      airfoilPerformance(airfoil.value, { mass: input.mass, area: g.projectedArea, chord: g.mac })
     : null
   return { wl, wcl, band: cubeBand(wcl), perf }
 })
 
 const warnings = computed(() => validate({ mass: input.mass, geometry: geometry.value }))
 const warnFor = (field) => warnings.value.some((w) => w.field === field)
+const warnFields = computed(() => warnings.value.map((w) => w.field))
 
 // Marker position on the cube-loading scale (0..16+ oz/ft³ mapped to 0..100%).
 const SCALE_MAX = 20
@@ -130,14 +133,6 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         />
 
         <h3 class="wc-panel__title">Wing geometry</h3>
-        <UnitInput
-          id="wc-span"
-          v-model="input.span"
-          quantity="length"
-          :system="system"
-          label="Wingspan"
-          :warn="warnFor('span')"
-        />
         <div class="wc-segmented" role="radiogroup" aria-label="Wing size from">
           <button
             v-for="m in geometryModes"
@@ -152,19 +147,24 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             {{ m.label }}
           </button>
         </div>
-        <template v-if="input.geometryMode === 'chords'">
-          <UnitInput id="wc-root" v-model="input.rootChord" quantity="length" :system="system" label="Root chord" />
-          <UnitInput
-            id="wc-tip"
-            v-model="input.tipChord"
-            quantity="length"
-            :system="system"
-            label="Tip chord"
-            :warn="warnFor('tipChord')"
-          />
-        </template>
+        <PanelEditor
+          v-if="input.geometryMode === 'panels'"
+          v-model:root-chord="input.rootChord"
+          v-model:panels="input.panels"
+          :system="system"
+          :warn-fields="warnFields"
+        />
         <UnitInput
-          v-else-if="input.geometryMode === 'mean'"
+          v-else
+          id="wc-span"
+          v-model="input.span"
+          quantity="length"
+          :system="system"
+          label="Wingspan"
+          :warn="warnFor('span')"
+        />
+        <UnitInput
+          v-if="input.geometryMode === 'mean'"
           id="wc-mean"
           v-model="input.meanChord"
           quantity="length"
@@ -172,7 +172,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           label="Mean chord"
         />
         <UnitInput
-          v-else
+          v-else-if="input.geometryMode === 'area'"
           id="wc-area"
           v-model="input.area"
           quantity="area"
@@ -181,6 +181,13 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           :warn="warnFor('area')"
           hint="Include the area of the wing passing through the fuselage, as is usual."
         />
+        <p v-if="input.geometryMode === 'panels' && geometry.span" class="wc-derived">
+          Wingspan {{ format(geometry.span, 'length', u('length')) }}
+          <span class="wc-muted">({{ format(geometry.span, 'length', u('length', alt)) }})</span>
+          <template v-if="geometry.hasDihedral">
+            <br />Flat span {{ format(geometry.flatSpan, 'length', u('length')) }}
+          </template>
+        </p>
         <p v-if="input.geometryMode !== 'area' && geometry.area" class="wc-derived">
           Wing area {{ format(geometry.area, 'area', u('area')) }}
           <span class="wc-muted">({{ format(geometry.area, 'area', u('area', alt)) }})</span>
@@ -228,7 +235,9 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               </span>
             </p>
             <p v-if="results.perf" class="wc-card__note">
-              Level flight, sea level (ρ = {{ RHO_SEA_LEVEL }} kg/m³). Wing CLmax
+              Level flight, sea level (ρ = {{ RHO_SEA_LEVEL }} kg/m³)<template v-if="geometry.hasDihedral"
+                >, projected wing area</template
+              >. Wing CLmax
               {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }} × section Clmax
               {{ results.perf.sectionClMax.toFixed(2) }}<template v-if="airfoil?.kind === 'library'">
                 at Re {{ fmtRe(results.perf.reynolds) }}</template
@@ -246,10 +255,17 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             </dd>
           </div>
           <div>
-            <dt>Wing area</dt>
+            <dt>Wing area<template v-if="geometry.hasDihedral"> (flat)</template></dt>
             <dd>
               {{ format(geometry.area, 'area', u('area')) }}
               <span class="wc-muted">{{ format(geometry.area, 'area', u('area', alt)) }}</span>
+            </dd>
+          </div>
+          <div v-if="geometry.hasDihedral">
+            <dt>Projected area (from above)</dt>
+            <dd>
+              {{ format(geometry.projectedArea, 'area', u('area')) }}
+              <span class="wc-muted">{{ format(geometry.projectedArea, 'area', u('area', alt)) }}</span>
             </dd>
           </div>
           <div>
