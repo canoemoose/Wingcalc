@@ -11,6 +11,13 @@ import WingWorkspace from './components/WingWorkspace.vue'
 import { useHistory } from './composables/useHistory.js'
 import LiftCurve from './components/LiftCurve.vue'
 import SpanLiftChart from './components/SpanLiftChart.vue'
+import StructureEditor from './components/StructureEditor.vue'
+import StructurePlan from './components/StructurePlan.vue'
+import LoadsChart from './components/LoadsChart.vue'
+import PartPreview from './components/PartPreview.vue'
+import ExportPanel from './components/ExportPanel.vue'
+import { analyseStructure, sparFraction, MODES, MATERIALS } from './lib/structure.js'
+import { buildParts } from './lib/ribs.js'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
   wingGeometry,
@@ -253,6 +260,7 @@ const history = useHistory(
     panels: input.panels,
     tip: input.tip,
     dimensions: input.dimensions,
+    structure: input.structure,
   }),
   (v) => Object.assign(input, v),
 )
@@ -352,6 +360,80 @@ const rating = computed(() => {
   const s = results.value.perf?.stall
   return s ? { ...s, ...RATINGS[s.rating] } : null
 })
+
+// --- Structure ---------------------------------------------------------------------------
+
+// Stage A loads and the parts to cut, for a panel wing whose stall the lifting line resolved.
+const structureResult = computed(() => {
+  const spanwise = results.value.perf?.spanwise
+  if (!planform.value || !spanwise) return null
+  const wing = { fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }
+  const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise })
+  if (!a) return null
+  return { a, ...buildParts(a, input.structure, { handedness: input.exportOptions.handedness }) }
+})
+const structureOpen = ref(false)
+const exportOpen = ref(false)
+// Only one full-window editor at a time
+watch(workspaceOpen, (v) => v && (structureOpen.value = false))
+watch(structureOpen, (v) => {
+  if (v) workspaceOpen.value = false
+  else exportOpen.value = false
+})
+const selectedPart = ref(null)
+const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs') ?? [])
+const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
+const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.group === 'braces').map((p) => p.need) ?? [])
+const projectFileBase = computed(() => fileName(project.name).replace(/\.wingcalc\.json$/, ''))
+
+const thin = (v) => format(v, 'thin', u('thin'))
+const sparSummary = computed(() => {
+  const sp = input.structure.spar
+  const mat = (id) => MATERIALS[id]?.label.toLowerCase() ?? id
+  if (sp.type === 'tube') return `${thin(sp.tubeDiameter)} ${mat(sp.tubeMaterial)}`
+  if (sp.type === 'solid') return `${thin(sp.solidWidth)} × ${thin(sp.solidDepth)} ${mat(sp.solidMaterial)}`
+  return `${sp.type === 'box' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} web${sp.type === 'box' ? 's' : ''}`
+})
+const COVERING_LABELS = { open: 'Open, film covered', dbox: 'D-box', sheeted: 'Fully sheeted' }
+const ribSummary = computed(() => {
+  const r = structureResult.value?.a.ribs
+  if (!r?.length) return '–'
+  const bays = r.slice(1).map((x, i) => x.s - r[i].s)
+  const lo = Math.min(...bays)
+  const hi = Math.max(...bays)
+  const lu = u('length')
+  const spread = hi - lo < 0.002 ? format(hi, 'length', lu) : `${format(lo, 'length', lu)} to ${format(hi, 'length', lu)}`
+  return `${r.length} per side, ${spread} apart`
+})
+const worstMargin = computed(() => {
+  const w = structureResult.value?.a.summary.worst
+  if (!w) return null
+  return { ...w, label: MODES[w.mode] ?? w.mode, text: `${w.ms >= 0 ? '+' : ''}${w.ms.toFixed(2)}`, ok: w.ms >= 0 }
+})
+const structureWarnings = computed(() => {
+  const r = structureResult.value
+  if (!r) return []
+  const out = [...r.a.warnings.map((w) => w.message)]
+  for (const sk of r.skipped) {
+    out.push(
+      sk.reason === 'outside'
+        ? `${sk.name} is too close to a panel end to run square to the spar, so it's left out.`
+        : `${sk.name} is too short once the leading and trailing edge stock is taken off, so it's left out.`,
+    )
+  }
+  const thinTe = r.parts.filter((p) => p.notes.some((n) => n.startsWith('Very thin')))
+  if (thinTe.length) out.push(`${thinTe.map((p) => p.name).join(', ')}: very thin at the trailing edge cut. Use deeper TE stock or thinner skins.`)
+  return out
+})
+watch(
+  ribParts,
+  (list) => {
+    if (!list.length) return
+    const all = structureResult.value.parts
+    if (!all.some((p) => p.id === selectedPart.value)) selectedPart.value = list[0].id
+  },
+  { immediate: true },
+)
 
 const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' : '–')
 </script>
@@ -661,6 +743,56 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           />
         </article>
 
+        <article v-if="input.geometryMode === 'panels'" class="wc-card wc-structure-card">
+          <div class="wc-plan-card__head">
+            <h3 class="wc-card__label">Structure and ribs</h3>
+            <button type="button" class="wc-button" :disabled="!structureResult" @click="structureOpen = true">
+              Open structure editor
+            </button>
+          </div>
+          <template v-if="structureResult">
+            <dl class="wc-stats wc-structure-card__stats">
+              <div>
+                <dt>Spar</dt>
+                <dd>{{ sparSummary }}</dd>
+              </div>
+              <div>
+                <dt>Covering</dt>
+                <dd>{{ COVERING_LABELS[input.structure.covering.type] }}</dd>
+              </div>
+              <div>
+                <dt>Ribs</dt>
+                <dd>{{ ribSummary }}</dd>
+              </div>
+              <div v-if="worstMargin">
+                <dt>Lowest margin at {{ input.structure.loads.designG }} g</dt>
+                <dd :class="worstMargin.ok ? 'wc-text-ok' : 'wc-text-bad'">
+                  {{ worstMargin.text }} <span class="wc-muted">{{ worstMargin.label.toLowerCase() }}, {{ format(worstMargin.d, 'length', u('length')) }} out</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Root bending moment</dt>
+                <dd>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</dd>
+              </div>
+              <div>
+                <dt>Structure weight (estimate)</dt>
+                <dd>
+                  {{ format(structureResult.weight.total, 'mass', u('mass')) }}
+                  <span class="wc-muted">{{ Math.round((structureResult.weight.total / input.mass) * 100) }}% of all-up weight</span>
+                </dd>
+              </div>
+            </dl>
+            <ul v-if="structureWarnings.length" class="wc-warnings">
+              <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
+            </ul>
+            <p class="wc-disclaimer">
+              A first-order sizing check (Stage A): bending and shear at the design load, not torsion, flutter or joints.
+              Wood varies; treat margins under +0.3 with suspicion.
+            </p>
+          </template>
+          <p v-else class="wc-muted">Needs a valid wing and aerofoil to work out the loads.</p>
+        </article>
+
         <div class="wc-lower">
           <article v-if="rating" class="wc-card wc-stall" :data-rating="rating.rating">
             <div class="wc-stall__head">
@@ -724,6 +856,57 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </p>
       </section>
     </div>
+
+    <Teleport v-if="workspaceTarget && structureResult" :to="workspaceTarget">
+      <WingWorkspace v-model:open="structureOpen" :theme="themeMode" title="Structure and ribs">
+        <template #stats>
+          <span class="wc-stat"><span>Ribs</span>{{ structureResult.a.ribs.length }} per side</span>
+          <span v-if="worstMargin" class="wc-stat" :class="worstMargin.ok ? 'wc-text-ok' : 'wc-text-bad'">
+            <span>Lowest margin</span>{{ worstMargin.text }} <em>{{ worstMargin.label.toLowerCase() }}</em>
+          </span>
+          <span class="wc-stat"><span>Root bending</span>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</span>
+          <span class="wc-stat"><span>Structure</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
+          <button type="button" class="wc-button" @click="exportOpen = !exportOpen">{{ exportOpen ? 'Back to structure' : 'Export…' }}</button>
+        </template>
+        <template #side>
+          <StructureEditor
+            v-model:structure="input.structure"
+            :system="system"
+            :auto-spar="autoSpar"
+            :brace-needs="braceNeeds"
+          />
+          <ul v-if="structureWarnings.length" class="wc-warnings">
+            <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
+          </ul>
+        </template>
+        <template #main>
+          <ExportPanel
+            v-if="exportOpen"
+            v-model:options="input.exportOptions"
+            v-model:structure="input.structure"
+            :analysis="structureResult.a"
+            :parts="structureResult.parts"
+            :cut-list="structureResult.cutList"
+            :system="system"
+            :base-name="projectFileBase"
+            @close="exportOpen = false"
+          />
+          <div v-else class="wc-structure-main">
+            <StructurePlan
+              :analysis="structureResult.a"
+              :structure="input.structure"
+              :parts="structureResult.parts"
+              :selected="selectedPart"
+              @select="selectedPart = $event"
+            />
+            <div class="wc-structure-main__lower">
+              <LoadsChart :analysis="structureResult.a" :ribs="ribParts" :system="system" :design-g="input.structure.loads.designG" />
+              <PartPreview :parts="structureResult.parts" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
+            </div>
+          </div>
+        </template>
+      </WingWorkspace>
+    </Teleport>
 
     <Teleport v-if="workspaceTarget" :to="workspaceTarget">
       <WingWorkspace v-model:open="workspaceOpen" :theme="themeMode">

@@ -3,6 +3,8 @@
 // so a missing or blocked localStorage just means nothing is saved: every access is guarded.
 
 import { normalisePanels } from './wing.js'
+import { defaultStructure } from './structure.js'
+import { defaultExportOptions } from './dxf.js'
 
 export const FORMAT_VERSION = 1
 const PROJECTS_KEY = 'wingcalc.projects.v1'
@@ -24,6 +26,8 @@ export function defaultState() {
       dimensions: [],
       meanChord: 0.215,
       area: 0.301,
+      structure: defaultStructure(),
+      exportOptions: defaultExportOptions(),
     },
     airfoil: {
       source: 'naca',
@@ -35,6 +39,18 @@ export function defaultState() {
   }
 }
 
+// Defaults for anything missing, recursively through plain objects; arrays and values are
+// taken as saved. So a structure saved before a setting existed picks up its default.
+export function fillDefaults(defaults, saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return defaults
+  const out = { ...saved }
+  for (const [k, v] of Object.entries(defaults)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) out[k] = fillDefaults(v, saved[k])
+    else if (!(k in saved)) out[k] = v
+  }
+  return out
+}
+
 // Fill anything missing from older or hand-edited files with defaults.
 export function migrate(state) {
   const d = defaultState()
@@ -42,6 +58,8 @@ export function migrate(state) {
   const input = { ...d.input, ...(s.input ?? {}) }
   input.panels = normalisePanels(Array.isArray(input.panels) && input.panels.length ? input.panels : d.input.panels)
   input.dimensions = Array.isArray(input.dimensions) ? input.dimensions : []
+  input.structure = fillDefaults(d.input.structure, s.input?.structure)
+  input.exportOptions = fillDefaults(d.input.exportOptions, s.input?.exportOptions)
   const airfoil = { ...d.airfoil, ...(s.airfoil ?? {}) }
   airfoil.custom = { ...d.airfoil.custom, ...(s.airfoil?.custom ?? {}) }
   return { units: s.units === 'imperial' ? 'imperial' : 'metric', input, airfoil }

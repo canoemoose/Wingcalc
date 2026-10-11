@@ -1,6 +1,7 @@
 <script setup>
-// Full-window wing editor: a results strip across the top, panel fields on the left (the
-// same side as the inputs column on the page) and the plan filling the rest. Rendered next
+// Full-window editor (the wing editor, the structure editor): a results strip across the
+// top, fields on the left (the same side as the inputs column on the page) and the drawing
+// filling the rest. Rendered next
 // to the calculator rather than inside it, so fixed positioning doesn't depend on how a
 // browser treats it inside a container-query element, and it works in the shadow-DOM embed.
 import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
@@ -8,6 +9,7 @@ import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 const open = defineModel('open', { type: Boolean, default: false })
 defineProps({
   theme: { type: String, default: 'auto' },
+  title: { type: String, default: 'Wing editor' },
 })
 
 const dialogEl = ref(null)
@@ -56,12 +58,12 @@ function onKey(e) {
     :data-theme="theme"
     role="dialog"
     aria-modal="true"
-    aria-label="Wing editor"
+    :aria-label="title"
     tabindex="-1"
     @keydown="onKey"
   >
     <header class="wc-workspace__bar">
-      <h2 class="wc-workspace__title">Wing editor</h2>
+      <h2 class="wc-workspace__title">{{ title }}</h2>
       <div class="wc-workspace__stats">
         <slot name="stats" />
       </div>

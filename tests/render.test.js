@@ -37,6 +37,8 @@ describe('app render', () => {
   it('renders a new project without errors or warnings', async () => {
     const html = await render(defaultState())
     expect(html).toContain('Wing cube loading')
+    expect(html).toContain('Structure and ribs')
+    expect(html).toContain('Lowest margin at 6 g')
     expect(warn).not.toHaveBeenCalled()
   })
 
