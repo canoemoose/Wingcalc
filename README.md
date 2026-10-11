@@ -7,7 +7,7 @@ A wing loading calculator for RC fixed-wing aircraft with spans of 600 mm to 3 m
 - **Wing loading**, area, mean aerodynamic chord, aspect ratio and the Reynolds number at the stall
 - **Stall character** of the aerofoil: Gentle, Moderate or Sharp
 
-Every input and output works in metric or imperial, with a global toggle and per-field unit choice.
+Every input and output works in metric or imperial, with a global toggle and per-field unit choice. Numeric boxes accept sums (`700 - 20`, `(120 + 80) / 2`) and numbers with their own units (`24in + 50mm` in a millimetre box); commas are thousands separators. An unfinished sum leaves the last good value in place, and the result shows under the box while you type.
 
 The wing can be drawn in a CAD-style **wing plan editor** or entered numerically: fuselage width, root chord, then one or more panels per side, each with its own length, outer chord, sweep, dihedral, and straight edges, Bézier curves or chords dimensioned at stations, plus an optional rounded wingtip. That covers straight, tapered, cranked, swept, elliptical, dihedral and polyhedral wings. The editor also has a measure tool for dimensions.
 
@@ -54,10 +54,12 @@ To use the Vue component directly inside another Vue app instead, import `src/Wi
 
 ## Projects
 
-The bar at the top holds the project name and its controls.
+The bar at the top holds the project name and its controls, then the units and theme toggles.
 
-- **Save** stores the project in this browser (localStorage) under its name; saving again updates it. A dot by the name means there are unsaved changes.
-- **Open** lists saved projects, newest first, with **New project**, **Save as copy**, **Export file** and **Import file** underneath. Delete a saved project with its ×.
+- **Save** stores the project in this browser (localStorage) under its name; saving again updates it. A dot in the name box means there are unsaved changes.
+- **New** starts a fresh project (asking first if there are unsaved changes).
+- **Open** lists saved projects, newest first, with **Save as copy**, **Export file** and **Import file** underneath. Delete a saved project with its ×.
+- **Auto / Light / Dark** sets the colour theme. Auto follows the system setting. The choice is remembered in this browser for whoever is using it; it isn't part of a project.
 - The work in progress also **autosaves** and comes back on reload, saved or not.
 - **Export file** downloads the project as a `.wingcalc.json` file; **Import file** opens one. Use these to back up or move projects between browsers, since localStorage belongs to one browser on one machine and is lost if site data is cleared.
 
@@ -67,16 +69,26 @@ A project holds the units, weight, wing shape (including stations, tip and dimen
 
 In "Chords & panels" mode the results column shows the wing plan: one half of the wing, drawn flat (as built), with the other half ghosted.
 
+**Open wing editor** expands it to fill the browser window: the plan takes most of the space, the wing and panel settings sit on the left (tabs switch between panels), and a strip along the top keeps span, area, aspect ratio, cube loading and stall speed in view as you edit. Done or Esc returns to the page. It works the same way when the calculator is embedded.
+
 - **Select** a panel by clicking it (or its heading in the inputs column); the two stay in step.
 - **Drag** the round handles at a panel's tip to change its length and sweep (leading edge) or its tip chord (trailing edge). Hold Shift to change length without changing sweep. The handle on the root trailing edge sets the root chord; the diamond ahead of the root sets the fuselage width.
 - **Curves**: on the selected panel, drag the small dashed handle in the middle of either edge to curve it. That creates a square control handle (a quadratic Bézier control point); drag it to shape the curve, double-click it to straighten the edge again.
-- **Chord stations**: set a panel's shape to "Chord stations" in the inputs column to define it by chords dimensioned along it instead. Each station has a distance from the panel's inner end, a chord, and a leading-edge set-back (how far its leading edge sits behind the panel's inner leading edge). Add stations with **Add station** (in either place; a new one goes in the middle of the largest gap, on the current shape, so the outline doesn't jump). On the selected panel, drag a station's leading-edge handle to move it along the panel and set its set-back, and its trailing-edge handle to change its chord. Switching an existing panel to stations samples its current shape, so nothing changes until you edit.
+- **Chord stations**: set a panel's shape to "Chord stations" in the inputs column to define it by chords dimensioned along it instead. Each station has a distance from the panel's inner end, a chord, and a leading-edge set-back (how far its leading edge sits behind the panel's inner leading edge). **Add station** under the table adds a blank row at the end, just above the tip, with its distance box ready to type into; it's skipped quietly (with a muted "fill in" note, not a warning) until it has a distance and chord. **Add station** on the plan toolbar instead places one on the current shape in the middle of the largest gap, so the outline doesn't jump. Leave a set-back blank ("auto") and the station takes its leading edge from the line through its neighbours.
+  - **The table** starts with the panel's inner end (greyed: its chord comes from the panel inboard) and ends with its tip, whose distance, chord and set-back are the panel's length, tip chord and sweep: the same values as the boxes above, so they can't disagree.
+  - **Distances** are measured from the panel's inner end by default; switch to **Spacing** to enter each as the gap from the row above. In spacing mode, changing a gap moves everything outboard of it, tip included, like chained dimensions on a drawing.
+  - **Typing**: Enter moves to the next box, like Tab (Shift+Enter goes back). A row being edited keeps its place until you leave the row, then the table re-sorts by distance. Nothing is refocused after a re-sort.
+  - **Problems** don't stop the panel drawing. A station before the inner end, on or beyond the tip, or at the same place as another is skipped: its row says why, the warnings list names it, and the plan shows it as a dashed rib in the warning colour.
+  - **Keep straight**: choose the leading edge, the trailing edge or a chord line (at a percentage you set; 25% for a straight quarter-chord line) to stay straight from end to end. Stations then set only their chord, and the edges sit either side of the straight line in proportion. Converting a panel with only one curved edge keeps the other edge straight automatically.
+  - **Segments**: between the station rows, each segment (inner end to station 1, station to station, last station to outer end) shows whether it's curved or straight; click to switch. All straight gives a faceted outline, like straight sheeting between ribs. A curved segment next to a straight one leaves along the straight one's direction, so the join has no kink. On the selected panel, drag a station's leading-edge handle to move it along the panel and set its set-back, and its trailing-edge handle to change its chord. Switching an existing panel to stations samples its current shape, so nothing changes until you edit.
 - **Wingtip**: tick "Rounded tip" under Wingtip to add a rounded cap beyond the last panel. Drag its handle outward for the extension and along the chord for where it reaches furthest (0% rakes it back from the leading edge, 100% forward from the trailing edge).
 - **Measure** (M; V returns to select): drag between two points to place a dimension. Ends snap to the wing's corners, stations, tip and root within 10 px (a green ring shows the target) or to the grid otherwise; Alt ignores snapping. Ends snapped to the wing are shown filled and follow it as it changes. Hold Shift for a purely spanwise or chordwise dimension. The readout shows the distance, its spanwise and chordwise parts and the angle while you drag. Click a dimension and press Delete to remove it, or use **Clear dimensions**. Dimensions are saved with the project and covered by undo.
 - **Snap** to the grid is on by default; the grid adapts to the zoom (10 mm at the default view), and Alt disables snapping during a drag.
 - **Navigate**: scroll to zoom about the pointer, drag empty space or a panel to pan, Fit to frame the wing. The view re-fits automatically when the wing changes from outside the editor (typing in the inputs column, undo, opening a project), but not during your own drags, so it doesn't move under the pointer.
 - **Keyboard** (with the plan focused): arrow keys move the selected panel's tip leading edge one grid step (left/right for length, up/down for sweep), Alt with up/down changes its tip chord, Delete removes the selected panel or dimension, M and V switch tools, Escape cancels or deselects, Ctrl+Z / Ctrl+Y undo and redo.
-- **Add panel** appends a new section at the tip, continuing the leading-edge line and dihedral of the last panel at about 40% of its length and 75% of its tip chord. Panels can be deleted from either the plan or the inputs column.
+- **Add panel** appends a new section at the tip, continuing the leading-edge line and dihedral of the last panel at about 40% of its length and 75% of its tip chord.
+- **Insert after** (or + on a panel's fields) puts a new constant-chord panel just outboard of the selected one, continuing its leading-edge line and dihedral, so the panels further out keep their shape and the wing gets longer.
+- **← / →** move the selected panel inward or outward. Each panel keeps its own length, chord, sweep, dihedral and shape; only the order changes. Panels can be deleted from either the plan or the inputs column.
 - **Undo/redo** covers the whole wing shape and the dimensions: each drag is one step, and typed changes are grouped once they pause. Opening a project starts a fresh history.
 
 The same values can be typed in the inputs column, which is the precise route; the plan updates as you type.
@@ -110,7 +122,7 @@ Here w is the fuselage width, c<sub>r</sub> the root chord, l<sub>i</sub> a pane
 - quadratic Bézier curves with one control point each, stored as a fraction along the panel plus an offset from the straight edge, so a curve keeps its shape when the panel is resized; or
 - defined by **chord stations**: both edges pass through every station's leading- and trailing-edge points and the panel's ends, joined by monotone cubic interpolation (Fritsch–Carlson PCHIP). That is smooth, passes exactly through each dimensioned chord, and never bulges beyond the stations either side, which an ordinary spline can do near a tip.
 
-Panels are integrated numerically (32 intervals per panel, exact for straight edges). A panel whose edges cross, or with a station outside it or two stations at the same place, is rejected with a warning.
+Panels are integrated numerically (32 intervals per panel, plus a sample at every station, so straight and faceted panels are exact). A panel whose edges cross, or with a station outside it or two stations at the same place, is rejected with a warning.
 
 **Rounded tip.** The tip cap is two quarter-ellipses meeting at the point of furthest reach: one from the leading edge, one from the trailing edge, each tangent to its edge where it starts. Its chord at fraction u of the extension e is c·√(1 − u²), so its area is (π/4)·e·c exactly, and it takes the tip panel's dihedral.
 
