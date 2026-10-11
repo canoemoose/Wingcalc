@@ -615,3 +615,331 @@
   font-size: 0.8rem;
   color: var(--wc-muted);
 }
+.wc-svg-curve--indicative {
+  stroke-dasharray: 6 4;
+}
+
+/* Aerofoil browser */
+.wc-picked {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--wc-bg);
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.wc-picked .wc-thumb {
+  flex: 0 0 72px;
+  height: 24px;
+}
+.wc-picked__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+.wc-picked__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.wc-chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--wc-border);
+  color: var(--wc-muted);
+  white-space: nowrap;
+}
+.wc-chip--polar {
+  border-color: var(--wc-gentle);
+  color: var(--wc-gentle);
+}
+.wc-browse__search {
+  width: 100%;
+}
+.wc-browse__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+.wc-select--small {
+  width: auto;
+  height: 28px;
+  font-size: 0.8rem;
+  padding: 0 4px;
+}
+.wc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.wc-browse__count {
+  font-size: 0.78rem;
+  color: var(--wc-muted);
+  margin: 6px 0 4px;
+}
+.wc-browse__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+  background: var(--wc-bg);
+}
+.wc-af {
+  display: grid;
+  grid-template-columns: 64px 1fr auto auto;
+  grid-template-areas:
+    'thumb name meta badge'
+    'thumb desc desc desc';
+  column-gap: 8px;
+  align-items: center;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--wc-border);
+  cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+.wc-af:last-child {
+  border-bottom: 0;
+}
+.wc-af:hover,
+.wc-af--active {
+  background: var(--wc-surface);
+}
+.wc-af--selected {
+  background: color-mix(in srgb, var(--wc-accent) 14%, transparent);
+}
+.wc-af .wc-thumb {
+  grid-area: thumb;
+  width: 64px;
+  height: 22px;
+}
+.wc-af__name {
+  grid-area: name;
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-af__meta {
+  grid-area: meta;
+  font-size: 0.75rem;
+  color: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wc-af .wc-chip {
+  grid-area: badge;
+}
+.wc-af__desc {
+  grid-area: desc;
+  font-size: 0.75rem;
+  color: var(--wc-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-browse__more {
+  margin-top: 6px;
+}
+.wc-thumb polygon {
+  fill: color-mix(in srgb, var(--wc-accent) 18%, transparent);
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.wc-override .wc-input {
+  max-width: 200px;
+}
+
+/* Panel editor additions */
+.wc-panelset {
+  position: relative;
+}
+.wc-panelset--selected {
+  border-color: var(--wc-accent);
+  box-shadow: inset 3px 0 0 var(--wc-accent);
+}
+.wc-linkish {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.wc-panelset__remove {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--wc-muted);
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.wc-panelset__remove:hover {
+  color: var(--wc-sharp);
+}
+.wc-edges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 10px;
+}
+.wc-edges .wc-field__label {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+/* Wing plan editor */
+.wc-plan-card .wc-card__label {
+  margin-bottom: 8px;
+}
+.wc-plan__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.wc-plan__toolbar .wc-button {
+  padding: 4px 10px;
+}
+.wc-plan__toolbar .wc-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.wc-plan__sep {
+  width: 1px;
+  height: 20px;
+  background: var(--wc-border);
+}
+.wc-plan__spacer {
+  flex: 1;
+}
+.wc-plan__canvas {
+  position: relative;
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+  background: var(--wc-bg);
+  overflow: hidden;
+}
+.wc-plan__canvas:focus-visible {
+  outline: 2px solid var(--wc-accent);
+  outline-offset: 1px;
+}
+.wc-plan__svg {
+  display: block;
+  width: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.wc-plan__svg--panning {
+  cursor: grabbing;
+}
+.wc-plan__minor {
+  stroke: var(--wc-border);
+  stroke-width: 0.5;
+  opacity: 0.6;
+}
+.wc-plan__major {
+  stroke: var(--wc-border);
+  stroke-width: 1;
+}
+.wc-plan__centre {
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 6 4;
+}
+.wc-plan__ghost polygon,
+.wc-plan__ghost rect {
+  fill: var(--wc-muted);
+  opacity: 0.12;
+  stroke: none;
+}
+.wc-plan__fuselage {
+  fill: var(--wc-muted);
+  fill-opacity: 0.18;
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.wc-plan__panel {
+  fill: color-mix(in srgb, var(--wc-accent) 12%, transparent);
+  stroke: var(--wc-accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  cursor: pointer;
+}
+.wc-plan__panel--selected {
+  fill: color-mix(in srgb, var(--wc-accent) 26%, transparent);
+  stroke-width: 2.2;
+}
+.wc-plan__quarter {
+  fill: none;
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.wc-plan__ctrl-lines line {
+  stroke: var(--wc-moderate);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+.wc-plan__handle {
+  fill: var(--wc-bg);
+  stroke: var(--wc-accent);
+  stroke-width: 2;
+  cursor: move;
+}
+.wc-plan__handle:hover {
+  fill: var(--wc-accent);
+}
+.wc-plan__handle--curve,
+.wc-plan__handle--fuse {
+  stroke: var(--wc-moderate);
+}
+.wc-plan__handle--curve:hover,
+.wc-plan__handle--fuse:hover {
+  fill: var(--wc-moderate);
+}
+.wc-plan__handle--fuse {
+  cursor: ew-resize;
+}
+.wc-plan__handle--add {
+  stroke: var(--wc-moderate);
+  stroke-dasharray: 2 2;
+  cursor: crosshair;
+}
+.wc-plan__dims text {
+  fill: var(--wc-text);
+  font-variant-numeric: tabular-nums;
+}
+.wc-plan__readout {
+  font-size: 0.8rem;
+  color: var(--wc-muted);
+  padding: 6px 10px;
+  border-top: 1px solid var(--wc-border);
+  min-height: 2.2em;
+}

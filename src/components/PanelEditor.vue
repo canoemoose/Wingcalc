@@ -1,21 +1,21 @@
 <script setup>
-// Half-wing panel editor: root chord, then each panel outward from the centreline with its
-// length, outer chord and dihedral. One flat panel is a plain tapered wing; more panels
-// give cranked planforms and dihedral or polyhedral breaks.
+// Numeric entry for the panel wing: fuselage width, root chord, then each panel outward
+// from the fuselage side. The same values can be dragged in the wing plan editor; the two
+// share the selected panel.
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
-import { panelAngle } from '../lib/calc.js'
+import { panelAngle, appendPanel, removePanel } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
-
-const MAX_PANELS = 5
 
 const props = defineProps({
   system: { type: String, required: true },
   warnFields: { type: Array, default: () => [] },
 })
 const rootChord = defineModel('rootChord', { type: Number, default: null })
+const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
 const panels = defineModel('panels', { type: Array, required: true })
+const selected = defineModel('selected', { type: Number, default: null })
 
 // Dihedral is entered either as an angle or as the rise of each panel's outer end. A panel
 // carries a `rise` key (m, null while the box is empty) in rise mode and `dihedral`
@@ -47,39 +47,28 @@ function update(i, key, value) {
   panels.value = panels.value.map((p, j) => (j === i ? { ...p, [key]: value } : p))
 }
 
-// Split the outer panel in half, keeping span, area and dihedral unchanged, so the new
-// break can then be adjusted.
-function addBreak() {
-  const list = panels.value
-  const last = list.at(-1)
-  const inner = list.length > 1 ? list.at(-2).tipChord : rootChord.value
-  const mid = inner > 0 && last.tipChord >= 0 ? (inner + last.tipChord) / 2 : last.tipChord
-  const half = last.length > 0 ? last.length / 2 : last.length
-  // Halving the rise too keeps the angle unchanged.
-  const halfRise = Number.isFinite(last.rise) ? { rise: last.rise / 2 } : {}
-  panels.value = [
-    ...list.slice(0, -1),
-    { ...last, length: half, tipChord: mid, ...halfRise },
-    { ...last, length: half, ...halfRise },
-  ]
+// Straight edge, or a gentle curve to start from (refined by dragging in the plan editor).
+function setEdge(i, edge, curved) {
+  const p = panels.value[i]
+  const bulge = edge === 'le' ? -0.15 : 0.15
+  update(i, edge, curved ? { u: 0.5, d: bulge * Math.max(p.tipChord || 0, 0.05) } : null)
 }
 
-// Merge the outer panel into the one inside it, keeping the overall length and tip chord.
-// In rise mode the rises add, so the merged panel runs straight to the old tip.
-function removeBreak() {
-  const list = panels.value
-  if (list.length < 2) return
-  const last = list.at(-1)
-  const prev = list.at(-2)
-  const merged = { ...prev, length: (prev.length ?? 0) + (last.length ?? 0), tipChord: last.tipChord }
-  if (Number.isFinite(prev.rise)) merged.rise = prev.rise + (last.rise ?? 0)
-  panels.value = [...list.slice(0, -2), merged]
+function add() {
+  panels.value = appendPanel(panels.value, rootChord.value)
+  selected.value = panels.value.length - 1
+}
+
+function remove(i) {
+  panels.value = removePanel(panels.value, i)
+  if (selected.value === i) selected.value = null
+  else if (selected.value > i) selected.value -= 1
 }
 
 function title(i) {
   const n = panels.value.length
   if (n === 1) return 'Each wing panel'
-  if (i === 0) return `Panel 1 (centre)`
+  if (i === 0) return 'Panel 1 (inner)'
   if (i === n - 1) return `Panel ${i + 1} (tip)`
   return `Panel ${i + 1}`
 }
@@ -87,6 +76,14 @@ function title(i) {
 
 <template>
   <div class="wc-panels">
+    <UnitInput
+      id="wc-fuselage"
+      v-model="fuselageWidth"
+      quantity="length"
+      :system="system"
+      label="Fuselage width"
+      hint="Where the wing meets the fuselage. Panels start at its sides; use 0 for a one-piece wing measured from the centreline."
+    />
     <UnitInput id="wc-root" v-model="rootChord" quantity="length" :system="system" label="Root chord" />
     <div class="wc-field">
       <span class="wc-field__label">Enter dihedral as</span>
@@ -108,8 +105,26 @@ function title(i) {
         </button>
       </div>
     </div>
-    <fieldset v-for="(p, i) in panels" :key="i" class="wc-panelset">
-      <legend class="wc-panelset__legend">{{ title(i) }}</legend>
+    <fieldset
+      v-for="(p, i) in panels"
+      :key="p.id ?? i"
+      class="wc-panelset"
+      :class="{ 'wc-panelset--selected': selected === i }"
+      @focusin="selected = i"
+    >
+      <legend class="wc-panelset__legend">
+        <button type="button" class="wc-linkish" @click="selected = selected === i ? null : i">{{ title(i) }}</button>
+      </legend>
+      <button
+        v-if="panels.length > 1"
+        type="button"
+        class="wc-panelset__remove"
+        :aria-label="`Delete panel ${i + 1}`"
+        title="Delete this panel"
+        @click="remove(i)"
+      >
+        ×
+      </button>
       <UnitInput
         :id="`wc-panel-${i}-length`"
         :model-value="p.length"
@@ -129,6 +144,15 @@ function title(i) {
         @update:model-value="update(i, 'tipChord', $event)"
       />
       <UnitInput
+        :id="`wc-panel-${i}-sweep`"
+        :model-value="p.sweep ?? 0"
+        quantity="length"
+        :system="system"
+        label="Sweep (leading-edge offset)"
+        :hint="i === 0 ? 'How far back the outer end of the leading edge sits from the inner end. Negative sweeps forward.' : ''"
+        @update:model-value="update(i, 'sweep', $event ?? 0)"
+      />
+      <UnitInput
         v-if="dihedralBy === 'rise'"
         :id="`wc-panel-${i}-rise`"
         :model-value="p.rise"
@@ -145,7 +169,7 @@ function title(i) {
       <ParamInput
         v-else
         :id="`wc-panel-${i}-dihedral`"
-        :model-value="p.dihedral"
+        :model-value="p.dihedral ?? 0"
         label="Dihedral"
         suffix="°"
         :min="-10"
@@ -157,18 +181,24 @@ function title(i) {
         "
         @update:model-value="update(i, 'dihedral', $event)"
       />
+      <div class="wc-edges">
+        <span class="wc-field__label">Edges</span>
+        <label class="wc-check">
+          <input type="checkbox" :checked="!!p.le" @change="setEdge(i, 'le', $event.target.checked)" /> Curved leading
+          edge
+        </label>
+        <label class="wc-check">
+          <input type="checkbox" :checked="!!p.te" @change="setEdge(i, 'te', $event.target.checked)" /> Curved trailing
+          edge
+        </label>
+      </div>
     </fieldset>
     <div class="wc-panels__actions">
-      <button v-if="panels.length < MAX_PANELS" type="button" class="wc-button" @click="addBreak">
-        Add a break
-      </button>
-      <button v-if="panels.length > 1" type="button" class="wc-button" @click="removeBreak">
-        Remove outer break
-      </button>
+      <button type="button" class="wc-button" @click="add">Add panel</button>
     </div>
     <p class="wc-field__hint">
-      A break splits the outer panel in half. Change its chords for a cranked planform, or its dihedral for
-      polyhedral.
+      A new panel is added at the tip, continuing the wing outward. Shape curves by dragging their handles in the wing
+      plan.
     </p>
   </div>
 </template>

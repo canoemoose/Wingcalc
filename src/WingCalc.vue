@@ -1,10 +1,12 @@
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, shallowRef, onMounted } from 'vue'
 import UnitInput from './components/UnitInput.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
+import WingPlanEditor from './components/WingPlanEditor.vue'
+import { useHistory } from './composables/useHistory.js'
 import LiftCurve from './components/LiftCurve.vue'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
@@ -17,7 +19,8 @@ import {
   WING_CLMAX_FACTOR,
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
-import { resolveAirfoil, airfoilPerformance, sectionsIn } from './lib/airfoils.js'
+import { resolveAirfoil, airfoilPerformance, sectionsIn, loadCatalogue, estimateClMax } from './lib/airfoils.js'
+import { normalisePanels } from './lib/wing.js'
 import { RATINGS } from './lib/stall.js'
 
 const props = defineProps({
@@ -34,8 +37,9 @@ const input = reactive({
   mass: 1.4,
   span: 1.4,
   geometryMode: 'panels',
+  fuselageWidth: 0,
   rootChord: 0.25,
-  panels: [{ length: 0.7, tipChord: 0.18, dihedral: 0 }],
+  panels: normalisePanels([{ length: 0.7, tipChord: 0.18, dihedral: 0 }]),
   meanChord: 0.215,
   area: 0.301,
 })
@@ -45,8 +49,27 @@ const airfoilSel = ref({
   source: 'naca',
   id: firstNaca?.id ?? null,
   lastLibraryId: firstNaca?.id ?? null,
+  clMaxOverride: null,
   custom: { clMax: 1.25, thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 },
 })
+
+// The UIUC catalogue (~1,600 sections) loads after first paint.
+const uiuc = shallowRef(null)
+const catalogueError = ref(false)
+onMounted(() => {
+  loadCatalogue()
+    .then((d) => (uiuc.value = d))
+    .catch(() => (catalogueError.value = true))
+})
+
+// Selected panel, shared by the numeric panel editor and the plan editor.
+const selectedPanel = ref(null)
+
+// Undo/redo covers the wing shape.
+const history = useHistory(
+  () => ({ fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels }),
+  (v) => Object.assign(input, v),
+)
 
 const geometryModes = [
   { id: 'panels', label: 'Chords & panels' },
@@ -55,7 +78,11 @@ const geometryModes = [
 ]
 
 const geometry = computed(() => wingGeometry({ ...input, mode: input.geometryMode }))
-const airfoil = computed(() => resolveAirfoil(airfoilSel.value))
+const airfoil = computed(() => resolveAirfoil(airfoilSel.value, uiuc.value))
+
+// Wing CLmax = 0.9 × cos(quarter-chord sweep) × section Clmax.
+const sweepCos = computed(() => Math.cos(geometry.value.sweepQuarter ?? 0))
+const sweepDeg = computed(() => ((geometry.value.sweepQuarter ?? 0) * 180) / Math.PI)
 
 const results = computed(() => {
   const g = geometry.value
@@ -63,7 +90,12 @@ const results = computed(() => {
   const wcl = cubeLoading(input.mass, g.area)
   const perf = airfoil.value?.valid
     ? // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
-      airfoilPerformance(airfoil.value, { mass: input.mass, area: g.projectedArea, chord: g.mac })
+      airfoilPerformance(airfoil.value, {
+        mass: input.mass,
+        area: g.projectedArea,
+        chord: g.mac,
+        clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value,
+      })
     : null
   return { wl, wcl, band: cubeBand(wcl), perf }
 })
@@ -75,6 +107,16 @@ const warnings = computed(() =>
     panels: input.geometryMode === 'panels' ? input.panels : null,
   }),
 )
+// Shown as the placeholder for the Clmax override on sections without polars.
+const estimatedClMax = computed(() => {
+  const a = airfoil.value
+  if (a?.kind !== 'catalogue') return null
+  return estimateClMax(
+    { camberPct: a.params.camber * 100, thicknessPct: a.params.thickness * 100 },
+    results.value.perf?.reynolds ?? 200000,
+  )
+})
+
 const warnFor = (field) => warnings.value.some((w) => w.field === field)
 const warnFields = computed(() => warnings.value.map((w) => w.field))
 
@@ -155,8 +197,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </div>
         <PanelEditor
           v-if="input.geometryMode === 'panels'"
+          v-model:fuselage-width="input.fuselageWidth"
           v-model:root-chord="input.rootChord"
           v-model:panels="input.panels"
+          v-model:selected="selectedPanel"
           :system="system"
           :warn-fields="warnFields"
         />
@@ -200,7 +244,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </p>
 
         <h3 class="wc-panel__title">Aerofoil</h3>
-        <AirfoilPicker v-model="airfoilSel" />
+        <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" :estimated-cl-max="estimatedClMax" />
+        <p v-if="catalogueError" class="wc-field__hint wc-text-warn">
+          The full aerofoil catalogue couldn't be loaded; only sections with polar data are listed.
+        </p>
 
         <ul v-if="warnings.length" class="wc-warnings">
           <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
@@ -243,11 +290,14 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <p v-if="results.perf" class="wc-card__note">
               Level flight, sea level (ρ = {{ RHO_SEA_LEVEL }} kg/m³)<template v-if="geometry.hasDihedral"
                 >, projected wing area</template
-              >. Wing CLmax
-              {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }} × section Clmax
-              {{ results.perf.sectionClMax.toFixed(2) }}<template v-if="airfoil?.kind === 'library'">
-                at Re {{ fmtRe(results.perf.reynolds) }}</template
-              >.
+              >. Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }}
+              <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
+              section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
+              <template v-if="results.perf.clMaxSource === 'polar'">at Re {{ fmtRe(results.perf.reynolds) }}</template>
+              <template v-else-if="results.perf.clMaxSource === 'estimated'"
+                >(estimated from camber and thickness at Re {{ fmtRe(results.perf.reynolds) }})</template
+              >
+              <template v-else>(entered)</template>.
             </p>
           </article>
         </div>
@@ -265,6 +315,13 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <dd>
               {{ format(geometry.area, 'area', u('area')) }}
               <span class="wc-muted">{{ format(geometry.area, 'area', u('area', alt)) }}</span>
+            </dd>
+          </div>
+          <div v-if="geometry.fuselageHalf > 0">
+            <dt>Exposed area (outside fuselage)</dt>
+            <dd>
+              {{ format(geometry.exposedArea, 'area', u('area')) }}
+              <span class="wc-muted">{{ format(geometry.exposedArea, 'area', u('area', alt)) }}</span>
             </dd>
           </div>
           <div v-if="geometry.hasDihedral">
@@ -287,6 +344,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               {{ format(geometry.mac, 'length', u('length')) }}
               <span class="wc-muted">{{ format(geometry.mac, 'length', u('length', alt)) }}</span>
             </dd>
+          </div>
+          <div v-if="Math.abs(sweepDeg) >= 3">
+            <dt>Quarter-chord sweep</dt>
+            <dd>{{ sweepDeg.toFixed(1) }}°</dd>
           </div>
           <div>
             <dt>Aspect ratio</dt>
@@ -329,12 +390,28 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           <p class="wc-card__note">
             {{ rating.explanation }}
             <template v-if="rating.method === 'geometry'">
-              Estimated from section shape (no polar data for custom sections).</template
+              Estimated from section shape, as there's no polar data for this section.</template
             >
             <template v-else-if="rating.confidence === 'low'"> Limited post-stall data, so treat with extra caution.</template>
           </p>
-          <LiftCurve v-if="results.perf?.polar" :polar="results.perf.polar" :stall="rating" />
+          <LiftCurve v-if="results.perf?.curve" :curve="results.perf.curve" />
           <p class="wc-disclaimer">Indicative only: not a substitute for flight testing.</p>
+        </article>
+
+        <article v-if="input.geometryMode === 'panels'" class="wc-card wc-plan-card">
+          <h3 class="wc-card__label">Wing plan (one side, flat as built)</h3>
+          <WingPlanEditor
+            v-model:fuselage-width="input.fuselageWidth"
+            v-model:root-chord="input.rootChord"
+            v-model:panels="input.panels"
+            v-model:selected="selectedPanel"
+            :system="system"
+            :can-undo="history.canUndo.value"
+            :can-redo="history.canRedo.value"
+            @undo="history.undo"
+            @redo="history.redo"
+            @commit="history.commit"
+          />
         </article>
 
         <div class="wc-drawings">
@@ -345,9 +422,19 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :name="airfoil.name"
             :valid="airfoil.valid"
           />
-          <PlanformView :geometry="geometry" :length-unit="u('length')" />
+          <PlanformView
+            v-if="input.geometryMode !== 'panels' || geometry.hasDihedral"
+            :geometry="geometry"
+            :length-unit="u('length')"
+            :show-top="input.geometryMode !== 'panels'"
+          />
         </div>
 
+        <p v-if="airfoil?.kind === 'catalogue'" class="wc-source">
+          Section data: <a :href="airfoil.source" target="_blank" rel="noopener">UIUC Airfoil Coordinates Database</a>
+          ({{ airfoil.description }}). Coordinates only: Clmax is
+          {{ airfoil.clMaxOverride !== null ? 'as entered' : 'estimated' }} and the lift curve is indicative.
+        </p>
         <p v-if="airfoil?.kind === 'library'" class="wc-source">
           Section data:
           <a :href="airfoil.section.source" target="_blank" rel="noopener">airfoiltools.com</a>

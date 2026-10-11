@@ -1,10 +1,11 @@
 <script setup>
-// Lift curve (Cl against alpha) for the polar used in the stall-character rating.
+// Lift curve (Cl against alpha): the XFOIL polar used for the stall rating, or, for
+// sections without polar data, an indicative curve drawn from the rating (dashed).
 import { computed } from 'vue'
 
 const props = defineProps({
-  polar: { type: Object, required: true },
-  stall: { type: Object, required: true },
+  // { alpha: [], cl: [], re, peak: { alpha, cl }, indicative }
+  curve: { type: Object, required: true },
 })
 
 const W = 320
@@ -12,7 +13,7 @@ const H = 180
 const M = { l: 34, r: 10, t: 10, b: 28 }
 
 const chart = computed(() => {
-  const { alpha, cl } = props.polar
+  const { alpha, cl, peak } = props.curve
   const aMin = Math.floor(Math.min(...alpha) / 5) * 5
   const aMax = Math.ceil(Math.max(...alpha) / 5) * 5
   const cMin = Math.min(0, Math.floor(Math.min(...cl) * 2) / 2)
@@ -23,11 +24,10 @@ const chart = computed(() => {
   for (let a = aMin; a <= aMax; a += 5) xTicks.push({ v: a, p: x(a) })
   const yTicks = []
   for (let c = cMin; c <= cMax + 1e-9; c += 0.5) yTicks.push({ v: c, p: y(c) })
-  const s = props.stall
   return {
     line: alpha.map((a, i) => `${x(a).toFixed(1)},${y(cl[i]).toFixed(1)}`).join(' '),
-    peak: { x: x(s.alphaClMax), y: y(s.clMax) },
-    band: { x: x(s.alphaClMax), w: x(Math.min(s.alphaClMax + 2, aMax)) - x(s.alphaClMax) },
+    peak: { x: x(peak.alpha), y: y(peak.cl) },
+    band: { x: x(peak.alpha), w: x(Math.min(peak.alpha + 2, aMax)) - x(peak.alpha) },
     xTicks,
     yTicks,
     x0: M.l,
@@ -50,14 +50,20 @@ const chart = computed(() => {
         <text :x="t.p" :y="chart.y0 + 12" text-anchor="middle" class="wc-svg-tick">{{ t.v }}°</text>
       </g>
       <line :x1="chart.x0" :x2="chart.x1" :y1="chart.y0" :y2="chart.y0" class="wc-svg-axis" />
-      <polyline :points="chart.line" class="wc-svg-curve" />
+      <polyline :points="chart.line" class="wc-svg-curve" :class="{ 'wc-svg-curve--indicative': curve.indicative }" />
       <circle :cx="chart.peak.x" :cy="chart.peak.y" r="3.5" class="wc-svg-peak" />
       <text :x="chart.x1" :y="chart.y0 + 24" text-anchor="end" class="wc-svg-tick">angle of attack</text>
       <text :x="4" :y="chart.y1 + 4" class="wc-svg-tick">Cl</text>
     </svg>
     <figcaption class="wc-figure__caption">
-      XFOIL lift curve at Re {{ polar.re.toLocaleString('en-GB') }}. Dot marks max lift; the shaded band is the 2°
-      past it used for the rating.
+      <template v-if="curve.indicative">
+        Indicative curve, not computed data: drawn from the stall rating, the section's Clmax and its zero-lift
+        angle, to show what the rating means. Dot marks max lift; the shaded band is the 2° past it.
+      </template>
+      <template v-else>
+        XFOIL lift curve at Re {{ curve.re.toLocaleString('en-GB') }}. Dot marks max lift; the shaded band is the 2°
+        past it used for the rating.
+      </template>
     </figcaption>
   </figure>
 </template>

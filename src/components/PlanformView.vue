@@ -1,39 +1,41 @@
 <script setup>
-// Top and front views of the full wing, drawn to scale from the geometry's spanwise
-// stations, with an unswept quarter-chord line. The front view shows dihedral and
-// polyhedral at their true angles.
+// Top and front views of the full wing, drawn to scale. The top view is the projected
+// outline (as seen from above); the front view shows dihedral and polyhedral at their true
+// angles. In panel mode the plan editor shows the top view, so only the front is drawn.
 import { computed } from 'vue'
 import { format } from '../lib/units.js'
 
 const props = defineProps({
   geometry: { type: Object, required: true },
   lengthUnit: { type: String, required: true },
+  showTop: { type: Boolean, default: true },
 })
 
 const top = computed(() => {
   const g = props.geometry
-  const st = g.stations
-  if (!st || !(g.span > 0)) return null
+  if (!props.showTop || !g.outline || !(g.span > 0)) return null
   const h = g.span / 2
-  // Right half LE root -> tip, then TE tip -> root; mirror for the left half.
-  const right = [...st.map((s) => [s.y, -0.25 * s.c]), ...[...st].reverse().map((s) => [s.y, 0.75 * s.c])]
-  const left = right.map(([x, y]) => [-x, y]).reverse()
-  const outline = [...right, ...left]
-  const maxC = Math.max(...st.map((s) => s.c))
+  const right = g.outline
+  const left = right.map(([y, x]) => [-y, x]).reverse()
+  const xs = right.map(([, x]) => x)
+  const xMin = Math.min(...xs)
+  const xMax = Math.max(...xs)
+  const depth = xMax - xMin
   const padX = g.span * 0.04
-  const padY = maxC * 0.35
-  const breaks = st.slice(1, -1).flatMap((s) => [
-    { x: s.y, y1: -0.25 * s.c, y2: 0.75 * s.c },
-    { x: -s.y, y1: -0.25 * s.c, y2: 0.75 * s.c },
-  ])
+  const padY = depth * 0.35
+  const breaks = [
+    ...(g.fuselageHalf > 0 ? [{ y: g.fuselageHalf, xl: 0, xt: g.rootChord }] : []),
+    ...(g.breaks ?? []),
+  ].flatMap((b) => [b, { ...b, y: -b.y }])
   const mac = g.mac ?? g.meanChord
+  const macX = g.macX ?? 0
   return {
-    points: outline.map(([x, y]) => `${x},${y}`).join(' '),
+    points: [...right, ...left].map(([y, x]) => `${y},${x}`).join(' '),
     breaks,
-    mac: { y: g.macY ?? h / 2, top: -0.25 * mac, bottom: 0.75 * mac },
-    viewBox: `${-h - padX} ${-0.25 * maxC - padY} ${g.span + 2 * padX} ${maxC + 2 * padY}`,
-    font: Math.max(g.span, maxC * 4) * 0.028,
-    labelY: 0.75 * maxC + padY * 0.75,
+    mac: { y: g.macY ?? h / 2, top: macX, bottom: macX + mac },
+    viewBox: `${-h - padX} ${xMin - padY} ${g.span + 2 * padX} ${depth + 2 * padY}`,
+    font: Math.max(g.span, depth * 4) * 0.028,
+    labelY: xMax + padY * 0.75,
     h,
   }
 })
@@ -78,8 +80,7 @@ const front = computed(() => {
       aria-label="Wing planform, top view"
     >
       <polygon :points="top.points" class="wc-svg-outline" />
-      <line :x1="-top.h" y1="0" :x2="top.h" y2="0" class="wc-svg-chord" />
-      <line v-for="(b, i) in top.breaks" :key="i" :x1="b.x" :y1="b.y1" :x2="b.x" :y2="b.y2" class="wc-svg-break" />
+      <line v-for="(b, i) in top.breaks" :key="i" :x1="b.y" :y1="b.xl" :x2="b.y" :y2="b.xt" class="wc-svg-break" />
       <line :x1="top.mac.y" :y1="top.mac.top" :x2="top.mac.y" :y2="top.mac.bottom" class="wc-svg-mac" />
       <line :x1="-top.mac.y" :y1="top.mac.top" :x2="-top.mac.y" :y2="top.mac.bottom" class="wc-svg-mac" />
       <text x="0" :y="top.labelY" :font-size="top.font" text-anchor="middle" class="wc-svg-text">
@@ -108,14 +109,14 @@ const front = computed(() => {
         {{ l.text }}
       </text>
     </svg>
-    <p v-if="!top" class="wc-muted">Enter span and chord (or area) to draw the planform.</p>
-    <figcaption v-if="top" class="wc-figure__caption">
+    <p v-if="showTop && !top" class="wc-muted">Enter span and chord (or area) to draw the planform.</p>
+    <figcaption v-if="top || front" class="wc-figure__caption">
       <span>
-        Top view: quarter-chord line dashed, panel breaks thin, mean aerodynamic chord marked in accent colour.
-        <template v-if="front">Front view below at true angles.</template>
-        <template v-if="geometry.stations && geometry.stations.length === 2 && !geometry.tipChord">
-          Drawn as a constant-chord wing.</template
-        >
+        <template v-if="top">
+          Top view as seen from above: panel breaks thin, mean aerodynamic chord marked in accent colour.
+          <template v-if="!geometry.tipChord">Drawn as a constant-chord wing.</template>
+        </template>
+        <template v-if="front">Front view at true dihedral angles.</template>
       </span>
     </figcaption>
   </figure>
