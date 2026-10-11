@@ -10,6 +10,7 @@ import ProjectBar from './components/ProjectBar.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
 import { useHistory } from './composables/useHistory.js'
 import LiftCurve from './components/LiftCurve.vue'
+import SpanLiftChart from './components/SpanLiftChart.vue'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
   wingGeometry,
@@ -37,7 +38,7 @@ import {
   fileName,
 } from './lib/projects.js'
 import { RATINGS } from './lib/stall.js'
-import { panelSections } from './lib/wing.js'
+import { panelSections, wingSampler, projectedSampler } from './lib/wing.js'
 import { scaleThickness } from './lib/airfoilGeom.js'
 
 const props = defineProps({
@@ -287,17 +288,25 @@ const tipSection = computed(() => {
 const sweepCos = computed(() => Math.cos(geometry.value.sweepQuarter ?? 0))
 const sweepDeg = computed(() => ((geometry.value.sweepQuarter ?? 0) * 180) / Math.PI)
 
+// The planform by projected span, for the lifting line (panel mode with a valid wing).
+const planform = computed(() => {
+  if (input.geometryMode !== 'panels' || !(geometry.value.area > 0) || geometry.value.invalid) return null
+  return projectedSampler(wingSampler(input, baseThickness.value))
+})
+
 const results = computed(() => {
   const g = geometry.value
   const wl = wingLoading(input.mass, g.area)
   const wcl = cubeLoading(input.mass, g.area)
   const perf = airfoil.value?.valid
-    ? // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
+    ? // Stall speed uses projected area: dihedral tilts each panel's lift inwards. In panel
+      // mode wing CLmax comes from the spanwise lift distribution, otherwise a fixed factor.
       airfoilPerformance(airfoil.value, {
         mass: input.mass,
         area: g.projectedArea,
         chord: g.mac,
         clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value,
+        wing: planform.value ? { planform: planform.value, span: g.span, sweepCos: sweepCos.value } : null,
       })
     : null
   return { wl, wcl, band: cubeBand(wcl), perf }
@@ -527,9 +536,20 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <p v-if="results.perf" class="wc-card__note">
               Level flight, sea level (ρ = {{ RHO_SEA_LEVEL }} kg/m³)<template v-if="geometry.hasDihedral"
                 >, projected wing area</template
-              >. Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }}
-              <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
-              section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
+              >.
+              <template v-if="results.perf.method === 'lifting-line'">
+                Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} from the spanwise lift distribution<template
+                  v-if="Math.abs(sweepDeg) >= 3"
+                >
+                  × cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep</template
+                >, {{ (results.perf.clMaxFactor * 100).toFixed(0) }}% of root section Clmax
+                {{ results.perf.sectionClMax.toFixed(2) }}
+              </template>
+              <template v-else>
+                Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }}
+                <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
+                section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
+              </template>
               <template v-if="results.perf.clMaxSource === 'polar'">at Re {{ fmtRe(results.perf.reynolds) }}</template>
               <template v-else-if="results.perf.clMaxSource === 'estimated'"
                 >(estimated from camber and thickness at Re {{ fmtRe(results.perf.reynolds) }})</template
@@ -655,6 +675,17 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               >
               <template v-else-if="rating.confidence === 'low'"> Limited post-stall data, so treat with extra caution.</template>
             </p>
+            <p v-if="rating.spanwise" class="wc-card__note">
+              {{ rating.spanwise.text }}
+              <template v-if="rating.spanwise.sharper && rating.sectionRating !== rating.rating">
+                The section alone rates {{ RATINGS[rating.sectionRating].label.toLowerCase() }}.</template
+              >
+            </p>
+            <SpanLiftChart
+              v-if="results.perf?.spanwise"
+              :distribution="results.perf.spanwise.distribution"
+              :onset-eta="results.perf.spanwise.onsetEta"
+            />
             <LiftCurve v-if="results.perf?.curve" :curve="results.perf.curve" />
             <p class="wc-disclaimer">Indicative only: not a substitute for flight testing.</p>
           </article>

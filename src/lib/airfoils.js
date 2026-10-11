@@ -8,10 +8,11 @@
 //    demand. For these, Clmax is estimated and the lift curve is indicative.
 
 import data from '../data/airfoils.json'
-import { analysePolar, ratePolar, rateGeometry, indicativePolar } from './stall.js'
+import { analysePolar, ratePolar, rateGeometry, indicativePolar, spanwiseStall, sharper } from './stall.js'
 import { generateSection, upperOrdinate, zeroLiftAngle, unpack } from './airfoilGeom.js'
-import { stallSpeed, reynolds, WING_CLMAX_FACTOR } from './calc.js'
+import { stallSpeed, reynolds, WING_CLMAX_FACTOR, NU_SEA_LEVEL } from './calc.js'
 import { leastSquares } from './fit.js'
+import { liftingLine, firstStall, clDistribution } from './liftingLine.js'
 
 export const LIBRARY = data
 export const FAMILIES = {
@@ -239,42 +240,120 @@ export function resolveAirfoil(selection, uiuc = null) {
   }
 }
 
+// Section Clmax at a Reynolds number and thickness (fraction of chord). A thinner or thicker
+// section than the aerofoil's own (thickness taper) is credited with the change the library
+// fit predicts for that thickness at the same camber; the base value comes from the polars,
+// the fit or the entered figure as usual.
+export function sectionModel(airfoil) {
+  const camberPct = airfoil.params.camber * 100
+  const baseT = airfoil.params.thickness
+  const base =
+    airfoil.kind === 'library'
+      ? (re) => sectionClMaxAt(airfoil.section, re)
+      : airfoil.kind === 'catalogue' && airfoil.clMaxOverride === null
+        ? (re) => estimateClMax({ camberPct, thicknessPct: baseT * 100 }, re)
+        : () => (airfoil.kind === 'custom' ? airfoil.clMax : airfoil.clMaxOverride)
+  const clMaxAt = (re, thickness = baseT) => {
+    const v = base(re)
+    if (!Number.isFinite(thickness) || Math.abs(thickness - baseT) < 1e-6) return v
+    const delta =
+      estimateClMax({ camberPct, thicknessPct: thickness * 100 }, re) - estimateClMax({ camberPct, thicknessPct: baseT * 100 }, re)
+    return Math.max(0.3, v + delta)
+  }
+  // Section lift-curve slope per radian, from the library's mean at this Reynolds number.
+  const a0At = (re) => (liftSlopeAt(re) * 180) / Math.PI
+  return { clMaxAt, a0At }
+}
+
+const MIN_RE = 20000 // below this the bundled data says nothing useful; hold it there
+
+// The wing's maximum lift from the spanwise lift distribution (lifting line) at a stall
+// speed: each station's Reynolds number, thickness and twist give its own Clmax and share of
+// the lift, and the wing stalls when the first station reaches its Clmax.
+// planform: { atY, semiSpan } from projectedSampler; area is the projected area.
+export function wingStallAt(model, planform, { span, area, speed }) {
+  const at = (eta) => planform.atY(eta * planform.semiSpan)
+  const reOf = (c) => Math.max(MIN_RE, (speed * c) / NU_SEA_LEVEL)
+  const ll = liftingLine({
+    span,
+    area,
+    station: (eta) => {
+      const p = at(eta)
+      return { c: p.c, twist: (p.twist * Math.PI) / 180, a0: model.a0At(reOf(p.c)) }
+    },
+  })
+  if (!ll) return null
+  const clMaxOf = (eta) => {
+    const p = at(eta)
+    return model.clMaxAt(reOf(p.c), p.thickness)
+  }
+  const st = firstStall(ll, clMaxOf)
+  if (!st) return null
+  const dist = clDistribution(ll, st.CLmax).map((d) => {
+    const p = at(d.eta)
+    return { eta: d.eta, s: p.s, c: d.c, cl: d.cl, clMax: clMaxOf(d.eta) }
+  })
+  return { CLmax: st.CLmax, onsetEta: st.eta, ll, distribution: dist }
+}
+
 // Stall speed, Reynolds number, stall character and lift curve for a resolved airfoil.
 // clMaxFactor converts section Clmax to wing CLmax (default 0.9; the caller adds sweep).
 // Clmax is looked up (or estimated) at the Reynolds number of the stall itself, which needs
 // a short fixed-point iteration (converges in a handful of steps).
-export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = WING_CLMAX_FACTOR }) {
+// With `wing` ({ planform, span, sweepCos }), wing CLmax comes from the lifting line instead
+// of the fixed factor, so taper, washout and thickness taper all count.
+export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = WING_CLMAX_FACTOR, wing = null }) {
   if (!airfoil) return null
-  const clMaxAt =
-    airfoil.kind === 'library'
-      ? (re) => sectionClMaxAt(airfoil.section, re)
-      : airfoil.kind === 'catalogue' && airfoil.clMaxOverride === null
-        ? (re) => estimateClMax({ camberPct: airfoil.params.camber * 100, thicknessPct: airfoil.params.thickness * 100 }, re)
-        : () => (airfoil.kind === 'custom' ? airfoil.clMax : airfoil.clMaxOverride)
+  const model = sectionModel(airfoil)
+  const clMaxAt = (re) => model.clMaxAt(re)
 
   let re = 200000
   let sectionClMax = clMaxAt(re)
-  let vs = null
-  for (let i = 0; i < 8; i++) {
-    vs = stallSpeed(mass, area, sectionClMax * clMaxFactor)
+  let vs = stallSpeed(mass, area, sectionClMax * clMaxFactor)
+  let spanwise = null
+  let wingClMax = sectionClMax * clMaxFactor
+  for (let i = 0; i < 12; i++) {
+    if (wing?.planform && vs) {
+      const w = wingStallAt(model, wing.planform, { span: wing.span, area, speed: vs })
+      if (w && w.CLmax > 0) {
+        spanwise = w
+        wingClMax = w.CLmax * (wing.sweepCos ?? 1)
+      }
+    }
     const next = reynolds(vs, chord)
     if (!next) break
     re = next
     sectionClMax = clMaxAt(re)
+    if (!spanwise) wingClMax = sectionClMax * clMaxFactor
+    const v = stallSpeed(mass, area, wingClMax)
+    if (v && vs && Math.abs(v - vs) < 1e-4 * vs) {
+      vs = v
+      break
+    }
+    vs = v
   }
   const result = {
     sectionClMax,
-    wingClMax: sectionClMax * clMaxFactor,
-    clMaxFactor,
+    wingClMax,
+    clMaxFactor: spanwise ? wingClMax / sectionClMax : clMaxFactor,
+    method: spanwise ? 'lifting-line' : 'factor',
+    spanwise,
     clMaxSource: airfoil.kind === 'library' ? 'polar' : airfoil.kind === 'custom' || airfoil.clMaxOverride !== null ? 'entered' : 'estimated',
     stallSpeed: vs,
     reynolds: vs ? re : null,
   }
   const reForCurve = result.reynolds ?? 200000
 
+  // The section's character, adjusted for where along the span the wing stalls first.
+  const withSpan = (stall) => {
+    if (!stall || !spanwise) return stall
+    const sp = spanwiseStall(spanwise.onsetEta)
+    return { ...stall, sectionRating: stall.rating, rating: sp.sharper ? sharper(stall.rating) : stall.rating, spanwise: sp }
+  }
+
   if (airfoil.kind === 'library') {
     const polar = nearestPolar(airfoil.section, reForCurve)
-    const stall = polar ? ratePolar(polar) : null
+    const stall = withSpan(polar ? ratePolar(polar) : null)
     return {
       ...result,
       stall,
@@ -284,12 +363,13 @@ export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = W
   }
 
   const upper125 = airfoil.upper125 ?? upperOrdinate(airfoil.coords, 0.0125)
-  const stall = rateGeometry({ ...airfoil.params, upper125, re: result.reynolds })
+  const sectionStall = rateGeometry({ ...airfoil.params, upper125, re: result.reynolds })
+  const stall = withSpan(sectionStall)
   const ip = indicativePolar({
     clMax: sectionClMax,
     alphaL0: zeroLiftAngle(airfoil.coords),
     slopePerDeg: liftSlopeAt(reForCurve),
-    rating: stall.rating,
+    rating: sectionStall.rating,
   })
   return {
     ...result,

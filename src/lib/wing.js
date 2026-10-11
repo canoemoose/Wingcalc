@@ -653,6 +653,39 @@ export function wingSampler({ fuselageWidth = 0, rootChord, panels, tip = null }
   return { at, half, reach, ends, edges, sections }
 }
 
+// The same wing looked up by projected spanwise distance y (as the lifting line needs),
+// by sampling s finely and interpolating. Panel ends are always sampled, so the chord and
+// twist kinks there are exact. Returns { atY(y), semiSpan } or null.
+export function projectedSampler(sampler, n = 600) {
+  if (!sampler) return null
+  const ss = new Set()
+  for (let i = 0; i <= n; i++) ss.add((sampler.reach * i) / n)
+  ss.add(sampler.half)
+  for (const e of sampler.ends) ss.add(e.outer.s)
+  const rows = [...ss]
+    .sort((a, b) => a - b)
+    .map((s) => sampler.at(Math.min(s, sampler.reach)))
+    .filter(Boolean)
+  const semiSpan = rows.at(-1).y
+  const atY = (y) => {
+    if (y <= 0) return rows[0]
+    if (y >= semiSpan) return rows.at(-1)
+    let lo = 0
+    let hi = rows.length - 1
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1
+      if (rows[mid].y <= y) lo = mid
+      else hi = mid
+    }
+    const a = rows[lo]
+    const b = rows[hi]
+    const t = b.y > a.y ? (y - a.y) / (b.y - a.y) : 0
+    const mix = (u, v) => (u === null || v === null ? null : u + (v - u) * t)
+    return { ...a, s: mix(a.s, b.s), y, c: mix(a.c, b.c), xl: mix(a.xl, b.xl), twist: mix(a.twist, b.twist), thickness: mix(a.thickness, b.thickness) }
+  }
+  return { atY, semiSpan }
+}
+
 // Move panel i one place inward (dir = -1) or outward (+1). Each panel keeps its own length,
 // chord, sweep, dihedral and shape; only the order changes.
 export function movePanel(panels, i, dir) {

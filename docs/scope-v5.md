@@ -60,7 +60,7 @@ Fifth round: rib generator, structure layout and DXF export. Source of truth for
 Each step lands with tests and is checked in the running app before the next.
 
 1. [x] Washout and thickness taper in the model: per-panel-end inputs, `defaultState()` migration, section at any span station (camber/thickness split for library sections), twist about the spar line. Section view shows root and tip.
-2. [ ] Lifting-line solver (`src/lib/liftingLine.js`): spanwise Cl and lift from planform, twist and per-station Clmax; validate against elliptic and rectangular closed-form results. Stall speed and stall character switch over to it.
+2. [x] Lifting-line solver (`src/lib/liftingLine.js`): spanwise Cl and lift from planform, twist and per-station Clmax; validate against elliptic and rectangular closed-form results. Stall speed and stall character switch over to it.
 3. [ ] Structure definition (`src/lib/structure.js`): spar type and position, covering, LE/TE stock, stringers, materials table. Inputs UI.
 4. [ ] Stage A loads and margins: shear, bending, margins per failure mode; suggested rib spacing and spar cap taper. Structure view with ribs and margins overlaid.
 5. [ ] Rib generation (`src/lib/ribs.js`): stations from spacing (manual, suggested, hard points), streamwise or perpendicular, skin inset, LE/TE cut-backs, spar and stringer notches, lightening holes, jig tabs, labels, tip block outline. Single-rib preview.

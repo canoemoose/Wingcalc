@@ -50,6 +50,8 @@ describe('app render', () => {
     const html = await render(s)
     expect(html).toContain('Washout at outer end')
     expect(html).toContain('2.5° washout at the tip')
+    expect(html).toContain('stalls first at')
+    expect(html).toContain('Spanwise lift at the stall')
     expect(warn).not.toHaveBeenCalled()
   })
 })
