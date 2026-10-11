@@ -178,3 +178,43 @@ export function rateGeometry({ upper125, camber, camberPos, re = null }, t = GEO
     explanation: notes.join('; ') + '.',
   }
 }
+
+// Shape parameters for the indicative lift curve, per rating: pre-stall rounding (lift
+// gained over the last 3° before the peak, as a fraction of linear) and the post-stall drop
+// per degree. Values sit inside the bands the polar method uses, so the drawn curve and
+// the rating tell the same story.
+export const INDICATIVE_SHAPE = {
+  gentle: { rounding: 0.3, dropPerDeg: 0.012 },
+  moderate: { rounding: 0.4, dropPerDeg: 0.05 },
+  sharp: { rounding: 0.55, dropPerDeg: 0.12 },
+}
+
+// An illustrative lift curve for a section with no polar data: linear from the zero-lift
+// angle at the given slope, rounding over to clMax, then falling away as the stall rating
+// suggests. It is a picture of the rating, not computed aerodynamics, and is labelled so.
+export function indicativePolar({ clMax, alphaL0, slopePerDeg, rating }) {
+  const { rounding, dropPerDeg } = INDICATIVE_SHAPE[rating] ?? INDICATIVE_SHAPE.moderate
+  const gain = rounding * 3 * slopePerDeg // lift gained over the last 3° before the peak
+  const roundStart = alphaL0 + (clMax - gain) / slopePerDeg
+  const alphaClMax = roundStart + 3
+  const clAtStart = clMax - gain
+  const alpha = []
+  const cl = []
+  const end = alphaClMax + 6
+  for (let a = Math.min(-4, alphaL0 - 1); a <= end + 1e-9; a += 0.25) {
+    let c
+    if (a <= roundStart) c = slopePerDeg * (a - alphaL0)
+    else if (a <= alphaClMax) {
+      const t = (a - roundStart) / 3
+      c = clAtStart + gain * (2 * t - t * t)
+    } else {
+      // Full drop rate for 2°, then a gentler decline towards a post-stall plateau
+      const d = a - alphaClMax
+      const fall = dropPerDeg * Math.min(d, 2) + (dropPerDeg / 3) * Math.max(0, d - 2)
+      c = clMax * Math.max(0.5, 1 - fall)
+    }
+    alpha.push(Number(a.toFixed(2)))
+    cl.push(Number(c.toFixed(4)))
+  }
+  return { alpha, cl, alphaClMax, clMax, indicative: true }
+}

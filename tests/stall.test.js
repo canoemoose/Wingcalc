@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { analysePolar, ratePolar, rateGeometry, POLAR_THRESHOLDS } from '../src/lib/stall.js'
+import { analysePolar, ratePolar, rateGeometry, indicativePolar, POLAR_THRESHOLDS } from '../src/lib/stall.js'
 
 // Synthetic polar: linear lift curve (0.1 per degree from zero lift at -2°) up to a peak,
 // optionally rounded over before it, then falling at a set fraction of Clmax per degree.
@@ -103,5 +103,29 @@ describe('geometry stall heuristic', () => {
     const r = rateGeometry({ ...base, upper125: 0.019 })
     expect(r.confidence).toBe('low')
     expect(r.explanation).toMatch(/1\.25% chord/)
+  })
+})
+
+describe('indicative lift curve', () => {
+  const base = { clMax: 1.2, alphaL0: -2, slopePerDeg: 0.11 }
+
+  it('peaks at Clmax and passes through zero lift at the zero-lift angle', () => {
+    const p = indicativePolar({ ...base, rating: 'moderate' })
+    expect(Math.max(...p.cl)).toBeCloseTo(1.2, 2)
+    expect(p.cl[p.alpha.indexOf(-2)]).toBeCloseTo(0, 6)
+  })
+
+  it('tells the same story as the polar method would', () => {
+    // Rating the drawn curve with the polar method gives back the rating it was drawn from.
+    for (const rating of ['gentle', 'moderate', 'sharp']) {
+      expect(ratePolar(indicativePolar({ ...base, rating })).rating, rating).toBe(rating)
+    }
+  })
+
+  it('stalls later and falls further for a sharp rating than a gentle one', () => {
+    const g = indicativePolar({ ...base, rating: 'gentle' })
+    const s = indicativePolar({ ...base, rating: 'sharp' })
+    const after = (p) => p.cl[p.alpha.findIndex((a) => a >= p.alphaClMax + 2)]
+    expect(after(s)).toBeLessThan(after(g))
   })
 })

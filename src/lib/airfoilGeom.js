@@ -251,3 +251,30 @@ export function decimate(coords, n = 90) {
   for (let i = 0; i < n; i++) keep.add(Math.round(i * step))
   return [...keep].sort((a, b) => a - b).map((i) => coords[i])
 }
+
+// Zero-lift angle of attack (degrees) from thin-aerofoil theory, using the mean line
+// measured from the coordinates:  αL0 = -(1/π) ∫₀^π (dyc/dx)(cos θ - 1) dθ,  x = (1 - cos θ)/2.
+// Accurate to a fraction of a degree for ordinary sections (NACA 2412 gives about -2.1°).
+export function zeroLiftAngle(coords, n = 200) {
+  const { upper, lower } = splitSurfaces(coords)
+  const yc = (x) => (interp(upper, x) + interp(lower, x)) / 2
+  const h = 1e-3
+  let sum = 0
+  for (let i = 0; i < n; i++) {
+    const th = (Math.PI * (i + 0.5)) / n
+    const x = (1 - Math.cos(th)) / 2
+    const x0 = Math.max(0, x - h)
+    const x1 = Math.min(1, x + h)
+    const slope = (yc(x1) - yc(x0)) / (x1 - x0)
+    sum += slope * (Math.cos(th) - 1)
+  }
+  const rad = -(sum * (Math.PI / n)) / Math.PI
+  return (rad * 180) / Math.PI
+}
+
+// Unpack integer-packed coordinates (see scripts/fetch-airfoils.mjs).
+export function unpack(pts, scale = 10000) {
+  const out = []
+  for (let i = 0; i + 1 < pts.length; i += 2) out.push([pts[i] / scale, pts[i + 1] / scale])
+  return out
+}

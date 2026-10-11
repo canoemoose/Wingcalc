@@ -7,6 +7,11 @@ import {
   sectionClMaxAt,
   resolveAirfoil,
   airfoilPerformance,
+  loadCatalogue,
+  catalogueFor,
+  libraryCalibration,
+  estimateClMax,
+  UIUC_PREFIX,
 } from '../src/lib/airfoils.js'
 import { stallSpeed, reynolds, WING_CLMAX_FACTOR } from '../src/lib/calc.js'
 
@@ -37,7 +42,7 @@ describe('bundled aerofoil data', () => {
       expect(s.thicknessPct, s.id).toBeLessThan(25)
       expect(s.leRadiusPct, s.id).toBeGreaterThan(0.2)
       expect(s.leRadiusPct, s.id).toBeLessThan(5)
-      expect(s.coords.length).toBeGreaterThan(30)
+      expect(s.coords.length, s.id).toBeGreaterThan(20) // RAF 6 is a coarse historic table of 25 points
     }
   })
 
@@ -85,5 +90,60 @@ describe('airfoil performance', () => {
     expect(perf.stallSpeed).toBeCloseTo(stallSpeed(wing.mass, wing.area, 1.2 * WING_CLMAX_FACTOR), 12)
     expect(perf.stall.method).toBe('geometry')
     expect(perf.polar).toBeNull()
+  })
+})
+
+describe('UIUC catalogue', async () => {
+  const uiuc = await loadCatalogue()
+
+  it('holds the full database, classified into families', () => {
+    expect(uiuc.sections.length).toBeGreaterThan(1500)
+    const fam = (f) => uiuc.sections.filter((s) => s.family === f).length
+    expect(fam('naca')).toBeGreaterThan(100)
+    expect(fam('eppler')).toBeGreaterThan(150)
+    expect(fam('other')).toBeGreaterThan(1000)
+  })
+
+  it('lists polar-backed sections first and never twice', () => {
+    const list = catalogueFor('naca', uiuc)
+    const firstNoPolar = list.findIndex((e) => !e.hasPolar)
+    expect(list.slice(0, firstNoPolar).every((e) => e.hasPolar)).toBe(true)
+    expect(list.slice(firstNoPolar).every((e) => !e.hasPolar)).toBe(true)
+    expect(list.some((e) => e.key === `${UIUC_PREFIX}naca2412`)).toBe(false) // covered by the polar library
+    expect(new Set(list.map((e) => e.key)).size).toBe(list.length)
+  })
+
+  it('estimates Clmax and draws an indicative curve for a coordinates-only section', () => {
+    const entry = catalogueFor('other', uiuc).find((e) => !e.hasPolar)
+    const a = resolveAirfoil({ source: 'other', id: entry.key, clMaxOverride: null }, uiuc)
+    const perf = airfoilPerformance(a, { mass: 1.4, area: 0.3, chord: 0.22 })
+    expect(perf.clMaxSource).toBe('estimated')
+    expect(perf.curve.indicative).toBe(true)
+    expect(perf.stall.method).toBe('geometry')
+
+    const overridden = airfoilPerformance({ ...a, clMaxOverride: 1.5 }, { mass: 1.4, area: 0.3, chord: 0.22 })
+    expect(overridden.sectionClMax).toBe(1.5)
+    expect(overridden.clMaxSource).toBe('entered')
+  })
+})
+
+describe('Clmax estimate for sections without polars', () => {
+  it('fits the polar library to within about 0.2 Clmax at every Reynolds number', () => {
+    for (const c of libraryCalibration()) expect(c.rms, `Re ${c.re}`).toBeLessThan(0.2)
+  })
+
+  it('lands close to the real value for well-known sections', () => {
+    for (const id of ['clarky-il', 'naca2412-il', 'n0012-il']) {
+      const s = findSection(id)
+      expect(Math.abs(estimateClMax(s, 150000) - sectionClMaxAt(s, 150000)), id).toBeLessThan(0.15)
+    }
+  })
+
+  it('applies a Clmax factor for sweep', () => {
+    const a = resolveAirfoil({ source: 'naca', id: 'naca2412-il' })
+    const wing = { mass: 1.4, area: 0.301, chord: 0.217 }
+    const swept = airfoilPerformance(a, { ...wing, clMaxFactor: 0.9 * Math.cos(Math.PI / 6) })
+    const straight = airfoilPerformance(a, wing)
+    expect(swept.stallSpeed).toBeGreaterThan(straight.stallSpeed)
   })
 })

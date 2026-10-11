@@ -1,6 +1,10 @@
 // Core calculations. All inputs and outputs are SI base units (m, m², kg, m/s)
 // unless the name says otherwise.
 
+import { panelWingGeometry, panelAngle } from './wing.js'
+
+export { panelAngle }
+
 export const G = 9.80665 // m/s²
 export const RHO_SEA_LEVEL = 1.225 // kg/m³, ISA sea level
 export const NU_SEA_LEVEL = 1.4607e-5 // m²/s, ISA sea-level kinematic viscosity
@@ -14,9 +18,9 @@ export const SPAN_MIN = 0.6 // m
 export const SPAN_MAX = 3.0 // m
 
 // Planform from one of four entry modes:
-//   'panels' – root chord plus one or more panels per side, each with its length (measured
-//              flat along the panel), outer chord and dihedral (see panelAngle). Covers
-//              straight, tapered, dihedral and polyhedral wings.
+//   'panels' – optional fuselage width, root chord, then one or more panels per side, each
+//              with length, outer chord, sweep, dihedral and straight or curved edges.
+//              See src/lib/wing.js.
 //   'chords' – span, root and tip chord (a single flat, straight-tapered panel)
 //   'mean'   – span and mean chord
 //   'area'   – span and area entered directly
@@ -25,7 +29,7 @@ export const SPAN_MAX = 3.0 // m
 // used for wing and cube loading. `projectedArea` is the area seen from above; it is what
 // supports the weight (each panel's lift tilts inwards by its dihedral angle), so it is
 // used for stall speed. `span` is the projected tip-to-tip span.
-export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area, panels }) {
+export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area, panels, fuselageWidth = 0 }) {
   if (mode === 'chords') {
     return wingGeometry({
       mode: 'panels',
@@ -47,7 +51,7 @@ export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area,
     stations: null,
     hasDihedral: false,
   }
-  if (mode === 'panels') return panelGeometry(g, rootChord, panels)
+  if (mode === 'panels') return panelWingGeometry({ fuselageWidth, rootChord, panels })
   if (!(span > 0)) return g
   if (mode === 'mean') {
     if (!(meanChord > 0)) return g
@@ -60,68 +64,23 @@ export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area,
   } else return g
   g.flatSpan = span
   g.projectedArea = g.area
+  g.exposedArea = g.area
   g.mac = g.meanChord
   g.macY = span / 4
+  g.macX = 0
+  g.sweepQuarter = 0
+  g.fuselageHalf = 0
+  g.outline = [
+    [0, 0],
+    [span / 2, 0],
+    [span / 2, g.meanChord],
+    [0, g.meanChord],
+  ]
   g.aspectRatio = (span * span) / g.area
   g.stations = [
     { y: 0, z: 0, c: g.meanChord },
     { y: span / 2, z: 0, c: g.meanChord },
   ]
-  return g
-}
-
-// A panel's dihedral, in radians. It is given either as an angle to the horizontal
-// (`dihedral`, degrees) or as `rise`: how far the outer end sits above the inner end with
-// the wing level. Returns null if the rise is longer than the panel itself.
-export function panelAngle(p) {
-  if (Number.isFinite(p.rise)) {
-    if (!(p.length > 0) || Math.abs(p.rise) > p.length) return null
-    return Math.asin(p.rise / p.length)
-  }
-  return Number.isFinite(p.dihedral) ? (p.dihedral * Math.PI) / 180 : null
-}
-
-function panelGeometry(g, rootChord, panels) {
-  if (!(rootChord > 0) || !panels?.length) return g
-  if (!panels.every((p) => p.length > 0 && p.tipChord >= 0 && panelAngle(p) !== null)) return g
-  // Integrate over one half-wing, panel by panel, in both flat and projected coordinates.
-  const stations = [{ y: 0, z: 0, c: rootChord }]
-  let flatHalf = 0
-  let projHalf = 0
-  let flatLen = 0
-  let c2Integral = 0 // ∫ c² dy (projected)
-  let cyIntegral = 0 // ∫ c y dy (projected)
-  let y = 0
-  let z = 0
-  let c0 = rootChord
-  for (const p of panels) {
-    const rad = panelAngle(p)
-    const L = p.length * Math.cos(rad) // projected width of the panel
-    const c1 = p.tipChord
-    const trap = ((c0 + c1) / 2)
-    flatHalf += p.length * trap
-    projHalf += L * trap
-    c2Integral += (L * (c0 * c0 + c0 * c1 + c1 * c1)) / 3
-    const dc = c1 - c0
-    cyIntegral += L * (c0 * y + (c0 * L) / 2 + (dc * y) / 2 + (dc * L) / 3)
-    flatLen += p.length
-    y += L
-    z += p.length * Math.sin(rad)
-    c0 = c1
-    stations.push({ y, z, c: c1 })
-    if (rad !== 0) g.hasDihedral = true
-  }
-  g.span = 2 * y
-  g.flatSpan = 2 * flatLen
-  g.rootChord = rootChord
-  g.tipChord = c0
-  g.area = 2 * flatHalf
-  g.projectedArea = 2 * projHalf
-  g.meanChord = g.area / g.flatSpan
-  g.mac = projHalf > 0 ? c2Integral / projHalf : null
-  g.macY = projHalf > 0 ? cyIntegral / projHalf : null
-  g.aspectRatio = g.projectedArea > 0 ? (g.span * g.span) / g.projectedArea : null
-  g.stations = stations
   return g
 }
 
@@ -186,6 +145,12 @@ export function validate({ mass, geometry, panels = null }) {
   }
   if (mass > 0 && (mass < 0.05 || mass > 25)) {
     out.push({ field: 'mass', message: 'All-up weight looks unusual for an RC model (expected 50 g to 25 kg).' })
+  }
+  if (geometry.invalid === 'edges-cross') {
+    out.push({
+      field: 'edges',
+      message: 'A curved edge crosses the opposite edge of its panel. Reduce the curve or widen the chord.',
+    })
   }
   // Chord growing outboard is unusual enough to be worth a check.
   stations?.forEach((s, i) => {

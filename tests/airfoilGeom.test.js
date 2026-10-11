@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateSection, sectionStats, nacaLeRadius, thicknessForm, decimate } from '../src/lib/airfoilGeom.js'
+import { generateSection, sectionStats, nacaLeRadius, thicknessForm, decimate, zeroLiftAngle, unpack } from '../src/lib/airfoilGeom.js'
 
 const naca = (t, m = 0, p = 0.4) => ({
   thickness: t,
@@ -66,5 +66,23 @@ describe('section measurement', () => {
     expect(d[0]).toEqual(coords[0])
     expect(d.at(-1)).toEqual(coords.at(-1))
     expect(d.some(([x]) => x === 0)).toBe(true)
+  })
+})
+
+describe('zero-lift angle', () => {
+  it('matches thin-aerofoil theory for NACA four-digit mean lines', () => {
+    // Analytic values: NACA 2412 -2.08°, 4412 -4.15°
+    const at = (m) => zeroLiftAngle(generateSection(naca(0.12, m), 120).coords)
+    expect(Math.abs(at(0.02) + 2.08)).toBeLessThan(0.1)
+    expect(Math.abs(at(0.04) + 4.15)).toBeLessThan(0.1)
+    expect(at(0)).toBeCloseTo(0, 6)
+  })
+
+  it('unpacks integer-packed coordinates', () => {
+    expect(unpack([10000, 0, 5000, 120, 0, 0])).toEqual([
+      [1, 0],
+      [0.5, 0.012],
+      [0, 0],
+    ])
   })
 })
