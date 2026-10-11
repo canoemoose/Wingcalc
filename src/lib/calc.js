@@ -146,10 +146,21 @@ export function validate({ mass, geometry, panels = null }) {
   if (mass > 0 && (mass < 0.05 || mass > 25)) {
     out.push({ field: 'mass', message: 'All-up weight looks unusual for an RC model (expected 50 g to 25 kg).' })
   }
-  if (geometry.invalid === 'stations') {
+  // Stations that can't be used are skipped (the panel still draws); say which and why.
+  const WHY = {
+    inner: 'is at or before the inner end',
+    'on-tip': 'sits on the tip',
+    beyond: 'is beyond the tip',
+    chord: 'has no chord',
+    duplicate: 'is at the same place as another station',
+  }
+  // Blank stations are just not filled in yet, which isn't worth a warning.
+  for (const ig of (geometry.ignoredStations ?? []).filter((x) => x.reason !== 'incomplete')) {
+    const order = [...(panels?.[ig.panel]?.stations ?? [])].sort((a, b) => (a.d ?? 0) - (b.d ?? 0))
+    const n = order.findIndex((st) => st.id === ig.id) + 1
     out.push({
-      field: 'stations',
-      message: 'A chord station is outside its panel, or two stations share a position. Check the station distances.',
+      field: `station-${ig.panel}-${ig.id}`,
+      message: `Panel ${ig.panel + 1}, station ${n || '?'} ${WHY[ig.reason] ?? 'is unusable'}, so it's ignored.`,
     })
   }
   if (geometry.invalid === 'edges-cross') {

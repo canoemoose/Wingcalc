@@ -16,10 +16,17 @@
 //   le, te    null for a straight edge, or { u, d } for a quadratic Bézier curve whose control
 //             point sits at fraction u of the panel's length, offset d (m, + aft) from the
 //             straight edge there. Stored relative so the curve survives resizing.
-//   stations  null, or a list of { id, d, chord, le }: chords dimensioned at distance d from
-//             the panel's inner end, with their leading edge set back `le` from the panel's
-//             inner leading edge. When present, both edges run smoothly through the stations
-//             (monotone cubic interpolation) and `le`/`te` are ignored.
+//   stations  null, or a list of { id, d, chord, le, straightIn }: chords dimensioned at
+//             distance d from the panel's inner end, with their leading edge set back `le`
+//             from the panel's inner leading edge. When present, both edges run smoothly
+//             through the stations (monotone cubic interpolation) and `le`/`te` are ignored.
+//             straightIn makes the segment from the previous station (or the panel's inner
+//             end) to this one straight, for a faceted outline; straightToTip on the panel
+//             does the same for the last segment.
+//   straightLine  with stations: null, or the chord fraction (0 = leading edge, 1 = trailing
+//             edge, 0.25 = quarter-chord) of a line kept straight from end to end. Stations
+//             then set only their chord; `le` is ignored and the edges lie either side of the
+//             straight line in proportion.
 //
 // The tip (wing-level, optional): { extension, peak } adds a rounded cap beyond the last
 // panel, reaching `extension` further out at fraction `peak` of the tip chord. It is made of
@@ -58,7 +65,9 @@ export function edgeX(x0, x1, curve, f) {
 
 // Monotone piecewise cubic (Fritsch–Carlson PCHIP) through points xs (increasing), ys.
 // Smooth, and never overshoots between points, so a wing edge can't bulge past a station.
-export function pchip(xs, ys) {
+// straight[i] makes segment i (xs[i] to xs[i+1]) a straight line instead; a curved segment
+// next to a straight one leaves along the straight one's direction, so the join has no kink.
+export function pchip(xs, ys, straight = []) {
   const n = xs.length
   if (n === 1) return () => ys[0]
   const h = []
@@ -88,10 +97,18 @@ export function pchip(xs, ys) {
       }
     }
   }
+  // Tangent continuity into and out of straight segments.
+  for (let i = 0; i < n; i++) {
+    const before = i > 0 && straight[i - 1]
+    const after = i < n - 1 && straight[i]
+    if (before && !after) m[i] = del[i - 1]
+    else if (after && !before) m[i] = del[i]
+  }
   return (x) => {
     let i = 0
     while (i < n - 2 && x > xs[i + 1]) i++
     const t = (x - xs[i]) / h[i]
+    if (straight[i]) return ys[i] + t * (ys[i + 1] - ys[i])
     const t2 = t * t
     const t3 = t2 * t
     return (
@@ -103,16 +120,37 @@ export function pchip(xs, ys) {
   }
 }
 
-// Stations sorted by distance, or null if any is out of the panel or unusable.
-function sortedStations(panel) {
+// Stations in table order: by distance, with blank (not yet filled in) ones at the end.
+export function stationOrder(stations) {
+  const key = (st) => (Number.isFinite(st.d) ? st.d : Infinity)
+  return [...(stations ?? [])].sort((a, b) => key(a) - key(b) || (a.id ?? 0) - (b.id ?? 0))
+}
+
+// Sort a panel's stations by distance and set aside any that can't be used, with the
+// reason, so the rest of the panel still draws: not filled in yet, before the inner end,
+// on or beyond the tip, or at the same place as another station. A blank leading-edge
+// set-back is fine: the station takes its leading edge from the line through its neighbours.
+const STATION_EPS = 1e-6
+export function checkStations(panel) {
   const L = panel.length
-  const list = [...panel.stations].sort((a, b) => a.d - b.d)
-  for (let i = 0; i < list.length; i++) {
-    const st = list[i]
-    if (!(st.d > 0 && st.d < L) || !(st.chord >= 0) || !Number.isFinite(st.le)) return null
-    if (i > 0 && st.d - list[i - 1].d < 1e-6) return null
+  const valid = []
+  const ignored = []
+  for (const st of stationOrder(panel.stations)) {
+    let reason = null
+    if (!Number.isFinite(st.d) || !Number.isFinite(st.chord)) reason = 'incomplete'
+    else if (st.d <= STATION_EPS) reason = 'inner'
+    else if (Math.abs(st.d - L) <= STATION_EPS) reason = 'on-tip'
+    else if (st.d > L) reason = 'beyond'
+    else if (st.chord < 0) reason = 'chord'
+    else if (valid.length && st.d - valid.at(-1).d <= STATION_EPS) reason = 'duplicate'
+    if (reason) ignored.push({ id: st.id, d: st.d, reason })
+    else valid.push(st)
   }
-  return list
+  return { valid, ignored }
+}
+
+function sortedStations(panel) {
+  return checkStations(panel).valid
 }
 
 // Edge functions of a panel: le(f) and te(f) give the chordwise positions of the leading and
@@ -121,17 +159,46 @@ export function panelEdges(inner, outer, panel) {
   if (!(panel.length > 0) || !(panel.tipChord >= 0)) return null
   if (Array.isArray(panel.stations)) {
     const list = sortedStations(panel)
-    if (!list) return null
     const fs = [0, ...list.map((st) => st.d / panel.length), 1]
-    const les = [inner.x, ...list.map((st) => inner.x + st.le), outer.x]
-    const tes = [inner.x + inner.c, ...list.map((st) => inner.x + st.le + st.chord), outer.x + outer.c]
-    return { le: pchip(fs, les), te: pchip(fs, tes) }
+    const straight = [...list.map((st) => !!st.straightIn), !!panel.straightToTip]
+    if (Number.isFinite(panel.straightLine)) {
+      // A chord line kept straight: interpolate the chord, and hang the edges either side of
+      // the line in proportion.
+      const at = Math.min(1, Math.max(0, panel.straightLine))
+      const chord = pchip(fs, [inner.c, ...list.map((st) => st.chord), outer.c], straight)
+      const r0 = inner.x + at * inner.c
+      const r1 = outer.x + at * outer.c
+      const le = (f) => r0 + (r1 - r0) * f - at * chord(f)
+      return { le, te: (f) => le(f) + chord(f) }
+    }
+    // Stations with a blank set-back take their leading edge from the line through the
+    // stations that have one (and the panel ends).
+    const withLe = list.filter((st) => Number.isFinite(st.le))
+    const autoLe = pchip(
+      [0, ...withLe.map((st) => st.d / panel.length), 1],
+      [inner.x, ...withLe.map((st) => inner.x + st.le), outer.x],
+    )
+    const leOf = (st) => (Number.isFinite(st.le) ? inner.x + st.le : autoLe(st.d / panel.length))
+    const les = [inner.x, ...list.map(leOf), outer.x]
+    const tes = [inner.x + inner.c, ...list.map((st) => leOf(st) + st.chord), outer.x + outer.c]
+    return { le: pchip(fs, les, straight), te: pchip(fs, tes, straight) }
   }
   if (!validCurve(panel.le) || !validCurve(panel.te)) return null
   return {
     le: (f) => edgeX(inner.x, outer.x, panel.le, f),
     te: (f) => edgeX(inner.x + inner.c, outer.x + outer.c, panel.te, f),
   }
+}
+
+// Spanwise fractions at which to sample a panel: evenly spaced, plus every station, so
+// corners between straight segments are hit exactly. Excludes 0.
+export function sampleFractions(panel, n = SAMPLES) {
+  const fs = []
+  for (let i = 1; i <= n; i++) fs.push(i / n)
+  if (Array.isArray(panel.stations) && panel.length > 0) {
+    for (const st of checkStations(panel).valid) fs.push(st.d / panel.length)
+  }
+  return [...new Set(fs)].sort((a, b) => a - b)
 }
 
 export function panelMode(panel) {
@@ -195,6 +262,7 @@ export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels, tip = 
     fuselageHalf: 0,
     hasDihedral: false,
     invalid: null,
+    ignoredStations: [], // { panel, id, d, reason }
   }
   const half = Math.max(0, fuselageWidth || 0) / 2
   if (!(rootChord > 0) || !panels?.length) return g
@@ -206,15 +274,15 @@ export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels, tip = 
   const samples = [{ y: 0, xl: 0, c: rootChord }]
   if (half > 0) samples.push({ y: half, xl: 0, c: rootChord })
   const ends = panelEnds({ fuselageWidth, rootChord, panels })
-  for (const { inner, outer, rad, panel } of ends) {
+  for (const end of ends) {
+    const { inner, outer, rad, panel } = end
     if (rad !== 0) g.hasDihedral = true
     const edges = panelEdges(inner, outer, panel)
-    if (!edges) {
-      g.invalid = Array.isArray(panel.stations) ? 'stations' : null
-      return g
+    if (!edges) return g
+    if (Array.isArray(panel.stations)) {
+      for (const ig of checkStations(panel).ignored) g.ignoredStations.push({ panel: ends.indexOf(end), ...ig })
     }
-    for (let i = 1; i <= SAMPLES; i++) {
-      const f = i / SAMPLES
+    for (const f of sampleFractions(panel)) {
       const xl = edges.le(f)
       samples.push({ y: inner.y + (outer.y - inner.y) * f, xl, c: edges.te(f) - xl, cos: Math.cos(rad) })
     }
@@ -315,8 +383,7 @@ export function flatPanels({ fuselageWidth = 0, rootChord, panels, tip = null },
     const te = []
     const edges = panelEdges(inner, outer, panel)
     if (edges) {
-      for (let k = 0; k <= samples; k++) {
-        const f = k / samples
+      for (const f of [0, ...sampleFractions(panel, samples)]) {
         const s = inner.s + (outer.s - inner.s) * f
         le.push([s, edges.le(f)])
         te.push([s, edges.te(f)])
@@ -360,9 +427,10 @@ export function keyPoints(wing) {
     const id = p.panel.id ?? p.index
     pts.push({ id: `p${id}.le`, s: p.outer.s, x: p.outer.x }, { id: `p${id}.te`, s: p.outer.s, x: p.outer.x + p.outer.c })
     if (p.edges && Array.isArray(p.panel.stations)) {
-      for (const st of p.panel.stations) {
+      for (const st of checkStations(p.panel).valid) {
         const s = p.inner.s + st.d
-        pts.push({ id: `p${id}.s${st.id}.le`, s, x: p.inner.x + st.le }, { id: `p${id}.s${st.id}.te`, s, x: p.inner.x + st.le + st.chord })
+        const f = st.d / p.panel.length
+        pts.push({ id: `p${id}.s${st.id}.le`, s, x: p.edges.le(f) }, { id: `p${id}.s${st.id}.te`, s, x: p.edges.te(f) })
       }
     }
   }
@@ -432,28 +500,80 @@ export function setPanelMode(wing, i, mode) {
   if (mode === 'stations') {
     const fs = panel.le || panel.te ? [0.25, 0.5, 0.75] : [0.5]
     const stations = fs.map((f, k) => ({ id: k + 1, ...stationOn(inner, outer, { ...panel, stations: null }, f * panel.length) }))
-    next = { ...panel, stations }
+    // A panel with only one curved edge keeps the other one straight.
+    const straightLine = panel.le && !panel.te ? 1 : panel.te && !panel.le ? 0 : null
+    next = { ...panel, stations, straightLine, straightToTip: false }
   } else if (mode === 'curves') {
     next = { ...panel, stations: null, le: panel.le ?? { u: 0.5, d: -0.15 * Math.max(panel.tipChord || 0, 0.05) }, te: panel.te ?? null }
   } else {
     next = { ...panel, stations: null, le: null, te: null }
   }
+  if (mode !== 'stations') {
+    delete next.straightLine
+    delete next.straightToTip
+  }
   return wing.panels.map((p, j) => (j === i ? next : p))
+}
+
+// Add a blank station at the end of the list (just before the tip), ready to fill in.
+export function addBlankStation(panels, i) {
+  return panels.map((p, j) =>
+    j === i ? { ...p, stations: [...(p.stations ?? []), { id: nextId(p.stations ?? []), d: null, chord: null, le: null }] } : p,
+  )
 }
 
 // Add a station in the middle of the largest gap, placed on the current shape.
 export function addStation(wing, i) {
   const ends = panelEnds(wing)
   const { inner, outer, panel } = ends[i]
-  const ds = [0, ...(panel.stations ?? []).map((st) => st.d).sort((a, b) => a - b), panel.length]
+  const sorted = checkStations(panel).valid
+  const ds = [0, ...sorted.map((st) => st.d), panel.length]
   let at = panel.length / 2
   let gap = 0
+  let seg = 0
   for (let k = 1; k < ds.length; k++) {
     if (ds[k] - ds[k - 1] > gap) {
       gap = ds[k] - ds[k - 1]
       at = (ds[k] + ds[k - 1]) / 2
+      seg = k - 1
     }
   }
-  const station = { id: nextId(panel.stations ?? []), ...stationOn(inner, outer, panel, at) }
+  // Splitting a straight segment leaves both halves straight, so the outline doesn't change.
+  const segStraight = seg < sorted.length ? !!sorted[seg].straightIn : !!panel.straightToTip
+  const station = { id: nextId(panel.stations ?? []), ...stationOn(inner, outer, panel, at), straightIn: segStraight }
   return wing.panels.map((p, j) => (j === i ? { ...p, stations: [...(p.stations ?? []), station] } : p))
+}
+
+// Insert a new panel after panel i (i = -1 inserts at the root). It has a constant chord
+// equal to the chord where it goes in, continues the leading-edge line and dihedral of the
+// panel before it, and the panels outboard keep their own shape; the wing gets longer.
+export function insertPanel(panels, i, rootChord) {
+  const before = i >= 0 ? panels[i] : null
+  const chord = before ? before.tipChord : rootChord
+  const ref = before ?? panels[0]
+  const len = Math.max(0.05, Math.round(((ref?.length || 0.25) * 0.3) / 0.005) * 0.005)
+  const slope = ref?.length > 0 ? (ref.sweep || 0) / ref.length : 0
+  const scale = ref?.length > 0 ? len / ref.length : 0
+  const tilt = ref && 'rise' in ref ? { rise: Number.isFinite(ref.rise) ? ref.rise * scale : 0 } : { dihedral: ref?.dihedral ?? 0 }
+  const panel = {
+    id: nextId(panels),
+    length: len,
+    tipChord: Math.max(0, chord || 0),
+    sweep: before ? slope * len : 0,
+    ...tilt,
+    le: null,
+    te: null,
+    stations: null,
+  }
+  return [...panels.slice(0, i + 1), panel, ...panels.slice(i + 1)]
+}
+
+// Move panel i one place inward (dir = -1) or outward (+1). Each panel keeps its own length,
+// chord, sweep, dihedral and shape; only the order changes.
+export function movePanel(panels, i, dir) {
+  const j = i + dir
+  if (j < 0 || j >= panels.length) return panels
+  const out = [...panels]
+  ;[out[i], out[j]] = [out[j], out[i]]
+  return out
 }

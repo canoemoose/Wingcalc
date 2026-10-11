@@ -229,3 +229,22 @@ describe('validation', () => {
     expect(validate({ mass: 1, geometry: geom({ tipChord: 0.3 }) }).map((w) => w.field)).toContain('panel-0')
   })
 })
+
+describe('station warnings', () => {
+  it('names the panel, the station and the reason', () => {
+    const panels = [{ id: 1, length: 0.5, tipChord: 0.2, dihedral: 0, stations: [{ id: 9, d: 0.7, chord: 0.2, le: 0 }] }]
+    const geometry = wingGeometry({ mode: 'panels', rootChord: 0.2, panels })
+    expect(geometry.area).not.toBeNull()
+    const w = validate({ mass: 1, geometry, panels })
+    expect(w.map((x) => x.message)).toContain("Panel 1, station 1 is beyond the tip, so it's ignored.")
+    expect(w.map((x) => x.field)).toContain('station-0-9')
+  })
+})
+
+describe('blank station warnings', () => {
+  it("doesn't warn about a station that just isn't filled in yet", () => {
+    const panels = [{ id: 1, length: 0.5, tipChord: 0.2, dihedral: 0, stations: [{ id: 1, d: null, chord: null, le: null }] }]
+    const geometry = wingGeometry({ mode: 'panels', rootChord: 0.2, panels })
+    expect(validate({ mass: 1, geometry, panels })).toEqual([])
+  })
+})

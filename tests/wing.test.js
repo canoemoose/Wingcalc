@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { panelWingGeometry, edgeX, panelEnds, pchip, flatPanels, setPanelMode, addStation, panelMode, keyPoints } from '../src/lib/wing.js'
+import { panelWingGeometry, edgeX, panelEnds, pchip, flatPanels, setPanelMode, addStation, panelMode, keyPoints, insertPanel, movePanel, stationOrder, addBlankStation } from '../src/lib/wing.js'
 
 const rect = (o = {}) => ({ length: 0.5, tipChord: 0.2, dihedral: 0, ...o })
 
@@ -131,10 +131,24 @@ describe('chord stations', () => {
     expect(edges.te(0.4) - edges.le(0.4)).toBeCloseTo(0.22, 12)
   })
 
-  it('rejects a station outside the panel', () => {
-    const g = panelWingGeometry(wing([{ id: 1, d: 0.6, chord: 0.1, le: 0 }]))
-    expect(g.area).toBeNull()
-    expect(g.invalid).toBe('stations')
+  it('skips unusable stations, still draws the panel, and says why', () => {
+    const straight = panelWingGeometry(wing(null))
+    const g = panelWingGeometry(
+      wing([
+        { id: 1, d: 0.6, chord: 0.1, le: 0 },
+        { id: 2, d: 0.5, chord: 0.1, le: 0 },
+        { id: 3, d: 0.25, chord: 0.15, le: 0 },
+        { id: 4, d: 0.25, chord: 0.15, le: 0 },
+        { id: 5, d: 0, chord: 0.15, le: 0 },
+      ]),
+    )
+    expect(g.area).toBeCloseTo(straight.area, 10)
+    expect(Object.fromEntries(g.ignoredStations.map((x) => [x.id, x.reason]))).toEqual({
+      1: 'beyond',
+      2: 'on-tip',
+      4: 'duplicate',
+      5: 'inner',
+    })
   })
 
   it('adds stations on the current shape and switches modes without changing it much', () => {
@@ -182,5 +196,128 @@ describe('key points', () => {
       tip: { extension: 0.05, peak: 0.4 },
     }).map((p) => p.id)
     expect(ids).toEqual(expect.arrayContaining(['c.le', 'c.te', 'f.le', 'f.te', 'p7.le', 'p7.te', 'p7.s2.le', 'p7.s2.te', 'tip']))
+  })
+})
+
+describe('straight segments and straight lines', () => {
+  it('draws a straight segment as a straight line and keeps the join smooth', () => {
+    const f = pchip([0, 0.5, 1], [0, 0.1, 0.12], [true, false])
+    expect(f(0.25)).toBeCloseTo(0.05, 12)
+    // The curved segment leaves along the straight one's slope (0.2 per unit)
+    const h = 1e-6
+    expect((f(0.5 + h) - f(0.5)) / h).toBeCloseTo(0.2, 4)
+  })
+
+  it('makes a fully faceted panel whose area is the sum of trapezoids', () => {
+    const stations = [
+      { id: 1, d: 0.2, chord: 0.18, le: 0.01, straightIn: true },
+      { id: 2, d: 0.4, chord: 0.12, le: 0.03, straightIn: true },
+    ]
+    const g = panelWingGeometry({ rootChord: 0.2, panels: [rect({ tipChord: 0.06, stations, straightToTip: true })] })
+    const trap = 0.2 * (0.2 + 0.18) / 2 + 0.2 * (0.18 + 0.12) / 2 + 0.1 * (0.12 + 0.06) / 2
+    expect(g.area).toBeCloseTo(2 * trap, 10)
+  })
+
+  it('keeps the leading edge straight when asked, using stations for chord only', () => {
+    const w = {
+      rootChord: 0.2,
+      panels: [rect({ tipChord: 0.1, sweep: 0.05, straightLine: 0, stations: [{ id: 1, d: 0.25, chord: 0.19, le: 0.5 }] })],
+    }
+    const { panels } = flatPanels(w)
+    const e = panels[0].edges
+    // LE runs straight from 0 to the 0.05 sweep, ignoring the station's set-back
+    expect(e.le(0.5)).toBeCloseTo(0.025, 12)
+    expect(e.te(0.5) - e.le(0.5)).toBeCloseTo(0.19, 12)
+  })
+
+  it('keeps a quarter-chord line straight', () => {
+    const w = { rootChord: 0.2, panels: [rect({ tipChord: 0.1, straightLine: 0.25, stations: [{ id: 1, d: 0.25, chord: 0.19 }] })] }
+    const e = flatPanels(w).panels[0].edges
+    const q = (f) => e.le(f) + 0.25 * (e.te(f) - e.le(f))
+    // Quarter-chord at root 0.05, at tip 0.025: linear between
+    for (const f of [0.2, 0.5, 0.8]) expect(q(f)).toBeCloseTo(0.05 - 0.025 * f, 12)
+  })
+
+  it('keeps the other edge straight when converting a one-edge curve to stations', () => {
+    const w = { rootChord: 0.2, panels: [rect({ id: 1, tipChord: 0.1, te: { u: 0.5, d: 0.05 } })] }
+    expect(setPanelMode(w, 0, 'stations')[0].straightLine).toBe(0)
+  })
+
+  it('splits a straight segment into two straight ones when adding a station', () => {
+    const w = { rootChord: 0.2, panels: [rect({ tipChord: 0.1, stations: [], straightToTip: true })] }
+    const before = panelWingGeometry(w).area
+    const after = { ...w, panels: addStation(w, 0) }
+    expect(after.panels[0].stations[0].straightIn).toBe(true)
+    expect(panelWingGeometry(after).area).toBeCloseTo(before, 12)
+  })
+})
+
+describe('inserting and reordering panels', () => {
+  const two = () => [rect({ id: 1, length: 0.5, tipChord: 0.18, sweep: 0.05 }), rect({ id: 2, length: 0.2, tipChord: 0.1 })]
+
+  it('inserts a constant-chord panel that leaves the outer panels unchanged', () => {
+    const out = insertPanel(two(), 0, 0.2)
+    expect(out.map((p) => p.id)).toEqual([1, 3, 2])
+    expect(out[1].tipChord).toBe(0.18)
+    expect(out[1].sweep).toBeCloseTo((0.05 / 0.5) * out[1].length, 12)
+    const base = panelWingGeometry({ rootChord: 0.2, panels: two() })
+    const g = panelWingGeometry({ rootChord: 0.2, panels: out })
+    expect(g.area - base.area).toBeCloseTo(2 * out[1].length * 0.18, 10)
+  })
+
+  it('inserts at the root with the root chord', () => {
+    const out = insertPanel(two(), -1, 0.2)
+    expect(out[0].tipChord).toBe(0.2)
+    expect(out[0].sweep).toBe(0)
+    expect(out).toHaveLength(3)
+  })
+
+  it('moves panels and ignores moves past the ends', () => {
+    expect(movePanel(two(), 0, 1).map((p) => p.id)).toEqual([2, 1])
+    expect(movePanel(two(), 0, -1).map((p) => p.id)).toEqual([1, 2])
+    expect(movePanel(two(), 1, 1).map((p) => p.id)).toEqual([1, 2])
+  })
+})
+
+describe('blank stations', () => {
+  it('lists blank stations last, in the order they were added', () => {
+    const order = stationOrder([
+      { id: 3, d: null },
+      { id: 1, d: 0.3 },
+      { id: 4, d: null },
+      { id: 2, d: 0.1 },
+    ]).map((s) => s.id)
+    expect(order).toEqual([2, 1, 3, 4])
+  })
+
+  it('adds a blank station at the end, and skips it quietly until filled in', () => {
+    const panels = addBlankStation([rect({ id: 1, tipChord: 0.2, stations: [{ id: 1, d: 0.2, chord: 0.2, le: 0 }] })], 0)
+    const st = panels[0].stations.at(-1)
+    expect(st).toMatchObject({ id: 2, d: null, chord: null, le: null })
+    const g = panelWingGeometry({ rootChord: 0.2, panels })
+    expect(g.area).not.toBeNull()
+    expect(g.ignoredStations).toEqual([expect.objectContaining({ id: 2, reason: 'incomplete' })])
+  })
+
+  it('takes a blank set-back from the line through its neighbours', () => {
+    // Neighbours at set-back 0 (inner end), 0.04 (station at 0.25) and the 0.1 sweep at the tip
+    const w = {
+      rootChord: 0.2,
+      panels: [
+        rect({
+          tipChord: 0.2,
+          sweep: 0.1,
+          stations: [
+            { id: 1, d: 0.25, chord: 0.2, le: 0.04 },
+            { id: 2, d: 0.4, chord: 0.2, le: null },
+          ],
+        }),
+      ],
+    }
+    const e = flatPanels(w).panels[0].edges
+    const le = e.le(0.8)
+    expect(le).toBeGreaterThan(0.04)
+    expect(le).toBeLessThan(0.1)
+    expect(e.te(0.8) - le).toBeCloseTo(0.2, 12)
   })
 })

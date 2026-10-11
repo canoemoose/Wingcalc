@@ -1,16 +1,20 @@
 <script setup>
 // Numeric entry for the panel wing: fuselage width, root chord, then each panel outward
 // from the fuselage side. The same values can be dragged in the wing plan editor; the two
-// share the selected panel.
-import { computed } from 'vue'
+// share the selected panel. In `focused` mode (the expanded wing editor) only the selected
+// panel is shown, with tabs to switch between panels.
+import { computed, ref, nextTick } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
-import { panelAngle, appendPanel, removePanel, panelMode, setPanelMode, addStation } from '../lib/wing.js'
+import { panelAngle, appendPanel, removePanel, insertPanel, movePanel, panelMode, setPanelMode, addBlankStation, checkStations, stationOrder } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
   system: { type: String, required: true },
   warnFields: { type: Array, default: () => [] },
+  focused: { type: Boolean, default: false },
+  // Prefix for element ids, so two editors (page and expanded view) can coexist.
+  idPrefix: { type: String, default: 'wc' },
 })
 const rootChord = defineModel('rootChord', { type: Number, default: null })
 const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
@@ -31,9 +35,19 @@ function setMode(i, mode) {
   panels.value = setPanelMode(wing(), i, mode)
 }
 
-function newStation(i) {
-  panels.value = addStation(wing(), i)
+// A new station goes at the end of the list (just before the tip), blank, with its
+// distance box ready to type into.
+async function newStation(i) {
+  // Read the new station from the updated list: the model only reflects it after the
+  // parent re-renders.
+  const next = addBlankStation(panels.value, i)
+  const st = next[i].stations.at(-1)
+  panels.value = next
+  await nextTick()
+  const box = rootEl.value?.querySelector(`[id="${props.idPrefix}-p${i}-st${st.id}-d"]`)
+  box?.focus()
 }
+const rootEl = ref(null)
 
 function updateStation(i, id, key, value) {
   panels.value = panels.value.map((p, j) =>
@@ -45,7 +59,155 @@ function removeStation(i, id) {
   panels.value = panels.value.map((p, j) => (j === i ? { ...p, stations: p.stations.filter((st) => st.id !== id) } : p))
 }
 
-const sortedStations = (p) => [...(p.stations ?? [])].sort((a, b) => a.d - b.d)
+const byDistance = (p) => stationOrder(p.stations)
+
+// While a station's distance is being edited, the rows keep their order, so the row doesn't
+// jump away mid-number (typing "1" on the way to "150" would otherwise send it to the top).
+// The table re-sorts when focus leaves that row, by Tab, Enter or clicking elsewhere.
+// Nothing is refocused afterwards: if the box you were heading to moved, click it again.
+const frozenOrder = ref(null) // { panelId, ids: [...] }
+function holdOrder(p) {
+  if (frozenOrder.value?.panelId !== p.id) frozenOrder.value = { panelId: p.id, ids: byDistance(p).map((st) => st.id) }
+}
+
+function onRowFocusOut(e) {
+  if (!frozenOrder.value || e.currentTarget.contains(e.relatedTarget)) return
+  frozenOrder.value = null
+}
+
+function sortedStations(p) {
+  const list = byDistance(p)
+  const frozen = frozenOrder.value
+  if (frozen?.panelId !== p.id) return list
+  const rank = new Map(frozen.ids.map((id, k) => [id, k]))
+  return [...list].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9))
+}
+
+// Distances are entered from the panel's inner end (default) or as spacing from the
+// previous row. Stored distances are always from the inner end; spacing is only how
+// they're shown and edited.
+const spacingMode = (p) => p.distanceEntry === 'spacing'
+const innerChord = (i) => (i === 0 ? rootChord.value : panels.value[i - 1]?.tipChord)
+
+// The last filled-in distance before station st in table order (0 for the inner end).
+function prevDistance(p, st) {
+  const order = byDistance(p)
+  const k = order.findIndex((q) => q.id === st.id)
+  return order.slice(0, k).filter((q) => Number.isFinite(q.d)).at(-1)?.d ?? 0
+}
+
+function rowDistance(p, list, k) {
+  const st = list[k]
+  if (!Number.isFinite(st.d)) return null
+  return spacingMode(p) ? st.d - prevDistance(p, st) : st.d
+}
+
+function setDistance(i, p, st, value) {
+  if (value === null) return
+  if (!spacingMode(p)) {
+    holdOrder(p)
+    updateStation(i, st.id, 'd', value)
+    return
+  }
+  // A blank station being filled in goes in at that gap; the tip stays where it is.
+  if (!Number.isFinite(st.d)) {
+    updateStation(i, st.id, 'd', prevDistance(p, st) + value)
+    return
+  }
+  // Spacing: move this station and everything outboard of it (the tip too) by the change.
+  const list = byDistance(p).filter((q) => Number.isFinite(q.d))
+  const k = list.findIndex((q) => q.id === st.id)
+  const delta = value - (st.d - (k > 0 ? list[k - 1].d : 0))
+  const moved = new Set(list.slice(k).map((q) => q.id))
+  panels.value = panels.value.map((q, j) =>
+    j === i
+      ? {
+          ...q,
+          length: q.length + delta,
+          stations: q.stations.map((x) => (moved.has(x.id) ? { ...x, d: x.d + delta } : x)),
+        }
+      : q,
+  )
+}
+
+const lastFilled = (p) => byDistance(p).filter((q) => Number.isFinite(q.d)).at(-1)?.d ?? 0
+const tipDistance = (p) => (spacingMode(p) ? p.length - lastFilled(p) : p.length)
+function setTipDistance(i, p, value) {
+  if (value === null) return
+  update(i, 'length', spacingMode(p) ? lastFilled(p) + value : value)
+}
+
+const REASONS = {
+  incomplete: 'Fill in its distance and chord to use it',
+  inner: "At or before the inner end, so it's ignored",
+  'on-tip': "Sits on the tip, so it's ignored",
+  beyond: "Beyond the tip, so it's ignored",
+  chord: "Negative chord, so it's ignored",
+  duplicate: "Same place as another station, so it's ignored",
+}
+const ignoredReasons = (p) => new Map(checkStations(p).ignored.map((x) => [x.id, x.reason]))
+
+// Enter moves to the next box in the stations table, like Tab (Shift+Enter goes back).
+function onTableEnter(e) {
+  if (e.target.tagName !== 'INPUT') return
+  e.preventDefault()
+  const boxes = [...e.currentTarget.querySelectorAll('input:not([disabled])')]
+  const next = boxes[boxes.indexOf(e.target) + (e.shiftKey ? -1 : 1)]
+  if (next) next.focus()
+  else e.target.blur()
+}
+
+// Which line, if any, stays straight while stations set the chords.
+const STRAIGHT_LINES = [
+  { id: 'none', label: 'None' },
+  { id: 'le', label: 'Leading edge' },
+  { id: 'te', label: 'Trailing edge' },
+  { id: 'chord', label: 'Chord line' },
+]
+function straightKind(p) {
+  if (!Number.isFinite(p.straightLine)) return 'none'
+  if (p.straightLine === 0) return 'le'
+  if (p.straightLine === 1) return 'te'
+  return 'chord'
+}
+function setStraightKind(i, kind) {
+  const value = { none: null, le: 0, te: 1, chord: 0.25 }[kind]
+  const p = panels.value[i]
+  // Leaving straight-line mode: give each station the set-back it currently has, so the
+  // outline doesn't jump.
+  if (value === null && Number.isFinite(p.straightLine)) {
+    const r0 = p.straightLine * (i === 0 ? rootChord.value : panels.value[i - 1].tipChord)
+    const r1 = (p.sweep || 0) + p.straightLine * p.tipChord
+    const stations = p.stations.map((st) => ({ ...st, le: r0 + ((r1 - r0) * st.d) / p.length - p.straightLine * st.chord }))
+    panels.value = panels.value.map((q, j) => (j === i ? { ...q, straightLine: null, stations } : q))
+    return
+  }
+  update(i, 'straightLine', value)
+}
+
+// Segment k runs from station k-1 (or the inner end) to station k (or the outer end).
+function segmentStraight(p, k) {
+  const list = byDistance(p)
+  return k < list.length ? !!list[k].straightIn : !!p.straightToTip
+}
+function toggleSegment(i, k) {
+  const p = panels.value[i]
+  const list = byDistance(p)
+  if (k < list.length) updateStation(i, list[k].id, 'straightIn', !list[k].straightIn)
+  else update(i, 'straightToTip', !p.straightToTip)
+}
+function segmentLabel(p, k) {
+  const n = byDistance(p).length
+  const from = k === 0 ? 'Inner end' : `Station ${k}`
+  const to = k === n ? 'outer end' : `station ${k + 1}`
+  return `${from} to ${to}`
+}
+
+// The panels to show: all of them, or just the selected one in focused mode.
+const shownIndex = computed(() => Math.min(selected.value ?? 0, panels.value.length - 1))
+const shown = computed(() =>
+  props.focused ? [{ p: panels.value[shownIndex.value], i: shownIndex.value }] : panels.value.map((p, i) => ({ p, i })),
+)
 
 function setTip(on) {
   tip.value = on ? { extension: Math.max(0.02, (panels.value.at(-1)?.tipChord || 0.1) * 0.5), peak: 0.4 } : null
@@ -99,6 +261,18 @@ function remove(i) {
   else if (selected.value > i) selected.value -= 1
 }
 
+function insertAfter(i) {
+  panels.value = insertPanel(panels.value, i, rootChord.value)
+  selected.value = i + 1
+}
+
+function move(i, dir) {
+  const j = i + dir
+  if (j < 0 || j >= panels.value.length) return
+  panels.value = movePanel(panels.value, i, dir)
+  selected.value = j
+}
+
 function title(i) {
   const n = panels.value.length
   if (n === 1) return 'Each wing panel'
@@ -109,16 +283,16 @@ function title(i) {
 </script>
 
 <template>
-  <div class="wc-panels">
+  <div ref="rootEl" class="wc-panels">
     <UnitInput
-      id="wc-fuselage"
+      :id="`${idPrefix}-fuselage`"
       v-model="fuselageWidth"
       quantity="length"
       :system="system"
       label="Fuselage width"
       hint="Where the wing meets the fuselage. Panels start at its sides; use 0 for a one-piece wing measured from the centreline."
     />
-    <UnitInput id="wc-root" v-model="rootChord" quantity="length" :system="system" label="Root chord" />
+    <UnitInput :id="`${idPrefix}-root`" v-model="rootChord" quantity="length" :system="system" label="Root chord" />
     <div class="wc-field">
       <span class="wc-field__label">Enter dihedral as</span>
       <div class="wc-segmented" role="radiogroup" aria-label="Enter dihedral as">
@@ -139,28 +313,73 @@ function title(i) {
         </button>
       </div>
     </div>
+    <div v-if="focused" class="wc-tabs wc-paneltabs" role="tablist" aria-label="Panel">
+      <button
+        v-for="(p, i) in panels"
+        :key="p.id ?? i"
+        type="button"
+        role="tab"
+        class="wc-tab"
+        :aria-selected="shownIndex === i"
+        :class="{ 'wc-tab--active': shownIndex === i }"
+        @click="selected = i"
+      >
+        {{ i + 1 }}
+      </button>
+    </div>
     <fieldset
-      v-for="(p, i) in panels"
+      v-for="{ p, i } in shown"
       :key="p.id ?? i"
       class="wc-panelset"
-      :class="{ 'wc-panelset--selected': selected === i }"
+      :class="{ 'wc-panelset--selected': selected === i && !focused }"
       @focusin="selected = i"
     >
       <legend class="wc-panelset__legend">
         <button type="button" class="wc-linkish" @click="selected = selected === i ? null : i">{{ title(i) }}</button>
       </legend>
-      <button
-        v-if="panels.length > 1"
-        type="button"
-        class="wc-panelset__remove"
-        :aria-label="`Delete panel ${i + 1}`"
-        title="Delete this panel"
-        @click="remove(i)"
-      >
-        ×
-      </button>
+      <div class="wc-panelset__actions">
+        <button
+          type="button"
+          class="wc-iconbtn"
+          :disabled="i === 0"
+          :aria-label="`Move panel ${i + 1} inward`"
+          title="Move inward (towards the root)"
+          @click="move(i, -1)"
+        >
+          ←
+        </button>
+        <button
+          type="button"
+          class="wc-iconbtn"
+          :disabled="i === panels.length - 1"
+          :aria-label="`Move panel ${i + 1} outward`"
+          title="Move outward (towards the tip)"
+          @click="move(i, 1)"
+        >
+          →
+        </button>
+        <button
+          type="button"
+          class="wc-iconbtn"
+          :aria-label="`Insert a panel after panel ${i + 1}`"
+          title="Insert a new panel outboard of this one"
+          @click="insertAfter(i)"
+        >
+          +
+        </button>
+        <button
+          v-if="panels.length > 1"
+          type="button"
+          class="wc-iconbtn wc-iconbtn--danger"
+          :aria-label="`Delete panel ${i + 1}`"
+          title="Delete this panel"
+          @click="remove(i)"
+        >
+          ×
+        </button>
+      </div>
       <UnitInput
-        :id="`wc-panel-${i}-length`"
+        :id="`${idPrefix}-panel-${i}-length`"
         :model-value="p.length"
         quantity="length"
         :system="system"
@@ -169,7 +388,7 @@ function title(i) {
         @update:model-value="update(i, 'length', $event)"
       />
       <UnitInput
-        :id="`wc-panel-${i}-chord`"
+        :id="`${idPrefix}-panel-${i}-chord`"
         :model-value="p.tipChord"
         quantity="length"
         :system="system"
@@ -178,7 +397,7 @@ function title(i) {
         @update:model-value="update(i, 'tipChord', $event)"
       />
       <UnitInput
-        :id="`wc-panel-${i}-sweep`"
+        :id="`${idPrefix}-panel-${i}-sweep`"
         :model-value="p.sweep ?? 0"
         quantity="length"
         :system="system"
@@ -188,7 +407,7 @@ function title(i) {
       />
       <UnitInput
         v-if="dihedralBy === 'rise'"
-        :id="`wc-panel-${i}-rise`"
+        :id="`${idPrefix}-panel-${i}-rise`"
         :model-value="p.rise"
         quantity="length"
         :system="system"
@@ -202,7 +421,7 @@ function title(i) {
       />
       <ParamInput
         v-else
-        :id="`wc-panel-${i}-dihedral`"
+        :id="`${idPrefix}-panel-${i}-dihedral`"
         :model-value="p.dihedral ?? 0"
         label="Dihedral"
         suffix="°"
@@ -244,53 +463,199 @@ function title(i) {
       </div>
       <div v-else-if="panelMode(p) === 'stations'" class="wc-stations">
         <p class="wc-field__hint">
-          Chords dimensioned along the panel. Both edges run smoothly through them. Distance is from the panel's inner
-          end; set-back is how far the station's leading edge sits behind the panel's inner leading edge.
+          Chords dimensioned along the panel; the edges run smoothly through them. The first row is the panel's inner
+          end; the last is its tip, so its distance is the panel length. Set-back is how far a leading edge sits behind
+          the panel's inner leading edge; leave it blank to follow the line through its neighbours. Enter moves to the
+          next box.
         </p>
-        <div class="wc-stations__grid" role="table" :aria-label="`Panel ${i + 1} chord stations`">
-          <span class="wc-stations__head" role="columnheader">Distance</span>
-          <span class="wc-stations__head" role="columnheader">Chord</span>
-          <span class="wc-stations__head" role="columnheader">LE set-back</span>
-          <span />
-          <template v-for="(st, k) in sortedStations(p)" :key="st.id">
-            <UnitInput
-              :id="`wc-p${i}-st${st.id}-d`"
-              :model-value="st.d"
-              quantity="length"
-              :system="system"
-              :label="`Station ${k + 1} distance`"
-              compact
-              :warn="!(st.d > 0 && st.d < p.length)"
-              @update:model-value="updateStation(i, st.id, 'd', $event)"
-            />
-            <UnitInput
-              :id="`wc-p${i}-st${st.id}-c`"
-              :model-value="st.chord"
-              quantity="length"
-              :system="system"
-              :label="`Station ${k + 1} chord`"
-              compact
-              @update:model-value="updateStation(i, st.id, 'chord', $event)"
-            />
-            <UnitInput
-              :id="`wc-p${i}-st${st.id}-le`"
-              :model-value="st.le"
-              quantity="length"
-              :system="system"
-              :label="`Station ${k + 1} leading-edge set-back`"
-              compact
-              @update:model-value="updateStation(i, st.id, 'le', $event ?? 0)"
-            />
+        <div class="wc-field">
+          <span class="wc-field__label">Keep straight</span>
+          <div class="wc-segmented wc-segmented--small" role="radiogroup" :aria-label="`Panel ${i + 1} straight line`">
+            <button
+              v-for="m in STRAIGHT_LINES"
+              :key="m.id"
+              type="button"
+              role="radio"
+              :aria-checked="straightKind(p) === m.id"
+              class="wc-segmented__btn"
+              :class="{ 'wc-segmented__btn--active': straightKind(p) === m.id }"
+              @click="setStraightKind(i, m.id)"
+            >
+              {{ m.label }}
+            </button>
+          </div>
+          <p v-if="straightKind(p) !== 'none'" class="wc-field__hint">
+            Stations set only the chord; the edges sit either side of the straight line.
+          </p>
+        </div>
+        <ParamInput
+          v-if="straightKind(p) === 'chord'"
+          :id="`${idPrefix}-p${i}-straightline`"
+          :model-value="Math.round(p.straightLine * 100)"
+          label="Straight line at"
+          suffix="% chord"
+          :min="1"
+          :max="99"
+          :step="1"
+          hint="25% keeps the quarter-chord line straight, as on a classic elliptical wing."
+          @update:model-value="update(i, 'straightLine', $event / 100)"
+        />
+        <div class="wc-field">
+          <span class="wc-field__label">Distances</span>
+          <div class="wc-segmented wc-segmented--small" role="radiogroup" :aria-label="`Panel ${i + 1} distances`">
             <button
               type="button"
-              class="wc-stations__remove"
-              :aria-label="`Remove station ${k + 1}`"
-              title="Remove this station"
-              @click="removeStation(i, st.id)"
+              role="radio"
+              :aria-checked="!spacingMode(p)"
+              class="wc-segmented__btn"
+              :class="{ 'wc-segmented__btn--active': !spacingMode(p) }"
+              @click="update(i, 'distanceEntry', 'inner')"
             >
-              ×
+              From inner end
             </button>
+            <button
+              type="button"
+              role="radio"
+              :aria-checked="spacingMode(p)"
+              class="wc-segmented__btn"
+              :class="{ 'wc-segmented__btn--active': spacingMode(p) }"
+              @click="update(i, 'distanceEntry', 'spacing')"
+            >
+              Spacing
+            </button>
+          </div>
+          <p v-if="spacingMode(p)" class="wc-field__hint">
+            Each distance is the gap from the row above. Changing one moves everything outboard of it, the tip included.
+          </p>
+        </div>
+        <div
+          class="wc-stations__grid"
+          :class="{ 'wc-stations__grid--nosetback': straightKind(p) !== 'none' }"
+          role="table"
+          :aria-label="`Panel ${i + 1} chord stations`"
+          @keydown.enter="onTableEnter"
+        >
+          <div class="wc-stations__row" role="row">
+            <span class="wc-stations__head" role="columnheader">{{ spacingMode(p) ? 'Spacing' : 'Distance' }}</span>
+            <span class="wc-stations__head" role="columnheader">Chord</span>
+            <span v-if="straightKind(p) === 'none'" class="wc-stations__head" role="columnheader">LE set-back</span>
+            <span />
+          </div>
+          <div class="wc-stations__row wc-stations__row--fixed" role="row" title="The panel's inner end, set by the panel inboard">
+            <span class="wc-stations__fixed">Inner end</span>
+            <span class="wc-stations__fixed">{{ format(innerChord(i), 'length', defaultUnit(system, 'length')) }}</span>
+            <span v-if="straightKind(p) === 'none'" class="wc-stations__fixed">0</span>
+            <span />
+          </div>
+          <template v-for="(st, k) in sortedStations(p)" :key="st.id">
+            <button
+              type="button"
+              class="wc-segment"
+              :class="{ 'wc-segment--straight': segmentStraight(p, k) }"
+              :aria-pressed="segmentStraight(p, k)"
+              :title="`${segmentLabel(p, k)}: click to make it ${segmentStraight(p, k) ? 'curved' : 'straight'}`"
+              @click="toggleSegment(i, k)"
+            >
+              <span class="wc-segment__line" aria-hidden="true" />
+              {{ segmentLabel(p, k) }}: {{ segmentStraight(p, k) ? 'straight' : 'curved' }}
+            </button>
+            <div
+              class="wc-stations__row"
+              :class="{ 'wc-stations__row--bad': ignoredReasons(p).has(st.id) && ignoredReasons(p).get(st.id) !== 'incomplete' }"
+              role="row"
+              @focusout="onRowFocusOut"
+            >
+              <UnitInput
+                :id="`${idPrefix}-p${i}-st${st.id}-d`"
+                :model-value="rowDistance(p, sortedStations(p), k)"
+                quantity="length"
+                :system="system"
+                :label="`Station ${k + 1} ${spacingMode(p) ? 'spacing' : 'distance'}`"
+                compact
+                :warn="ignoredReasons(p).has(st.id) && ignoredReasons(p).get(st.id) !== 'incomplete'"
+                @update:model-value="setDistance(i, p, st, $event)"
+              />
+              <UnitInput
+                :id="`${idPrefix}-p${i}-st${st.id}-c`"
+                :model-value="st.chord"
+                quantity="length"
+                :system="system"
+                :label="`Station ${k + 1} chord`"
+                compact
+                @update:model-value="updateStation(i, st.id, 'chord', $event)"
+              />
+              <UnitInput
+                v-if="straightKind(p) === 'none'"
+                :id="`${idPrefix}-p${i}-st${st.id}-le`"
+                :model-value="st.le"
+                quantity="length"
+                :system="system"
+                :label="`Station ${k + 1} leading-edge set-back`"
+                compact
+                placeholder="auto"
+                @update:model-value="updateStation(i, st.id, 'le', $event)"
+              />
+              <button
+                type="button"
+                class="wc-stations__remove"
+                :aria-label="`Remove station ${k + 1}`"
+                title="Remove this station"
+                @click="removeStation(i, st.id)"
+              >
+                ×
+              </button>
+              <p
+                v-if="ignoredReasons(p).has(st.id)"
+                class="wc-stations__why"
+                :class="{ 'wc-stations__why--todo': ignoredReasons(p).get(st.id) === 'incomplete' }"
+              >
+                {{ REASONS[ignoredReasons(p).get(st.id)] }}.
+              </p>
+            </div>
           </template>
+          <button
+            v-if="sortedStations(p).length"
+            type="button"
+            class="wc-segment"
+            :class="{ 'wc-segment--straight': segmentStraight(p, sortedStations(p).length) }"
+            :aria-pressed="segmentStraight(p, sortedStations(p).length)"
+            @click="toggleSegment(i, sortedStations(p).length)"
+          >
+            <span class="wc-segment__line" aria-hidden="true" />
+            {{ segmentLabel(p, sortedStations(p).length) }}:
+            {{ segmentStraight(p, sortedStations(p).length) ? 'straight' : 'curved' }}
+          </button>
+          <div class="wc-stations__row wc-stations__row--tip" role="row">
+            <UnitInput
+              :id="`${idPrefix}-p${i}-tip-d`"
+              :model-value="tipDistance(p)"
+              quantity="length"
+              :system="system"
+              :label="`Tip ${spacingMode(p) ? 'spacing' : 'distance (panel length)'}`"
+              compact
+              @update:model-value="setTipDistance(i, p, $event)"
+            />
+            <UnitInput
+              :id="`${idPrefix}-p${i}-tip-c`"
+              :model-value="p.tipChord"
+              quantity="length"
+              :system="system"
+              label="Tip chord"
+              compact
+              @update:model-value="update(i, 'tipChord', $event)"
+            />
+            <UnitInput
+              v-if="straightKind(p) === 'none'"
+              :id="`${idPrefix}-p${i}-tip-le`"
+              :model-value="p.sweep ?? 0"
+              quantity="length"
+              :system="system"
+              label="Tip leading-edge set-back (sweep)"
+              compact
+              @update:model-value="update(i, 'sweep', $event ?? 0)"
+            />
+            <span class="wc-stations__tiplabel">Tip</span>
+          </div>
         </div>
         <button type="button" class="wc-button wc-button--small" @click="newStation(i)">Add station</button>
       </div>
@@ -306,7 +671,7 @@ function title(i) {
       </label>
       <template v-if="tip">
         <UnitInput
-          id="wc-tip-extension"
+          :id="`${idPrefix}-tip-extension`"
           :model-value="tip.extension"
           quantity="length"
           :system="system"
@@ -315,7 +680,7 @@ function title(i) {
           @update:model-value="tip = { ...tip, extension: $event }"
         />
         <ParamInput
-          id="wc-tip-peak"
+          :id="`${idPrefix}-tip-peak`"
           :model-value="Math.round((tip.peak ?? 0.4) * 100)"
           label="Furthest point along the chord"
           suffix="% chord"
@@ -328,8 +693,8 @@ function title(i) {
       </template>
     </fieldset>
     <p class="wc-field__hint">
-      A new panel is added at the tip, continuing the wing outward. Shape curves by dragging their handles in the wing
-      plan.
+      Add panel puts a new one at the tip; + on a panel inserts one just outboard of it, and the arrows move a panel
+      inward or outward. Shape curves by dragging their handles in the wing plan.
     </p>
   </div>
 </template>
