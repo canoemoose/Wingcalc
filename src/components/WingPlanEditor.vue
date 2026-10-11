@@ -4,13 +4,15 @@
 // stations and the rounded tip. The measure tool places dimensions, which snap to the wing's
 // key points and follow them as the wing changes. Numeric entry lives in PanelEditor.
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { flatPanels, appendPanel, removePanel, keyPoints, addStation, panelMode } from '../lib/wing.js'
+import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
   system: { type: String, required: true },
   canUndo: { type: Boolean, default: false },
   canRedo: { type: Boolean, default: false },
+  // Fill the parent's height (the expanded editor) instead of a fixed height.
+  fill: { type: Boolean, default: false },
 })
 const emit = defineEmits(['undo', 'redo', 'commit'])
 const rootChord = defineModel('rootChord', { type: Number, default: null })
@@ -20,7 +22,8 @@ const tip = defineModel('tip', { type: Object, default: null })
 const dimensions = defineModel('dimensions', { type: Array, default: () => [] })
 const selected = defineModel('selected', { type: Number, default: null })
 
-const HEIGHT = 360
+const FIXED_HEIGHT = 360
+const height = ref(FIXED_HEIGHT)
 const HANDLE_PX = 6
 const SNAP_PX = 10
 const wrapEl = ref(null)
@@ -47,7 +50,7 @@ const points = computed(() => keyPoints(wingState()))
 const pointMap = computed(() => new Map(points.value.map((p) => [p.id, p])))
 const half = computed(() => Math.max(0, fuselageWidth.value || 0) / 2)
 
-const viewBox = computed(() => `${view.ox} ${view.oy} ${width.value / view.scale} ${HEIGHT / view.scale}`)
+const viewBox = computed(() => `${view.ox} ${view.oy} ${width.value / view.scale} ${height.value / view.scale}`)
 const px = (n) => n / view.scale // screen pixels to world metres
 
 // Grid step (and snap increment): the smallest "nice" step in the current unit system at
@@ -64,7 +67,7 @@ const grid = computed(() => {
   const x0 = view.ox
   const y0 = view.oy
   const x1 = x0 + width.value / view.scale
-  const y1 = y0 + HEIGHT / view.scale
+  const y1 = y0 + height.value / view.scale
   const lines = []
   for (let i = Math.ceil(x0 / s); i * s <= x1; i++) lines.push({ v: true, p: i * s, major: i % majorEvery.value === 0 })
   for (let i = Math.ceil(y0 / s); i * s <= y1; i++) lines.push({ v: false, p: i * s, major: i % majorEvery.value === 0 })
@@ -94,11 +97,11 @@ function fit() {
   const b = bounds()
   const w = b.sMax - b.sMin
   const h = Math.max(b.xMax - b.xMin, 0.01)
-  const scale = Math.min((width.value * 0.88) / w, (HEIGHT * 0.7) / h)
+  const scale = Math.min((width.value * 0.88) / w, (height.value * 0.7) / h)
   if (!Number.isFinite(scale) || scale <= 0) return
   view.scale = scale
   view.ox = b.sMin - (width.value / scale - w) / 2
-  view.oy = b.xMin - (HEIGHT / scale - h) / 2
+  view.oy = b.xMin - (height.value / scale - h) / 2
 }
 
 function zoomAt(factor, sx, sy) {
@@ -112,7 +115,7 @@ function zoomAt(factor, sx, sy) {
 function onWheel(e) {
   e.preventDefault()
   const r = svgEl.value.getBoundingClientRect()
-  zoomAt(Math.exp(-e.deltaY * 0.0015), ((e.clientX - r.left) / r.width) * width.value, ((e.clientY - r.top) / r.height) * HEIGHT)
+  zoomAt(Math.exp(-e.deltaY * 0.0015), ((e.clientX - r.left) / r.width) * width.value, ((e.clientY - r.top) / r.height) * height.value)
 }
 
 // --- Edits made here (not auto-fitted) ------------------------------------------------
@@ -147,7 +150,7 @@ function setStation(i, id, patch) {
 function world(e) {
   const r = svgEl.value.getBoundingClientRect()
   const vw = width.value / view.scale
-  const vh = HEIGHT / view.scale
+  const vh = height.value / view.scale
   return { s: view.ox + ((e.clientX - r.left) / r.width) * vw, x: view.oy + ((e.clientY - r.top) / r.height) * vh }
 }
 
@@ -208,7 +211,7 @@ function moveHandle(e) {
   if (d.kind === 'pan') {
     const r = svgEl.value.getBoundingClientRect()
     view.ox = d.ox - ((e.clientX - d.cx) / r.width) * (width.value / view.scale)
-    view.oy = d.oy - ((e.clientY - d.cy) / r.height) * (HEIGHT / view.scale)
+    view.oy = d.oy - ((e.clientY - d.cy) / r.height) * (height.value / view.scale)
     d.moved ||= Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 3
     return
   }
@@ -251,13 +254,22 @@ function moveHandle(e) {
     const straight = x0 + (x1 - x0) * u
     setPanel(d.i, { [d.kind === 'cle' ? 'le' : 'te']: { u, d: snap(w.x, e) - straight } })
   } else if (d.kind === 'sle') {
-    // Station leading edge: moves the station along the panel and sets its set-back.
+    // Station leading edge: moves the station along the panel and sets its set-back (or,
+    // with a straight line kept, just moves it along).
     const L = p.panel.length
     const dist = Math.min(L - 0.001, Math.max(0.001, snap(w.s, e) - inner.s))
-    setStation(d.i, d.station, { d: dist, le: snap(w.x, e) - inner.x })
+    if (Number.isFinite(p.panel.straightLine)) setStation(d.i, d.station, { d: dist })
+    else setStation(d.i, d.station, { d: dist, le: snap(w.x, e) - inner.x })
   } else if (d.kind === 'ste') {
     const st = p.panel.stations.find((q) => q.id === d.station)
-    if (st) setStation(d.i, d.station, { chord: Math.max(0, snap(w.x, e) - (inner.x + st.le)) })
+    if (!st || !p.edges) return
+    const xl = p.edges.le(st.d / p.panel.length)
+    if (Number.isFinite(p.panel.straightLine)) {
+      // With a straight line kept, the trailing edge sits (1 - at) of the chord behind it.
+      const at = p.panel.straightLine
+      const ref = xl + at * st.chord
+      setStation(d.i, d.station, { chord: Math.max(0, (snap(w.x, e) - ref) / Math.max(1 - at, 0.05)) })
+    } else setStation(d.i, d.station, { chord: Math.max(0, snap(w.x, e) - xl) })
   }
 }
 
@@ -325,6 +337,22 @@ function deletePanel() {
   emit('commit')
   own(() => (panels.value = removePanel(panels.value, selected.value)))
   selected.value = null
+}
+
+function insertAfterSelected() {
+  if (selected.value === null) return
+  emit('commit')
+  const i = selected.value
+  own(() => (panels.value = insertPanel(panels.value, i, rootChord.value)))
+  selected.value = i + 1
+}
+
+function moveSelected(dir) {
+  const i = selected.value
+  if (i === null || i + dir < 0 || i + dir >= panels.value.length) return
+  emit('commit')
+  own(() => (panels.value = movePanel(panels.value, i, dir)))
+  selected.value = i + dir
 }
 
 function newStation() {
@@ -411,16 +439,23 @@ const shapes = computed(() =>
       const onCurveK = Math.round(c.u * (p[edge].length - 1))
       return { s, x: x0 + (x1 - x0) * c.u + c.d, anchor: p[edge][onCurveK] }
     }
-    const ribs =
-      mode === 'stations'
-        ? p.panel.stations.map((st) => ({
-            id: st.id,
-            s: p.inner.s + st.d,
-            xl: p.inner.x + st.le,
-            xt: p.inner.x + st.le + st.chord,
-            chord: st.chord,
-          }))
-        : []
+    // Usable stations sit on the outline; skipped ones are drawn where they'd be, in the
+    // warning colour, using the straight line between the panel's ends.
+    const checked = mode === 'stations' ? checkStations(p.panel) : { valid: [], ignored: [] }
+    const ribs = p.edges
+      ? checked.valid.map((st) => {
+          const f = st.d / p.panel.length
+          return { id: st.id, s: p.inner.s + st.d, xl: p.edges.le(f), xt: p.edges.te(f), chord: st.chord }
+        })
+      : []
+    const ignoredRibs = checked.ignored
+      .filter((ig) => Number.isFinite(ig.d))
+      .map((ig) => {
+        const f = ig.d / (p.panel.length || 1)
+        const xl = p.inner.x + (p.outer.x - p.inner.x) * f
+        const c = p.inner.c + (p.outer.c - p.inner.c) * Math.min(1, Math.max(0, f))
+        return { id: ig.id, s: p.inner.s + ig.d, xl, xt: xl + c }
+      })
     return {
       ...p,
       mode,
@@ -431,6 +466,7 @@ const shapes = computed(() =>
       ctrlLe: ctrl('le'),
       ctrlTe: ctrl('te'),
       ribs,
+      ignoredRibs,
     }
   }),
 )
@@ -527,9 +563,10 @@ const hint = computed(() => {
 
 let ro = null
 let fitted = false
-function measure(w) {
+function measure(w, h) {
   if (!w) return
   width.value = Math.round(w)
+  if (props.fill && h) height.value = Math.max(200, Math.round(h))
   if (!fitted) {
     fit()
     fitted = true
@@ -537,8 +574,8 @@ function measure(w) {
 }
 onMounted(() => {
   // Measure now so the first paint is right, then follow later size changes.
-  measure(wrapEl.value.clientWidth)
-  ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width))
+  measure(wrapEl.value.clientWidth, wrapEl.value.clientHeight)
+  ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width, entry.contentRect.height))
   ro.observe(wrapEl.value)
   svgEl.value.addEventListener('wheel', onWheel, { passive: false })
 })
@@ -570,7 +607,7 @@ watch(
 </script>
 
 <template>
-  <div class="wc-plan">
+  <div class="wc-plan" :class="{ 'wc-plan--fill': fill }">
     <div class="wc-plan__toolbar" role="toolbar" aria-label="Wing plan tools">
       <div class="wc-segmented wc-segmented--inline" role="radiogroup" aria-label="Tool">
         <button
@@ -598,9 +635,25 @@ watch(
       </div>
       <span class="wc-plan__sep" />
       <button type="button" class="wc-button" @click="addPanel">Add panel</button>
-      <button type="button" class="wc-button" :disabled="selected === null || panels.length < 2" @click="deletePanel">
-        Delete panel
-      </button>
+      <template v-if="selected !== null">
+        <button type="button" class="wc-button" title="Insert a new panel outboard of the selected one" @click="insertAfterSelected">
+          Insert after
+        </button>
+        <button type="button" class="wc-button" :disabled="selected === 0" title="Move the selected panel inward" aria-label="Move panel inward" @click="moveSelected(-1)">
+          ←
+        </button>
+        <button
+          type="button"
+          class="wc-button"
+          :disabled="selected === panels.length - 1"
+          title="Move the selected panel outward"
+          aria-label="Move panel outward"
+          @click="moveSelected(1)"
+        >
+          →
+        </button>
+        <button type="button" class="wc-button" :disabled="panels.length < 2" @click="deletePanel">Delete panel</button>
+      </template>
       <button v-if="selShape?.mode === 'stations'" type="button" class="wc-button" @click="newStation">Add station</button>
       <button v-if="dimensions.length" type="button" class="wc-button" @click="clearDims">Clear dimensions</button>
       <span class="wc-plan__sep" />
@@ -613,10 +666,10 @@ watch(
       <span class="wc-plan__sep" />
       <label class="wc-check"><input v-model="snapOn" type="checkbox" /> Snap</label>
       <span class="wc-plan__spacer" />
-      <button type="button" class="wc-button" aria-label="Zoom out" @click="zoomAt(1 / 1.25, width / 2, HEIGHT / 2)">
+      <button type="button" class="wc-button" aria-label="Zoom out" @click="zoomAt(1 / 1.25, width / 2, height / 2)">
         −
       </button>
-      <button type="button" class="wc-button" aria-label="Zoom in" @click="zoomAt(1.25, width / 2, HEIGHT / 2)">+</button>
+      <button type="button" class="wc-button" aria-label="Zoom in" @click="zoomAt(1.25, width / 2, height / 2)">+</button>
       <button type="button" class="wc-button" @click="fit">Fit</button>
     </div>
 
@@ -631,7 +684,7 @@ watch(
         ref="svgEl"
         :viewBox="viewBox"
         :width="width"
-        :height="HEIGHT"
+        :height="height"
         class="wc-plan__svg"
         :class="{ 'wc-plan__svg--panning': drag?.kind === 'pan', 'wc-plan__svg--measure': tool === 'measure' }"
         @pointerdown.self="startPan($event, { deselect: true })"
@@ -695,6 +748,15 @@ watch(
         <g pointer-events="none">
           <template v-for="p in shapes" :key="'r' + p.panel.id">
             <line v-for="r in p.ribs" :key="r.id" :x1="r.s" :y1="r.xl" :x2="r.s" :y2="r.xt" class="wc-plan__rib" />
+            <line
+              v-for="r in p.ignoredRibs"
+              :key="'x' + r.id"
+              :x1="r.s"
+              :y1="r.xl"
+              :x2="r.s"
+              :y2="r.xt"
+              class="wc-plan__rib wc-plan__rib--ignored"
+            />
           </template>
         </g>
 

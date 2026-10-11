@@ -37,17 +37,21 @@ function onFile(e) {
 
 <template>
   <div class="wc-project" role="group" aria-label="Project">
-    <label for="wc-project-name" class="wc-sr-only">Project name</label>
-    <input
-      id="wc-project-name"
-      v-model="name"
-      class="wc-input wc-project__name"
-      type="text"
-      placeholder="Untitled project"
-      autocomplete="off"
-    />
-    <span v-if="dirty" class="wc-project__dirty" title="Unsaved changes">●<span class="wc-sr-only">Unsaved changes</span></span>
-    <button type="button" class="wc-button" :disabled="!storageOk" @click="emit('save')">Save</button>
+    <div class="wc-project__namebox">
+      <label for="wc-project-name" class="wc-sr-only">Project name</label>
+      <input
+        id="wc-project-name"
+        v-model="name"
+        class="wc-input wc-project__name"
+        type="text"
+        placeholder="Untitled project"
+        autocomplete="off"
+      />
+      <span v-if="dirty" class="wc-project__dirty" title="Unsaved changes" />
+      <span v-if="dirty" class="wc-sr-only">Unsaved changes</span>
+    </div>
+    <button type="button" class="wc-button wc-button--primary" :disabled="!storageOk" @click="emit('save')">Save</button>
+    <button type="button" class="wc-button" @click="emit('new')">New</button>
     <details ref="openMenu" class="wc-project__menu">
       <summary class="wc-button">Open</summary>
       <div class="wc-project__popover">
@@ -65,7 +69,6 @@ function onFile(e) {
           </li>
         </ul>
         <div class="wc-project__more">
-          <button type="button" class="wc-button wc-button--small" @click="emit('new')">New project</button>
           <button type="button" class="wc-button wc-button--small" :disabled="!storageOk" @click="emit('save-copy')">
             Save as copy
           </button>

@@ -22,9 +22,11 @@
   --wc-band-5: #f8c99a;
   --wc-band-6: #f2a7a0;
   --wc-radius: 8px;
+  --wc-control-h: 34px;
   --wc-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
   container-type: inline-size;
+  color-scheme: light;
   box-sizing: border-box;
   color: var(--wc-text);
   background: var(--wc-bg);
@@ -42,8 +44,31 @@
   box-sizing: border-box;
 }
 
+/* Dark theme: forced with data-theme="dark", or following the OS with data-theme="auto".
+   The variables are repeated because a media query can't share a rule with a plain selector. */
+.wingcalc[data-theme='dark'] {
+  color-scheme: dark;
+  --wc-bg: #16191d;
+  --wc-surface: #1f2328;
+  --wc-border: #353b43;
+  --wc-text: #e6e9ed;
+  --wc-muted: #9aa4b1;
+  --wc-accent: #4c8dff;
+  --wc-warn: #f0b45a;
+  --wc-warn-bg: #3a2c12;
+  --wc-gentle: #4cc46a;
+  --wc-moderate: #e2b341;
+  --wc-sharp: #ff6b6b;
+  --wc-band-1: #29435e;
+  --wc-band-2: #2b4d35;
+  --wc-band-3: #44502a;
+  --wc-band-4: #5a4d22;
+  --wc-band-5: #5e3f22;
+  --wc-band-6: #5e2b28;
+}
 @media (prefers-color-scheme: dark) {
-  .wingcalc:not([data-theme='light']) {
+  .wingcalc[data-theme='auto'] {
+    color-scheme: dark;
     --wc-bg: #16191d;
     --wc-surface: #1f2328;
     --wc-border: #353b43;
@@ -83,14 +108,29 @@
   font-size: 0.9em;
 }
 
-/* Header */
+/* Header: title, then the project controls and preferences, all on one control height */
 .wc-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 12px 20px;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 16px;
+}
+.wc-header__title {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.wc-header__prefs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.wc-header .wc-toggle__btn {
+  display: inline-flex;
+  align-items: center;
+  height: calc(var(--wc-control-h) - 2px);
+  padding: 0 12px;
 }
 .wc-title {
   font-size: 1.35rem;
@@ -161,8 +201,24 @@
 }
 @container (min-width: 820px) {
   .wc-layout {
-    grid-template-columns: minmax(280px, 340px) 1fr;
+    grid-template-columns: minmax(300px, 380px) 1fr;
     align-items: start;
+  }
+}
+
+/* Stall character beside the drawings once there's room */
+.wc-lower {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@container (min-width: 1150px) {
+  .wc-lower {
+    grid-template-columns: 1fr 1fr;
+  }
+  .wc-lower .wc-drawings {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -271,6 +327,20 @@
 }
 .wc-button:hover {
   border-color: var(--wc-accent);
+}
+/* Filled primary button: a darkened border keeps it the same apparent size as its
+   bordered neighbours. */
+.wc-button--primary {
+  background: var(--wc-accent);
+  color: var(--wc-accent-text);
+  border-color: color-mix(in srgb, var(--wc-accent) 75%, #000);
+}
+.wc-button--primary:hover {
+  border-color: color-mix(in srgb, var(--wc-accent) 55%, #000);
+}
+.wc-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .wc-warnings {
@@ -784,22 +854,6 @@
   padding: 0;
   cursor: pointer;
 }
-.wc-panelset__remove {
-  position: absolute;
-  top: 2px;
-  right: 6px;
-  font: inherit;
-  font-size: 1rem;
-  line-height: 1;
-  color: var(--wc-muted);
-  background: none;
-  border: 0;
-  padding: 2px 4px;
-  cursor: pointer;
-}
-.wc-panelset__remove:hover {
-  color: var(--wc-sharp);
-}
 .wc-edges {
   display: flex;
   flex-wrap: wrap;
@@ -1089,23 +1143,37 @@
 
 /* Project bar */
 .wc-project {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  flex: 1 1 320px;
-  justify-content: flex-end;
+}
+.wc-project__namebox {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 .wc-project__name {
-  flex: 0 1 220px;
-  min-width: 120px;
+  width: 220px;
+  max-width: 40vw;
+  height: var(--wc-control-h);
+  padding-right: 22px;
 }
 .wc-project__dirty {
-  color: var(--wc-moderate);
-  font-size: 0.8rem;
+  position: absolute;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wc-moderate);
+  pointer-events: none;
 }
-.wc-project .wc-button {
-  padding: 6px 12px;
+.wc-project .wc-button,
+.wc-project__menu > summary {
+  display: inline-flex;
+  align-items: center;
+  height: var(--wc-control-h);
+  padding: 0 14px;
 }
 .wc-project__menu {
   position: relative;
@@ -1182,9 +1250,256 @@
   padding-top: 8px;
 }
 .wc-project__status {
+  position: absolute;
+  top: calc(100% + 3px);
+  right: 0;
+  font-size: 0.78rem;
+  color: var(--wc-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Station segments: a full-width toggle between station rows */
+.wc-stations__grid--nosetback {
+  grid-template-columns: 1fr 1fr auto;
+}
+.wc-segment {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--wc-muted);
+  background: none;
+  border: 0;
+  padding: 1px 2px;
+  cursor: pointer;
+  text-align: left;
+}
+.wc-segment:hover {
+  color: var(--wc-text);
+}
+.wc-segment__line {
+  flex: 0 0 28px;
+  height: 10px;
+  border-bottom: 2px solid var(--wc-accent);
+  border-radius: 0 0 50% 50%;
+}
+.wc-segment--straight .wc-segment__line {
+  height: 6px;
+  border-radius: 0;
+}
+.wc-paneltabs .wc-tab {
+  flex: 0 0 auto;
+  min-width: 36px;
+}
+
+/* Panel actions (move, insert, delete) in the panel's top-right corner */
+.wc-panelset__actions {
+  position: absolute;
+  top: -2px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  background: var(--wc-surface);
+  padding: 0 2px;
+}
+.wc-iconbtn {
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  width: 24px;
+  height: 22px;
+  color: var(--wc-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.wc-iconbtn:hover:not(:disabled) {
+  color: var(--wc-text);
+  border-color: var(--wc-border);
+}
+.wc-iconbtn--danger:hover:not(:disabled) {
+  color: var(--wc-sharp);
+}
+.wc-iconbtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Plan editor filling the expanded view */
+.wc-plan--fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.wc-plan--fill .wc-plan__canvas {
+  flex: 1;
+  min-height: 0;
+}
+.wc-plan--fill .wc-plan__svg {
+  position: absolute;
+  inset: 0 0 auto 0;
+}
+.wc-plan--fill .wc-plan__readout {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--wc-bg) 88%, transparent);
+}
+
+/* Plan card header */
+.wc-plan-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.wc-plan-card__head .wc-card__label {
+  margin: 0;
+}
+
+/* Expanded wing editor */
+.wingcalc.wc-workspace {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-radius: 0;
+  outline: none;
+}
+.wc-workspace__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--wc-border);
+  background: var(--wc-surface);
+}
+.wc-workspace__title {
+  font-size: 1.1rem;
+  font-weight: 650;
+}
+.wc-workspace__stats {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.wc-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.wc-stat > span {
+  font-size: 0.78rem;
+  font-weight: 450;
+  color: var(--wc-muted);
+}
+.wc-stat em {
+  font-style: normal;
+  font-size: 0.8rem;
+  font-weight: 450;
+  color: var(--wc-muted);
+}
+.wc-workspace .wc-button {
+  display: inline-flex;
+  align-items: center;
+}
+.wc-workspace__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 400px) 1fr;
+}
+.wc-workspace__side {
+  overflow-y: auto;
+  padding: 14px;
+  border-right: 1px solid var(--wc-border);
+  background: var(--wc-surface);
+}
+.wc-workspace__main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+}
+.wc-workspace__main .wc-plan {
+  flex: 1;
+}
+.wc-workspace__front {
+  flex: 0 0 auto;
+}
+.wc-workspace__front .wc-frontview {
+  max-height: 110px;
+}
+@container (max-width: 760px) {
+  .wc-workspace__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 45%) 1fr;
+  }
+  .wc-workspace__side {
+    border-right: 0;
+    border-bottom: 1px solid var(--wc-border);
+  }
+}
+
+/* Result of a sum typed into an entry box */
+.wc-field__calc {
+  font-size: 0.78rem;
+  color: var(--wc-accent);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.wc-field__calc--bad {
+  color: var(--wc-muted);
+}
+
+/* Station table rows: grid cells come from the row's children (display: contents keeps the
+   row as one element for focus tracking without breaking the grid). */
+.wc-stations__row {
+  display: contents;
+}
+.wc-stations__fixed {
   font-size: 0.8rem;
   color: var(--wc-muted);
-  flex-basis: 100%;
-  text-align: right;
-  min-height: 1.2em;
+  padding: 0 6px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: 1px dashed var(--wc-border);
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.wc-stations__tiplabel {
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--wc-muted);
+  padding: 0 2px;
+}
+.wc-stations__why {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--wc-warn);
+  margin: -2px 0 2px;
+}
+.wc-plan__rib--ignored {
+  stroke: var(--wc-warn);
+  stroke-dasharray: 3 2;
+  opacity: 1;
+}
+.wc-stations__why--todo {
+  color: var(--wc-muted);
 }

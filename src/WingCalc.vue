@@ -7,6 +7,7 @@ import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
+import WingWorkspace from './components/WingWorkspace.vue'
 import { useHistory } from './composables/useHistory.js'
 import LiftCurve from './components/LiftCurve.vue'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
@@ -39,8 +40,38 @@ import { RATINGS } from './lib/stall.js'
 
 const props = defineProps({
   units: { type: String, default: 'metric' },
-  theme: { type: String, default: 'auto' }, // 'auto' follows the OS; 'light' forces light
+  theme: { type: String, default: 'auto' }, // initial theme: 'auto' follows the OS, or 'light' / 'dark'
 })
+const emit = defineEmits(['theme-change'])
+
+// Colour theme. The viewer's choice is remembered in this browser (a per-viewer
+// preference, so it isn't part of a project).
+const THEMES = [
+  { id: 'auto', label: 'Auto', title: 'Follow the system light or dark setting' },
+  { id: 'light', label: 'Light', title: 'Always light' },
+  { id: 'dark', label: 'Dark', title: 'Always dark' },
+]
+const THEME_KEY = 'wingcalc.theme'
+const validTheme = (t) => (THEMES.some((x) => x.id === t) ? t : null)
+let savedTheme = null
+try {
+  savedTheme = validTheme(globalThis.localStorage?.getItem(THEME_KEY))
+} catch {
+  // storage blocked: fall back to the host's choice
+}
+const themeMode = ref(savedTheme ?? validTheme(props.theme) ?? 'auto')
+watch(
+  themeMode,
+  (t) => {
+    try {
+      globalThis.localStorage?.setItem(THEME_KEY, t)
+    } catch {
+      // not remembered; fine
+    }
+    emit('theme-change', t)
+  },
+  { immediate: true },
+)
 
 // --- State and projects ------------------------------------------------------------------
 
@@ -203,6 +234,14 @@ onMounted(() => {
 // Selected panel, shared by the numeric panel editor and the plan editor.
 const selectedPanel = ref(null)
 
+// The expanded wing editor renders beside the calculator (see WingWorkspace), once mounted.
+const rootEl = ref(null)
+const workspaceTarget = ref(null)
+const workspaceOpen = ref(false)
+onMounted(() => {
+  workspaceTarget.value = rootEl.value?.parentElement ?? null
+})
+
 // Undo/redo covers the wing shape and the plan's dimensions.
 const history = useHistory(
   () => ({
@@ -289,9 +328,9 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
 </script>
 
 <template>
-  <div class="wingcalc" :data-theme="theme">
+  <div ref="rootEl" class="wingcalc" :data-theme="themeMode">
     <header class="wc-header">
-      <div>
+      <div class="wc-header__title">
         <h2 class="wc-title">Wing loading calculator</h2>
         <p class="wc-subtitle">RC fixed-wing aircraft, 600 mm to 3 m span</p>
       </div>
@@ -310,19 +349,36 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         @export="exportFile"
         @import="importFile"
       />
-      <div class="wc-toggle" role="radiogroup" aria-label="Unit system">
-        <button
-          v-for="(s, key) in SYSTEMS"
-          :key="key"
-          type="button"
-          role="radio"
-          :aria-checked="system === key"
-          class="wc-toggle__btn"
-          :class="{ 'wc-toggle__btn--active': system === key }"
-          @click="system = key"
-        >
-          {{ s.label }}
-        </button>
+      <div class="wc-header__prefs">
+        <div class="wc-toggle" role="radiogroup" aria-label="Unit system">
+          <button
+            v-for="(s, key) in SYSTEMS"
+            :key="key"
+            type="button"
+            role="radio"
+            :aria-checked="system === key"
+            class="wc-toggle__btn"
+            :class="{ 'wc-toggle__btn--active': system === key }"
+            @click="system = key"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+        <div class="wc-toggle" role="radiogroup" aria-label="Colour theme">
+          <button
+            v-for="t in THEMES"
+            :key="t.id"
+            type="button"
+            role="radio"
+            :aria-checked="themeMode === t.id"
+            class="wc-toggle__btn"
+            :class="{ 'wc-toggle__btn--active': themeMode === t.id }"
+            :title="t.title"
+            @click="themeMode = t.id"
+          >
+            {{ t.label }}
+          </button>
+        </div>
       </div>
     </header>
 
@@ -541,26 +597,14 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           </p>
         </details>
 
-        <article v-if="rating" class="wc-card wc-stall" :data-rating="rating.rating">
-          <div class="wc-stall__head">
-            <h3 class="wc-card__label">Stall character</h3>
-            <span class="wc-pill" :data-rating="rating.rating">{{ rating.label }}</span>
-          </div>
-          <p class="wc-stall__summary">{{ rating.summary }}</p>
-          <p class="wc-card__note">
-            {{ rating.explanation }}
-            <template v-if="rating.method === 'geometry'">
-              Estimated from section shape, as there's no polar data for this section.</template
-            >
-            <template v-else-if="rating.confidence === 'low'"> Limited post-stall data, so treat with extra caution.</template>
-          </p>
-          <LiftCurve v-if="results.perf?.curve" :curve="results.perf.curve" />
-          <p class="wc-disclaimer">Indicative only: not a substitute for flight testing.</p>
-        </article>
-
         <article v-if="input.geometryMode === 'panels'" class="wc-card wc-plan-card">
-          <h3 class="wc-card__label">Wing plan (one side, flat as built)</h3>
+          <div class="wc-plan-card__head">
+            <h3 class="wc-card__label">Wing plan (one side, flat as built)</h3>
+            <button type="button" class="wc-button" @click="workspaceOpen = true">Open wing editor</button>
+          </div>
+          <p v-if="workspaceOpen" class="wc-muted">Editing in the wing editor.</p>
           <WingPlanEditor
+            v-else
             v-model:fuselage-width="input.fuselageWidth"
             v-model:root-chord="input.rootChord"
             v-model:panels="input.panels"
@@ -576,20 +620,39 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           />
         </article>
 
-        <div class="wc-drawings">
-          <SectionView
-            v-if="airfoil"
-            :coords="airfoil.coords"
-            :params="airfoil.params"
-            :name="airfoil.name"
-            :valid="airfoil.valid"
-          />
-          <PlanformView
-            v-if="input.geometryMode !== 'panels' || geometry.hasDihedral"
-            :geometry="geometry"
-            :length-unit="u('length')"
-            :show-top="input.geometryMode !== 'panels'"
-          />
+        <div class="wc-lower">
+          <article v-if="rating" class="wc-card wc-stall" :data-rating="rating.rating">
+            <div class="wc-stall__head">
+              <h3 class="wc-card__label">Stall character</h3>
+              <span class="wc-pill" :data-rating="rating.rating">{{ rating.label }}</span>
+            </div>
+            <p class="wc-stall__summary">{{ rating.summary }}</p>
+            <p class="wc-card__note">
+              {{ rating.explanation }}
+              <template v-if="rating.method === 'geometry'">
+                Estimated from section shape, as there's no polar data for this section.</template
+              >
+              <template v-else-if="rating.confidence === 'low'"> Limited post-stall data, so treat with extra caution.</template>
+            </p>
+            <LiftCurve v-if="results.perf?.curve" :curve="results.perf.curve" />
+            <p class="wc-disclaimer">Indicative only: not a substitute for flight testing.</p>
+          </article>
+
+          <div class="wc-drawings">
+            <SectionView
+              v-if="airfoil"
+              :coords="airfoil.coords"
+              :params="airfoil.params"
+              :name="airfoil.name"
+              :valid="airfoil.valid"
+            />
+            <PlanformView
+              v-if="input.geometryMode !== 'panels' || geometry.hasDihedral"
+              :geometry="geometry"
+              :length-unit="u('length')"
+              :show-top="input.geometryMode !== 'panels'"
+            />
+          </div>
         </div>
 
         <p v-if="airfoil?.kind === 'catalogue'" class="wc-source">
@@ -607,5 +670,60 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </p>
       </section>
     </div>
+
+    <Teleport v-if="workspaceTarget" :to="workspaceTarget">
+      <WingWorkspace v-model:open="workspaceOpen" :theme="themeMode">
+        <template #stats>
+          <span class="wc-stat"><span>Span</span>{{ format(geometry.span, 'length', u('length')) }}</span>
+          <span class="wc-stat"><span>Area</span>{{ format(geometry.area, 'area', u('area')) }}</span>
+          <span class="wc-stat"><span>Aspect ratio</span>{{ geometry.aspectRatio ? geometry.aspectRatio.toFixed(1) : '–' }}</span>
+          <span class="wc-stat" :data-band="results.band?.id">
+            <span>Cube loading</span>{{ format(results.wcl, 'cubeLoading', u('cubeLoading')) }}
+            <em v-if="results.band">{{ results.band.label }}</em>
+          </span>
+          <span class="wc-stat"><span>Stall speed</span>{{ format(results.perf?.stallSpeed, 'speed', u('speed')) }}</span>
+        </template>
+        <template #side>
+          <PanelEditor
+            v-model:fuselage-width="input.fuselageWidth"
+            v-model:root-chord="input.rootChord"
+            v-model:panels="input.panels"
+            v-model:tip="input.tip"
+            v-model:selected="selectedPanel"
+            :system="system"
+            :warn-fields="warnFields"
+            focused
+            id-prefix="wcx"
+          />
+          <ul v-if="warnings.length" class="wc-warnings">
+            <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
+          </ul>
+        </template>
+        <template #main>
+          <WingPlanEditor
+            v-model:fuselage-width="input.fuselageWidth"
+            v-model:root-chord="input.rootChord"
+            v-model:panels="input.panels"
+            v-model:tip="input.tip"
+            v-model:dimensions="input.dimensions"
+            v-model:selected="selectedPanel"
+            :system="system"
+            :can-undo="history.canUndo.value"
+            :can-redo="history.canRedo.value"
+            fill
+            @undo="history.undo"
+            @redo="history.redo"
+            @commit="history.commit"
+          />
+          <PlanformView
+            v-if="geometry.hasDihedral"
+            class="wc-workspace__front"
+            :geometry="geometry"
+            :length-unit="u('length')"
+            :show-top="false"
+          />
+        </template>
+      </WingWorkspace>
+    </Teleport>
   </div>
 </template>

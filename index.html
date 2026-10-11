@@ -6,8 +6,10 @@
     <title>Wing loading calculator</title>
     <style>
       body { margin: 0; padding: 16px; background: #eef0f3; }
-      @media (prefers-color-scheme: dark) { body { background: #0d0f12; } }
-      #app { max-width: 1200px; margin: 0 auto; }
+      @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) body { background: #0d0f12; } }
+      #app { max-width: 1760px; margin: 0 auto; }
+      html[data-theme="dark"] body { background: #0d0f12; }
+      html[data-theme="light"] body { background: #eef0f3; }
     </style>
   </head>
   <body>

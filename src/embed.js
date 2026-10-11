@@ -6,7 +6,8 @@
 //
 // Attributes (read once, when the element is attached):
 //   units  "metric" (default) or "imperial"
-//   theme  "auto" (default, follows the OS) or "light"
+//   theme  "auto" (default, follows the OS), "light" or "dark". The viewer can change it
+//          in the widget; their choice is remembered in this browser.
 import { createApp, h } from 'vue'
 import WingCalc from './WingCalc.vue'
 import css from './styles/wingcalc.css?inline'
