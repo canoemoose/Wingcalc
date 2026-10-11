@@ -14,7 +14,7 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - Projects: `src/lib/projects.js` (storage injected, every access guarded). Saved state is `{ units, input, airfoil }`; anything added to `input` must also go in `defaultState()` so older saves migrate. `input.structure` and `input.exportOptions` are filled from their defaults recursively (`fillDefaults`), so new nested settings migrate too.
 - Wing at any span station: `wingSampler` in `src/lib/wing.js` (chord, LE, twist, thickness, dihedral by flat s); `projectedSampler` looks it up by projected y for the lifting line.
 - Aerodynamics: `src/lib/liftingLine.js` (Glauert series); `airfoilPerformance` in `airfoils.js` uses it for wing CLmax and stall onset in panel mode.
-- Structure: `src/lib/structure.js` (materials, Stage A loads and margins, rib positions), `src/lib/ribs.js` (rib and part geometry, cut list, weight), `src/lib/dxf.js` (R12 DXF, kerf and dogbones, plan, CSV), `src/lib/strokeFont.js` (etched labels). Part geometry is in metres in its own (u, z) plane; DXF converts to millimetres.
+- Structure: `src/lib/structure.js` (materials, Stage A loads and margins, rib positions), `src/lib/ribs.js` (rib and part geometry, cut list, weight), `src/lib/dxf.js` (R12 DXF, kerf and dogbones, plan, CSV), `src/lib/strokeFont.js` (etched labels), `src/lib/wing3d.js` (3D geometry as plain arrays; `Structure3D.vue` loads three.js on demand and renders on demand, not in a loop). Part geometry is in metres in its own (u, z) plane; DXF converts to millimetres.
 - Unit quantities include `thin` (lengths shown to 0.1 mm, for material sizes) and `percent` (a fraction shown as %).
 
 ## Testing

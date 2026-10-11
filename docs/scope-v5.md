@@ -73,6 +73,10 @@ Each step lands with tests. Steps 3 to 7 landed as library code first; their UI 
 
 All steps done on the `ribs` branch; 196 tests pass. Exercised in the browser: washout moving the stall inboard, the structure editor (plan, rib selection, loads chart, part preview), switching the spar to a tube, the export panel (laser and router), and closing it again. Downloads were not clicked in the browser (they save to disk); the DXF and CSV they produce are covered by the tests, which read them back.
 
+### Added after (2026-10-12)
+
+- 3D view of the built-up half wing in the structure editor (Plan / 3D switch): three.js, loaded on first use. Geometry in `src/lib/wing3d.js`, tested so every rib placed in 3D lands on the lofted wing.
+
 ### Not done, or worth a look
 
 - The DXF has not been opened in real CAM or laser software yet. It's plain R12, so it should be fine, but try one in LightBurn or your CAM before cutting wood.

@@ -13,6 +13,8 @@ import LiftCurve from './components/LiftCurve.vue'
 import SpanLiftChart from './components/SpanLiftChart.vue'
 import StructureEditor from './components/StructureEditor.vue'
 import StructurePlan from './components/StructurePlan.vue'
+import Structure3D from './components/Structure3D.vue'
+import SegmentedField from './components/SegmentedField.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
@@ -381,6 +383,7 @@ watch(structureOpen, (v) => {
   else exportOpen.value = false
 })
 const selectedPart = ref(null)
+const structureView = ref('plan') // 'plan' | '3d'
 const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs') ?? [])
 const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
 const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.group === 'braces').map((p) => p.need) ?? [])
@@ -892,7 +895,25 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             @close="exportOpen = false"
           />
           <div v-else class="wc-structure-main">
+            <SegmentedField
+              v-model="structureView"
+              label="View"
+              :options="[
+                { value: 'plan', label: 'Plan' },
+                { value: '3d', label: '3D' },
+              ]"
+              class="wc-structure-main__view"
+            />
+            <Structure3D
+              v-if="structureView === '3d'"
+              :analysis="structureResult.a"
+              :structure="input.structure"
+              :parts="structureResult.parts"
+              :selected="selectedPart"
+              @select="selectedPart = $event"
+            />
             <StructurePlan
+              v-else
               :analysis="structureResult.a"
               :structure="input.structure"
               :parts="structureResult.parts"
