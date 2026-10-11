@@ -1,82 +1,67 @@
-// Fetch aerofoil coordinates and XFOIL polars from airfoiltools.com and bundle them
-// as static JSON for the app (src/data/airfoils.json).
+// Build the bundled aerofoil data:
+//
+//  - src/data/airfoils.json: sections with XFOIL polars, from airfoiltools.com
+//  - src/data/uiuc.json: every section in the UIUC Airfoil Coordinates Database
+//    (coordinates and measured geometry only, no polars)
 //
 // Run with: npm run fetch-airfoils
 //
-// Requests are made one at a time with a pause between them, to keep the load on
-// airfoiltools.com light. A full run makes roughly 7 requests per section; responses
-// are cached in scripts/.cache so re-runs are cheap.
+// Requests are made one at a time with a pause between them, to keep the load light.
+// airfoiltools.com takes roughly 7 requests per section; UIUC is two requests in total
+// (the coordinate archive and its index page). Responses are cached in scripts/.cache so
+// re-runs are cheap.
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { unzipSync, strFromU8 } from 'fflate'
 import { sectionStats, decimate } from '../src/lib/airfoilGeom.js'
+import { familyOf, uiucId } from '../src/lib/family.js'
 
 const BASE = 'http://airfoiltools.com'
-const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../src/data/airfoils.json')
+const HERE = dirname(fileURLToPath(import.meta.url))
+const OUT = resolve(HERE, '../src/data/airfoils.json')
+const OUT_UIUC = resolve(HERE, '../src/data/uiuc.json')
+const UIUC_ZIP = 'https://m-selig.ae.illinois.edu/ads/archives/coord_seligFmt.zip'
+const UIUC_INDEX = 'https://m-selig.ae.illinois.edu/ads/coord_database.html'
+const UIUC_COORD = 'https://m-selig.ae.illinois.edu/ads/coord/'
 const DELAY_MS = 1500
 const USER_AGENT = 'wingcalc-data-fetch (build-time, cached, one request at a time)'
 const NCRIT = 9
 // Reynolds numbers covering RC models from small park flyers to large scale models.
 const REYNOLDS = [50000, 100000, 200000, 500000, 1000000]
 
-// airfoiltools id -> display family. Edit this list to add or remove sections.
-const SECTIONS = {
-  naca: [
-    'n0009sm-il',
-    'n0012-il',
-    'naca0015-il',
-    'naca0018-il',
-    'naca1408-il',
-    'naca1410-il',
-    'naca1412-il',
-    'naca2408-il',
-    'naca2410-il',
-    'naca2412-il',
-    'naca2415-il',
-    'naca2418-il',
-    'naca4412-il',
-    'naca4415-il',
-    'naca4418-il',
-    'naca6412-il',
-    'naca23012-il',
-    'naca23015-il',
-  ],
-  eppler: [
-    'e168-il',
-    'e169-il',
-    'e180-il',
-    'e193-il',
-    'e197-il',
-    'e205-il',
-    'e207-il',
-    'e211-il',
-    'e212-il',
-    'e214-il',
-    'e216-il',
-    'e222-il',
-    'e226-il',
-    'e230-il',
-    'e374-il',
-    'e387-il',
-    'e392-il',
-    'e393-il',
-    'e423-il',
-    'e472-il',
-    'e474-il',
-  ],
-}
+// airfoiltools ids of the sections to bundle with polars. The family (NACA, Eppler or
+// other) is worked out from the id. Edit this list to add or remove sections.
+const SECTIONS = [
+  // NACA
+  'n0009sm-il', 'n0012-il', 'naca0015-il', 'naca0018-il', 'naca1408-il', 'naca1410-il',
+  'naca1412-il', 'naca2408-il', 'naca2410-il', 'naca2412-il', 'naca2415-il', 'naca2418-il',
+  'naca4412-il', 'naca4415-il', 'naca4418-il', 'naca6412-il', 'naca23012-il', 'naca23015-il',
+  'naca633618-il',
+  // Eppler
+  'e61-il', 'e168-il', 'e169-il', 'e180-il', 'e193-il', 'e197-il', 'e205-il', 'e207-il',
+  'e211-il', 'e212-il', 'e214-il', 'e216-il', 'e222-il', 'e226-il', 'e230-il', 'e374-il',
+  'e387-il', 'e392-il', 'e393-il', 'e423-il', 'e472-il', 'e474-il',
+  // Popular RC sections from other families
+  'clarky-il', 'usa35b-il', 'raf6-il', 'goe398-il', 'fx63137-il', 's1223-il', 'ch10sm-il',
+  's2091-il', 's3010-il', 's3014-il', 's3021-il', 's4083-il', 's6062-il', 's7055-il',
+  's7075-il', 's8036-il', 's9000-il', 'sd7003-il', 'sd7032-il', 'sd7037-il', 'sd7043-il',
+  'sd7062-il', 'sd7080-il', 'sa7036-il', 'sa7038-il', 'mh30-il', 'mh32-il', 'mh45-il',
+  'mh60-il', 'mh61-il', 'rg14-il', 'rg15-il', 'ag03-il', 'ag12-il', 'ag24-il', 'ag35-il',
+  'hq2010-il',
+]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // Responses are cached on disk so a re-run (e.g. after tweaking the parser or the
 // section list) only requests what it doesn't already have. Delete the folder to refresh.
-const CACHE = resolve(dirname(fileURLToPath(import.meta.url)), '.cache')
+const CACHE = resolve(HERE, '.cache')
 
-async function get(url) {
+async function get(url, { binary = false } = {}) {
   const file = resolve(CACHE, url.replace(/^https?:\/\//, '').replace(/[^\w.-]+/g, '_'))
   try {
-    return await readFile(file, 'utf8')
+    return binary ? new Uint8Array(await readFile(file)) : await readFile(file, 'utf8')
   } catch {
     // not cached
   }
@@ -85,10 +70,10 @@ async function get(url) {
     await sleep(attempt === 0 ? DELAY_MS : 30000 * attempt)
     const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
     if (res.ok) {
-      const text = await res.text()
+      const body = binary ? new Uint8Array(await res.arrayBuffer()) : await res.text()
       await mkdir(CACHE, { recursive: true })
-      await writeFile(file, text)
-      return text
+      await writeFile(file, body)
+      return body
     }
     if (res.status !== 403 && res.status !== 429) throw new Error(`HTTP ${res.status} for ${url}`)
     console.warn(`  HTTP ${res.status}, backing off (attempt ${attempt + 1})`)
@@ -143,14 +128,26 @@ const round = (v, dp) => (v === null || v === undefined ? null : Number(v.toFixe
 
 function displayName(id, seligName) {
   // Prefer a tidy name derived from the id (NACA 2412, E205); fall back to the dat header.
-  const naca = id.match(/^n(?:aca)?(\d{4,5})/)
-  if (naca) return `NACA ${naca[1]}`
-  const epp = id.match(/^e(\d+)/)
-  if (epp) return `E${epp[1]}`
-  return seligName
+  const base = uiucId(id)
+  const naca = base.match(/^n(?:aca)?(\d{4,6})(.*)$/)
+  if (naca) return `NACA ${naca[1]}${naca[2] ? ` (${naca[2]})` : ''}`
+  const epp = base.match(/^e(\d+)(.*)$/)
+  if (epp) return `E${epp[1]}${epp[2] ? ` (${epp[2]})` : ''}`
+  const header = seligName
+    .replace(/\(?[\d.]+\s*%\)?/g, '')
+    .replace(/\bair\s*foil\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return header && header.length <= 28 ? header : base.toUpperCase()
 }
 
-async function fetchSection(id, family) {
+// Coordinates as a flat list of integers (units of 1/10000 chord), to keep the bundle small.
+function pack(coords) {
+  return coords.flatMap(([x, y]) => [Math.round(x * 10000), Math.round(y * 10000)])
+}
+
+async function fetchSection(id) {
+  const family = familyOf(id)
   const detailsUrl = `${BASE}/airfoil/details?airfoil=${id}`
   const datUrl = `${BASE}/airfoil/seligdatfile?airfoil=${id}`
   const details = parseDetails(await get(detailsUrl))
@@ -184,6 +181,7 @@ async function fetchSection(id, family) {
 
   return {
     id,
+    uiuc: uiucId(id),
     family,
     name: displayName(id, seligName),
     description: details.title,
@@ -202,18 +200,69 @@ async function fetchSection(id, family) {
   }
 }
 
+// "a18.dat \ Archer A18 F1C free flight airfoil(original) \ ..." on the UIUC index page
+function parseUiucIndex(html) {
+  const out = new Map()
+  const re = /<a href="coord\/([^"]+)\.dat">[^<]*<\/a>\s*\\\s*([^\\<]*)/gi
+  for (const m of html.matchAll(re)) out.set(m[1].toLowerCase(), m[2].replace(/\s+/g, ' ').trim())
+  return out
+}
+
+async function buildUiuc() {
+  console.log('UIUC: coordinate archive and index')
+  const zip = unzipSync(await get(UIUC_ZIP, { binary: true }))
+  const descriptions = parseUiucIndex(await get(UIUC_INDEX))
+  const sections = []
+  const skipped = []
+  for (const [path, bytes] of Object.entries(zip)) {
+    const m = path.match(/([^/]+)\.dat$/i)
+    if (!m) continue
+    const id = m[1].toLowerCase()
+    try {
+      const { name, coords } = parseSelig(strFromU8(bytes))
+      if (coords.length < 15) throw new Error('too few points')
+      const stats = sectionStats(coords)
+      if (!(stats.thickness > 0.005 && stats.thickness < 0.6)) throw new Error('implausible thickness')
+      sections.push({
+        id,
+        family: familyOf(id),
+        name: displayName(id, name),
+        description: descriptions.get(id) ?? name,
+        thicknessPct: round(stats.thickness * 100, 2),
+        thicknessPosPct: round(stats.thicknessPos * 100, 1),
+        camberPct: round(stats.camber * 100, 2),
+        camberPosPct: round(stats.camberPos * 100, 1),
+        leRadiusPct: stats.leRadius === null ? null : round(stats.leRadius * 100, 3),
+        upper125Pct: round(stats.upper125 * 100, 3),
+        pts: pack(decimate(coords, 60)),
+      })
+    } catch (e) {
+      skipped.push(`${id} (${e.message})`)
+    }
+  }
+  sections.sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
+  const out = {
+    generated: new Date().toISOString(),
+    source: 'UIUC Airfoil Coordinates Database, https://m-selig.ae.illinois.edu/ads/coord_database.html',
+    coordUrl: UIUC_COORD,
+    packScale: 10000,
+    sections,
+  }
+  await writeFile(OUT_UIUC, JSON.stringify(out) + '\n')
+  console.log(`Wrote ${sections.length} UIUC sections to ${OUT_UIUC}`)
+  if (skipped.length) console.warn(`Skipped ${skipped.length}: ${skipped.join(', ')}`)
+}
+
 async function main() {
   const sections = []
   const failures = []
-  for (const [family, ids] of Object.entries(SECTIONS)) {
-    for (const id of ids) {
-      console.log(`${family}: ${id}`)
-      try {
-        sections.push(await fetchSection(id, family))
-      } catch (e) {
-        console.warn(`  FAILED: ${e.message}`)
-        failures.push(id)
-      }
+  for (const id of SECTIONS) {
+    console.log(id)
+    try {
+      sections.push(await fetchSection(id))
+    } catch (e) {
+      console.warn(`  FAILED: ${e.message}`)
+      failures.push(id)
     }
   }
   const out = {
@@ -226,6 +275,7 @@ async function main() {
   await mkdir(dirname(OUT), { recursive: true })
   await writeFile(OUT, JSON.stringify(out) + '\n')
   console.log(`Wrote ${sections.length} sections to ${OUT}`)
+  await buildUiuc()
   if (failures.length) {
     console.warn(`Failed: ${failures.join(', ')}`)
     process.exitCode = 1
