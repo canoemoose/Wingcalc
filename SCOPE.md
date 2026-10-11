@@ -63,13 +63,13 @@ For each airfoil, the tool will also flag its stall character — whether it bre
 Done:
 - Vue 3 + Vite app (`src/WingCalc.vue`), standalone page and `<wing-calc>` embed build (shadow DOM, container queries).
 - Metric/imperial toggle with per-field unit choice; converted values shown alongside results.
-- Geometry from root chord plus panels (length, outer chord, dihedral each: covers taper, cranked planforms, dihedral and polyhedral), mean chord, or area. Span 600 mm to 3 m validated with warnings.
+- Geometry from root chord plus panels (length, outer chord, dihedral as an angle or as the rise of the outer end: covers taper, cranked planforms, dihedral and polyhedral), mean chord, or area. Span 600 mm to 3 m validated with warnings.
 - Top and true-scale front view of the wing; stall speed uses projected area, loadings use flat area.
 - 18 NACA + 21 Eppler sections bundled from airfoiltools.com, XFOIL polars at Re 50k to 1M. Fetch script with caching and back-off.
 - Cube-loading verdict (6 bands, thresholds in the UI), stall speed side by side, Reynolds-consistent Clmax lookup.
 - Stall character from polar shape (library) or Gault-style geometry heuristic (custom), with lift-curve plot and disclaimer.
 - Live SVG section and planform drawings for both library and custom sections.
-- README, 61 Vitest unit tests.
+- README, 65 Vitest unit tests.
 
 Open questions / for review:
 - airfoiltools.com publishes no terms of use (copyright footer only). Ask permission before public release, or regenerate polars with XFOIL.

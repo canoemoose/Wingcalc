@@ -2,8 +2,11 @@
 // Half-wing panel editor: root chord, then each panel outward from the centreline with its
 // length, outer chord and dihedral. One flat panel is a plain tapered wing; more panels
 // give cranked planforms and dihedral or polyhedral breaks.
+import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
+import { panelAngle } from '../lib/calc.js'
+import { format, defaultUnit } from '../lib/units.js'
 
 const MAX_PANELS = 5
 
@@ -13,6 +16,32 @@ const props = defineProps({
 })
 const rootChord = defineModel('rootChord', { type: Number, default: null })
 const panels = defineModel('panels', { type: Array, required: true })
+
+// Dihedral is entered either as an angle or as the rise of each panel's outer end. A panel
+// carries a `rise` key (m, null while the box is empty) in rise mode and `dihedral`
+// (degrees) otherwise. The mode follows the key, not its value, so clearing a box to
+// retype it doesn't flip the mode.
+const dihedralBy = computed(() => (panels.value.some((p) => 'rise' in p) ? 'rise' : 'angle'))
+
+function setDihedralBy(mode) {
+  if (mode === dihedralBy.value) return
+  panels.value = panels.value.map(({ rise, dihedral, ...p }) => {
+    const rad = panelAngle({ ...p, rise, dihedral }) ?? 0
+    if (mode === 'rise') return { ...p, rise: (p.length ?? 0) * Math.sin(rad) }
+    return { ...p, dihedral: Math.round(((rad * 180) / Math.PI) * 10) / 10 }
+  })
+}
+
+function angleHint(p) {
+  const rad = panelAngle(p)
+  return rad === null ? '' : `${((rad * 180) / Math.PI).toFixed(1)}° to the horizontal`
+}
+
+function riseHint(p) {
+  const rad = panelAngle(p)
+  if (rad === null || !(p.length > 0)) return ''
+  return `Outer end ${format(p.length * Math.sin(rad), 'length', defaultUnit(props.system, 'length'))} above the inner end`
+}
 
 function update(i, key, value) {
   panels.value = panels.value.map((p, j) => (j === i ? { ...p, [key]: value } : p))
@@ -26,16 +55,25 @@ function addBreak() {
   const inner = list.length > 1 ? list.at(-2).tipChord : rootChord.value
   const mid = inner > 0 && last.tipChord >= 0 ? (inner + last.tipChord) / 2 : last.tipChord
   const half = last.length > 0 ? last.length / 2 : last.length
-  panels.value = [...list.slice(0, -1), { ...last, length: half, tipChord: mid }, { ...last, length: half }]
+  // Halving the rise too keeps the angle unchanged.
+  const halfRise = Number.isFinite(last.rise) ? { rise: last.rise / 2 } : {}
+  panels.value = [
+    ...list.slice(0, -1),
+    { ...last, length: half, tipChord: mid, ...halfRise },
+    { ...last, length: half, ...halfRise },
+  ]
 }
 
 // Merge the outer panel into the one inside it, keeping the overall length and tip chord.
+// In rise mode the rises add, so the merged panel runs straight to the old tip.
 function removeBreak() {
   const list = panels.value
   if (list.length < 2) return
   const last = list.at(-1)
   const prev = list.at(-2)
-  panels.value = [...list.slice(0, -2), { ...prev, length: (prev.length ?? 0) + (last.length ?? 0), tipChord: last.tipChord }]
+  const merged = { ...prev, length: (prev.length ?? 0) + (last.length ?? 0), tipChord: last.tipChord }
+  if (Number.isFinite(prev.rise)) merged.rise = prev.rise + (last.rise ?? 0)
+  panels.value = [...list.slice(0, -2), merged]
 }
 
 function title(i) {
@@ -50,6 +88,26 @@ function title(i) {
 <template>
   <div class="wc-panels">
     <UnitInput id="wc-root" v-model="rootChord" quantity="length" :system="system" label="Root chord" />
+    <div class="wc-field">
+      <span class="wc-field__label">Enter dihedral as</span>
+      <div class="wc-segmented" role="radiogroup" aria-label="Enter dihedral as">
+        <button
+          v-for="m in [
+            { id: 'angle', label: 'Angle' },
+            { id: 'rise', label: 'Rise at outer end' },
+          ]"
+          :key="m.id"
+          type="button"
+          role="radio"
+          :aria-checked="dihedralBy === m.id"
+          class="wc-segmented__btn"
+          :class="{ 'wc-segmented__btn--active': dihedralBy === m.id }"
+          @click="setDihedralBy(m.id)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+    </div>
     <fieldset v-for="(p, i) in panels" :key="i" class="wc-panelset">
       <legend class="wc-panelset__legend">{{ title(i) }}</legend>
       <UnitInput
@@ -70,7 +128,22 @@ function title(i) {
         :warn="warnFields.includes(`panel-${i}`)"
         @update:model-value="update(i, 'tipChord', $event)"
       />
+      <UnitInput
+        v-if="dihedralBy === 'rise'"
+        :id="`wc-panel-${i}-rise`"
+        :model-value="p.rise"
+        quantity="length"
+        :system="system"
+        label="Rise at outer end"
+        :warn="warnFields.includes(`panel-${i}-rise`)"
+        :hint="
+          (i === 0 ? 'Height of the outer end above the inner end, with the wing level. Negative for anhedral. ' : '') +
+          angleHint(p)
+        "
+        @update:model-value="update(i, 'rise', $event)"
+      />
       <ParamInput
+        v-else
         :id="`wc-panel-${i}-dihedral`"
         :model-value="p.dihedral"
         label="Dihedral"
@@ -78,7 +151,10 @@ function title(i) {
         :min="-10"
         :max="45"
         :step="0.5"
-        :hint="i === 0 ? 'Angle of the panel to the horizontal, seen from the front. Negative for anhedral.' : ''"
+        :hint="
+          (i === 0 ? 'Angle of the panel to the horizontal, seen from the front. Negative for anhedral. ' : '') +
+          riseHint(p)
+        "
         @update:model-value="update(i, 'dihedral', $event)"
       />
     </fieldset>

@@ -70,6 +70,8 @@ Constants: g = 9.80665 m/s², ρ = 1.225 kg/m³ and ν = 1.4607 × 10⁻⁵ m²/
 
 Here l<sub>i</sub> is a panel's length measured flat along the panel, c<sub>i</sub> its outer chord (c<sub>0</sub> is the root chord) and Γ<sub>i</sub> its dihedral angle to the horizontal.
 
+Dihedral can be entered per panel either as that angle or as the **rise** of the panel's outer end: how far it sits above the panel's inner end with the wing level (so for a polyhedral tip panel, measured from the break, not from the centre section). The two are related by Γ = asin(rise / l), and each entry mode shows the other as a hint. This is not the same as the "block the tip up X" figure on some plans, where the inner panel is pinned flat on the board: for a tip panel that measures the angle relative to the inner panel, so add the inner panel's angle to get Γ.
+
 **Flat versus projected area.** Wing and cube loading use the flat (developed) area, because that's the figure normally quoted for a model and the one the cube-loading bands were drawn up against. Stall speed uses the projected area: each panel's lift acts perpendicular to the panel, so only its cos Γ component supports the weight. The difference is small for ordinary dihedral (0.4% at 5°) and becomes noticeable only with steep polyhedral tips (about 6% for a tip panel at 20°). Mean chord and area modes assume a flat wing.
 
 **Wing C<sub>L,max</sub> factor.** A finite wing reaches a lower maximum lift coefficient than its 2D section. 0.9 is a common rule of thumb for straight, moderately tapered wings; it is a single constant (`WING_CLMAX_FACTOR`) if you want to change it.

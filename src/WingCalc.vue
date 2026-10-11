@@ -68,7 +68,13 @@ const results = computed(() => {
   return { wl, wcl, band: cubeBand(wcl), perf }
 })
 
-const warnings = computed(() => validate({ mass: input.mass, geometry: geometry.value }))
+const warnings = computed(() =>
+  validate({
+    mass: input.mass,
+    geometry: geometry.value,
+    panels: input.geometryMode === 'panels' ? input.panels : null,
+  }),
+)
 const warnFor = (field) => warnings.value.some((w) => w.field === field)
 const warnFields = computed(() => warnings.value.map((w) => w.field))
 

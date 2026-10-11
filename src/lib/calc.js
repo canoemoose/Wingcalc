@@ -15,8 +15,8 @@ export const SPAN_MAX = 3.0 // m
 
 // Planform from one of four entry modes:
 //   'panels' – root chord plus one or more panels per side, each with its length (measured
-//              flat along the panel), outer chord and dihedral angle to the horizontal
-//              (degrees). Covers straight, tapered, dihedral and polyhedral wings.
+//              flat along the panel), outer chord and dihedral (see panelAngle). Covers
+//              straight, tapered, dihedral and polyhedral wings.
 //   'chords' – span, root and tip chord (a single flat, straight-tapered panel)
 //   'mean'   – span and mean chord
 //   'area'   – span and area entered directly
@@ -70,9 +70,20 @@ export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area,
   return g
 }
 
+// A panel's dihedral, in radians. It is given either as an angle to the horizontal
+// (`dihedral`, degrees) or as `rise`: how far the outer end sits above the inner end with
+// the wing level. Returns null if the rise is longer than the panel itself.
+export function panelAngle(p) {
+  if (Number.isFinite(p.rise)) {
+    if (!(p.length > 0) || Math.abs(p.rise) > p.length) return null
+    return Math.asin(p.rise / p.length)
+  }
+  return Number.isFinite(p.dihedral) ? (p.dihedral * Math.PI) / 180 : null
+}
+
 function panelGeometry(g, rootChord, panels) {
   if (!(rootChord > 0) || !panels?.length) return g
-  if (!panels.every((p) => p.length > 0 && p.tipChord >= 0 && Number.isFinite(p.dihedral))) return g
+  if (!panels.every((p) => p.length > 0 && p.tipChord >= 0 && panelAngle(p) !== null)) return g
   // Integrate over one half-wing, panel by panel, in both flat and projected coordinates.
   const stations = [{ y: 0, z: 0, c: rootChord }]
   let flatHalf = 0
@@ -84,7 +95,7 @@ function panelGeometry(g, rootChord, panels) {
   let z = 0
   let c0 = rootChord
   for (const p of panels) {
-    const rad = (p.dihedral * Math.PI) / 180
+    const rad = panelAngle(p)
     const L = p.length * Math.cos(rad) // projected width of the panel
     const c1 = p.tipChord
     const trap = ((c0 + c1) / 2)
@@ -98,7 +109,7 @@ function panelGeometry(g, rootChord, panels) {
     z += p.length * Math.sin(rad)
     c0 = c1
     stations.push({ y, z, c: c1 })
-    if (p.dihedral !== 0) g.hasDihedral = true
+    if (rad !== 0) g.hasDihedral = true
   }
   g.span = 2 * y
   g.flatSpan = 2 * flatLen
@@ -156,8 +167,16 @@ export function reynolds(speed, chord, nu = NU_SEA_LEVEL) {
 }
 
 // Input sanity checks. Returns a list of { field, level: 'warn', message }.
-export function validate({ mass, geometry }) {
+export function validate({ mass, geometry, panels = null }) {
   const out = []
+  panels?.forEach((p, i) => {
+    if (Number.isFinite(p.rise) && p.length > 0 && Math.abs(p.rise) > p.length) {
+      out.push({
+        field: `panel-${i}-rise`,
+        message: `Panel ${i + 1}: the rise is more than the panel's length, which isn't possible.`,
+      })
+    }
+  })
   const { span, stations, aspectRatio } = geometry
   if (span > 0 && (span < SPAN_MIN || span > SPAN_MAX)) {
     out.push({

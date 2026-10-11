@@ -7,6 +7,7 @@ import {
   stallSpeed,
   reynolds,
   validate,
+  panelAngle,
   CUBE_BANDS,
   G,
   RHO_SEA_LEVEL,
@@ -95,6 +96,40 @@ describe('wing geometry', () => {
     const g = wingGeometry({ mode: 'chords', span: 2, rootChord: 0.3, tipChord: 0.15 })
     // y = (b/6)(1 + 2λ)/(1 + λ)
     expect(g.macY).toBeCloseTo((2 / 6) * (2 / 1.5), 12)
+  })
+
+  it('accepts dihedral as the rise of the outer end', () => {
+    // 0.5 m panel rising 0.25 m is 30°
+    const byRise = wingGeometry({ mode: 'panels', rootChord: 0.2, panels: [{ length: 0.5, tipChord: 0.2, rise: 0.25 }] })
+    const byAngle = wingGeometry({ mode: 'panels', rootChord: 0.2, panels: [{ length: 0.5, tipChord: 0.2, dihedral: 30 }] })
+    for (const k of ['span', 'area', 'projectedArea', 'mac']) expect(byRise[k], k).toBeCloseTo(byAngle[k], 12)
+    expect(byRise.stations.at(-1).z).toBeCloseTo(0.25, 12)
+    expect(panelAngle({ length: 0.5, rise: -0.25 })).toBeCloseTo(-Math.PI / 6, 12)
+  })
+
+  it('mixes rise across polyhedral panels', () => {
+    const g = wingGeometry({
+      mode: 'panels',
+      rootChord: 0.2,
+      panels: [
+        { length: 0.6, tipChord: 0.2, rise: 0.03 },
+        { length: 0.3, tipChord: 0.15, rise: 0.06 },
+      ],
+    })
+    // Tip height is the sum of the rises
+    expect(g.stations.at(-1).z).toBeCloseTo(0.09, 12)
+  })
+
+  it('rejects a rise longer than the panel, and warns about it', () => {
+    const panels = [{ length: 0.3, tipChord: 0.2, rise: 0.4 }]
+    const g = wingGeometry({ mode: 'panels', rootChord: 0.2, panels })
+    expect(g.area).toBeNull()
+    expect(panelAngle(panels[0])).toBeNull()
+    expect(validate({ mass: 1, geometry: g, panels }).map((w) => w.field)).toContain('panel-0-rise')
+  })
+
+  it('treats an empty rise box as incomplete rather than flat', () => {
+    expect(wingGeometry({ mode: 'panels', rootChord: 0.2, panels: [{ length: 0.5, tipChord: 0.2, rise: null }] }).area).toBeNull()
   })
 
   it('rejects incomplete panels', () => {
