@@ -80,3 +80,7 @@ Open questions / for review:
 ## Second round
 
 See [docs/scope-v2.md](docs/scope-v2.md): UIUC catalogue and picker, indicative lift curve for sections without polars, CAD-style wing plan editor with swept and curved panels, fuselage width.
+
+## Third round
+
+See [docs/scope-v3.md](docs/scope-v3.md): saved projects, chord stations, rounded wingtips, measure tool, auto-fit.

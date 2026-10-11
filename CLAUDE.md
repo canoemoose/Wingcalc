@@ -10,7 +10,8 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - Styles live in one file, `src/styles/wingcalc.css`, scoped under `.wingcalc` / `wc-` class names. No `<style>` blocks in components: the embed build injects that single stylesheet into a shadow root.
 - Aerofoil data is bundled at build time (`npm run fetch-airfoils`), never fetched from the internet in the browser. `airfoils.json` (polar-backed, eager) and `uiuc.json` (full UIUC catalogue, lazy chunk; inlined in the IIFE embed).
 - Wing geometry for panel mode lives in `src/lib/wing.js` (flat s / projected y coordinates, Bézier edges); `calc.js` delegates to it.
-- Work in progress and decisions for the second round are in `docs/scope-v2.md`.
+- Decisions for later rounds are in `docs/scope-v2.md` and `docs/scope-v3.md`.
+- Projects: `src/lib/projects.js` (storage injected, every access guarded). Saved state is `{ units, input, airfoil }`; anything added to `input` must also go in `defaultState()` so older saves migrate.
 
 ## Testing
 
