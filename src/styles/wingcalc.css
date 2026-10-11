@@ -697,6 +697,12 @@
 .wc-svg-curve--indicative {
   stroke-dasharray: 6 4;
 }
+.wc-svg-curve--reference {
+  stroke: var(--wc-muted);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
 
 /* Aerofoil browser */
 .wc-picked {

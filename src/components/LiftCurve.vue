@@ -6,7 +6,8 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  // { alpha: [], cl: [], re, peak: { alpha, cl }, indicative, computed?, segments?: [[i0, i1], ...] }
+  // { alpha: [], cl: [], re, peak: { alpha, cl }, indicative, computed?, segments?: [[i0, i1], ...],
+  //   reference?: { alpha: [], cl: [], re } } (airfoiltools.com polar, drawn faintly when it differs)
   curve: { type: Object, required: true },
 })
 
@@ -15,11 +16,13 @@ const H = 180
 const M = { l: 34, r: 10, t: 10, b: 28 }
 
 const chart = computed(() => {
-  const { alpha, cl, peak } = props.curve
-  const aMin = Math.floor(Math.min(...alpha) / 5) * 5
-  const aMax = Math.ceil(Math.max(...alpha) / 5) * 5
-  const cMin = Math.min(0, Math.floor(Math.min(...cl) * 2) / 2)
-  const cMax = Math.ceil(Math.max(...cl) * 2) / 2
+  const { alpha, cl, peak, reference: ref } = props.curve
+  const allA = ref ? [...alpha, ...ref.alpha] : alpha
+  const allC = ref ? [...cl, ...ref.cl] : cl
+  const aMin = Math.floor(Math.min(...allA) / 5) * 5
+  const aMax = Math.ceil(Math.max(...allA) / 5) * 5
+  const cMin = Math.min(0, Math.floor(Math.min(...allC) * 2) / 2)
+  const cMax = Math.ceil(Math.max(...allC) * 2) / 2
   const x = (a) => M.l + ((a - aMin) / (aMax - aMin)) * (W - M.l - M.r)
   const y = (c) => H - M.b - ((c - cMin) / (cMax - cMin)) * (H - M.t - M.b)
   const xTicks = []
@@ -33,6 +36,7 @@ const chart = computed(() => {
         .map((a, k) => `${x(a).toFixed(1)},${y(cl[i0 + k]).toFixed(1)}`)
         .join(' '),
     ),
+    reference: ref ? ref.alpha.map((a, i) => `${x(a).toFixed(1)},${y(ref.cl[i]).toFixed(1)}`).join(' ') : null,
     peak: { x: x(peak.alpha), y: y(peak.cl) },
     band: { x: x(peak.alpha), w: x(Math.min(peak.alpha + 2, aMax)) - x(peak.alpha) },
     xTicks,
@@ -57,6 +61,7 @@ const chart = computed(() => {
         <text :x="t.p" :y="chart.y0 + 12" text-anchor="middle" class="wc-svg-tick">{{ t.v }}°</text>
       </g>
       <line :x1="chart.x0" :x2="chart.x1" :y1="chart.y0" :y2="chart.y0" class="wc-svg-axis" />
+      <polyline v-if="chart.reference" :points="chart.reference" class="wc-svg-curve wc-svg-curve--reference" />
       <polyline
         v-for="(line, i) in chart.lines"
         :key="i"
@@ -79,7 +84,10 @@ const chart = computed(() => {
         >
           Gaps are angles where XFOIL did not converge.</template
         >
-        Dot marks max lift; the shaded band is the 2° past it used for the rating.
+        Dot marks max lift; the shaded band is the 2° past it used for the rating.<template v-if="curve.reference">
+          The faint dashed line is the airfoiltools.com polar at Re {{ curve.reference.re.toLocaleString('en-GB') }}, for
+          comparison.</template
+        >
       </template>
       <template v-else>
         XFOIL lift curve at Re {{ curve.re.toLocaleString('en-GB') }} (airfoiltools.com). Dot marks max lift; the

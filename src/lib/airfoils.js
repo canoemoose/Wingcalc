@@ -343,10 +343,12 @@ function computedPerformance(airfoil, polar, { mass, area, chord, clMaxFactor })
   if (airfoil.kind === 'library') {
     const bundled = sectionClMaxAt(airfoil.section, polar.re)
     if (bundled !== null) {
-      result.reference = {
-        clMax: bundled,
-        differs: Math.abs(sectionClMax - bundled) > COMPARE_THRESHOLDS.clMax,
-      }
+      const differs = Math.abs(sectionClMax - bundled) > COMPARE_THRESHOLDS.clMax
+      result.reference = { clMax: bundled, differs }
+      // Drawn faintly behind the computed curve when they differ: the bundled polar nearest
+      // this Re (the Clmax above is interpolated between bundled polars, so its Re may differ).
+      const near = differs ? nearestPolar(airfoil.section, polar.re) : null
+      if (near) result.curve.reference = { alpha: near.alpha, cl: near.cl, re: near.re }
     }
   }
   return result
