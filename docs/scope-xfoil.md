@@ -57,4 +57,11 @@ Every section (library, catalogue and custom) gets a polar computed by XFOIL at 
 
 ## Status
 
-Typed Clmax fields removed ahead of the integration (decision above). Steps 1 to 9 not started.
+Implemented on branch `xfoil-integration` (2026-10-12). All nine steps done; 160 tests pass.
+
+Deviations from the plan:
+- **Comparison with airfoiltools.com** uses Clmax only: the computed Clmax against the bundled Clmax interpolated to the same Re, warning above 0.03. Comparing full polars would need an extra solve at one of the five bundled Re values for every library section, and Clmax is what feeds the results.
+- **Usable polar** also accepts one that converges right up to the peak and fails after it (XFOIL losing convergence at the stall). Without this, S1223 at Re 100k fell back to bundled data.
+- **Time limit** of 20 s per polar added: a degenerate shape (a flat plate) kept XFOIL busy for 25 s.
+
+Verified in the running app (dev server and built `dist/` under `vite preview`, Chromium): default NACA 2412 computes Clmax 1.30 at Re 121k with no warning; S1223 computes 2.00 at Re 100k and warns (airfoiltools.com 2.08); a catalogue section (AG04) and a custom section compute in about 2 s; rapid slider edits show the estimate live and one computed polar about a second after the last edit. No console errors. Not checked: Firefox and Safari, dark-mode appearance of the warning, phone widths.

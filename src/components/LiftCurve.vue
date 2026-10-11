@@ -1,10 +1,12 @@
 <script setup>
-// Lift curve (Cl against alpha): the XFOIL polar used for the stall rating, or, for
-// sections without polar data, an indicative curve drawn from the rating (dashed).
+// Lift curve (Cl against alpha): the XFOIL polar used for the stall rating (computed in the
+// browser, or bundled from airfoiltools.com until that's ready), or, for sections without a
+// polar, an indicative curve drawn from the rating (dashed). Computed polars leave gaps
+// where XFOIL did not converge.
 import { computed } from 'vue'
 
 const props = defineProps({
-  // { alpha: [], cl: [], re, peak: { alpha, cl }, indicative }
+  // { alpha: [], cl: [], re, peak: { alpha, cl }, indicative, computed?, segments?: [[i0, i1], ...] }
   curve: { type: Object, required: true },
 })
 
@@ -25,7 +27,12 @@ const chart = computed(() => {
   const yTicks = []
   for (let c = cMin; c <= cMax + 1e-9; c += 0.5) yTicks.push({ v: c, p: y(c) })
   return {
-    line: alpha.map((a, i) => `${x(a).toFixed(1)},${y(cl[i]).toFixed(1)}`).join(' '),
+    lines: (props.curve.segments ?? [[0, alpha.length - 1]]).map(([i0, i1]) =>
+      alpha
+        .slice(i0, i1 + 1)
+        .map((a, k) => `${x(a).toFixed(1)},${y(cl[i0 + k]).toFixed(1)}`)
+        .join(' '),
+    ),
     peak: { x: x(peak.alpha), y: y(peak.cl) },
     band: { x: x(peak.alpha), w: x(Math.min(peak.alpha + 2, aMax)) - x(peak.alpha) },
     xTicks,
@@ -50,7 +57,13 @@ const chart = computed(() => {
         <text :x="t.p" :y="chart.y0 + 12" text-anchor="middle" class="wc-svg-tick">{{ t.v }}°</text>
       </g>
       <line :x1="chart.x0" :x2="chart.x1" :y1="chart.y0" :y2="chart.y0" class="wc-svg-axis" />
-      <polyline :points="chart.line" class="wc-svg-curve" :class="{ 'wc-svg-curve--indicative': curve.indicative }" />
+      <polyline
+        v-for="(line, i) in chart.lines"
+        :key="i"
+        :points="line"
+        class="wc-svg-curve"
+        :class="{ 'wc-svg-curve--indicative': curve.indicative }"
+      />
       <circle :cx="chart.peak.x" :cy="chart.peak.y" r="3.5" class="wc-svg-peak" />
       <text :x="chart.x1" :y="chart.y0 + 24" text-anchor="end" class="wc-svg-tick">angle of attack</text>
       <text :x="4" :y="chart.y1 + 4" class="wc-svg-tick">Cl</text>
@@ -60,9 +73,17 @@ const chart = computed(() => {
         Indicative curve, not computed data: drawn from the stall rating, the section's Clmax and its zero-lift
         angle, to show what the rating means. Dot marks max lift; the shaded band is the 2° past it.
       </template>
+      <template v-else-if="curve.computed">
+        XFOIL lift curve at Re {{ curve.re.toLocaleString('en-GB') }}, computed in your browser.<template
+          v-if="curve.segments && curve.segments.length > 1"
+        >
+          Gaps are angles where XFOIL did not converge.</template
+        >
+        Dot marks max lift; the shaded band is the 2° past it used for the rating.
+      </template>
       <template v-else>
-        XFOIL lift curve at Re {{ curve.re.toLocaleString('en-GB') }}. Dot marks max lift; the shaded band is the 2°
-        past it used for the rating.
+        XFOIL lift curve at Re {{ curve.re.toLocaleString('en-GB') }} (airfoiltools.com). Dot marks max lift; the
+        shaded band is the 2° past it used for the rating.
       </template>
     </figcaption>
   </figure>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, shallowRef, onMounted, watch } from 'vue'
+import { ref, reactive, computed, shallowRef, onMounted, onBeforeUnmount, watch } from 'vue'
 import UnitInput from './components/UnitInput.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
@@ -9,6 +9,7 @@ import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
 import { useHistory } from './composables/useHistory.js'
+import { usePolarSolver } from './composables/usePolarSolver.js'
 import LiftCurve from './components/LiftCurve.vue'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
@@ -21,7 +22,8 @@ import {
   WING_CLMAX_FACTOR,
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
-import { resolveAirfoil, airfoilPerformance, loadCatalogue } from './lib/airfoils.js'
+import { resolveAirfoil, performanceWithXfoil, loadCatalogue } from './lib/airfoils.js'
+import { XFOIL_SETTINGS, coordsKey, settingsKey } from './lib/xfoil.js'
 import {
   defaultState,
   browserStorage,
@@ -267,20 +269,42 @@ const airfoil = computed(() => resolveAirfoil(airfoilSel.value, uiuc.value))
 const sweepCos = computed(() => Math.cos(geometry.value.sweepQuarter ?? 0))
 const sweepDeg = computed(() => ((geometry.value.sweepQuarter ?? 0) * 180) / Math.PI)
 
+// XFOIL polars, computed in a worker and kept for the page's lifetime. Results show the
+// instant answer (bundled polar or estimate) until the computed polar is ready.
+const solver = usePolarSolver()
+onBeforeUnmount(solver.dispose)
+const polarKeyBase = computed(() =>
+  airfoil.value?.valid ? `${coordsKey(airfoil.value.coords)}|${settingsKey(XFOIL_SETTINGS)}` : null,
+)
+const xfoil = computed(() => {
+  const base = polarKeyBase.value
+  if (!base) return { perf: null, need: null, status: null }
+  const g = geometry.value
+  // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
+  const wing = { mass: input.mass, area: g.projectedArea, chord: g.mac, clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value }
+  return performanceWithXfoil(airfoil.value, wing, (re) => solver.lookup(`${base}@${re}`))
+})
+watch(
+  () => [polarKeyBase.value, xfoil.value.need],
+  ([base, need]) =>
+    solver.want(
+      base && need
+        ? {
+            key: `${base}@${need}`,
+            coords: airfoil.value.coords.map(([x, y]) => [x, y]),
+            re: need,
+            settings: { ...XFOIL_SETTINGS },
+          }
+        : null,
+    ),
+  { immediate: true },
+)
+
 const results = computed(() => {
   const g = geometry.value
   const wl = wingLoading(input.mass, g.area)
   const wcl = cubeLoading(input.mass, g.area)
-  const perf = airfoil.value?.valid
-    ? // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
-      airfoilPerformance(airfoil.value, {
-        mass: input.mass,
-        area: g.projectedArea,
-        chord: g.mac,
-        clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value,
-      })
-    : null
-  return { wl, wcl, band: cubeBand(wcl), perf }
+  return { wl, wcl, band: cubeBand(wcl), perf: xfoil.value.perf }
 })
 
 const warnings = computed(() =>
@@ -499,8 +523,23 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               >. Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }}
               <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
               section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
-              <template v-if="results.perf.clMaxSource === 'polar'">at Re {{ fmtRe(results.perf.reynolds) }}</template>
+              <template v-if="results.perf.clMaxSource === 'xfoil'"
+                >from XFOIL at Re {{ fmtRe(results.perf.polar.re) }}, computed here</template
+              >
+              <template v-else-if="results.perf.clMaxSource === 'polar'"
+                >at Re {{ fmtRe(results.perf.reynolds) }} (airfoiltools.com polars)</template
+              >
               <template v-else>(estimated from camber and thickness at Re {{ fmtRe(results.perf.reynolds) }})</template>.
+              <template v-if="xfoil.status === 'computing'"> Computing an XFOIL polar…</template>
+              <template v-else-if="xfoil.status === 'failed'">
+                XFOIL couldn't produce a usable polar for this section, so this is
+                {{ results.perf.clMaxSource === 'polar' ? 'from the bundled data' : 'the estimate' }}.</template
+              >
+            </p>
+            <p v-if="results.perf?.reference?.differs" class="wc-notice-warn">
+              XFOIL here gives a section Clmax of {{ results.perf.sectionClMax.toFixed(2) }} at Re
+              {{ fmtRe(results.perf.polar.re) }}; the airfoiltools.com polars give
+              {{ results.perf.reference.clMax.toFixed(2) }}. The results use the value computed here.
             </p>
           </article>
         </div>
@@ -617,7 +656,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <p class="wc-card__note">
               {{ rating.explanation }}
               <template v-if="rating.method === 'geometry'">
-                Estimated from section shape, as there's no polar data for this section.</template
+                Estimated from section shape<template v-if="xfoil.status === 'computing'"> until the XFOIL polar is ready</template
+                ><template v-else>, as there's no usable polar for this section</template>.</template
               >
               <template v-else-if="rating.confidence === 'low'"> Limited post-stall data, so treat with extra caution.</template>
             </p>
@@ -644,16 +684,21 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
 
         <p v-if="airfoil?.kind === 'catalogue'" class="wc-source">
           Section data: <a :href="airfoil.source" target="_blank" rel="noopener">UIUC Airfoil Coordinates Database</a>
-          ({{ airfoil.description }}). Coordinates only: Clmax is
-          estimated and the lift curve is indicative.
+          ({{ airfoil.description }}). <template v-if="results.perf?.clMaxSource === 'xfoil'"
+            >Clmax, stall rating and lift curve computed here with XFOIL.</template
+          ><template v-else>Coordinates only: Clmax is estimated and the lift curve is indicative.</template>
         </p>
         <p v-if="airfoil?.kind === 'library'" class="wc-source">
           Section data:
           <a :href="airfoil.section.source" target="_blank" rel="noopener">airfoiltools.com</a>
-          (coordinates from the UIUC Airfoil Coordinates Database; XFOIL polars, Ncrit 9<template
-            v-if="results.perf?.polar"
-            >, Re {{ results.perf.polar.re.toLocaleString('en-GB') }} used for the stall rating</template
-          >).
+          (coordinates from the UIUC Airfoil Coordinates Database; XFOIL polars, Ncrit 9)<template
+            v-if="results.perf?.clMaxSource === 'xfoil'"
+            >. Clmax, stall rating and lift curve are computed here with XFOIL at Re
+            {{ results.perf.polar.re.toLocaleString('en-GB') }}; the airfoiltools.com polars are shown until that's
+            ready.</template
+          ><template v-else-if="results.perf?.polar"
+            >. Re {{ results.perf.polar.re.toLocaleString('en-GB') }} used for the stall rating.</template
+          ><template v-else>.</template>
         </p>
       </section>
     </div>

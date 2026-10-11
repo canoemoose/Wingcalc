@@ -357,6 +357,15 @@
   padding: 6px 10px;
   margin-bottom: 6px;
 }
+.wc-notice-warn {
+  font-size: 0.85rem;
+  color: var(--wc-warn);
+  background: var(--wc-warn-bg);
+  border: 1px solid var(--wc-warn);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-top: 8px;
+}
 .wingcalc .wc-text-warn {
   color: var(--wc-warn);
 }

@@ -13,7 +13,7 @@ The wing can be drawn in a CAD-style **wing plan editor** or entered numerically
 
 Projects can be saved in the browser, and the work in progress is kept automatically. Mean chord or area can be entered instead for a quick check.
 
-Aerofoils come from a browsable catalogue of the whole UIUC Airfoil Coordinates Database (about 1,660 sections) in NACA, Eppler and Other tabs, with 78 popular sections backed by XFOIL polar data. A custom section can also be defined by its parameters.
+Aerofoils come from a browsable catalogue of the whole UIUC Airfoil Coordinates Database (about 1,660 sections) in NACA, Eppler and Other tabs, with 78 popular sections backed by bundled XFOIL polar data. A custom section can also be defined by its parameters. Every section, custom ones included, also gets an XFOIL polar computed in the browser at the stall's own Reynolds number (see [Polars computed in the browser](#polars-computed-in-the-browser-xfoil)).
 
 Built with Vue 3 (plain JavaScript) and Vite.
 
@@ -144,13 +144,30 @@ Wing loading grows with model size, so a given figure means different things on 
 
 The thresholds are shown in the app under "Cube-loading bands" and live in `CUBE_BANDS` in `src/lib/calc.js`.
 
+## Polars computed in the browser (XFOIL)
+
+Every section gets a polar computed by [XFOIL](https://web.mit.edu/drela/Public/web/xfoil/) 6.996, running in the browser as WebAssembly ([WebXFOIL](https://github.com/PR-DC/WebXFOIL), the original Fortran compiled with flang and Emscripten). Results appear in two stages:
+
+1. **Instantly:** the bundled airfoiltools.com polars for library sections, or the camber/thickness estimate for catalogue and custom sections.
+2. **About 1 to 3 s later:** Clmax, the stall rating and the lift curve from the computed polar, labelled "from XFOIL … computed here".
+
+XFOIL settings: 160 panels, Ncrit 9, 50 iterations per point, alpha −4° to 18° in 0.5° steps, swept out from 0° in both directions (a sweep cold-started at −4° can lose convergence and never recover). The 160 panels reproduce the airfoiltools.com polars most closely; the January 2023 XFOIL default of 240 is about three times slower and no closer. Settings are `XFOIL_SETTINGS` in `src/lib/xfoil.js`.
+
+**Following the stall's Reynolds number.** Polars are solved on a grid of Reynolds numbers about 10% apart, so small edits reuse an earlier result. Starting from the instant answer's stall Re, the app solves there, recomputes stall speed and Re from the computed Clmax, and solves again if that lands on another grid point: usually one or two polars.
+
+**Non-converged points** are left out, and the lift curve shows gaps there. A polar counts as usable with at least 8 converged points and either a point past the peak or every point straight after the peak failing (XFOIL losing convergence at the stall usually means the flow has separated; the rating is then low confidence). If XFOIL can't produce a usable polar, or takes more than 20 s, the instant answer stays and the app says so.
+
+**Differences from airfoiltools.com.** For library sections the computed Clmax is compared with the bundled polars at the same Reynolds number, and a warning appears if they differ by more than 0.03. They agree closely for conventional sections (NACA 2412 at Re 200k: Clmax 1.328 both). They differ for thin, highly cambered sections at low Reynolds number (E205, SD7037, S1223), where laminar separation bubbles make XFOIL sensitive to version and settings; for E205 and SD7037 an independent JavaScript port of XFOIL agrees with the WebAssembly build, so the bundled data is the outlier. Details in `docs/scope-xfoil-wasm.md`.
+
+**Cost.** The solver is a separate 1.0 MB `.wasm` file (346 KB gzipped) plus a 44 KB worker script, loaded in a worker once the page is up. Results are kept in memory for the page's lifetime and not saved.
+
 ## Stall character
 
 Implementation: `src/lib/stall.js`. The rating is indicative only and the app says so: it is not a substitute for flight testing.
 
-### Library sections: from the polar
+### From a polar
 
-The primary signal is the shape of the XFOIL lift curve, taken from the bundled polar nearest the stall's Reynolds number.
+The primary signal is the shape of the XFOIL lift curve: the polar computed in the browser once it's ready, or until then, for library sections, the bundled polar nearest the stall's Reynolds number.
 
 1. **Post-stall drop**: the average lift lost per degree over the first 2° past max lift, as a fraction of C<sub>l,max</sub>.
    - under 2.5% per degree: **Gentle**
@@ -167,7 +184,7 @@ Thresholds were chosen by looking at all 39 bundled sections at 100k, 200k and 5
 
 ### Sections without polars: geometry heuristic
 
-For custom sections and the coordinates-only UIUC sections, the rating comes from the section shape, after Gault's (1957) correlation of stall type with the **upper-surface ordinate at 1.25% chord**. That one number captures thickness, leading-edge radius and camber near the nose together.
+For custom sections and the coordinates-only UIUC sections, until the computed polar is ready (or if XFOIL can't produce one), the rating comes from the section shape, after Gault's (1957) correlation of stall type with the **upper-surface ordinate at 1.25% chord**. That one number captures thickness, leading-edge radius and camber near the nose together.
 
 - under 1.6% chord: **Sharp** (thin, sharp nose)
 - 1.6% to 2.1%: **Moderate**
@@ -223,4 +240,8 @@ The script makes one request at a time with a 1.5 s gap, and backs off and retri
 npm test
 ```
 
-Covers unit conversions and formatting; wing geometry including panels, fuselage width, sweep, curved edges and dihedral or rise; wing and cube loading and the bands; stall speed, sweep correction and Reynolds number; input validation; section generation, measurement and zero-lift angle (checked against tabulated NACA 0012 and thin-aerofoil theory); the polar and geometry stall ratings and the indicative curve; the bundled data and UIUC catalogue; the Clmax estimate; and undo/redo history. The Vue components themselves are not unit-tested; the plan editor was exercised in the running app.
+Covers unit conversions and formatting; wing geometry including panels, fuselage width, sweep, curved edges and dihedral or rise; wing and cube loading and the bands; stall speed, sweep correction and Reynolds number; input validation; section generation, measurement and zero-lift angle (checked against tabulated NACA 0012 and thin-aerofoil theory); the polar and geometry stall ratings and the indicative curve; the bundled data and UIUC catalogue; the Clmax estimate; undo/redo history; and XFOIL: the command script, polar parsing and comparison, real polars through the WebAssembly build (NACA 2412 at Re 200k must match the bundled polar), following the stall Reynolds number, and the worker queue (latest request wins, time limit, failures) against a fake worker. The Vue components themselves are not unit-tested; the plan editor was exercised in the running app.
+
+## Licence
+
+Wingcalc is licensed under the GNU General Public License, version 3 or later ([LICENSE](LICENSE)). It includes XFOIL and WebXFOIL, both GPL version 2 or later; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their source. The bundled aerofoil data has its own, unstated terms (see above).

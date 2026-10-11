@@ -12,6 +12,7 @@ import { analysePolar, ratePolar, rateGeometry, indicativePolar } from './stall.
 import { generateSection, upperOrdinate, zeroLiftAngle, unpack } from './airfoilGeom.js'
 import { stallSpeed, reynolds, WING_CLMAX_FACTOR } from './calc.js'
 import { leastSquares } from './fit.js'
+import { quantiseRe, polarSegments, COMPARE_THRESHOLDS } from './xfoil.js'
 
 export const LIBRARY = data
 export const FAMILIES = {
@@ -242,8 +243,11 @@ export function resolveAirfoil(selection, uiuc = null) {
 // clMaxFactor converts section Clmax to wing CLmax (default 0.9; the caller adds sweep).
 // Clmax is looked up (or estimated) at the Reynolds number of the stall itself, which needs
 // a short fixed-point iteration (converges in a handful of steps).
-export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = WING_CLMAX_FACTOR }) {
+// With `polar` (an XFOIL polar computed in the browser, at one Reynolds number), Clmax, the
+// stall rating and the lift curve all come from it instead; see performanceWithXfoil.
+export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = WING_CLMAX_FACTOR }, { polar: computed = null } = {}) {
   if (!airfoil) return null
+  if (computed) return computedPerformance(airfoil, computed, { mass, area, chord, clMaxFactor })
   const clMaxAt =
     airfoil.kind === 'library'
       ? (re) => sectionClMaxAt(airfoil.section, re)
@@ -294,4 +298,85 @@ export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = W
     polar: null,
     curve: { alpha: ip.alpha, cl: ip.cl, re: reForCurve, peak: { alpha: ip.alphaClMax, cl: ip.clMax }, indicative: true },
   }
+}
+
+// --- Polars computed in the browser (XFOIL) ---------------------------------------------
+
+// A computed polar is usable when it has a fair number of converged points and either a
+// converged point past the peak, or converged points right up to the peak with every point
+// after it failing. XFOIL losing convergence there usually means the flow has separated, so
+// that peak is taken as the stall (ratePolar then rates it with low confidence). A polar
+// that merely ran out of range at its peak is not usable.
+export function usableComputedPolar(polar) {
+  if (!polar || polar.alpha.length < 8) return false
+  const m = analysePolar(polar)
+  if (m.postStallSpan >= 0.5) return true
+  const after = (polar.failed ?? []).filter((a) => a > m.alphaClMax)
+  return m.alphaClMax >= 4 && after.length >= 2 && after[0] - m.alphaClMax <= polar.step * 1.5
+}
+
+function computedPerformance(airfoil, polar, { mass, area, chord, clMaxFactor }) {
+  const stall = ratePolar(polar)
+  const sectionClMax = stall.clMax
+  const vs = stallSpeed(mass, area, sectionClMax * clMaxFactor)
+  const re = vs ? reynolds(vs, chord) : null
+  const result = {
+    sectionClMax,
+    wingClMax: sectionClMax * clMaxFactor,
+    clMaxFactor,
+    clMaxSource: 'xfoil',
+    stallSpeed: vs,
+    reynolds: re,
+    stall,
+    polar,
+    curve: {
+      alpha: polar.alpha,
+      cl: polar.cl,
+      re: polar.re,
+      segments: polarSegments(polar),
+      peak: { alpha: stall.alphaClMax, cl: stall.clMax },
+      indicative: false,
+      computed: true,
+    },
+  }
+  // For library sections, compare with the bundled airfoiltools.com data at the same Re.
+  if (airfoil.kind === 'library') {
+    const bundled = sectionClMaxAt(airfoil.section, polar.re)
+    if (bundled !== null) {
+      result.reference = {
+        clMax: bundled,
+        differs: Math.abs(sectionClMax - bundled) > COMPARE_THRESHOLDS.clMax,
+      }
+    }
+  }
+  return result
+}
+
+// Performance using XFOIL polars computed in the browser, where available. Polars are
+// solved at Reynolds numbers on a grid (quantiseRe); lookup(re) returns the cache entry for
+// this airfoil at that grid Re: { ok, polar } once computed, or null if not computed yet.
+// Starting from the instant answer (bundled polar or estimate), this follows the stall
+// Reynolds number: solve at the estimated stall Re, recompute stall speed and Re from the
+// computed Clmax, and solve again if that lands on a different grid point (at most 4).
+// Returns { perf, need, status }: need is the grid Re still to solve (or null), status is
+// 'computing', 'done' or 'failed' (computed polar unusable: perf stays the instant answer).
+export function performanceWithXfoil(airfoil, wing, lookup) {
+  const instant = airfoilPerformance(airfoil, wing)
+  if (!instant) return { perf: null, need: null, status: null }
+  let perf = instant
+  let re = instant.reynolds ?? 200000
+  const tried = new Set()
+  for (let i = 0; i < 4; i++) {
+    const q = quantiseRe(re)
+    if (tried.has(q)) break
+    tried.add(q)
+    const entry = lookup(q)
+    if (!entry) return { perf, need: q, status: 'computing' }
+    if (!entry.ok || !usableComputedPolar(entry.polar)) {
+      return perf === instant ? { perf, need: null, status: 'failed' } : { perf, need: null, status: 'done' }
+    }
+    perf = airfoilPerformance(airfoil, wing, { polar: entry.polar })
+    re = perf.reynolds ?? q
+  }
+  return { perf, need: null, status: 'done' }
 }
