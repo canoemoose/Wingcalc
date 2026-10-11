@@ -37,6 +37,8 @@ import {
   fileName,
 } from './lib/projects.js'
 import { RATINGS } from './lib/stall.js'
+import { panelSections } from './lib/wing.js'
+import { scaleThickness } from './lib/airfoilGeom.js'
 
 const props = defineProps({
   units: { type: String, default: 'metric' },
@@ -262,6 +264,24 @@ const geometryModes = [
 
 const geometry = computed(() => wingGeometry({ ...input, mode: input.geometryMode }))
 const airfoil = computed(() => resolveAirfoil(airfoilSel.value, uiuc.value))
+const baseThickness = computed(() => airfoil.value?.params?.thickness ?? null)
+
+// The tip section, when the thickness tapers or the tip has washout (panel mode only).
+const tipSection = computed(() => {
+  const a = airfoil.value
+  if (input.geometryMode !== 'panels' || !a?.valid || !(baseThickness.value > 0)) return null
+  const tip = panelSections(input.panels, baseThickness.value).at(-1)?.outer
+  if (!tip) return null
+  const tapered = Math.abs(tip.thickness - baseThickness.value) > 1e-6
+  if (!tapered && !tip.twist) return null
+  const notes = []
+  if (tapered) notes.push(`tip ${(tip.thickness * 100).toFixed(1)}% thick (dashed)`)
+  if (tip.twist) notes.push(`${tip.twist.toFixed(2).replace(/\.?0+$/, '')}° washout at the tip`)
+  return {
+    coords: tapered ? scaleThickness(a.coords, tip.thickness / baseThickness.value) : null,
+    note: notes.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.',
+  }
+})
 
 // Wing CLmax = 0.9 × cos(quarter-chord sweep) × section Clmax.
 const sweepCos = computed(() => Math.cos(geometry.value.sweepQuarter ?? 0))
@@ -419,6 +439,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-model:selected="selectedPanel"
           :system="system"
           :warn-fields="warnFields"
+          :base-thickness="baseThickness"
         />
         <UnitInput
           v-else
@@ -645,6 +666,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               :params="airfoil.params"
               :name="airfoil.name"
               :valid="airfoil.valid"
+              :tip-coords="tipSection?.coords ?? null"
+              :tip-note="tipSection?.note ?? ''"
             />
             <PlanformView
               v-if="input.geometryMode !== 'panels' || geometry.hasDihedral"
@@ -692,6 +715,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:selected="selectedPanel"
             :system="system"
             :warn-fields="warnFields"
+            :base-thickness="baseThickness"
             focused
             id-prefix="wcx"
           />

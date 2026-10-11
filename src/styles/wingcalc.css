@@ -623,6 +623,13 @@
   stroke: var(--wc-sharp);
   fill: color-mix(in srgb, var(--wc-sharp) 14%, transparent);
 }
+.wc-svg-tipsection {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 3;
+  stroke-linejoin: round;
+}
 .wc-svg-chord {
   stroke: var(--wc-muted);
   stroke-width: 1;

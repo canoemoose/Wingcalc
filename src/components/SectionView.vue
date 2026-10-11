@@ -1,6 +1,7 @@
 <script setup>
 // True-proportion drawing of an aerofoil section with chord line, mean line and
-// leading-edge circle, for checking the input by eye.
+// leading-edge circle, for checking the input by eye. When the wing's thickness tapers, the
+// tip section is drawn over it, dashed.
 import { computed } from 'vue'
 import { splitSurfaces, interp } from '../lib/airfoilGeom.js'
 
@@ -9,6 +10,8 @@ const props = defineProps({
   params: { type: Object, default: null }, // fractions of chord, as resolveAirfoil returns
   name: { type: String, default: '' },
   valid: { type: Boolean, default: true },
+  tipCoords: { type: Array, default: null },
+  tipNote: { type: String, default: '' },
 })
 
 const PAD = 0.03
@@ -29,7 +32,9 @@ const viewBox = computed(() => {
   return `${-PAD} ${-hi} ${1 + 2 * PAD} ${hi - lo}`
 })
 
-const outline = computed(() => props.coords.map(([x, y]) => `${x.toFixed(5)},${(-y).toFixed(5)}`).join(' '))
+const toPoints = (coords) => coords.map(([x, y]) => `${x.toFixed(5)},${(-y).toFixed(5)}`).join(' ')
+const outline = computed(() => toPoints(props.coords))
+const tipOutline = computed(() => (props.tipCoords ? toPoints(props.tipCoords) : null))
 
 const meanLine = computed(() => {
   const { upper, lower } = splitSurfaces(props.coords)
@@ -65,6 +70,7 @@ const pct = (v, dp = 1) => (v === null || v === undefined ? '–' : `${(v * 100)
       <polyline :points="meanLine" class="wc-svg-mean" />
       <circle v-if="leCircle" :cx="leCircle.cx" :cy="leCircle.cy" :r="leCircle.r" class="wc-svg-le" />
       <polygon :points="outline" class="wc-svg-outline" :class="{ 'wc-svg-outline--bad': !valid }" />
+      <polygon v-if="tipOutline" :points="tipOutline" class="wc-svg-tipsection" />
     </svg>
     <figcaption class="wc-figure__caption">
       <strong>{{ name }}</strong>
@@ -72,6 +78,7 @@ const pct = (v, dp = 1) => (v === null || v === undefined ? '–' : `${(v * 100)
         Thickness {{ pct(params.thickness) }} at {{ pct(params.thicknessPos, 0) }} · Camber
         {{ pct(params.camber) }} at {{ pct(params.camberPos, 0) }} · LE radius {{ pct(params.leRadius, 2) }}
       </span>
+      <span v-if="tipNote">{{ tipNote }}</span>
       <span v-if="!valid" class="wc-text-warn">These parameters give an impossible shape; adjust them.</span>
     </figcaption>
   </figure>

@@ -6,7 +6,7 @@
 import { computed, ref, nextTick } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
-import { panelAngle, appendPanel, removePanel, insertPanel, movePanel, panelMode, setPanelMode, addBlankStation, checkStations, stationOrder } from '../lib/wing.js'
+import { panelAngle, appendPanel, removePanel, insertPanel, movePanel, panelMode, setPanelMode, addBlankStation, checkStations, stationOrder, panelSections } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -15,6 +15,8 @@ const props = defineProps({
   focused: { type: Boolean, default: false },
   // Prefix for element ids, so two editors (page and expanded view) can coexist.
   idPrefix: { type: String, default: 'wc' },
+  // The aerofoil's own thickness (fraction of chord), shown where a panel keeps it.
+  baseThickness: { type: Number, default: null },
 })
 const rootChord = defineModel('rootChord', { type: Number, default: null })
 const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
@@ -239,6 +241,13 @@ function riseHint(p) {
   return `Outer end ${format(p.length * Math.sin(rad), 'length', defaultUnit(props.system, 'length'))} above the inner end`
 }
 
+// Thickness each panel inherits at its outer end when its own box is blank.
+const sections = computed(() => panelSections(panels.value, props.baseThickness))
+const inheritedThickness = (i) => {
+  const t = sections.value[i]?.inner.thickness
+  return Number.isFinite(t) ? `${(t * 100).toFixed(1)} (same)` : 'same'
+}
+
 function update(i, key, value) {
   panels.value = panels.value.map((p, j) => (j === i ? { ...p, [key]: value } : p))
 }
@@ -433,6 +442,35 @@ function title(i) {
           riseHint(p)
         "
         @update:model-value="update(i, 'dihedral', $event)"
+      />
+      <ParamInput
+        :id="`${idPrefix}-panel-${i}-washout`"
+        :model-value="p.washout ?? 0"
+        label="Washout at outer end"
+        suffix="°"
+        :min="-3"
+        :max="8"
+        :step="0.25"
+        :hint="
+          i === 0
+            ? 'Twist relative to the root, nose down, varying evenly across the panel. Each panel sets the total at its own outer end.'
+            : ''
+        "
+        @update:model-value="update(i, 'washout', $event)"
+      />
+      <UnitInput
+        :id="`${idPrefix}-panel-${i}-thickness`"
+        :model-value="p.thickness"
+        quantity="percent"
+        :system="system"
+        :label="i === panels.length - 1 ? 'Section thickness at tip' : 'Section thickness at outer end'"
+        :placeholder="inheritedThickness(i)"
+        :hint="
+          i === 0
+            ? 'Percent of chord. Leave blank to keep the thickness of the inner end; the camber is kept as it is.'
+            : ''
+        "
+        @update:model-value="update(i, 'thickness', $event)"
       />
       <div class="wc-field">
         <span class="wc-field__label">Shape</span>
