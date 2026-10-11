@@ -16,7 +16,7 @@ Fifth round: rib generator, structure layout and DXF export. Source of truth for
 - **Thickness taper**: thickness % set at panel ends, interpolated between. Library sections are split into camber line and thickness; only thickness is scaled, then rebuilt. Generated sections already work this way (`airfoilGeom.js`).
 - **Washout**: added this round (it is what makes jig tabs worth having). Per panel end, about the spar line, so jig tab heights vary at both LE and TE.
 - **Jig tabs**: optional feet down to a common board datum, carrying washout.
-- **Rib orientation**: streamwise or perpendicular to the spar line, per user choice. Perpendicular ribs are the section stretched by 1/cos(local sweep). The spar line is therefore placed before ribs.
+- **Rib orientation**: streamwise or perpendicular to the spar line, per user choice. A perpendicular rib is the wing cut square to the spar: on a swept panel it is *shorter* than the streamwise chord (about c·cos Λ) at the same depth, so relatively thicker. (The first draft of this scope said "stretched by 1/cos"; that was wrong.) The spar line is therefore placed before ribs. Root, panel-break and tip ribs stay streamwise so panels and the fuselage meet cleanly.
 - **Curved tip cap**: built as a tip block, no ribs in the cap.
 - **Spar default position**: at the section's maximum thickness, straight along each panel; ribs notched to where it falls.
 - **Sheeting / cap strips**: rib profile inset by the skin thickness.

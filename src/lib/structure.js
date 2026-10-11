@@ -646,6 +646,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     })
   }
   return {
+    wing,
     stations,
     ribs,
     pos,
