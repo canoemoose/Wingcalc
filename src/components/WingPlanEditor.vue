@@ -1,9 +1,10 @@
 <script setup>
 // CAD-style plan editor for the half wing, drawn flat (as built). Drag the handles to change
-// root chord, fuselage width, each panel's length, sweep and tip chord, and the shape of
-// curved edges. Numeric entry for the same values lives in PanelEditor.
+// root chord, fuselage width, each panel's length, sweep and tip chord, curved edges, chord
+// stations and the rounded tip. The measure tool places dimensions, which snap to the wing's
+// key points and follow them as the wing changes. Numeric entry lives in PanelEditor.
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { flatPanels, appendPanel, removePanel } from '../lib/wing.js'
+import { flatPanels, appendPanel, removePanel, keyPoints, addStation, panelMode } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -15,24 +16,35 @@ const emit = defineEmits(['undo', 'redo', 'commit'])
 const rootChord = defineModel('rootChord', { type: Number, default: null })
 const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
 const panels = defineModel('panels', { type: Array, required: true })
+const tip = defineModel('tip', { type: Object, default: null })
+const dimensions = defineModel('dimensions', { type: Array, default: () => [] })
 const selected = defineModel('selected', { type: Number, default: null })
 
-const HEIGHT = 340
+const HEIGHT = 360
 const HANDLE_PX = 6
+const SNAP_PX = 10
 const wrapEl = ref(null)
 const svgEl = ref(null)
 const width = ref(600)
 const view = reactive({ ox: -0.05, oy: -0.1, scale: 400 }) // world origin of the top-left, px per metre
 const snapOn = ref(true)
+const tool = ref('select') // 'select' | 'measure'
 const drag = ref(null)
-const hover = ref(null)
+const hoverSnap = ref(null) // key point under the pointer in measure mode
+const selectedDim = ref(null)
 
 const lengthUnit = computed(() => defaultUnit(props.system, 'length'))
 const fmt = (v) => format(v, 'length', lengthUnit.value)
 
-const plan = computed(() =>
-  flatPanels({ fuselageWidth: fuselageWidth.value, rootChord: rootChord.value, panels: panels.value }),
-)
+const wingState = () => ({
+  fuselageWidth: fuselageWidth.value,
+  rootChord: rootChord.value,
+  panels: panels.value,
+  tip: tip.value,
+})
+const plan = computed(() => flatPanels(wingState()))
+const points = computed(() => keyPoints(wingState()))
+const pointMap = computed(() => new Map(points.value.map((p) => [p.id, p])))
 const half = computed(() => Math.max(0, fuselageWidth.value || 0) / 2)
 
 const viewBox = computed(() => `${view.ox} ${view.oy} ${width.value / view.scale} ${HEIGHT / view.scale}`)
@@ -67,8 +79,9 @@ function bounds() {
   let sMax = Math.max(0.05, half.value)
   let xMin = 0
   let xMax = rootChord.value || 0.2
-  for (const p of plan.value) {
-    for (const [s, x] of p.polygon) {
+  const polys = [...plan.value.panels.map((p) => p.polygon), ...(plan.value.tip ? [plan.value.tip.polygon] : [])]
+  for (const poly of polys) {
+    for (const [s, x] of poly) {
       sMax = Math.max(sMax, s)
       xMin = Math.min(xMin, x)
       xMax = Math.max(xMax, x)
@@ -80,8 +93,9 @@ function bounds() {
 function fit() {
   const b = bounds()
   const w = b.sMax - b.sMin
-  const h = b.xMax - b.xMin
+  const h = Math.max(b.xMax - b.xMin, 0.01)
   const scale = Math.min((width.value * 0.88) / w, (HEIGHT * 0.7) / h)
+  if (!Number.isFinite(scale) || scale <= 0) return
   view.scale = scale
   view.ox = b.sMin - (width.value / scale - w) / 2
   view.oy = b.xMin - (HEIGHT / scale - h) / 2
@@ -101,6 +115,31 @@ function onWheel(e) {
   zoomAt(Math.exp(-e.deltaY * 0.0015), ((e.clientX - r.left) / r.width) * width.value, ((e.clientY - r.top) / r.height) * HEIGHT)
 }
 
+// --- Edits made here (not auto-fitted) ------------------------------------------------
+
+// Changes made by this editor run through own(), so the auto-fit watcher (which re-frames
+// the view after changes made elsewhere: the inputs column, undo, opening a project) skips
+// them. The flag clears in a microtask queued after the change, i.e. once Vue has flushed
+// the update and the watcher has seen it, so an edit that changes nothing can't leave it set.
+let ownEdit = false
+function own(fn) {
+  ownEdit = true
+  fn()
+  queueMicrotask(() => {
+    ownEdit = false
+  })
+}
+
+function setPanel(i, patch) {
+  own(() => (panels.value = panels.value.map((p, j) => (j === i ? { ...p, ...patch } : p))))
+}
+
+function setStation(i, id, patch) {
+  own(() => (panels.value = panels.value.map((p, j) =>
+    j === i ? { ...p, stations: p.stations.map((st) => (st.id === id ? { ...st, ...patch } : st)) } : p,
+  )))
+}
+
 // --- Pointer handling ----------------------------------------------------------------
 
 // Pointer position in world metres. Maps through the rendered size rather than the width
@@ -112,11 +151,30 @@ function world(e) {
   return { s: view.ox + ((e.clientX - r.left) / r.width) * vw, x: view.oy + ((e.clientY - r.top) / r.height) * vh }
 }
 
-function setPanel(i, patch) {
-  panels.value = panels.value.map((p, j) => (j === i ? { ...p, ...patch } : p))
+// Nearest key point within SNAP_PX of a world position, or null.
+function nearestPoint(w) {
+  let best = null
+  let bestD = px(SNAP_PX)
+  for (const p of points.value) {
+    const d = Math.hypot(p.s - w.s, p.x - w.x)
+    if (d < bestD) {
+      best = p
+      bestD = d
+    }
+  }
+  return best
 }
 
-function startHandle(e, kind, i = null) {
+// A dimension endpoint: attached to a key point if one is close, else snapped to the grid.
+function measurePoint(e) {
+  const w = world(e)
+  const kp = e.altKey ? null : nearestPoint(w)
+  if (kp) return { ref: kp.id, s: kp.s, x: kp.x }
+  return { ref: null, s: snap(w.s, e), x: snap(w.x, e) }
+}
+
+function startHandle(e, kind, i = null, extra = {}) {
+  if (tool.value === 'measure') return startMeasure(e)
   e.stopPropagation()
   e.preventDefault()
   wrapEl.value?.focus({ preventScroll: true })
@@ -127,12 +185,25 @@ function startHandle(e, kind, i = null) {
     setPanel(i, { [kind === 'mle' ? 'le' : 'te']: { u: 0.5, d: 0 } })
     kind = kind === 'mle' ? 'cle' : 'cte'
   }
-  drag.value = { kind, i, startPanel: i !== null ? { ...panels.value[i] } : null }
+  drag.value = { kind, i, ...extra }
+}
+
+function startMeasure(e) {
+  if (e.button !== 0) return
+  e.stopPropagation()
+  e.preventDefault()
+  wrapEl.value?.focus({ preventScroll: true })
+  svgEl.value.setPointerCapture(e.pointerId)
+  const a = measurePoint(e)
+  drag.value = { kind: 'measure', a, b: { ...a }, shift: e.shiftKey }
 }
 
 function moveHandle(e) {
   const d = drag.value
-  if (!d) return
+  if (!d) {
+    if (tool.value === 'measure') hoverSnap.value = e.altKey ? null : nearestPoint(world(e))
+    return
+  }
   const w = world(e)
   if (d.kind === 'pan') {
     const r = svgEl.value.getBoundingClientRect()
@@ -141,15 +212,28 @@ function moveHandle(e) {
     d.moved ||= Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 3
     return
   }
+  if (d.kind === 'measure') {
+    d.b = measurePoint(e)
+    d.shift = e.shiftKey
+    hoverSnap.value = d.b.ref ? pointMap.value.get(d.b.ref) : null
+    return
+  }
   if (d.kind === 'root') {
-    rootChord.value = Math.max(0.02, snap(w.x, e))
+    own(() => (rootChord.value = Math.max(0.02, snap(w.x, e))))
     return
   }
   if (d.kind === 'fuse') {
-    fuselageWidth.value = Math.min(0.5, Math.max(0, snap(w.s, e) * 2))
+    own(() => (fuselageWidth.value = Math.min(0.5, Math.max(0, snap(w.s, e) * 2))))
     return
   }
-  const p = plan.value[d.i]
+  if (d.kind === 'tip') {
+    const base = plan.value.tip?.base
+    if (!base) return
+    const peak = base.c > 0 ? (snap(w.x, e) - base.x) / base.c : 0.5
+    own(() => (tip.value = { extension: Math.max(0.005, snap(w.s, e) - base.s), peak: Math.min(1, Math.max(0, peak)) }))
+    return
+  }
+  const p = plan.value.panels[d.i]
   if (!p) return
   const { inner, outer } = p
   if (d.kind === 'le') {
@@ -166,27 +250,105 @@ function moveHandle(e) {
     const x1 = d.kind === 'cle' ? outer.x : outer.x + outer.c
     const straight = x0 + (x1 - x0) * u
     setPanel(d.i, { [d.kind === 'cle' ? 'le' : 'te']: { u, d: snap(w.x, e) - straight } })
+  } else if (d.kind === 'sle') {
+    // Station leading edge: moves the station along the panel and sets its set-back.
+    const L = p.panel.length
+    const dist = Math.min(L - 0.001, Math.max(0.001, snap(w.s, e) - inner.s))
+    setStation(d.i, d.station, { d: dist, le: snap(w.x, e) - inner.x })
+  } else if (d.kind === 'ste') {
+    const st = p.panel.stations.find((q) => q.id === d.station)
+    if (st) setStation(d.i, d.station, { chord: Math.max(0, snap(w.x, e) - (inner.x + st.le)) })
   }
 }
 
 function endHandle() {
   const d = drag.value
-  if (d?.kind === 'pan' && !d.moved && d.deselect) selected.value = null
   drag.value = null
+  if (!d) return
+  if (d.kind === 'pan') {
+    if (!d.moved && d.deselect) {
+      selected.value = null
+      selectedDim.value = null
+    }
+    return
+  }
+  if (d.kind === 'measure') {
+    const a = d.a
+    const b = d.b
+    if (Math.hypot(b.s - a.s, b.x - a.x) > px(4)) {
+      emit('commit')
+      const kind = d.shift ? (Math.abs(b.s - a.s) >= Math.abs(b.x - a.x) ? 'span' : 'chord') : 'aligned'
+      const id = dimensions.value.reduce((m, q) => Math.max(m, q.id ?? 0), 0) + 1
+      dimensions.value = [...dimensions.value, { id, a, b, kind }]
+      selectedDim.value = id
+    }
+    return
+  }
   // Each completed drag is its own undo step.
-  if (d && d.kind !== 'pan') emit('commit')
+  emit('commit')
 }
 
 function startPan(e, { deselect = false, select = null } = {}) {
+  if (tool.value === 'measure') return startMeasure(e)
   if (e.button !== 0 && e.button !== 1) return
   wrapEl.value?.focus({ preventScroll: true })
-  if (select !== null) selected.value = select
+  if (select !== null) {
+    selected.value = select
+    selectedDim.value = null
+  }
   e.currentTarget.setPointerCapture?.(e.pointerId)
   drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false, deselect }
 }
 
 function straighten(i, edge) {
   setPanel(i, { [edge]: null })
+  emit('commit')
+}
+
+function selectDim(e, id) {
+  if (tool.value === 'measure') return startMeasure(e)
+  e.stopPropagation()
+  selectedDim.value = id
+  selected.value = null
+}
+
+// --- Commands --------------------------------------------------------------------------
+
+function addPanel() {
+  emit('commit')
+  own(() => (panels.value = appendPanel(panels.value, rootChord.value)))
+  selected.value = panels.value.length - 1
+}
+
+function deletePanel() {
+  if (selected.value === null || panels.value.length < 2) return
+  emit('commit')
+  own(() => (panels.value = removePanel(panels.value, selected.value)))
+  selected.value = null
+}
+
+function newStation() {
+  if (selected.value === null) return
+  emit('commit')
+  own(() => (panels.value = addStation(wingState(), selected.value)))
+}
+
+function deleteDim() {
+  if (selectedDim.value === null) return
+  emit('commit')
+  dimensions.value = dimensions.value.filter((d) => d.id !== selectedDim.value)
+  selectedDim.value = null
+}
+
+function clearDims() {
+  emit('commit')
+  dimensions.value = []
+  selectedDim.value = null
+}
+
+function setTool(t) {
+  tool.value = t
+  hoverSnap.value = null
 }
 
 // --- Keyboard --------------------------------------------------------------------------
@@ -197,10 +359,21 @@ function onKey(e) {
     emit(e.shiftKey ? 'redo' : 'undo')
   } else if (mod && (e.key === 'y' || e.key === 'Y')) {
     emit('redo')
+  } else if (!mod && (e.key === 'm' || e.key === 'M')) {
+    setTool('measure')
+  } else if (!mod && (e.key === 'v' || e.key === 'V')) {
+    setTool('select')
   } else if (e.key === 'Escape') {
-    selected.value = null
-  } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.value !== null) {
-    deletePanel()
+    if (drag.value?.kind === 'measure') drag.value = null
+    else if (tool.value === 'measure') setTool('select')
+    else {
+      selected.value = null
+      selectedDim.value = null
+    }
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedDim.value !== null) deleteDim()
+    else if (selected.value !== null) deletePanel()
+    else return
   } else if (selected.value !== null && e.key.startsWith('Arrow')) {
     // Arrows move the selected panel's outer leading edge by one grid step;
     // with Alt, up/down change its tip chord instead.
@@ -217,50 +390,53 @@ function onKey(e) {
   e.preventDefault()
 }
 
-function addPanel() {
-  emit('commit')
-  panels.value = appendPanel(panels.value, rootChord.value)
-  selected.value = panels.value.length - 1
-}
-
-function deletePanel() {
-  if (selected.value === null || panels.value.length < 2) return
-  emit('commit')
-  panels.value = removePanel(panels.value, selected.value)
-  selected.value = null
-}
-
 // --- Derived drawing data --------------------------------------------------------------
 
 const pts = (list) => list.map(([s, x]) => `${s},${x}`).join(' ')
 
 const shapes = computed(() =>
-  plan.value.map((p) => {
+  plan.value.panels.map((p) => {
     const q = p.le.map(([s, x], k) => [s, x + (p.te[k][1] - x) / 4])
+    const mode = panelMode(p.panel)
     const mid = (edge) => {
       const list = p[edge]
       return list.length ? list[Math.floor(list.length / 2)] : null
     }
     const ctrl = (edge) => {
       const c = p.panel[edge]
-      if (!c) return null
+      if (!c || mode !== 'curves') return null
       const x0 = edge === 'le' ? p.inner.x : p.inner.x + p.inner.c
       const x1 = edge === 'le' ? p.outer.x : p.outer.x + p.outer.c
       const s = p.inner.s + (p.outer.s - p.inner.s) * c.u
       const onCurveK = Math.round(c.u * (p[edge].length - 1))
       return { s, x: x0 + (x1 - x0) * c.u + c.d, anchor: p[edge][onCurveK] }
     }
+    const ribs =
+      mode === 'stations'
+        ? p.panel.stations.map((st) => ({
+            id: st.id,
+            s: p.inner.s + st.d,
+            xl: p.inner.x + st.le,
+            xt: p.inner.x + st.le + st.chord,
+            chord: st.chord,
+          }))
+        : []
     return {
       ...p,
+      mode,
       polygonPts: pts(p.polygon),
       quarter: pts(q),
-      midLe: mid('le'),
-      midTe: mid('te'),
+      midLe: mode === 'stations' ? null : mid('le'),
+      midTe: mode === 'stations' ? null : mid('te'),
       ctrlLe: ctrl('le'),
       ctrlTe: ctrl('te'),
+      ribs,
     }
   }),
 )
+
+const tipShape = computed(() => (plan.value.tip ? { ...plan.value.tip, polygonPts: pts(plan.value.tip.polygon) } : null))
+const selShape = computed(() => (selected.value === null ? null : (shapes.value[selected.value] ?? null)))
 
 // Diamond handle for the fuselage side, just ahead of the leading edge.
 const fuseHandle = computed(() => {
@@ -270,19 +446,81 @@ const fuseHandle = computed(() => {
   return `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`
 })
 
-const selShape = computed(() => (selected.value === null ? null : (shapes.value[selected.value] ?? null)))
+// Dimensions resolved to current positions: attached ends follow their key point.
+function resolveEnd(end) {
+  const kp = end.ref ? pointMap.value.get(end.ref) : null
+  return kp ? { s: kp.s, x: kp.x, attached: true } : { s: end.s, x: end.x, attached: false }
+}
 
-// Live readout for the handle being dragged.
+function dimGeometry(a, b, kind) {
+  const ds = b.s - a.s
+  const dx = b.x - a.x
+  if (kind === 'span') {
+    // Spanwise distance, drawn along the first point's chordwise position
+    const y = a.x
+    return { value: Math.abs(ds), line: [a.s, y, b.s, y], ext: [b.s, b.x, b.s, y], label: { s: (a.s + b.s) / 2, x: y - px(6) } }
+  }
+  if (kind === 'chord') {
+    const xx = a.s
+    return { value: Math.abs(dx), line: [xx, a.x, xx, b.x], ext: [b.s, b.x, xx, b.x], label: { s: xx + px(6), x: (a.x + b.x) / 2 } }
+  }
+  return {
+    value: Math.hypot(ds, dx),
+    line: [a.s, a.x, b.s, b.x],
+    ext: null,
+    label: { s: (a.s + b.s) / 2 + px(6), x: (a.x + b.x) / 2 - px(6) },
+  }
+}
+
+const dims = computed(() =>
+  dimensions.value.map((d) => {
+    const a = resolveEnd(d.a)
+    const b = resolveEnd(d.b)
+    return { id: d.id, a, b, kind: d.kind, ...dimGeometry(a, b, d.kind) }
+  }),
+)
+
+const liveDim = computed(() => {
+  const d = drag.value
+  if (d?.kind !== 'measure') return null
+  const kind = d.shift ? (Math.abs(d.b.s - d.a.s) >= Math.abs(d.b.x - d.a.x) ? 'span' : 'chord') : 'aligned'
+  return { a: d.a, b: d.b, kind, ...dimGeometry(d.a, d.b, kind) }
+})
+
+// Live readout for the handle being dragged, or the measurement in progress.
 const readout = computed(() => {
   const d = drag.value
+  if (d?.kind === 'measure') {
+    const ds = d.b.s - d.a.s
+    const dx = d.b.x - d.a.x
+    const ang = (Math.atan2(dx, ds) * 180) / Math.PI
+    return `Distance ${fmt(Math.hypot(ds, dx))} · span ${fmt(Math.abs(ds))} · chordwise ${fmt(Math.abs(dx))} · ${ang.toFixed(1)}°`
+  }
   if (!d || d.kind === 'pan') return null
   if (d.kind === 'root') return `Root chord ${fmt(rootChord.value)}`
   if (d.kind === 'fuse') return `Fuselage width ${fmt(fuselageWidth.value)}`
+  if (d.kind === 'tip') return `Tip extension ${fmt(tip.value?.extension)}, furthest at ${Math.round((tip.value?.peak ?? 0) * 100)}% chord`
   const p = panels.value[d.i]
   if (!p) return null
   if (d.kind === 'le') return `Panel ${d.i + 1}: length ${fmt(p.length)}, sweep ${fmt(p.sweep || 0)}`
   if (d.kind === 'te') return `Panel ${d.i + 1}: tip chord ${fmt(p.tipChord)}`
+  if (d.kind === 'sle' || d.kind === 'ste') {
+    const st = p.stations?.find((q) => q.id === d.station)
+    return st ? `Station at ${fmt(st.d)}: chord ${fmt(st.chord)}, set-back ${fmt(st.le)}` : null
+  }
   return `Panel ${d.i + 1}: curve offset ${fmt((p[d.kind === 'cle' ? 'le' : 'te'] ?? {}).d ?? 0)}`
+})
+
+const hint = computed(() => {
+  if (tool.value === 'measure')
+    return 'Measure: drag between two points. Ends snap to wing corners and stations (and follow them); Shift for a spanwise or chordwise dimension, Alt to ignore snapping. Esc to finish.'
+  if (selectedDim.value !== null) return 'Dimension selected. Delete removes it.'
+  if (selected.value !== null) {
+    const mode = selShape.value?.mode
+    if (mode === 'stations') return `Panel ${selected.value + 1} selected. Drag a station's leading-edge handle to move it, its trailing-edge handle to change its chord.`
+    return `Panel ${selected.value + 1} selected. Drag the round handles at its tip; drag the small ones on its edges to curve them.`
+  }
+  return 'Click a panel to select it. Drag to pan, scroll to zoom. Alt disables snapping. M measures, V selects.'
 })
 
 // --- Lifecycle -------------------------------------------------------------------------
@@ -307,7 +545,20 @@ onMounted(() => {
 onBeforeUnmount(() => {
   ro?.disconnect()
   svgEl.value?.removeEventListener('wheel', onWheel)
+  clearTimeout(fitTimer)
 })
+
+// Re-frame after the wing changes from outside this editor. Debounced so typing a value
+// settles before the view moves.
+let fitTimer = null
+watch(
+  () => JSON.stringify(wingState()),
+  () => {
+    if (ownEdit) return
+    clearTimeout(fitTimer)
+    fitTimer = setTimeout(fit, 250)
+  },
+)
 
 // Keep the selection valid when panels are removed elsewhere.
 watch(
@@ -321,10 +572,37 @@ watch(
 <template>
   <div class="wc-plan">
     <div class="wc-plan__toolbar" role="toolbar" aria-label="Wing plan tools">
+      <div class="wc-segmented wc-segmented--inline" role="radiogroup" aria-label="Tool">
+        <button
+          type="button"
+          role="radio"
+          class="wc-segmented__btn"
+          :class="{ 'wc-segmented__btn--active': tool === 'select' }"
+          :aria-checked="tool === 'select'"
+          title="Select and edit (V)"
+          @click="setTool('select')"
+        >
+          Select
+        </button>
+        <button
+          type="button"
+          role="radio"
+          class="wc-segmented__btn"
+          :class="{ 'wc-segmented__btn--active': tool === 'measure' }"
+          :aria-checked="tool === 'measure'"
+          title="Measure and dimension (M)"
+          @click="setTool('measure')"
+        >
+          Measure
+        </button>
+      </div>
+      <span class="wc-plan__sep" />
       <button type="button" class="wc-button" @click="addPanel">Add panel</button>
       <button type="button" class="wc-button" :disabled="selected === null || panels.length < 2" @click="deletePanel">
         Delete panel
       </button>
+      <button v-if="selShape?.mode === 'stations'" type="button" class="wc-button" @click="newStation">Add station</button>
+      <button v-if="dimensions.length" type="button" class="wc-button" @click="clearDims">Clear dimensions</button>
       <span class="wc-plan__sep" />
       <button type="button" class="wc-button" :disabled="!canUndo" title="Undo (Ctrl+Z)" @click="emit('undo')">
         Undo
@@ -333,7 +611,7 @@ watch(
         Redo
       </button>
       <span class="wc-plan__sep" />
-      <label class="wc-check"><input v-model="snapOn" type="checkbox" /> Snap to grid</label>
+      <label class="wc-check"><input v-model="snapOn" type="checkbox" /> Snap</label>
       <span class="wc-plan__spacer" />
       <button type="button" class="wc-button" aria-label="Zoom out" @click="zoomAt(1 / 1.25, width / 2, HEIGHT / 2)">
         −
@@ -346,7 +624,7 @@ watch(
       ref="wrapEl"
       class="wc-plan__canvas"
       tabindex="0"
-      aria-label="Wing plan editor. Arrow keys move the selected panel's tip; Delete removes it."
+      aria-label="Wing plan editor. Arrow keys move the selected panel's tip; Delete removes the selection; M measures."
       @keydown="onKey"
     >
       <svg
@@ -355,11 +633,12 @@ watch(
         :width="width"
         :height="HEIGHT"
         class="wc-plan__svg"
-        :class="{ 'wc-plan__svg--panning': drag?.kind === 'pan' }"
+        :class="{ 'wc-plan__svg--panning': drag?.kind === 'pan', 'wc-plan__svg--measure': tool === 'measure' }"
         @pointerdown.self="startPan($event, { deselect: true })"
         @pointermove="moveHandle"
         @pointerup="endHandle"
         @pointercancel="endHandle"
+        @pointerleave="hoverSnap = drag ? hoverSnap : null"
       >
         <!-- Grid -->
         <g class="wc-plan__grid" pointer-events="none">
@@ -381,6 +660,7 @@ watch(
         <g transform="scale(-1,1)" class="wc-plan__ghost" pointer-events="none">
           <rect v-if="half > 0" x="0" y="0" :width="half" :height="rootChord" />
           <polygon v-for="p in shapes" :key="'g' + p.index" :points="p.polygonPts" />
+          <polygon v-if="tipShape" :points="tipShape.polygonPts" />
         </g>
 
         <!-- Fuselage section -->
@@ -394,7 +674,7 @@ watch(
           @pointerdown="startPan($event, { deselect: true })"
         />
 
-        <!-- Panels -->
+        <!-- Panels and tip -->
         <polygon
           v-for="p in shapes"
           :key="'p' + p.panel.id"
@@ -403,7 +683,20 @@ watch(
           :class="{ 'wc-plan__panel--selected': selected === p.index }"
           @pointerdown="startPan($event, { select: p.index })"
         />
+        <polygon
+          v-if="tipShape"
+          :points="tipShape.polygonPts"
+          class="wc-plan__panel wc-plan__panel--tip"
+          @pointerdown="startPan($event, { deselect: true })"
+        />
         <polyline v-for="p in shapes" :key="'q' + p.panel.id" :points="p.quarter" class="wc-plan__quarter" pointer-events="none" />
+
+        <!-- Chord station ribs -->
+        <g pointer-events="none">
+          <template v-for="p in shapes" :key="'r' + p.panel.id">
+            <line v-for="r in p.ribs" :key="r.id" :x1="r.s" :y1="r.xl" :x2="r.s" :y2="r.xt" class="wc-plan__rib" />
+          </template>
+        </g>
 
         <!-- Curve control lines for the selected panel -->
         <g v-if="selShape" pointer-events="none" class="wc-plan__ctrl-lines">
@@ -423,13 +716,34 @@ watch(
           />
         </g>
 
-        <!-- Handles -->
-        <g class="wc-plan__handles">
-          <!-- Fuselage side -->
+        <!-- Dimensions -->
+        <g class="wc-plan__dimset" :font-size="px(11)">
+          <g
+            v-for="d in dims"
+            :key="'d' + d.id"
+            class="wc-plan__dimension"
+            :class="{ 'wc-plan__dimension--selected': selectedDim === d.id }"
+            @pointerdown="selectDim($event, d.id)"
+          >
+            <line v-if="d.ext" :x1="d.ext[0]" :y1="d.ext[1]" :x2="d.ext[2]" :y2="d.ext[3]" class="wc-plan__dim-ext" />
+            <line :x1="d.line[0]" :y1="d.line[1]" :x2="d.line[2]" :y2="d.line[3]" class="wc-plan__dim-hit" />
+            <line :x1="d.line[0]" :y1="d.line[1]" :x2="d.line[2]" :y2="d.line[3]" class="wc-plan__dim-line" />
+            <circle :cx="d.line[0]" :cy="d.line[1]" :r="px(2.5)" :class="d.a.attached ? 'wc-plan__dim-end--attached' : 'wc-plan__dim-end'" />
+            <circle :cx="d.line[2]" :cy="d.line[3]" :r="px(2.5)" :class="d.b.attached ? 'wc-plan__dim-end--attached' : 'wc-plan__dim-end'" />
+            <text :x="d.label.s" :y="d.label.x" class="wc-plan__dim-text">{{ fmt(d.value) }}</text>
+          </g>
+          <g v-if="liveDim" class="wc-plan__dimension wc-plan__dimension--live" pointer-events="none">
+            <line v-if="liveDim.ext" :x1="liveDim.ext[0]" :y1="liveDim.ext[1]" :x2="liveDim.ext[2]" :y2="liveDim.ext[3]" class="wc-plan__dim-ext" />
+            <line :x1="liveDim.line[0]" :y1="liveDim.line[1]" :x2="liveDim.line[2]" :y2="liveDim.line[3]" class="wc-plan__dim-line" />
+            <text :x="liveDim.label.s" :y="liveDim.label.x" class="wc-plan__dim-text">{{ fmt(liveDim.value) }}</text>
+          </g>
+        </g>
+
+        <!-- Handles (select tool) -->
+        <g v-if="tool === 'select'" class="wc-plan__handles">
           <polygon :points="fuseHandle" class="wc-plan__handle wc-plan__handle--fuse" @pointerdown="startHandle($event, 'fuse')">
             <title>Fuselage width: drag sideways</title>
           </polygon>
-          <!-- Root chord -->
           <circle :cx="half" :cy="rootChord" :r="px(HANDLE_PX)" class="wc-plan__handle" @pointerdown="startHandle($event, 'root')">
             <title>Root chord: drag up or down</title>
           </circle>
@@ -453,8 +767,41 @@ watch(
               <title>Panel {{ p.index + 1 }} tip chord: drag up or down</title>
             </circle>
           </template>
+          <circle
+            v-if="tipShape"
+            :cx="tipShape.peak.s"
+            :cy="tipShape.peak.x"
+            :r="px(HANDLE_PX)"
+            class="wc-plan__handle wc-plan__handle--curve"
+            @pointerdown="startHandle($event, 'tip')"
+          >
+            <title>Wingtip: drag out for extension, along the chord for where it reaches furthest</title>
+          </circle>
+          <!-- Station handles on the selected panel -->
+          <template v-if="selShape?.mode === 'stations'">
+            <template v-for="r in selShape.ribs" :key="'sh' + r.id">
+              <circle
+                :cx="r.s"
+                :cy="r.xl"
+                :r="px(HANDLE_PX * 0.85)"
+                class="wc-plan__handle wc-plan__handle--station"
+                @pointerdown="startHandle($event, 'sle', selShape.index, { station: r.id })"
+              >
+                <title>Station: drag to move it along the panel and set its leading edge</title>
+              </circle>
+              <circle
+                :cx="r.s"
+                :cy="r.xt"
+                :r="px(HANDLE_PX * 0.85)"
+                class="wc-plan__handle wc-plan__handle--station"
+                @pointerdown="startHandle($event, 'ste', selShape.index, { station: r.id })"
+              >
+                <title>Station chord: drag up or down</title>
+              </circle>
+            </template>
+          </template>
           <!-- Curve handles on the selected panel -->
-          <template v-if="selShape">
+          <template v-if="selShape && selShape.mode !== 'stations'">
             <template v-for="edge in ['le', 'te']" :key="edge">
               <rect
                 v-if="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe']"
@@ -482,24 +829,37 @@ watch(
           </template>
         </g>
 
+        <!-- Snap target in measure mode -->
+        <circle
+          v-if="tool === 'measure' && hoverSnap"
+          :cx="hoverSnap.s"
+          :cy="hoverSnap.x"
+          :r="px(SNAP_PX * 0.8)"
+          class="wc-plan__snap"
+          pointer-events="none"
+        />
+
         <!-- Dimensions for the selected panel -->
-        <g v-if="selShape" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
+        <g v-if="selShape && tool === 'select'" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
           <text :x="(selShape.inner.s + selShape.outer.s) / 2" :y="Math.min(selShape.inner.x, selShape.outer.x) - px(10)" text-anchor="middle">
             {{ fmt(selShape.panel.length) }}
           </text>
           <text :x="selShape.outer.s + px(10)" :y="selShape.outer.x + selShape.outer.c / 2" dominant-baseline="middle">
             {{ fmt(selShape.outer.c) }}
           </text>
+          <text
+            v-for="r in selShape.ribs"
+            :key="'rl' + r.id"
+            :x="r.s + px(4)"
+            :y="(r.xl + r.xt) / 2"
+            dominant-baseline="middle"
+            class="wc-plan__rib-label"
+          >
+            {{ fmt(r.chord) }}
+          </text>
         </g>
       </svg>
-      <p class="wc-plan__readout" aria-live="polite">
-        <template v-if="readout">{{ readout }}</template>
-        <template v-else-if="selected !== null">
-          Panel {{ selected + 1 }} selected. Drag the round handles at its tip; drag the small ones on its edges to curve
-          them.
-        </template>
-        <template v-else>Click a panel to select it. Drag to pan, scroll to zoom. Alt disables snapping.</template>
-      </p>
+      <p class="wc-plan__readout" aria-live="polite">{{ readout ?? hint }}</p>
     </div>
   </div>
 </template>

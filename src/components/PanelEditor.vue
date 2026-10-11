@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
-import { panelAngle, appendPanel, removePanel } from '../lib/wing.js'
+import { panelAngle, appendPanel, removePanel, panelMode, setPanelMode, addStation } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -16,6 +16,40 @@ const rootChord = defineModel('rootChord', { type: Number, default: null })
 const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
 const panels = defineModel('panels', { type: Array, required: true })
 const selected = defineModel('selected', { type: Number, default: null })
+const tip = defineModel('tip', { type: Object, default: null })
+
+const wing = () => ({ fuselageWidth: fuselageWidth.value, rootChord: rootChord.value, panels: panels.value })
+
+const EDGE_MODES = [
+  { id: 'straight', label: 'Straight' },
+  { id: 'curves', label: 'Curves' },
+  { id: 'stations', label: 'Chord stations' },
+]
+
+function setMode(i, mode) {
+  if (panelMode(panels.value[i]) === mode) return
+  panels.value = setPanelMode(wing(), i, mode)
+}
+
+function newStation(i) {
+  panels.value = addStation(wing(), i)
+}
+
+function updateStation(i, id, key, value) {
+  panels.value = panels.value.map((p, j) =>
+    j === i ? { ...p, stations: p.stations.map((st) => (st.id === id ? { ...st, [key]: value } : st)) } : p,
+  )
+}
+
+function removeStation(i, id) {
+  panels.value = panels.value.map((p, j) => (j === i ? { ...p, stations: p.stations.filter((st) => st.id !== id) } : p))
+}
+
+const sortedStations = (p) => [...(p.stations ?? [])].sort((a, b) => a.d - b.d)
+
+function setTip(on) {
+  tip.value = on ? { extension: Math.max(0.02, (panels.value.at(-1)?.tipChord || 0.1) * 0.5), peak: 0.4 } : null
+}
 
 // Dihedral is entered either as an angle or as the rise of each panel's outer end. A panel
 // carries a `rise` key (m, null while the box is empty) in rise mode and `dihedral`
@@ -181,8 +215,24 @@ function title(i) {
         "
         @update:model-value="update(i, 'dihedral', $event)"
       />
-      <div class="wc-edges">
-        <span class="wc-field__label">Edges</span>
+      <div class="wc-field">
+        <span class="wc-field__label">Shape</span>
+        <div class="wc-segmented wc-segmented--small" role="radiogroup" :aria-label="`Panel ${i + 1} shape`">
+          <button
+            v-for="m in EDGE_MODES"
+            :key="m.id"
+            type="button"
+            role="radio"
+            :aria-checked="panelMode(p) === m.id"
+            class="wc-segmented__btn"
+            :class="{ 'wc-segmented__btn--active': panelMode(p) === m.id }"
+            @click="setMode(i, m.id)"
+          >
+            {{ m.label }}
+          </button>
+        </div>
+      </div>
+      <div v-if="panelMode(p) === 'curves'" class="wc-edges">
         <label class="wc-check">
           <input type="checkbox" :checked="!!p.le" @change="setEdge(i, 'le', $event.target.checked)" /> Curved leading
           edge
@@ -192,10 +242,91 @@ function title(i) {
           edge
         </label>
       </div>
+      <div v-else-if="panelMode(p) === 'stations'" class="wc-stations">
+        <p class="wc-field__hint">
+          Chords dimensioned along the panel. Both edges run smoothly through them. Distance is from the panel's inner
+          end; set-back is how far the station's leading edge sits behind the panel's inner leading edge.
+        </p>
+        <div class="wc-stations__grid" role="table" :aria-label="`Panel ${i + 1} chord stations`">
+          <span class="wc-stations__head" role="columnheader">Distance</span>
+          <span class="wc-stations__head" role="columnheader">Chord</span>
+          <span class="wc-stations__head" role="columnheader">LE set-back</span>
+          <span />
+          <template v-for="(st, k) in sortedStations(p)" :key="st.id">
+            <UnitInput
+              :id="`wc-p${i}-st${st.id}-d`"
+              :model-value="st.d"
+              quantity="length"
+              :system="system"
+              :label="`Station ${k + 1} distance`"
+              compact
+              :warn="!(st.d > 0 && st.d < p.length)"
+              @update:model-value="updateStation(i, st.id, 'd', $event)"
+            />
+            <UnitInput
+              :id="`wc-p${i}-st${st.id}-c`"
+              :model-value="st.chord"
+              quantity="length"
+              :system="system"
+              :label="`Station ${k + 1} chord`"
+              compact
+              @update:model-value="updateStation(i, st.id, 'chord', $event)"
+            />
+            <UnitInput
+              :id="`wc-p${i}-st${st.id}-le`"
+              :model-value="st.le"
+              quantity="length"
+              :system="system"
+              :label="`Station ${k + 1} leading-edge set-back`"
+              compact
+              @update:model-value="updateStation(i, st.id, 'le', $event ?? 0)"
+            />
+            <button
+              type="button"
+              class="wc-stations__remove"
+              :aria-label="`Remove station ${k + 1}`"
+              title="Remove this station"
+              @click="removeStation(i, st.id)"
+            >
+              ×
+            </button>
+          </template>
+        </div>
+        <button type="button" class="wc-button wc-button--small" @click="newStation(i)">Add station</button>
+      </div>
     </fieldset>
     <div class="wc-panels__actions">
       <button type="button" class="wc-button" @click="add">Add panel</button>
     </div>
+    <fieldset class="wc-panelset">
+      <legend class="wc-panelset__legend">Wingtip</legend>
+      <label class="wc-check wc-tipcheck">
+        <input type="checkbox" :checked="!!tip" @change="setTip($event.target.checked)" /> Rounded tip beyond the last
+        panel
+      </label>
+      <template v-if="tip">
+        <UnitInput
+          id="wc-tip-extension"
+          :model-value="tip.extension"
+          quantity="length"
+          :system="system"
+          label="Tip extension"
+          hint="How far the rounded tip reaches beyond the end of the last panel."
+          @update:model-value="tip = { ...tip, extension: $event }"
+        />
+        <ParamInput
+          id="wc-tip-peak"
+          :model-value="Math.round((tip.peak ?? 0.4) * 100)"
+          label="Furthest point along the chord"
+          suffix="% chord"
+          :min="0"
+          :max="100"
+          :step="1"
+          hint="0% rakes the tip back from the leading edge, 100% forward from the trailing edge; 40% looks like a classic rounded tip."
+          @update:model-value="tip = { ...tip, peak: $event / 100 }"
+        />
+      </template>
+    </fieldset>
     <p class="wc-field__hint">
       A new panel is added at the tip, continuing the wing outward. Shape curves by dragging their handles in the wing
       plan.

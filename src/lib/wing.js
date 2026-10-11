@@ -1,5 +1,6 @@
 // Multi-panel wing geometry: an optional fuselage centre section, then panels outward,
-// each with its own length, outer chord, sweep, dihedral and straight or curved edges.
+// each with its own length, outer chord, sweep, dihedral and edge shape, and an optional
+// curved tip beyond the last panel.
 //
 // Coordinates for a half wing, in metres:
 //   s – spanwise distance from the centreline measured flat along the panels
@@ -15,8 +16,17 @@
 //   le, te    null for a straight edge, or { u, d } for a quadratic Bézier curve whose control
 //             point sits at fraction u of the panel's length, offset d (m, + aft) from the
 //             straight edge there. Stored relative so the curve survives resizing.
+//   stations  null, or a list of { id, d, chord, le }: chords dimensioned at distance d from
+//             the panel's inner end, with their leading edge set back `le` from the panel's
+//             inner leading edge. When present, both edges run smoothly through the stations
+//             (monotone cubic interpolation) and `le`/`te` are ignored.
+//
+// The tip (wing-level, optional): { extension, peak } adds a rounded cap beyond the last
+// panel, reaching `extension` further out at fraction `peak` of the tip chord. It is made of
+// two quarter-ellipses, so it meets both edges tangentially; its area is (π/4)·extension·chord.
 
 const SAMPLES = 32 // per panel, for integration and drawing
+const TIP_SAMPLES = 24
 
 // A panel's dihedral in radians, or null if it can't be resolved (e.g. rise > length).
 export function panelAngle(p) {
@@ -46,10 +56,103 @@ export function edgeX(x0, x1, curve, f) {
   return mt * mt * x0 + 2 * mt * t * cx + t * t * x1
 }
 
-// Bézier control point of an edge, in panel-local (f, x) terms, for drawing handles.
-export function controlPoint(x0, x1, curve) {
-  return { f: curve.u, x: x0 + (x1 - x0) * curve.u + curve.d }
+// Monotone piecewise cubic (Fritsch–Carlson PCHIP) through points xs (increasing), ys.
+// Smooth, and never overshoots between points, so a wing edge can't bulge past a station.
+export function pchip(xs, ys) {
+  const n = xs.length
+  if (n === 1) return () => ys[0]
+  const h = []
+  const del = []
+  for (let i = 0; i < n - 1; i++) {
+    h.push(xs[i + 1] - xs[i])
+    del.push((ys[i + 1] - ys[i]) / h[i])
+  }
+  const m = new Array(n)
+  if (n === 2) {
+    m[0] = m[1] = del[0]
+  } else {
+    const end = (h0, h1, d0, d1) => {
+      let v = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1)
+      if (Math.sign(v) !== Math.sign(d0)) v = 0
+      else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(v) > Math.abs(3 * d0)) v = 3 * d0
+      return v
+    }
+    m[0] = end(h[0], h[1], del[0], del[1])
+    m[n - 1] = end(h[n - 2], h[n - 3], del[n - 2], del[n - 3])
+    for (let i = 1; i < n - 1; i++) {
+      if (del[i - 1] * del[i] <= 0) m[i] = 0
+      else {
+        const w1 = 2 * h[i] + h[i - 1]
+        const w2 = h[i] + 2 * h[i - 1]
+        m[i] = (w1 + w2) / (w1 / del[i - 1] + w2 / del[i])
+      }
+    }
+  }
+  return (x) => {
+    let i = 0
+    while (i < n - 2 && x > xs[i + 1]) i++
+    const t = (x - xs[i]) / h[i]
+    const t2 = t * t
+    const t3 = t2 * t
+    return (
+      (2 * t3 - 3 * t2 + 1) * ys[i] +
+      (t3 - 2 * t2 + t) * h[i] * m[i] +
+      (-2 * t3 + 3 * t2) * ys[i + 1] +
+      (t3 - t2) * h[i] * m[i + 1]
+    )
+  }
 }
+
+// Stations sorted by distance, or null if any is out of the panel or unusable.
+function sortedStations(panel) {
+  const L = panel.length
+  const list = [...panel.stations].sort((a, b) => a.d - b.d)
+  for (let i = 0; i < list.length; i++) {
+    const st = list[i]
+    if (!(st.d > 0 && st.d < L) || !(st.chord >= 0) || !Number.isFinite(st.le)) return null
+    if (i > 0 && st.d - list[i - 1].d < 1e-6) return null
+  }
+  return list
+}
+
+// Edge functions of a panel: le(f) and te(f) give the chordwise positions of the leading and
+// trailing edges at flat spanwise fraction f (0..1). null if the panel's shape is invalid.
+export function panelEdges(inner, outer, panel) {
+  if (!(panel.length > 0) || !(panel.tipChord >= 0)) return null
+  if (Array.isArray(panel.stations)) {
+    const list = sortedStations(panel)
+    if (!list) return null
+    const fs = [0, ...list.map((st) => st.d / panel.length), 1]
+    const les = [inner.x, ...list.map((st) => inner.x + st.le), outer.x]
+    const tes = [inner.x + inner.c, ...list.map((st) => inner.x + st.le + st.chord), outer.x + outer.c]
+    return { le: pchip(fs, les), te: pchip(fs, tes) }
+  }
+  if (!validCurve(panel.le) || !validCurve(panel.te)) return null
+  return {
+    le: (f) => edgeX(inner.x, outer.x, panel.le, f),
+    te: (f) => edgeX(inner.x + inner.c, outer.x + outer.c, panel.te, f),
+  }
+}
+
+export function panelMode(panel) {
+  if (Array.isArray(panel.stations)) return 'stations'
+  return panel.le || panel.te ? 'curves' : 'straight'
+}
+
+// Rounded tip cap beyond a panel end. Returns its shape at fraction u (0..1) of the
+// extension: spanwise offset, LE x and chord. Cosine spacing in u keeps the rounded end smooth.
+export function tipShape(end, tip) {
+  const e = tip.extension
+  const p = Math.min(1, Math.max(0, tip.peak ?? 0.4))
+  const c = end.c
+  const xPeak = end.x + p * c
+  return (u) => {
+    const r = Math.sqrt(Math.max(0, 1 - u * u))
+    return { ds: e * u, xl: xPeak - p * c * r, c: c * r }
+  }
+}
+
+const hasTip = (tip) => tip && tip.extension > 0
 
 // Resolve each panel's inner and outer ends: flat s, projected y, height z, LE x and chord.
 export function panelEnds({ fuselageWidth = 0, rootChord, panels }) {
@@ -71,7 +174,7 @@ export function panelEnds({ fuselageWidth = 0, rootChord, panels }) {
   })
 }
 
-export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels }) {
+export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels, tip = null }) {
   const g = {
     span: null,
     flatSpan: null,
@@ -96,24 +199,40 @@ export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels }) {
   const half = Math.max(0, fuselageWidth || 0) / 2
   if (!(rootChord > 0) || !panels?.length) return g
   if (!panels.every((p) => p.length > 0 && p.tipChord >= 0 && panelAngle(p) !== null)) return g
-  if (!panels.every((p) => validCurve(p.le) && validCurve(p.te) && Number.isFinite(p.sweep ?? 0))) return g
+  if (!panels.every((p) => Number.isFinite(p.sweep ?? 0))) return g
 
-  // Sample the half wing: fuselage section (constant root chord), then each panel.
-  // Each sample: projected y, LE x, chord c, and dy (projected width it represents).
-  const samples = []
-  if (half > 0) {
-    samples.push({ y: 0, xl: 0, c: rootChord }, { y: half, xl: 0, c: rootChord, seg: 'fuselage' })
-  } else {
-    samples.push({ y: 0, xl: 0, c: rootChord })
-  }
+  // Sample the half wing: fuselage section (constant root chord), then each panel, then the
+  // tip cap. Each sample: projected y, LE x, chord c and the cosine of its panel's dihedral.
+  const samples = [{ y: 0, xl: 0, c: rootChord }]
+  if (half > 0) samples.push({ y: half, xl: 0, c: rootChord })
   const ends = panelEnds({ fuselageWidth, rootChord, panels })
   for (const { inner, outer, rad, panel } of ends) {
     if (rad !== 0) g.hasDihedral = true
+    const edges = panelEdges(inner, outer, panel)
+    if (!edges) {
+      g.invalid = Array.isArray(panel.stations) ? 'stations' : null
+      return g
+    }
     for (let i = 1; i <= SAMPLES; i++) {
       const f = i / SAMPLES
-      const xl = edgeX(inner.x, outer.x, panel.le, f)
-      const xt = edgeX(inner.x + inner.c, outer.x + outer.c, panel.te, f)
-      samples.push({ y: inner.y + (outer.y - inner.y) * f, xl, c: xt - xl, cos: Math.cos(rad) })
+      const xl = edges.le(f)
+      samples.push({ y: inner.y + (outer.y - inner.y) * f, xl, c: edges.te(f) - xl, cos: Math.cos(rad) })
+    }
+  }
+  const last = ends.at(-1)
+  let tipReach = { s: last.outer.s, y: last.outer.y, z: last.outer.z }
+  if (hasTip(tip)) {
+    const shape = tipShape(last.outer, tip)
+    const cos = Math.cos(last.rad)
+    for (let i = 1; i <= TIP_SAMPLES; i++) {
+      const u = Math.sin((Math.PI / 2) * (i / TIP_SAMPLES))
+      const t = shape(u)
+      samples.push({ y: last.outer.y + t.ds * cos, xl: t.xl, c: t.c, cos })
+    }
+    tipReach = {
+      s: last.outer.s + tip.extension,
+      y: last.outer.y + tip.extension * cos,
+      z: last.outer.z + tip.extension * Math.sin(last.rad),
     }
   }
   if (samples.some((s) => s.c < -1e-9)) {
@@ -159,11 +278,10 @@ export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels }) {
   if (!(projHalf > 0)) return g
   const slope = (sw * swyx - swy * swx) / (sw * swyy - swy * swy)
 
-  const last = ends.at(-1).outer
-  g.span = 2 * last.y
-  g.flatSpan = 2 * last.s
+  g.span = 2 * tipReach.y
+  g.flatSpan = 2 * tipReach.s
   g.rootChord = rootChord
-  g.tipChord = last.c
+  g.tipChord = last.outer.c
   g.area = 2 * flatHalf
   g.projectedArea = 2 * projHalf
   g.exposedArea = g.area - 2 * half * rootChord
@@ -178,40 +296,88 @@ export function panelWingGeometry({ fuselageWidth = 0, rootChord, panels }) {
     { y: 0, z: 0, c: rootChord },
     ...(half > 0 ? [{ y: half, z: 0, c: rootChord }] : []),
     ...ends.map(({ outer }) => ({ y: outer.y, z: outer.z, c: outer.c })),
+    ...(hasTip(tip) ? [{ y: tipReach.y, z: tipReach.z, c: 0 }] : []),
   ]
-  g.breaks = ends.slice(0, -1).map(({ outer }) => ({ y: outer.y, xl: outer.x, xt: outer.x + outer.c }))
+  const breakEnds = hasTip(tip) ? ends : ends.slice(0, -1)
+  g.breaks = breakEnds.map(({ outer }) => ({ y: outer.y, xl: outer.x, xt: outer.x + outer.c }))
   // Outline seen from above, as [y, x] points: LE root -> tip, then TE tip -> root.
   g.outline = [...samples.map((s) => [s.y, s.xl]), ...[...samples].reverse().map((s) => [s.y, s.xl + s.c])]
   return g
 }
 
 // The half wing in flat (as-built) coordinates, for the plan editor: each panel's leading
-// and trailing edges as [s, x] polylines, plus its outline polygon.
-export function flatPanels({ fuselageWidth = 0, rootChord, panels }, samples = 24) {
-  if (!(rootChord > 0)) return []
-  return panelEnds({ fuselageWidth, rootChord, panels }).map(({ inner, outer, panel }, i) => {
+// and trailing edges as [s, x] polylines and its outline polygon, plus the tip cap.
+export function flatPanels({ fuselageWidth = 0, rootChord, panels, tip = null }, samples = 32) {
+  if (!(rootChord > 0)) return { panels: [], tip: null }
+  const ends = panelEnds({ fuselageWidth, rootChord, panels })
+  const list = ends.map(({ inner, outer, panel }, i) => {
     const le = []
     const te = []
-    const ok = panel.length > 0 && panel.tipChord >= 0 && validCurve(panel.le) && validCurve(panel.te)
-    if (ok) {
+    const edges = panelEdges(inner, outer, panel)
+    if (edges) {
       for (let k = 0; k <= samples; k++) {
         const f = k / samples
         const s = inner.s + (outer.s - inner.s) * f
-        le.push([s, edgeX(inner.x, outer.x, panel.le, f)])
-        te.push([s, edgeX(inner.x + inner.c, outer.x + outer.c, panel.te, f)])
+        le.push([s, edges.le(f)])
+        te.push([s, edges.te(f)])
       }
     }
-    return { index: i, inner, outer, panel, le, te, polygon: [...le, ...[...te].reverse()] }
+    return { index: i, inner, outer, panel, edges, le, te, polygon: [...le, ...[...te].reverse()] }
   })
+  let tipOut = null
+  const last = ends.at(-1)
+  if (last && hasTip(tip) && last.outer.c >= 0) {
+    const shape = tipShape(last.outer, tip)
+    const le = []
+    const te = []
+    for (let i = 0; i <= TIP_SAMPLES; i++) {
+      const t = shape(Math.sin((Math.PI / 2) * (i / TIP_SAMPLES)))
+      le.push([last.outer.s + t.ds, t.xl])
+      te.push([last.outer.s + t.ds, t.xl + t.c])
+    }
+    tipOut = {
+      polygon: [...le, ...[...te].reverse()],
+      peak: { s: last.outer.s + tip.extension, x: last.outer.x + (tip.peak ?? 0.4) * last.outer.c },
+      base: last.outer,
+    }
+  }
+  return { panels: list, tip: tipOut }
 }
 
-const nextId = (panels) => panels.reduce((m, p) => Math.max(m, p.id ?? 0), 0) + 1
+// Points on the plan a dimension can snap to, each with a stable id so a dimension attached
+// to it follows the wing as it changes.
+export function keyPoints(wing) {
+  const { rootChord, fuselageWidth = 0 } = wing
+  const half = Math.max(0, fuselageWidth || 0) / 2
+  if (!(rootChord > 0)) return []
+  const pts = [
+    { id: 'c.le', s: 0, x: 0 },
+    { id: 'c.te', s: 0, x: rootChord },
+  ]
+  if (half > 0) pts.push({ id: 'f.le', s: half, x: 0 }, { id: 'f.te', s: half, x: rootChord })
+  const flat = flatPanels(wing)
+  for (const p of flat.panels) {
+    const id = p.panel.id ?? p.index
+    pts.push({ id: `p${id}.le`, s: p.outer.s, x: p.outer.x }, { id: `p${id}.te`, s: p.outer.s, x: p.outer.x + p.outer.c })
+    if (p.edges && Array.isArray(p.panel.stations)) {
+      for (const st of p.panel.stations) {
+        const s = p.inner.s + st.d
+        pts.push({ id: `p${id}.s${st.id}.le`, s, x: p.inner.x + st.le }, { id: `p${id}.s${st.id}.te`, s, x: p.inner.x + st.le + st.chord })
+      }
+    }
+  }
+  if (flat.tip) pts.push({ id: 'tip', s: flat.tip.peak.s, x: flat.tip.peak.x })
+  return pts
+}
+
+const nextId = (items) => items.reduce((m, p) => Math.max(m, p.id ?? 0), 0) + 1
 
 // Append a new outboard panel. It continues the previous panel's leading-edge line and
 // dihedral, at about 40% of its length and tapering to 75% of its tip chord, ready to edit.
 export function appendPanel(panels, rootChord) {
   const prev = panels.at(-1)
-  if (!prev) return [{ id: 1, length: 0.3, tipChord: (rootChord || 0.2) * 0.75, sweep: 0, dihedral: 0, le: null, te: null }]
+  if (!prev)
+    return [{ id: 1, length: 0.3, tipChord: (rootChord || 0.2) * 0.75, sweep: 0, dihedral: 0, le: null, te: null, stations: null }]
   const len = Math.max(0.05, Math.round(((prev.length || 0.25) * 0.4) / 0.005) * 0.005)
   const scale = prev.length > 0 ? len / prev.length : 0
   const tilt = 'rise' in prev ? { rise: Number.isFinite(prev.rise) ? prev.rise * scale : 0 } : { dihedral: prev.dihedral ?? 0 }
@@ -225,6 +391,7 @@ export function appendPanel(panels, rootChord) {
       ...tilt,
       le: null,
       te: null,
+      stations: null,
     },
   ]
 }
@@ -235,8 +402,58 @@ export function removePanel(panels, i) {
   return panels.filter((_, j) => j !== i)
 }
 
-// Give every panel a stable id (used as a list key) and fill defaults for older shapes.
+// Give every panel (and station) a stable id and fill defaults for older shapes.
 export function normalisePanels(panels) {
   let id = nextId(panels) - 1
-  return panels.map((p) => ({ sweep: 0, le: null, te: null, ...p, id: p.id ?? ++id }))
+  return panels.map((p) => {
+    const out = { sweep: 0, le: null, te: null, stations: null, ...p, id: p.id ?? ++id }
+    if (Array.isArray(out.stations)) {
+      let sid = nextId(out.stations) - 1
+      out.stations = out.stations.map((st) => ({ ...st, id: st.id ?? ++sid }))
+    }
+    return out
+  })
+}
+
+// Station values that sit exactly on the panel's current shape at distance d.
+function stationOn(inner, outer, panel, d) {
+  const edges = panelEdges(inner, outer, panel) ?? panelEdges(inner, outer, { ...panel, stations: null, le: null, te: null })
+  const f = d / panel.length
+  const le = edges.le(f)
+  return { d, chord: edges.te(f) - le, le: le - inner.x }
+}
+
+// Switch a panel between edge modes, keeping its shape as far as possible. Converting to
+// stations samples the current edges (three stations for a curved panel, one for straight).
+export function setPanelMode(wing, i, mode) {
+  const ends = panelEnds(wing)
+  const { inner, outer, panel } = ends[i]
+  let next
+  if (mode === 'stations') {
+    const fs = panel.le || panel.te ? [0.25, 0.5, 0.75] : [0.5]
+    const stations = fs.map((f, k) => ({ id: k + 1, ...stationOn(inner, outer, { ...panel, stations: null }, f * panel.length) }))
+    next = { ...panel, stations }
+  } else if (mode === 'curves') {
+    next = { ...panel, stations: null, le: panel.le ?? { u: 0.5, d: -0.15 * Math.max(panel.tipChord || 0, 0.05) }, te: panel.te ?? null }
+  } else {
+    next = { ...panel, stations: null, le: null, te: null }
+  }
+  return wing.panels.map((p, j) => (j === i ? next : p))
+}
+
+// Add a station in the middle of the largest gap, placed on the current shape.
+export function addStation(wing, i) {
+  const ends = panelEnds(wing)
+  const { inner, outer, panel } = ends[i]
+  const ds = [0, ...(panel.stations ?? []).map((st) => st.d).sort((a, b) => a - b), panel.length]
+  let at = panel.length / 2
+  let gap = 0
+  for (let k = 1; k < ds.length; k++) {
+    if (ds[k] - ds[k - 1] > gap) {
+      gap = ds[k] - ds[k - 1]
+      at = (ds[k] + ds[k - 1]) / 2
+    }
+  }
+  const station = { id: nextId(panel.stations ?? []), ...stationOn(inner, outer, panel, at) }
+  return wing.panels.map((p, j) => (j === i ? { ...p, stations: [...(p.stations ?? []), station] } : p))
 }

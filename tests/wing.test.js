@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { panelWingGeometry, edgeX, panelEnds } from '../src/lib/wing.js'
+import { panelWingGeometry, edgeX, panelEnds, pchip, flatPanels, setPanelMode, addStation, panelMode, keyPoints } from '../src/lib/wing.js'
 
 const rect = (o = {}) => ({ length: 0.5, tipChord: 0.2, dihedral: 0, ...o })
 
@@ -92,5 +92,95 @@ describe('outline', () => {
     expect(g.outline[0]).toEqual([0, 0])
     expect(g.outline.at(-1)).toEqual([0, 0.2])
     expect(Math.max(...g.outline.map(([y]) => y))).toBeCloseTo(0.55, 12)
+  })
+})
+
+describe('monotone interpolation', () => {
+  it('passes through every point', () => {
+    const f = pchip([0, 0.3, 0.7, 1], [0, 0.05, 0.02, 0.04])
+    expect(f(0.3)).toBeCloseTo(0.05, 12)
+    expect(f(0.7)).toBeCloseTo(0.02, 12)
+    expect(f(1)).toBeCloseTo(0.04, 12)
+  })
+
+  it('never overshoots between points', () => {
+    const f = pchip([0, 0.5, 0.6, 1], [0, 0.1, 0.1, 0.1])
+    for (let x = 0; x <= 1; x += 0.01) expect(f(x)).toBeLessThanOrEqual(0.1 + 1e-12)
+  })
+
+  it('is exact for a straight line', () => {
+    const f = pchip([0, 0.2, 1], [1, 1.2, 2])
+    expect(f(0.6)).toBeCloseTo(1.6, 12)
+  })
+})
+
+describe('chord stations', () => {
+  const wing = (stations, o = {}) => ({ rootChord: 0.2, panels: [rect({ tipChord: 0.1, stations, ...o })] })
+
+  it('matches a straight panel when the stations sit on its edges', () => {
+    const straight = panelWingGeometry(wing(null))
+    const st = panelWingGeometry(wing([{ id: 1, d: 0.25, chord: 0.15, le: 0 }]))
+    expect(st.area).toBeCloseTo(straight.area, 10)
+  })
+
+  it('runs the edges through each station', () => {
+    const w = wing([{ id: 1, d: 0.2, chord: 0.22, le: -0.02 }])
+    const { panels } = flatPanels(w)
+    const edges = panels[0].edges
+    expect(edges.le(0.4)).toBeCloseTo(-0.02, 12)
+    expect(edges.te(0.4) - edges.le(0.4)).toBeCloseTo(0.22, 12)
+  })
+
+  it('rejects a station outside the panel', () => {
+    const g = panelWingGeometry(wing([{ id: 1, d: 0.6, chord: 0.1, le: 0 }]))
+    expect(g.area).toBeNull()
+    expect(g.invalid).toBe('stations')
+  })
+
+  it('adds stations on the current shape and switches modes without changing it much', () => {
+    const w = { rootChord: 0.2, panels: [rect({ id: 1, tipChord: 0.1, te: { u: 0.5, d: 0.06 } })] }
+    const curved = panelWingGeometry(w).area
+    const asStations = { ...w, panels: setPanelMode(w, 0, 'stations') }
+    expect(panelMode(asStations.panels[0])).toBe('stations')
+    expect(asStations.panels[0].stations).toHaveLength(3)
+    expect(panelWingGeometry(asStations).area).toBeCloseTo(curved, 3)
+    const more = { ...asStations, panels: addStation(asStations, 0) }
+    expect(more.panels[0].stations).toHaveLength(4)
+    expect(panelWingGeometry(more).area).toBeCloseTo(curved, 3)
+    expect(panelMode(setPanelMode(more, 0, 'straight')[0])).toBe('straight')
+  })
+})
+
+describe('curved tip', () => {
+  const base = { rootChord: 0.2, panels: [rect({ tipChord: 0.2 })] }
+
+  it('adds a quarter-ellipse cap of area (π/4)·e·c per side', () => {
+    const plain = panelWingGeometry(base)
+    const tipped = panelWingGeometry({ ...base, tip: { extension: 0.1, peak: 0.4 } })
+    expect(tipped.area - plain.area).toBeCloseTo(2 * (Math.PI / 4) * 0.1 * 0.2, 3)
+    expect(tipped.span).toBeCloseTo(plain.span + 0.2, 12)
+  })
+
+  it('reaches furthest at the chosen point along the chord', () => {
+    const { tip } = flatPanels({ ...base, tip: { extension: 0.1, peak: 0.25 } })
+    expect(tip.peak.s).toBeCloseTo(0.6, 12)
+    expect(tip.peak.x).toBeCloseTo(0.05, 12)
+  })
+
+  it('takes the tip panel dihedral', () => {
+    const g = panelWingGeometry({ rootChord: 0.2, panels: [rect({ dihedral: 60 })], tip: { extension: 0.1, peak: 0.5 } })
+    expect(g.span).toBeCloseTo(2 * (0.25 + 0.05), 12)
+  })
+})
+
+describe('key points', () => {
+  it('names panel corners, stations and the tip by stable ids', () => {
+    const ids = keyPoints({
+      rootChord: 0.2,
+      fuselageWidth: 0.1,
+      panels: [rect({ id: 7, stations: [{ id: 2, d: 0.2, chord: 0.2, le: 0 }] })],
+      tip: { extension: 0.05, peak: 0.4 },
+    }).map((p) => p.id)
+    expect(ids).toEqual(expect.arrayContaining(['c.le', 'c.te', 'f.le', 'f.te', 'p7.le', 'p7.te', 'p7.s2.le', 'p7.s2.te', 'tip']))
   })
 })

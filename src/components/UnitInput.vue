@@ -12,6 +12,8 @@ const props = defineProps({
   id: { type: String, required: true },
   warn: { type: Boolean, default: false },
   hint: { type: String, default: '' },
+  // Compact: label kept for screen readers only and a fixed unit, for use in tables.
+  compact: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -52,8 +54,8 @@ function onBlur() {
 </script>
 
 <template>
-  <div class="wc-field" :class="{ 'wc-field--warn': warn }">
-    <label :for="id" class="wc-field__label">{{ label }}</label>
+  <div class="wc-field" :class="{ 'wc-field--warn': warn, 'wc-field--compact': compact }">
+    <label :for="id" class="wc-field__label" :class="{ 'wc-sr-only': compact }">{{ label }}</label>
     <div class="wc-field__control">
       <input
         :id="id"
@@ -67,14 +69,14 @@ function onBlur() {
         @blur="onBlur"
       />
       <select
-        v-if="units.length > 1"
+        v-if="units.length > 1 && !compact"
         v-model="unit"
         class="wc-unit"
         :aria-label="`${label} unit`"
       >
         <option v-for="u in units" :key="u" :value="u">{{ UNITS[quantity][u].label }}</option>
       </select>
-      <span v-else class="wc-unit wc-unit--fixed">{{ UNITS[quantity][units[0]].label }}</span>
+      <span v-else class="wc-unit wc-unit--fixed">{{ UNITS[quantity][compact ? unit : units[0]].label }}</span>
     </div>
     <p v-if="hint" class="wc-field__hint">{{ hint }}</p>
   </div>

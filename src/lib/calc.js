@@ -29,7 +29,7 @@ export const SPAN_MAX = 3.0 // m
 // used for wing and cube loading. `projectedArea` is the area seen from above; it is what
 // supports the weight (each panel's lift tilts inwards by its dihedral angle), so it is
 // used for stall speed. `span` is the projected tip-to-tip span.
-export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area, panels, fuselageWidth = 0 }) {
+export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area, panels, fuselageWidth = 0, tip = null }) {
   if (mode === 'chords') {
     return wingGeometry({
       mode: 'panels',
@@ -51,7 +51,7 @@ export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area,
     stations: null,
     hasDihedral: false,
   }
-  if (mode === 'panels') return panelWingGeometry({ fuselageWidth, rootChord, panels })
+  if (mode === 'panels') return panelWingGeometry({ fuselageWidth, rootChord, panels, tip })
   if (!(span > 0)) return g
   if (mode === 'mean') {
     if (!(meanChord > 0)) return g
@@ -145,6 +145,12 @@ export function validate({ mass, geometry, panels = null }) {
   }
   if (mass > 0 && (mass < 0.05 || mass > 25)) {
     out.push({ field: 'mass', message: 'All-up weight looks unusual for an RC model (expected 50 g to 25 kg).' })
+  }
+  if (geometry.invalid === 'stations') {
+    out.push({
+      field: 'stations',
+      message: 'A chord station is outside its panel, or two stations share a position. Check the station distances.',
+    })
   }
   if (geometry.invalid === 'edges-cross') {
     out.push({

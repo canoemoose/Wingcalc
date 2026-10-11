@@ -943,3 +943,248 @@
   border-top: 1px solid var(--wc-border);
   min-height: 2.2em;
 }
+
+/* Chord stations and tip */
+.wc-segmented--small .wc-segmented__btn {
+  padding: 4px 6px;
+  font-size: 0.8rem;
+}
+.wc-stations {
+  margin-bottom: 10px;
+}
+.wc-stations__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 4px;
+  align-items: center;
+  margin: 6px 0;
+}
+.wc-stations__head {
+  font-size: 0.72rem;
+  color: var(--wc-muted);
+}
+.wc-stations__grid .wc-field {
+  margin: 0;
+  min-width: 0;
+}
+.wc-field--compact .wc-input {
+  height: 30px;
+  padding: 0 6px;
+}
+.wc-field--compact .wc-unit--fixed {
+  min-width: 0;
+  padding: 0 2px;
+  font-size: 0.75rem;
+}
+.wc-stations__remove {
+  font: inherit;
+  color: var(--wc-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.wc-stations__remove:hover {
+  color: var(--wc-sharp);
+}
+.wc-button--small {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+.wc-tipcheck {
+  margin-bottom: 8px;
+}
+.wingcalc .wc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Plan editor: tools, stations, tip, dimensions */
+.wc-segmented--inline {
+  display: inline-flex;
+  margin: 0;
+}
+.wc-segmented--inline .wc-segmented__btn {
+  padding: 4px 10px;
+  flex: 0 0 auto;
+}
+.wc-plan__svg--measure,
+.wc-plan__svg--measure .wc-plan__panel {
+  cursor: crosshair;
+}
+.wc-plan__panel--tip {
+  fill: color-mix(in srgb, var(--wc-accent) 8%, transparent);
+  stroke-dasharray: 5 3;
+}
+.wc-plan__rib {
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+.wc-plan__rib-label {
+  fill: var(--wc-muted);
+}
+.wc-plan__handle--station {
+  stroke: var(--wc-gentle);
+}
+.wc-plan__handle--station:hover {
+  fill: var(--wc-gentle);
+}
+.wc-plan__dimension {
+  cursor: pointer;
+}
+.wc-plan__dim-line {
+  stroke: var(--wc-text);
+  stroke-width: 1;
+}
+.wc-plan__dim-hit {
+  stroke: transparent;
+  stroke-width: 10;
+}
+.wc-plan__dim-ext {
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.wc-plan__dim-end {
+  fill: var(--wc-bg);
+  stroke: var(--wc-text);
+  stroke-width: 1;
+}
+.wc-plan__dim-end--attached {
+  fill: var(--wc-text);
+}
+.wc-plan__dim-text {
+  fill: var(--wc-text);
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--wc-bg);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.wc-plan__dimension--selected .wc-plan__dim-line,
+.wc-plan__dimension--selected .wc-plan__dim-end--attached {
+  stroke: var(--wc-accent);
+  fill: var(--wc-accent);
+}
+.wc-plan__dimension--selected .wc-plan__dim-text {
+  fill: var(--wc-accent);
+}
+.wc-plan__dimension--live .wc-plan__dim-line {
+  stroke: var(--wc-accent);
+  stroke-dasharray: 4 2;
+}
+.wc-plan__snap {
+  fill: none;
+  stroke: var(--wc-gentle);
+  stroke-width: 2;
+}
+
+/* Project bar */
+.wc-project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 320px;
+  justify-content: flex-end;
+}
+.wc-project__name {
+  flex: 0 1 220px;
+  min-width: 120px;
+}
+.wc-project__dirty {
+  color: var(--wc-moderate);
+  font-size: 0.8rem;
+}
+.wc-project .wc-button {
+  padding: 6px 12px;
+}
+.wc-project__menu {
+  position: relative;
+}
+.wc-project__menu > summary {
+  list-style: none;
+  display: inline-block;
+}
+.wc-project__menu > summary::-webkit-details-marker {
+  display: none;
+}
+.wc-project__popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  width: min(320px, 90vw);
+  background: var(--wc-bg);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  font-size: 0.875rem;
+}
+.wc-project__list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.wc-project__list li {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.wc-project__list li:hover,
+.wc-project__item--current {
+  background: var(--wc-surface);
+}
+.wc-project__open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  cursor: pointer;
+  min-width: 0;
+}
+.wc-project__open .wc-muted {
+  font-size: 0.75rem;
+}
+.wc-project__delete {
+  font: inherit;
+  color: var(--wc-muted);
+  background: none;
+  border: 0;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.wc-project__delete:hover {
+  color: var(--wc-sharp);
+}
+.wc-project__more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--wc-border);
+  padding-top: 8px;
+}
+.wc-project__status {
+  font-size: 0.8rem;
+  color: var(--wc-muted);
+  flex-basis: 100%;
+  text-align: right;
+  min-height: 1.2em;
+}
