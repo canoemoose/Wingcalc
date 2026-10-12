@@ -1,3 +1,6 @@
 node_modules/
 dist/
 scripts/.cache/
+spikes/xfoil-wasm/node_modules/
+spikes/xfoil-wasm/vendor/
+spikes/xfoil-wasm/results/

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>XFOIL wasm spike</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { padding: 2px 8px; border-bottom: 1px solid #ddd; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .pass { color: #070; } .fail { color: #b00; }
+  pre { background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<h1>XFOIL in a Web Worker</h1>
+<p>
+  Engine <select id="engine"><option>webxfoil</option><option>vibefoil</option></select>
+  Cases <select id="scope"><option value="one">NACA 2412, Re 200k</option><option value="all">All step 5 cases</option></select>
+  <button id="run">Run</button>
+  <span id="status"></span>
+</p>
+<table id="out"><thead><tr><th>Case</th><th>Re</th><th>load ms</th><th>polar ms</th><th>conv</th><th>Clmax ref/calc</th><th>&alpha; Clmax ref/calc</th><th>slope err %</th><th>RMS 0-8</th><th>wasm heap MB</th><th>result</th></tr></thead><tbody></tbody></table>
+<pre id="log"></pre>
+<script type="module">
+import { compare } from '../lib/metrics.js';
+
+const CASES = [
+  ['naca2412-il', [200000, 100000, 500000]], ['n0012-il', [100000, 500000]], ['e205-il', [100000, 500000]],
+  ['clarky-il', [100000, 500000]], ['sd7037-il', [100000, 500000]], ['s1223-il', [100000, 500000]],
+];
+const opts = { ncrit: 9, alphaStart: -4, alphaEnd: 18, alphaStep: 0.25, maxIter: 100, panels: 160, split: true };
+const data = await (await fetch('../../../src/data/airfoils.json')).json();
+const sections = Array.isArray(data.sections) ? data.sections : Object.values(data.sections);
+const $ = (id) => document.getElementById(id);
+const f = (v, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '-');
+window.spikeResults = [];
+
+let worker = null, engineLoaded = null;
+function call(msg) {
+  return new Promise((resolve) => {
+    const onMsg = (e) => { worker.removeEventListener('message', onMsg); resolve(e.data); };
+    worker.addEventListener('message', onMsg);
+    worker.postMessage(msg);
+  });
+}
+
+$('run').onclick = async () => {
+  const engine = $('engine').value;
+  if (!worker || engineLoaded !== engine) {
+    worker?.terminate();
+    worker = new Worker('./worker.js', { type: 'module' });
+    engineLoaded = engine;
+  }
+  const list = $('scope').value === 'one' ? [['naca2412-il', 200000]] : CASES.flatMap(([id, res]) => res.map((re) => [id, re]));
+  window.spikeDone = false;
+  for (const [id, re] of list) {
+    $('status').textContent = `running ${id} ${re}...`;
+    const s = sections.find((x) => x.id === id);
+    const coordsText = `${s.name}\n${s.coords.map(([x, y]) => `${x} ${y}`).join('\n')}\n`;
+    const r = await call({ id: 1, engine, coordsText, opts: { ...opts, re } });
+    if (!r.ok) { $('log').textContent += r.error + '\n'; continue; }
+    const conv = r.points.filter((p) => p.converged);
+    const ref = s.polars.find((p) => p.re === re);
+    const m = compare({ alpha: ref.alpha, cl: ref.cl }, { alpha: conv.map((p) => p.alpha), cl: conv.map((p) => p.cl) });
+    window.spikeResults.push({ engine, id, re, loadMs: r.loadMs, ms: r.ms, conv: conv.length, n: r.points.length, heapMB: r.heapMB, m });
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${id}</td><td>${re}</td><td>${f(r.loadMs, 0)}</td><td>${f(r.ms, 0)}</td><td>${conv.length}/${r.points.length}</td>`
+      + `<td>${f(m.clmaxRef)}/${f(m.clmaxCalc)}</td><td>${f(m.aRef, 2)}/${f(m.aCalc, 2)}</td><td>${f(m.slopeErrPct, 2)}</td><td>${f(m.rms, 4)}</td><td>${f(r.heapMB, 1)}</td>`
+      + `<td class="${m.allPass ? 'pass' : 'fail'}">${m.allPass ? 'pass' : 'fail'}</td>`;
+    $('out').tBodies[0].append(row);
+  }
+  $('status').textContent = 'done';
+  window.spikeDone = true;
+};
+</script>
+</body>
+</html>

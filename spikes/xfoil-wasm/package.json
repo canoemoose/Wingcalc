@@ -1,0 +1,9 @@
+{
+  "name": "xfoil-wasm-spike",
+  "private": true,
+  "type": "module",
+  "description": "Spike: XFOIL in the browser. Not part of the Wingcalc build.",
+  "dependencies": {
+    "webxfoil-wasm": "^0.1.1"
+  }
+}
