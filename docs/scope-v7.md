@@ -34,6 +34,13 @@ Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D c
 11. [x] Docs: user guide, methods, CLAUDE.md conventions.
 12. [x] Trailing-edge gussets: placement per edge (`teLayer`, null follows `layer`); `gussetFit` in wing3d.js measures the room over each gusset's triangle; placements without room are disabled, and a warning names the ribs where the chosen one doesn't fit.
 
+## Follow-ups (checked by Matt)
+
+- Wireframe thumbnail drawn in millimetres (metres rounded to 0.01 gave a 10 mm staircase); root/back three-quarter view, shared with the 3D view's home (`HOME_VIEW` in wing3d.js). Thumbnails are plain figures, not links.
+- View cube top and bottom: square up to the front or back, whichever the camera is on (`faceView`); swings move in heading and elevation (`orbitLerp`), so they never cross the pole and flip.
+- Home, − / + and Fit ease (`moveTo`). Fit uses the covering's outline as seen from the camera, 5% margin, not the bounding box. The view opens fitted in orthographic (it used to be framed for perspective, then converted).
+- Expanding the plan or 3D card eases its height; an untouched 3D view refits as it grows, a moved one keeps its scale.
+
 ## Notes
 
 - Verified by tests (273) and by driving the running app for errors; the visual result of each item is for Matt to check.
