@@ -1191,13 +1191,12 @@
 }
 .wc-project__menu > summary {
   list-style: none;
-  display: inline-block;
+  gap: 6px;
 }
 .wc-project__menu > summary::-webkit-details-marker {
   display: none;
 }
 .wc-project__caret {
-  margin-left: 6px;
   font-size: 0.75em;
   color: var(--wc-muted);
 }
@@ -1260,7 +1259,6 @@
 }
 /* Units menu, on the right of the header: drops down to the left */
 .wc-units__summary {
-  margin-left: 6px;
   font-size: 0.85em;
 }
 .wc-project__popover.wc-units__popover {
