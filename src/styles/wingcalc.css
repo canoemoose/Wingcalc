@@ -1649,8 +1649,15 @@
   fill: color-mix(in srgb, var(--wc-moderate) 12%, var(--wc-bg));
 }
 .wc-sp__sheet {
-  fill: color-mix(in srgb, var(--wc-accent) 9%, transparent);
+  fill: color-mix(in srgb, var(--wc-accent) 6%, transparent);
   stroke: none;
+}
+.wc-sp__sheet-hatch {
+  stroke: none;
+}
+.wingcalc svg .wc-sp__hatch {
+  stroke: color-mix(in srgb, var(--wc-accent) 45%, transparent);
+  vector-effect: none;
 }
 .wc-sp__stock {
   fill: none;

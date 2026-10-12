@@ -566,6 +566,20 @@ function sheetPanels(structure, surface, sparXi, leXi, teXi) {
   return out
 }
 
+// --- Plan ---------------------------------------------------------------------------------
+
+// The sheeted area in plan, as a closed (s, x) outline: from the LE stock's inner edge back to
+// the spar's rear face (D-box) or the TE stock (fully sheeted). Null when it's open.
+export function sheetOutline(a, structure, n = 80) {
+  const cov = structure.covering.type
+  if (cov !== 'dbox' && cov !== 'sheeted') return null
+  const sec = (s) => a.section(s)
+  const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
+  const back = cov === 'sheeted' ? (s) => sec(s).xl + sec(s).c - structure.te.width : sparRear
+  const ss = Array.from({ length: n + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / n)
+  return [...ss.map((s) => [s, sec(s).xl + structure.le.width]), ...[...ss].reverse().map((s) => [s, back(s)])]
+}
+
 // --- The analysis ---------------------------------------------------------------------------
 
 // Everything Stage A works out, for a wing, its aerofoil and structure, at the lifting

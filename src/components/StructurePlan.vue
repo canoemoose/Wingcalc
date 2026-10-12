@@ -9,9 +9,9 @@
 // from the root rib; Alt to place freely), double-click the wing to add one, Delete removes
 // the selected one, and the arrow keys nudge it a grid step (Shift for ten). Manual ribs and
 // hard points move; the root, panel-break and tip ribs are fixed.
-import { computed, ref, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { flatPanels } from '../lib/wing.js'
-import { MODES, SPACING_MODES } from '../lib/structure.js'
+import { MODES, SPACING_MODES, sheetOutline } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -59,21 +59,9 @@ const geom = computed(() => {
     const s = s0 + ((sparEnd - s0) * i) / n
     band.push([s, an.sparX(s) + halfW])
   }
-  // D-box or sheeting area, lightly shaded
-  const sheetTo = st.covering.type === 'sheeted' ? (s) => sec(s).xl + sec(s).c - st.te.width : st.covering.type === 'dbox' ? (s) => an.sparX(s) + halfW : null
-  let sheet = null
-  if (sheetTo) {
-    const pts = []
-    for (let i = 0; i <= n; i++) {
-      const s = s0 + ((s1 - s0) * i) / n
-      pts.push([s, sec(s).xl])
-    }
-    for (let i = n; i >= 0; i--) {
-      const s = s0 + ((s1 - s0) * i) / n
-      pts.push([s, sheetTo(s)])
-    }
-    sheet = pts.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
-  }
+  // D-box or sheeting area, hatched
+  const outline = sheetOutline(an, st, n)
+  const sheet = outline && outline.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
   return {
     le: line((s) => sec(s).xl + st.le.width),
     te: line((s) => sec(s).xl + sec(s).c - st.te.width),
@@ -191,6 +179,9 @@ function toWorld(e) {
   return { s: p.x, x: p.y }
 }
 const pxPerMetre = () => el.w / vb.value.w
+// The sheeting hatch, a fixed number of pixels apart whatever the zoom
+const hatchId = `wc-sp-hatch-${useId()}`
+const hatch = computed(() => ({ step: 7 / pxPerMetre(), width: 1 / pxPerMetre() }))
 
 function onWheel(e) {
   const before = toWorld(e)
@@ -401,6 +392,12 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       @dblclick="onDblClick"
       @keydown="onKey"
     >
+      <defs>
+        <!-- Stroke width in user units: non-scaling strokes inside a pattern tile aren't dependable -->
+        <pattern :id="hatchId" patternUnits="userSpaceOnUse" :width="hatch.step" :height="hatch.step" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" :y2="hatch.step" :stroke-width="hatch.width" class="wc-sp__hatch" />
+        </pattern>
+      </defs>
       <g pointer-events="none">
         <line
           v-for="(l, i) in grid"
@@ -428,7 +425,10 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         <polygon v-if="fuselage" :points="fuselage" class="wc-sp__outline" />
         <polygon v-for="p in flat.panels" :key="'p' + p.index" :points="poly(p.polygon)" class="wc-sp__outline" />
         <polygon v-if="flat.tip" :points="poly(flat.tip.polygon)" class="wc-sp__outline wc-sp__tip" />
-        <polygon v-if="geom.sheet" :points="geom.sheet" class="wc-sp__sheet" />
+        <template v-if="geom.sheet">
+          <polygon :points="geom.sheet" class="wc-sp__sheet" />
+          <polygon :points="geom.sheet" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
+        </template>
         <polyline :points="geom.le" class="wc-sp__stock" />
         <polyline :points="geom.te" class="wc-sp__stock" />
         <polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" />
@@ -470,7 +470,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
     </p>
     <figcaption class="wc-figure__caption">
       One side, flat as built, leading edge at the top. Spar in accent colour<template v-if="geom.sheet">,
-        sheeted area shaded</template
+        sheeted area hatched</template
       ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to

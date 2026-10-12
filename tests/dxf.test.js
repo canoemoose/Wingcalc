@@ -3,7 +3,7 @@ import { defaultState } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, sheetOutline } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import {
   offsetContour,
@@ -15,6 +15,7 @@ import {
   cutListCsv,
   defaultExportOptions,
   layoutParts,
+  hatchLines,
 } from '../src/lib/dxf.js'
 import { strokeText, textWidth } from '../src/lib/strokeFont.js'
 
@@ -181,6 +182,28 @@ describe('wing export', () => {
     expect(Math.max(...xs)).toBeCloseTo(700, 0)
   })
 
+  it('hatches the sheeted area on the plan, inside it, and nothing when open', () => {
+    const plan = (s) => parseDxf(planDxf(a, s, parts, { ...defaultExportOptions(), handedness: 'right' }).text)
+    const hatch = plan(st).polylines.filter((p) => p.layer === 'HATCH')
+    expect(hatch.length).toBeGreaterThan(20)
+    // Every hatch line ends on the D-box: between the LE stock and the spar's rear face
+    const outline = sheetOutline(a, st)
+    for (const p of hatch) for (const [x, y] of p.pts) expect(inside(outline.map(([s, c]) => [s * 1000, -c * 1000]), [x, y], 0.01)).toBe(true)
+    const open = { ...st, covering: { ...st.covering, type: 'open' } }
+    expect(plan(open).polylines.some((p) => p.layer === 'HATCH')).toBe(false)
+  })
+
+  it('clips hatch lines to a polygon at 45°, a step apart', () => {
+    const lines = hatchLines([[0, 0], [1, 0], [1, 1], [0, 1]], 0.1)
+    for (const [p, q] of lines) {
+      expect(Math.abs(q[0] - p[0])).toBeCloseTo(Math.abs(q[1] - p[1]), 9)
+      for (const [x, y] of [p, q]) expect(x >= -1e-9 && x <= 1 + 1e-9 && y >= -1e-9 && y <= 1 + 1e-9).toBe(true)
+    }
+    // Total hatched length ≈ area / step
+    const total = lines.reduce((n, [p, q]) => n + Math.hypot(q[0] - p[0], q[1] - p[1]), 0)
+    expect(total).toBeCloseTo(10, 0)
+  })
+
   it('lists every part and strip in the cut list', () => {
     const csv = cutListCsv(parts, cutList)
     const rows = csv.trim().split('\r\n')
@@ -189,3 +212,18 @@ describe('wing export', () => {
     expect(csv).toContain('Spar caps, panel 1')
   })
 })
+
+// Point in polygon, or within tol of its boundary
+function inside(poly, [x, y], tol) {
+  let c = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c
+    const dx = xj - xi
+    const dy = yj - yi
+    const t = Math.max(0, Math.min(1, ((x - xi) * dx + (y - yi) * dy) / (dx * dx + dy * dy || 1)))
+    if (Math.hypot(x - xi - t * dx, y - yi - t * dy) <= tol) return true
+  }
+  return c
+}

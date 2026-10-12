@@ -12,7 +12,7 @@
 //    CAM doesn't apply it.
 
 import { strokeText, textWidth } from './strokeFont.js'
-import { MATERIALS } from './structure.js'
+import { MATERIALS, sheetOutline } from './structure.js'
 import { flatPanels } from './wing.js'
 import { bounds, polygonArea } from './ribs.js'
 
@@ -410,9 +410,36 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
 
 // --- Plan view --------------------------------------------------------------------------------------
 
+// Hatch line spacing on the plan, metres
+const HATCH_STEP = 0.005
+
+// Hatch lines at 45° clipped to a closed polygon, step apart: [[p0, p1], ...]
+export function hatchLines(poly, step) {
+  // In rotated coordinates (v = s − x, w = s + x) the hatch lines are w = const
+  const r = poly.map(([s, x]) => [s - x, s + x])
+  const ws = r.map(([, w]) => w)
+  const out = []
+  const k = step * Math.SQRT2
+  for (let w = Math.ceil(Math.min(...ws) / k) * k; w < Math.max(...ws); w += k) {
+    const hits = []
+    for (let i = 0; i < r.length; i++) {
+      const [v0, w0] = r[i]
+      const [v1, w1] = r[(i + 1) % r.length]
+      if (w0 <= w !== w1 <= w) hits.push(v0 + ((w - w0) * (v1 - v0)) / (w1 - w0))
+    }
+    hits.sort((p, q) => p - q)
+    for (let i = 0; i + 1 < hits.length; i += 2) {
+      const back = ([v, ww]) => [(v + ww) / 2, (ww - v) / 2]
+      out.push([back([hits[i], w]), back([hits[i + 1], w])])
+    }
+  }
+  return out
+}
+
 // A full-size plan to build over: wing outline, LE and TE stock, spar, stringers and every rib
 // at its thickness, with rib names. Right half by default; 'left' mirrors it, 'pair' draws
-// both halves about the centreline. Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT.
+// both halves about the centreline. Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT,
+// HATCH (the sheeted area).
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
   const add = (layer, pts, closed = false) => raw.push({ type: 'poly', layer, pts, closed })
@@ -462,6 +489,9 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   for (const st of structure.stringers ?? []) {
     if (Number.isFinite(st.position)) add('STOCK', line((s) => sec(s).xl + st.position * sec(s).c))
   }
+  // Sheeting (D-box or fully sheeted), hatched: R12 has no hatch entity, so plain lines
+  const sheet = sheetOutline(a, structure)
+  if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('HATCH', seg)
   // Ribs, at their thickness, between the stock
   const t = structure.ribs.thickness
   const texts = []
@@ -492,7 +522,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
 
 export function planDxf(a, structure, parts, opts, baseName = 'wing') {
   const ents = planEntities(a, structure, parts, { handedness: opts.handedness })
-  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8 }
+  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8, HATCH: 9 }
   return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf(ents, { extraLayers, format: opts.format }) }
 }
 
