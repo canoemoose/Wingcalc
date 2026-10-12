@@ -8,6 +8,7 @@ import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
 import UnitsMenu from './components/UnitsMenu.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import UndoRedo from './components/UndoRedo.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
 import InspectorSection from './components/InspectorSection.vue'
@@ -143,13 +144,35 @@ function refreshList() {
   projects.value = listProjects(storage)
 }
 
-function save({ copy = false } = {}) {
+// Questions before something can't be taken back, asked in the app rather than with the
+// browser's confirm(). Resolves true to go ahead.
+const confirmRequest = ref(null)
+function ask(request) {
+  confirmRequest.value?.resolve(false)
+  return new Promise((resolve) => (confirmRequest.value = { ...request, resolve }))
+}
+function answer(yes) {
+  const r = confirmRequest.value
+  confirmRequest.value = null
+  r?.resolve(yes)
+}
+
+async function save({ copy = false } = {}) {
   let id = copy ? null : project.id
   let name = project.name.trim() || 'Untitled'
   if (copy) name = `${name} copy`
   if (!id) {
     const existing = findByName(storage, name)
-    if (existing && !window.confirm(`Replace the saved project "${existing.name}"?`)) return
+    if (
+      existing &&
+      !(await ask({
+        title: `Replace "${existing.name}"?`,
+        message: 'A saved project already has this name. Saving replaces it.',
+        confirm: 'Replace',
+        danger: true,
+      }))
+    )
+      return
     id = existing?.id ?? null
   }
   const res = saveProject(storage, { id, name, state: currentState() })
@@ -165,13 +188,16 @@ function save({ copy = false } = {}) {
   say(`Saved "${name}"`)
 }
 
-function confirmDiscard() {
-  return !dirty.value || window.confirm('Discard unsaved changes to this project?')
+async function confirmDiscard() {
+  return (
+    !dirty.value ||
+    ask({ title: 'Discard unsaved changes?', message: "Changes to this project since it was last saved will be lost.", confirm: 'Discard', danger: true })
+  )
 }
 
-function open(id) {
+async function open(id) {
   if (id === project.id && !dirty.value) return
-  if (!confirmDiscard()) return
+  if (!(await confirmDiscard())) return
   const p = loadProject(storage, id)
   if (!p) {
     say("That project couldn't be read.")
@@ -186,17 +212,17 @@ function open(id) {
   say(`Opened "${p.name}"`)
 }
 
-function remove(id) {
+async function remove(id) {
   const p = projects.value.find((q) => q.id === id)
-  if (!p || !window.confirm(`Delete the saved project "${p.name}"? This can't be undone.`)) return
+  if (!p || !(await ask({ title: `Delete "${p.name}"?`, message: "It can't be undone.", confirm: 'Delete', danger: true }))) return
   deleteProject(storage, id)
   if (project.id === id) project.id = null
   refreshList()
   say(`Deleted "${p.name}"`)
 }
 
-function newProject() {
-  if (!confirmDiscard()) return
+async function newProject() {
+  if (!(await confirmDiscard())) return
   const state = { ...defaultState(), units: system.value }
   applyState(state)
   project.id = null
@@ -216,8 +242,8 @@ function exportFile() {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
-function importFile(text) {
-  if (!confirmDiscard()) return
+async function importFile(text) {
+  if (!(await confirmDiscard())) return
   try {
     const p = importProject(text)
     applyState(p.state)
@@ -1115,5 +1141,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </template>
       </WingWorkspace>
     </Teleport>
+
+    <ConfirmDialog :request="confirmRequest" @answer="answer" />
   </div>
 </template>

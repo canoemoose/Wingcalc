@@ -1855,6 +1855,51 @@
 }
 
 /* Export: a large dialog over the structure editor */
+/* The app's own confirmation, over everything including the full-window editors */
+.wc-confirm__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, #000 45%, transparent);
+}
+.wc-confirm {
+  width: min(420px, 100%);
+  padding: 18px 20px 16px;
+  background: var(--wc-bg);
+  color: var(--wc-text);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+}
+.wc-confirm__title {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+.wc-confirm__message {
+  margin: 0;
+  color: var(--wc-muted);
+  font-size: 0.9rem;
+}
+.wc-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+/* Filled, so a darkened border like the primary button */
+.wc-button--danger {
+  background: var(--wc-sharp);
+  color: var(--wc-bg); /* white on the light theme's red, dark on the dark theme's paler one */
+  border-color: color-mix(in srgb, var(--wc-sharp) 75%, #000);
+}
+.wc-button--danger:hover {
+  border-color: color-mix(in srgb, var(--wc-sharp) 55%, #000);
+}
+
 .wc-export__backdrop {
   position: fixed;
   inset: 0;
