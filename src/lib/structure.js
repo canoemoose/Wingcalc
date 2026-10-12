@@ -345,9 +345,39 @@ export function loadAt(rows, s, key) {
 
 // --- Section strength ---------------------------------------------------------------------
 
-// Skin thickness over the spar caps (they sit under the sheeting).
-function skinAtSpar(structure) {
-  return structure.covering.type === 'open' ? 0 : structure.covering.sheetThickness || 0
+// Width of the spar across the chord, whatever its type.
+export function sparWidth(sp) {
+  return sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter
+}
+
+// The two faces of something of width w laid along a line x = line(s) in plan (a spar, a
+// stringer): the width is the stock's own, square to its length, so on a swept line the
+// faces sit w / 2 · √(1 + slope²) either side in x. Returns [front(s), rear(s)].
+export function lineFaces(line, w) {
+  const h = 1e-4
+  const halfAt = (s) => {
+    const slope = (line(s + h) - line(s - h)) / (2 * h)
+    return (w / 2) * Math.sqrt(1 + slope * slope)
+  }
+  return [(s) => line(s) - halfAt(s), (s) => line(s) + halfAt(s)]
+}
+
+// Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
+// to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
+// and stringers sit under it, so ribs, stringers and the 3D view all agree.
+export function skinAt(structure, q, sparXiRear) {
+  const cov = structure.covering
+  const strip = cov.capStrips ? cov.capStripThickness || 0 : 0
+  if (cov.type === 'sheeted') return cov.sheetThickness || 0
+  if (cov.type === 'dbox') return q <= sparXiRear ? cov.sheetThickness || 0 : strip
+  return strip
+}
+
+// Skin thickness over the spar: sheeting, or cap strips on an open wing (they run over
+// the caps).
+export function skinAtSpar(structure) {
+  // The spar is under whatever covers the ribs there: the rib notches are cut from below it
+  return skinAt(structure, 0, 1)
 }
 
 // Spar properties at a station with outside depth h (m) at the spar. Returns null where
@@ -462,8 +492,7 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
   for (const st of structure.stringers ?? []) {
     if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
     const f = sec.surf(st.position)
-    const sheeted = cov.type === 'sheeted' || (cov.type === 'dbox' && st.position <= sparXi)
-    const under = sheeted ? cov.sheetThickness : 0
+    const under = skinAt(structure, st.position, sparXi + sparWidth(structure.spar) / 2 / sec.c)
     const E = material(st.material).E
     const A = st.width * st.height
     const I0 = (st.width * st.height ** 3) / 12

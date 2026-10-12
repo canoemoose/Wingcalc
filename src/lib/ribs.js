@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth } from './structure.js'
 import { flatPanels } from './wing.js'
 
 const RAD = Math.PI / 180
@@ -189,16 +189,6 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 
 // --- One rib -----------------------------------------------------------------------------------
 
-// Skin thickness over the rib at chord fraction q: sheeting where there is any, cap strips
-// elsewhere if used.
-function skinAt(structure, q, sparXiRear) {
-  const cov = structure.covering
-  const strip = cov.capStrips ? cov.capStripThickness || 0 : 0
-  if (cov.type === 'sheeted') return cov.sheetThickness || 0
-  if (cov.type === 'dbox') return q <= sparXiRear ? cov.sheetThickness || 0 : strip
-  return strip
-}
-
 // Build one rib: outline with notches and tabs, holes, etch lines and label.
 // rib: { s, kind, label } from the analysis; board: panel datum height (for jig tabs) or null.
 export function buildRib(a, structure, rib, { board = null } = {}) {
@@ -211,13 +201,32 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   const scale = L / prof.chord // along-rib length per unit of streamwise chord
   const uSpar = prof.sparU
   const sp = structure.spar
-  const halfSpar =
-    sp.type === 'caps' || sp.type === 'box'
-      ? sp.capWidth / 2
-      : sp.type === 'solid'
-        ? sp.solidWidth / 2
-        : sp.tubeDiameter / 2
-  const sparXiRear = interp(us, prof.xi, uSpar + halfSpar)
+
+  // Where the rib line crosses a line x = fx(s) in plan (an edge of the stock, a face of the
+  // spar or a stringer), near u = guess. Every cut is placed this way, so the parts meet the
+  // stock exactly whichever way the rib runs.
+  const sn = Math.sin(prof.angle * RAD)
+  const cs = Math.cos(prof.angle * RAD)
+  const xs0 = a.sparX(rib.s)
+  const clampS = (s) => Math.min(a.tipS, Math.max(a.rootS, s))
+  const crossing = (fx, guess) => {
+    if (Math.abs(sn) < 1e-12) return uSpar + (fx(rib.s) - xs0) / cs
+    const f = (u) => xs0 + cs * (u - uSpar) - fx(clampS(rib.s + sn * (u - uSpar)))
+    let lo = guess - 0.05
+    let hi = guess + 0.05
+    if (Math.sign(f(lo)) === Math.sign(f(hi))) return guess
+    for (let i = 0; i < 50; i++) {
+      const m = (lo + hi) / 2
+      if (Math.sign(f(m)) === Math.sign(f(lo))) lo = m
+      else hi = m
+    }
+    return (lo + hi) / 2
+  }
+  const [sparFront, sparRearX] = lineFaces(a.sparX, sparWidth(sp))
+  const uSpar0 = crossing(sparFront, uSpar - sparWidth(sp) / 2)
+  const uSpar1 = crossing(sparRearX, uSpar + sparWidth(sp) / 2)
+  const halfSpar = (uSpar1 - uSpar0) / 2 // half the notch along the rib
+  const sparXiRear = interp(us, prof.xi, uSpar1)
 
   // Inset surfaces: offset by the skin, measured square to the surface
   const n = us.length
@@ -236,9 +245,9 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   const top = (u) => interp(us, upIn, u)
   const bot = (u) => interp(us, loIn, u)
 
-  // Cut back for the LE and TE stock
-  const uA = (structure.le.width || 0) * scale
-  const uB = L - (structure.te.width || 0) * scale
+  // Cut back for the LE and TE stock (their depth is along the streamwise chord)
+  const uA = crossing((s) => a.section(s).xl + (structure.le.width || 0), (structure.le.width || 0) * scale)
+  const uB = crossing((s) => a.section(s).xl + a.section(s).c - (structure.te.width || 0), L - (structure.te.width || 0) * scale)
   if (!(uB > uA + 0.01)) return { ok: false, reason: 'short', s: rib.s }
   if (top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin at the trailing-edge cut')
 
@@ -248,26 +257,35 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   const holes = []
   const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS)
   if (sp.type === 'caps' || sp.type === 'box') {
-    upper.push({ u0: uSpar - halfSpar, u1: uSpar + halfSpar, depth: sp.capThickness, what: 'spar' })
-    lower.push({ u0: uSpar - halfSpar, u1: uSpar + halfSpar, depth: sp.capThickness, what: 'spar' })
+    upper.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
+    lower.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
   } else if (sp.type === 'solid') {
     const d = sp.solidDepth
-    if (sp.solidMount === 'top') upper.push({ u0: uSpar - halfSpar, u1: uSpar + halfSpar, depth: d, what: 'spar' })
-    else if (sp.solidMount === 'bottom') lower.push({ u0: uSpar - halfSpar, u1: uSpar + halfSpar, depth: d, what: 'spar' })
+    if (sp.solidMount === 'top') upper.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
+    else if (sp.solidMount === 'bottom') lower.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
     else {
       const mid = (top(uSpar) + bot(uSpar)) / 2
-      holes.push(rect(uSpar - halfSpar, mid - d / 2, uSpar + halfSpar, mid + d / 2))
+      holes.push(rect(uSpar0, mid - d / 2, uSpar1, mid + d / 2))
     }
   } else if (sp.type === 'tube' && sparHere.type === 'tube') {
+    // Round where the rib is square to the tube, an ellipse where it crosses at an angle
     const mid = (top(uSpar) + bot(uSpar)) / 2
-    holes.push(circle(uSpar, mid, sp.tubeDiameter / 2 + 0.0001))
+    const r = sp.tubeDiameter / 2 + 0.0001
+    holes.push(circle(0, 0, 1).map(([x, y]) => [(uSpar0 + uSpar1) / 2 + x * (halfSpar + 0.0001), mid + y * r]))
   }
   if (sparHere.type !== 'none' && sparHere.fits === false) notes.push("The spar doesn't fit at this rib")
   for (const st of structure.stringers ?? []) {
     if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
     const u = prof.uAt(st.position)
-    if (u - st.width / 2 < uA || u + st.width / 2 > uB) continue
-    const notch = { u0: u - st.width / 2, u1: u + st.width / 2, depth: st.height, what: 'stringer' }
+    const line = (s) => {
+      const sec = a.section(clampS(s))
+      return sec.xl + st.position * sec.c
+    }
+    const [f0, f1] = lineFaces(line, st.width)
+    const u0 = crossing(f0, u - st.width / 2)
+    const u1 = crossing(f1, u + st.width / 2)
+    if (u0 < uA || u1 > uB) continue
+    const notch = { u0, u1, depth: st.height, what: 'stringer' }
     if (st.surface !== 'lower') upper.push({ ...notch })
     if (st.surface !== 'upper') lower.push({ ...notch })
   }
@@ -331,8 +349,8 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   // break or tip ribs, which take the joining loads)
   if (r.lightening && rib.kind === 'normal') {
     const m = r.lighteningMargin || 0.004
-    const sparFront = uSpar - halfSpar - m
-    const sparRear = uSpar + halfSpar + m
+    const clearFront = uSpar0 - m
+    const clearRear = uSpar1 + m
     const band = (u) => {
       let t = top(u) - m
       let b = bot(u) + m
@@ -341,8 +359,8 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
       return { t, b }
     }
     for (const [from, to] of [
-      [uA + m, sparFront],
-      [sparRear, uB - m],
+      [uA + m, clearFront],
+      [clearRear, uB - m],
     ]) {
       let u = from
       while (u < to) {
@@ -375,9 +393,15 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   }
 
   // Label, in the deepest clear spot ahead of the spar
-  const lu = Math.max(uA + 0.004, (uA + uSpar - halfSpar) / 2)
+  const lu = Math.max(uA + 0.004, (uA + uSpar0) / 2)
   const lh = Math.min(0.005, Math.max(0.0015, (top(lu) - bot(lu)) * 0.35))
   const label = { text: rib.name ?? '', u: lu, z: (top(lu) + bot(lu)) / 2 - lh / 2, h: lh }
+
+  // Height between the cap notch floors: what a shear web here has to fill
+  const capGap =
+    sp.type === 'caps' || sp.type === 'box'
+      ? Math.min(top(uSpar0), top(uSpar1)) - sp.capThickness - (Math.max(bot(uSpar0), bot(uSpar1)) + sp.capThickness)
+      : null
 
   return {
     ok: true,
@@ -388,6 +412,11 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     panel: prof.panel,
     length: L,
     sparU: uSpar,
+    sparNotch: [uSpar0, uSpar1],
+    capGap,
+    // The rib's outer and inset surfaces, for drawing cap strips on it
+    surfaces: { us, up: prof.up, lo: prof.lo, upIn, loIn },
+    capStripFrom: structure.covering.type === 'dbox' ? uSpar1 : uA,
     uA,
     uB,
     outline,
@@ -528,7 +557,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         const sec = a.section(Math.min(a.tipS, Math.max(a.rootS, s)))
         if (!sec) return 0
         const q = Math.min(0.95, Math.max(0.02, (a.sparX(s) - sec.xl) / sec.c))
-        const skin = structure.covering.type === 'open' ? 0 : structure.covering.sheetThickness || 0
+        const skin = skinAtSpar(structure)
         return Math.max(0, sec.depth(q) - 2 * skin)
       }
       const Lb = br.length || 0.08
@@ -584,12 +613,8 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
     for (let i = 1; i < ribList.length; i++) {
       const pa = ribList[i - 1]
       const pb = ribList[i]
-      const hOf = (p) => {
-        const sec = a.section(p.s)
-        const q = Math.min(0.95, Math.max(0.02, (a.sparX(p.s) - sec.xl) / sec.c))
-        const skin = structure.covering.type === 'open' ? 0 : structure.covering.sheetThickness || 0
-        return Math.max(0, sec.depth(q) - 2 * skin - 2 * sp.capThickness)
-      }
+      // Exactly the gap between the caps where they pass through each rib
+      const hOf = (p) => Math.max(0, p.rib.capGap ?? 0)
       const len = Math.max(0, pb.s - pa.s - r.thickness)
       if (len < 0.003) continue
       const ha = hOf(pa)

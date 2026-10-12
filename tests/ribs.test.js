@@ -70,9 +70,11 @@ describe('ribs', () => {
   it('notches the caps to their size at the spar', () => {
     const res = build()
     const r = ribsOf(res)[2]
-    const { sparU } = r.rib
-    const w = res.st.spar.capWidth
-    for (const u of [sparU - w / 2, sparU + w / 2]) {
+    const [u0, u1] = r.rib.sparNotch
+    // The cap's own width, square to the spar; a little wider along a rib that crosses it at an angle
+    expect(u1 - u0).toBeGreaterThanOrEqual(res.st.spar.capWidth - 1e-9)
+    expect(u1 - u0).toBeLessThan(res.st.spar.capWidth * 1.01)
+    for (const u of [u0, u1]) {
       // At each notch wall: skin top, notch bottom, then the lower notch's top and the skin
       const zs = r.outline.filter(([x]) => Math.abs(x - u) < 1e-9).map(([, z]) => z).sort((p, q) => q - p)
       expect(zs).toHaveLength(4)
