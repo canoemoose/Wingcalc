@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
-import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight } from '../src/lib/wing3d.js'
+import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, bracePlates } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
@@ -294,5 +294,182 @@ describe('3D wing', () => {
       const inHollow = c[0] > 1 && c[0] < 9 && c[1] > 1
       expect(inHollow).toBe(false)
     }
+  })
+
+  it('cuts a section between ribs through everything there, in the plane square to the span', () => {
+    const { a, st, parts } = build((x) => {
+      x.covering.type = 'dbox'
+      x.stringers = [{ id: 1, position: 0.12, surface: 'upper', width: 0.003, height: 0.003, material: 'balsa-hard' }]
+    }, swept)
+    const ribs = parts.filter((q) => q.group === 'ribs')
+    // Mid-bay on the polyhedral outer panel
+    const s = (ribs.at(-2).s + ribs.at(-1).s) / 2
+    const cut = sectionAt(a, st, parts, s)
+    const count = (k) => cut.pieces.filter((p) => p.kind === k).length
+    expect(cut.inRib).toBe(false)
+    expect([count('sheet'), count('le'), count('te'), count('spar'), count('web'), count('stringer')]).toEqual([2, 1, 1, 2, 1, 1])
+    const { point, normal } = spanPlane(a, s)
+    for (const pts of [...cut.pieces.map((p) => p.pts), cut.outline]) {
+      for (const [x, h] of pts) {
+        const q = worldPoint(a, s, x, h)
+        const off = (q[0] - point[0]) * normal[0] + (q[1] - point[1]) * normal[1] + (q[2] - point[2]) * normal[2]
+        expect(Math.abs(off)).toBeLessThan(1e-9)
+      }
+    }
+    // Through a rib, there's no web (webs sit between ribs)
+    expect(sectionAt(a, st, parts, ribs[3].s).pieces.some((p) => p.kind === 'web')).toBe(false)
+  })
+
+  it('puts the shear webs between the caps, flush with their faces', () => {
+    for (const type of ['caps', 'box']) {
+      const { a, st } = build((x) => (x.spar.type = type), swept)
+      for (const s of [0.1, 0.4, 0.6]) {
+        const [up, lo] = sparBoxes(a, st, s)
+        const webs = webBoxes(a, st, s)
+        expect(webs).toHaveLength(type === 'box' ? 2 : 1)
+        const [capFront, capRear] = [up[0][0], up[1][0]]
+        // Front web from the caps' front face back by the web thickness; on a swept spar both
+        // are wider in x by the same factor, so it's the same fraction of the cap
+        expect(webs[0][0][0]).toBeCloseTo(capFront, 9)
+        const stretch = (capRear - capFront) / st.spar.capWidth
+        expect(webs[0][1][0] - capFront).toBeCloseTo(st.spar.webThickness * stretch, 6)
+        if (type === 'box') expect(webs[1][1][0]).toBeCloseTo(capRear, 9)
+        // Between the caps, top to bottom
+        for (const w of webs) {
+          expect(w[0][1]).toBeCloseTo(lo[2][1], 9)
+          expect(w[2][1]).toBeCloseTo(up[0][1], 9)
+          expect(w[1][0]).toBeLessThanOrEqual(capRear + 1e-9)
+        }
+      }
+    }
+  })
+
+  it('draws a tube spar hollow, and cuts it as a ring', () => {
+    const { a, st, parts, w } = build((x) => {
+      x.spar.type = 'tube'
+      x.covering.type = 'open'
+    })
+    const bore = tubeBore(a, st, 0.2)
+    const outer = sparBoxes(a, st, 0.2)[0]
+    const radius = (ring) => {
+      const cx = ring.reduce((m, p) => m + p[0], 0) / ring.length
+      const ch = ring.reduce((m, p) => m + p[1], 0) / ring.length
+      return Math.max(...ring.map(([x, h]) => Math.hypot(x - cx, h - ch)))
+    }
+    expect(radius(outer) - radius(bore)).toBeCloseTo(st.spar.tubeWall, 6)
+    const tube = w.solids.find((x) => x.kind === 'spar')
+    // Twice the vertices of a solid rod: an outer and an inner wall
+    expect(tube.positions.length / 3).toBe(2 * 16 * (tube.positions.length / 3 / 32))
+    const cut = sectionAt(a, st, parts, 0.2).pieces.find((p) => p.kind === 'spar')
+    expect(cut.holes).toHaveLength(1)
+  })
+
+  it('draws the corner gussets the export cuts, on the right sides and layers', () => {
+    const { a, st, parts } = build((x) => {
+      x.gussets.te = true
+      x.gussets.where = 'ends'
+      x.gussets.sides = 'both'
+      x.gussets.layer = 'both'
+    })
+    // A flat one-piece wing: the centre rib (both sides, shared by the halves) and the tip rib
+    // (inboard side only). Top and bottom of each.
+    const exported = parts.filter((p) => p.group === 'gussets').reduce((n, p) => n + p.qty, 0)
+    expect(exported).toBe(2 * 2 + 1 * 2 * 2) // centre: 2 sides x 2 layers; tip: 1 side x 2 layers x 2 halves
+    const drawn = gussetPrisms(a, st, parts)
+    expect(drawn).toHaveLength(2 + 2) // this half: centre outboard x 2 layers, tip inboard x 2 layers
+    expect(drawn.filter((g) => g.side < 0).every((g) => g.rib === parts.filter((p) => p.group === 'ribs').at(-1).id)).toBe(true)
+  })
+
+  it('keeps top gussets under the skin, against the rib face', () => {
+    const { a, st, parts } = build((x) => {
+      x.gussets.le = true
+      x.gussets.te = true
+      x.gussets.where = 'all'
+      x.gussets.layer = 'top'
+    })
+    const ribs = parts.filter((p) => p.group === 'ribs')
+    for (const gp of gussetPrisms(a, st, parts)) {
+      const rib = ribs.find((r) => r.id === gp.rib)
+      const pts = []
+      for (let i = 0; i < gp.positions.length; i += 3) pts.push([gp.positions[i], gp.positions[i + 1], gp.positions[i + 2]])
+      // Flat wing: X is s, Y is height, Z is x. The top face sits at or below the inset surface.
+      for (const [X, Y, Z] of pts) expect(Y).toBeLessThanOrEqual(insetHeight(a, st, Math.min(a.tipS, Math.max(0, X)), Z, 'upper') + 1e-6)
+      // One corner on the rib's face
+      const face = rib.s + (gp.side * rib.thickness) / 2
+      expect(Math.min(...pts.map(([X]) => Math.abs(X - face)))).toBeLessThan(1e-6)
+    }
+  })
+
+  it('draws each brace as two plates on the spar faces, the centre one in this half only', () => {
+    const { a, st, parts } = build(() => {}, swept)
+    const braces = parts.filter((p) => p.group === 'braces')
+    const plates = bracePlates(a, st, parts)
+    expect(plates).toHaveLength(2 * braces.length)
+    const centre = plates.filter((p) => p.part === braces[0].id)
+    for (const p of centre) {
+      for (let i = 0; i < p.positions.length; i += 3) expect(p.positions[i]).toBeGreaterThan(-1e-9)
+    }
+  })
+
+  // A one-piece wing with a fuselage: the first dihedral break is at the fuselage side, closer
+  // to the centreline than a brace's reach. Used to throw building the 3D view.
+  it('stops brace arms at the centreline and the tip rib', () => {
+    const { a, st, parts, w } = build(
+      () => {},
+      (input) => {
+        input.fuselageWidth = 0.1
+        input.panels = normalisePanels([
+          { length: 0.6, tipChord: 0.18, dihedral: 5 },
+          { length: 0.05, tipChord: 0.15, dihedral: 15 },
+        ])
+      },
+    )
+    expect(w.solids.some((x) => x.kind === 'brace')).toBe(true)
+    const braces = parts.filter((p) => p.group === 'braces')
+    expect(braces).toHaveLength(2)
+    // At the fuselage side: inner arm only as far as the centreline (50 mm), outer 80 mm
+    expect(braces[0].at.inner).toBeCloseTo(0.05, 9)
+    expect(braces[0].at.outer).toBeCloseTo(0.08, 9)
+    // At the polyhedral break 50 mm from the tip: outer arm only to the tip rib
+    expect(braces[1].at.outer).toBeCloseTo(0.05, 9)
+    for (const p of bracePlates(a, st, parts)) {
+      for (let i = 0; i < p.positions.length; i += 3) {
+        expect(p.positions[i]).toBeGreaterThan(-1e-6)
+        expect(Number.isFinite(p.positions[i + 1])).toBe(true)
+      }
+    }
+  })
+
+  it('draws a rounded tip as a block from the tip rib out to the end of the tip', () => {
+    const { a, st, w } = build(
+      () => {},
+      (input) => (input.tip = { extension: 0.05, peak: 0.4 }),
+    )
+    const block = w.solids.find((x) => x.kind === 'tip')
+    let lo = Infinity
+    let hi = -Infinity
+    for (let i = 0; i < block.positions.length; i += 3) {
+      lo = Math.min(lo, block.positions[i])
+      hi = Math.max(hi, block.positions[i])
+    }
+    expect(lo).toBeCloseTo(a.tipS + st.ribs.thickness / 2, 6)
+    expect(hi).toBeCloseTo(0.75, 6)
+    expect(build().w.solids.some((x) => x.kind === 'tip')).toBe(false)
+  })
+
+  it('builds the covering over a rounded tip from the same points as the tip block', () => {
+    const { w } = build(
+      () => {},
+      (input) => (input.tip = { extension: 0.05, peak: 0.4 }),
+    )
+    const key = (x, y, z) => `${x.toFixed(6)},${y.toFixed(6)},${z.toFixed(6)}`
+    const skinPts = new Set()
+    for (let i = 0; i < w.skin.positions.length; i += 3) skinPts.add(key(w.skin.positions[i], w.skin.positions[i + 1], w.skin.positions[i + 2]))
+    const block = w.solids.find((x) => x.kind === 'tip')
+    // Every ring point of the block (not the fan centres of its end caps) is a covering point
+    const ringPts = block.positions.length / 3 - 2
+    let missing = 0
+    for (let i = 0; i < ringPts * 3; i += 3) if (!skinPts.has(key(block.positions[i], block.positions[i + 1], block.positions[i + 2]))) missing++
+    expect(missing).toBe(0)
   })
 })

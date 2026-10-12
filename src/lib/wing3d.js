@@ -9,12 +9,15 @@
 // the ribs agree.
 
 import { skinAt, sparWidth, lineFaces } from './structure.js'
+import { gussetSides } from './ribs.js'
 
 const RAD = Math.PI / 180
 
 // Panel dihedral at s; on a panel break, the mean of the two (where the break rib sits).
 function angleAt(a, s) {
   const e = 1e-5
+  // On the centreline the two halves meet symmetrically, so the section there stands upright
+  if (s < e) return 0
   const lo = a.sampler.at(Math.max(0, s - e))
   const hi = a.sampler.at(Math.min(a.sampler.reach, s + e))
   return ((lo?.rad ?? 0) + (hi?.rad ?? lo?.rad ?? 0)) / 2
@@ -106,11 +109,23 @@ function stations(a, s0, s1, n) {
 
 const cosine = (n) => Array.from({ length: n + 1 }, (_, i) => 0.5 * (1 - Math.cos((Math.PI * i) / n)))
 
+// Stations over a rounded tip, from the tip rib's outer face to the end: close together
+// towards the end, where the outline curves round fastest. The covering and the tip block
+// both use them, so the two surfaces are built from the same points.
+function tipStations(a, structure, n = 24) {
+  const s0 = a.tipS + (structure.ribs.thickness || 0) / 2
+  const s1 = a.sampler.reach
+  if (!(s1 > s0 + 1e-6)) return []
+  return Array.from({ length: n + 1 }, (_, i) => s0 + (s1 - s0) * Math.sin((Math.PI / 2) * (i / n)))
+}
+
 // The outer skin, root to the tip of a rounded tip, as one closed loft.
-function skin(a, n = 60, chordPts = 36) {
+function skin(a, structure, n = 60, chordPts = 36) {
   const xs = cosine(chordPts)
   const rings = []
-  for (const s of stations(a, a.rootS, a.sampler.reach, n)) {
+  const tip = tipStations(a, structure)
+  const along = tip.length ? [...stations(a, a.rootS, tip[0], n), ...tip.slice(1)] : stations(a, a.rootS, a.sampler.reach, n)
+  for (const s of along) {
     const sec = a.section(s)
     if (!sec) continue
     const ring = []
@@ -133,6 +148,12 @@ function skin(a, n = 60, chordPts = 36) {
 // extend: [inboard, outboard] distances to carry the end sections on, square to them, so a
 // part runs to the outer face of the rib it ends at rather than that rib's centre plane.
 function sweep(a, s0, s1, section, n = 40, { extend = [0, 0], caps = 'fan' } = {}) {
+  const rings = sweepRings(a, s0, s1, section, n, extend)
+  return rings ? loft(rings, { closed: true, caps }) : null
+}
+
+// The rings a sweep lofts through, in world coordinates, or null.
+function sweepRings(a, s0, s1, section, n, extend) {
   const rings = []
   for (const s of stations(a, s0, s1, n)) {
     const pts = section(s)
@@ -146,7 +167,35 @@ function sweep(a, s0, s1, section, n = 40, { extend = [0, 0], caps = 'fan' } = {
   const shift = (ring, d, by) => ring.map((p) => [p[0] + d[0] * by, p[1] + d[1] * by, p[2] + d[2] * by])
   if (extend[0] > 0) rings.unshift(shift(rings[0], along(s0), -extend[0]))
   if (extend[1] > 0) rings.push(shift(rings.at(-1), along(s1), extend[1]))
-  return loft(rings, { closed: true, caps })
+  return rings
+}
+
+// A hollow tube from matching outer and inner rings: both walls, and annular ends.
+export function tubeLoft(outer, inner) {
+  const n = outer.length
+  const m = outer[0].length
+  const positions = []
+  for (const r of [...outer, ...inner]) for (const p of r) positions.push(p[0], p[1], p[2])
+  const O = (i, j) => i * m + (j % m)
+  const I = (i, j) => (n + i) * m + (j % m)
+  const idx = []
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = 0; j < m; j++) {
+      idx.push(O(i, j), O(i, j + 1), O(i + 1, j + 1), O(i, j), O(i + 1, j + 1), O(i + 1, j))
+      idx.push(I(i, j), I(i + 1, j + 1), I(i, j + 1), I(i, j), I(i + 1, j), I(i + 1, j + 1))
+    }
+  }
+  for (const [i, flip] of [
+    [0, true],
+    [n - 1, false],
+  ]) {
+    for (let j = 0; j < m; j++) {
+      const q = [O(i, j), O(i, j + 1), I(i, j + 1), I(i, j)]
+      if (flip) idx.push(q[0], q[2], q[1], q[0], q[3], q[2])
+      else idx.push(q[0], q[1], q[2], q[0], q[2], q[3])
+    }
+  }
+  return { positions: new Float32Array(positions), indices: new Uint32Array(idx) }
 }
 
 // Height of the inset surface at (s, x): the outer surface less the skin over the ribs there,
@@ -218,13 +267,15 @@ export function sparBoxes(a, structure, s) {
   return [Array.from({ length: 16 }, (_, k) => [x + ((x1 - x0) / 2) * Math.cos((2 * Math.PI * k) / 16), mid + r * Math.sin((2 * Math.PI * k) / 16)])]
 }
 
-// The shear web(s) at s: on the caps' front face (and rear, for a box), between the caps.
+// The shear web(s) at s: between the caps (from the top of the lower cap to the bottom of the
+// upper), flush with the caps' front face, and with the rear face too for a box spar, so a
+// box closes. Fitted between the ribs, as the W parts are cut.
 export function webBoxes(a, structure, s) {
   const sp = structure.spar
   if (sp.type !== 'caps' && sp.type !== 'box') return []
   const [up, lo] = sparBoxes(a, structure, s)
   const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
-  const [outFront, outRear] = lineFaces(a.sparX, sparWidth(sp) + 2 * sp.webThickness)
+  const [innerFront, innerRear] = lineFaces(a.sparX, Math.max(0, sparWidth(sp) - 2 * sp.webThickness))
   const h0 = lo[2][1] // top of the lower cap
   const h1 = up[0][1] // bottom of the upper cap
   const box = (xa, xb) => [
@@ -233,8 +284,202 @@ export function webBoxes(a, structure, s) {
     [xb, h1],
     [xa, h1],
   ]
-  const out = [box(outFront(s), front(s))]
-  if (sp.type === 'box') out.push(box(rear(s), outRear(s)))
+  const out = [box(front(s), innerFront(s))]
+  if (sp.type === 'box') out.push(box(innerRear(s), rear(s)))
+  return out
+}
+
+// The bore of a tube spar at s: the inside of the wall, matching sparBoxes' outer ring point
+// for point, or null for any other spar.
+export function tubeBore(a, structure, s) {
+  const sp = structure.spar
+  if (sp.type !== 'tube') return null
+  const outer = sparBoxes(a, structure, s)[0]
+  const r = sp.tubeDiameter / 2
+  const ri = Math.max(0, r - sp.tubeWall)
+  if (!(ri > 0)) return null
+  const cx = outer.reduce((m, p) => m + p[0], 0) / outer.length
+  const ch = outer.reduce((m, p) => m + p[1], 0) / outer.length
+  return outer.map(([x, h]) => [cx + ((x - cx) * ri) / r, ch + ((h - ch) * ri) / r])
+}
+
+// Sheeting at s on one surface: from the LE stock back to the spar's rear face (D-box) or
+// the TE stock (fully sheeted), between the outer surface and the ribs' inset surface. As a
+// shell: the outer surface out, the inset surface back.
+export function sheetSection(a, structure, s, which) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4)) return null
+  const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
+  const x0 = sec.xl + structure.le.width
+  const x1 = structure.covering.type === 'sheeted' ? sec.xl + sec.c - structure.te.width : sparRear(s)
+  const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
+  return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, structure, s, x, which)])]
+}
+
+// Leading edge stock at s: the section's own nose over its depth, cosine-spaced so it stays round.
+export function leSection(a, structure, s) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4)) return null
+  const w = Math.min(structure.le.width, sec.c / 2)
+  const xs = cosine(10).map((f) => sec.xl + f * w)
+  return [...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...xs.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
+}
+
+// Trailing edge stock at s: the section's own tail over its depth.
+export function teSection(a, structure, s, k = 8) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4)) return null
+  const from = sec.xl + sec.c - Math.min(structure.te.width, sec.c / 2)
+  const to = sec.xl + sec.c
+  const xs = Array.from({ length: k + 1 }, (_, i) => from + ((to - from) * i) / k)
+  return [...xs.map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
+}
+
+// The plane square to the span at s (where a cut is made): a point on it and its outward
+// normal, in world coordinates.
+export function spanPlane(a, s) {
+  const g = angleAt(a, s)
+  return { point: worldPoint(a, s, a.sparX(s), 0), normal: [Math.cos(g), Math.sin(g), 0] }
+}
+
+// Everything a cut square to the span at s passes through, as [x, h] outlines in the cut's
+// plane (map them with worldPoint): sheeting, spar and webs (between ribs), edge stock and
+// stringers, plus the outer surface of the wing. For the 3D view's section.
+export function sectionAt(a, structure, parts, s) {
+  const st = structure
+  const sp = st.spar
+  const pieces = []
+  const add = (kind, pts, holes = []) => pts && pts.length > 2 && pieces.push({ kind, pts, holes })
+  if (st.covering.type !== 'open' && st.covering.sheetThickness > 0) for (const w of ['upper', 'lower']) add('sheet', sheetSection(a, st, s, w))
+  add('le', leSection(a, st, s))
+  add('te', teSection(a, st, s))
+  const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(a.tipS, a.rootS + sp.tubeLength) : a.tipS
+  if (s <= sparEnd + 1e-9) {
+    const bore = tubeBore(a, st, s)
+    for (const box of sparBoxes(a, st, s)) add('spar', box, bore ? [bore] : [])
+  }
+  // Webs only between ribs, as they're fitted
+  const t = (st.ribs.thickness || 0) / 2
+  const inRib = parts.some((p) => p.group === 'ribs' && Math.abs(p.s - s) < t)
+  if (!inRib) for (const box of webBoxes(a, st, s)) add('web', box)
+  for (const str of st.stringers ?? []) {
+    if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
+    for (const w of ['upper', 'lower']) if (str.surface === 'both' || str.surface === w) add('stringer', stringerBox(a, st, str, s, w))
+  }
+  const sec = a.section(s)
+  const xs = cosine(40)
+  const outline = sec
+    ? [...xs.map((f) => sec.xl + f * sec.c).map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...[...xs].reverse().slice(1, -1).map((f) => sec.xl + f * sec.c).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
+    : []
+  return { pieces, outline, inRib }
+}
+
+// A rounded tip's block, as carved: the wing's own surface from the tip rib's outer face out
+// to the end of the tip, closing to a point. Null without a rounded tip.
+export function tipBlock(a, structure) {
+  const along = tipStations(a, structure)
+  if (!along.length) return null
+  const xs = cosine(36) // the same chordwise points as the covering
+  const rings = []
+  for (const s of along) {
+    const sec = a.section(Math.min(a.sampler.reach, s))
+    const ring = []
+    for (let k = xs.length - 1; k >= 0; k--) {
+      const x = sec.xl + xs[k] * sec.c
+      ring.push(worldPoint(a, s, x, surfaceHeight(a, s, x, 'upper')))
+    }
+    for (let k = 1; k < xs.length - 1; k++) {
+      const x = sec.xl + xs[k] * sec.c
+      ring.push(worldPoint(a, s, x, surfaceHeight(a, s, x, 'lower')))
+    }
+    rings.push(ring)
+  }
+  return loft(rings, { closed: true, caps: 'fan' })
+}
+
+// Corner gussets as small prisms: laid flat in the corner between a rib's face and the LE or
+// TE stock, legs along each, flush with the rib's top edge, bottom edge or both (kept under
+// the inset surface, so clear of sheeting, cap strips and covering). In this half only: the
+// centre rib's inboard ones come with the mirrored half.
+export function gussetPrisms(a, structure, parts) {
+  const st = structure
+  const g = st.gussets
+  if (!(g.le || g.te) || !(g.size > 0) || !(g.thickness > 0)) return []
+  const out = []
+  const clampS = (s) => Math.min(a.tipS, Math.max(a.rootS, s))
+  const layers = g.layer === 'both' ? ['upper', 'lower'] : [g.layer === 'bottom' ? 'lower' : 'upper']
+  for (const p of parts.filter((q) => q.group === 'ribs')) {
+    if (g.where === 'ends' && p.kind === 'normal') continue
+    const r = p.rib
+    const ang = (r.angle * Math.PI) / 180
+    const d = [Math.sin(ang), Math.cos(ang)] // along the rib, aft, in plan (s, x)
+    const nrm = [Math.cos(ang), -Math.sin(ang)] // across the rib, outboard
+    const P = [p.s, a.sparX(p.s)]
+    const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece'
+    for (const edge of ['le', 'te'].filter((e) => g[e])) {
+      const stockX = (s) => {
+        const sec = a.section(clampS(s))
+        return edge === 'le' ? sec.xl + st.le.width : sec.xl + sec.c - st.te.width
+      }
+      for (const side of gussetSides(p, g, st.ribs.rootJoint).filter((k) => !(centre && k < 0))) {
+        const at = (u) => [P[0] + d[0] * (u - r.sparU) + (nrm[0] * side * p.thickness) / 2, P[1] + d[1] * (u - r.sparU) + (nrm[1] * side * p.thickness) / 2]
+        // The corner: where this face of the rib meets the stock
+        const guess = edge === 'le' ? r.uA : r.uB
+        let lo = guess - 0.02
+        let hi = guess + 0.02
+        const f = (u) => at(u)[1] - stockX(at(u)[0])
+        if (Math.sign(f(lo)) !== Math.sign(f(hi))) {
+          for (let i = 0; i < 50; i++) {
+            const m = (lo + hi) / 2
+            if (Math.sign(f(m)) === Math.sign(f(lo))) lo = m
+            else hi = m
+          }
+        }
+        const C = at((lo + hi) / 2)
+        const A = [C[0] + d[0] * (edge === 'le' ? g.size : -g.size), C[1] + d[1] * (edge === 'le' ? g.size : -g.size)]
+        const h = 1e-4
+        const slope = (stockX(C[0] + h) - stockX(C[0] - h)) / (2 * h)
+        const e = [1 / Math.hypot(1, slope), slope / Math.hypot(1, slope)]
+        const B = [C[0] + e[0] * side * g.size, C[1] + e[1] * side * g.size]
+        const tri = [C, A, B]
+        for (const which of layers) {
+          const hs = tri.map(([s, x]) => insetHeight(a, st, clampS(s), x, which))
+          const face = which === 'upper' ? Math.min(...hs) : Math.max(...hs)
+          const [h0, h1] = which === 'upper' ? [face - g.thickness, face] : [face, face + g.thickness]
+          const ring = (hh) => tri.map(([s, x]) => worldPoint(a, s, x, hh))
+          out.push({ kind: 'gusset', rib: p.id, edge, side, layer: which, ...loft([ring(h0), ring(h1)], { closed: true, caps: 'fan' }) })
+        }
+      }
+    }
+  }
+  return out
+}
+
+// Dihedral braces as flat plates on the spar's front and rear faces, shaped to the break as
+// exported. In this half only: a centre brace's other arm comes with the mirrored half.
+export function bracePlates(a, structure, parts) {
+  const sp = structure.spar
+  const out = []
+  for (const p of parts.filter((q) => q.group === 'braces' && q.at)) {
+    const { s: sb, inner, outer, depths, centre } = p.at
+    const t = p.thickness
+    const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
+    const [outFront, outRear] = lineFaces(a.sparX, sparWidth(sp) + 2 * t)
+    const mid = (s) => {
+      const x = a.sparX(s)
+      return (insetHeight(a, structure, s, x, 'upper') + insetHeight(a, structure, s, x, 'lower')) / 2
+    }
+    // Plate outline in (s, h): inner arm (not for a centre brace), the break, the outer arm
+    const stations = [...(centre || !(inner > 0) ? [] : [[sb - inner, depths[0]]]), [sb, depths[1]], [sb + outer, depths[2]]]
+    const shape = [...stations.map(([s, dd]) => [s, mid(s) - dd / 2]), ...[...stations].reverse().map(([s, dd]) => [s, mid(s) + dd / 2])]
+    for (const [x0, x1] of [
+      [outFront, front],
+      [rear, outRear],
+    ]) {
+      const ring = (xf) => shape.map(([s, hh]) => worldPoint(a, s, xf(s), hh))
+      out.push({ kind: 'brace', part: p.id, ...loft([ring(x0), ring(x1)], { closed: true, caps: 'fan' }) })
+    }
+  }
   return out
 }
 
@@ -257,7 +502,13 @@ export function wing3d(a, structure, parts) {
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(s1, s0 + sp.tubeLength) : s1
   const nSpar = sparBoxes(a, st, s0).length
   const sparEnds = [ends[0], sparEnd < s1 - 1e-9 ? 0 : ends[1]]
-  for (let k = 0; k < nSpar; k++) add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }))
+  if (sp.type === 'tube' && tubeBore(a, st, s0)) {
+    const outer = sweepRings(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[0], 40, sparEnds)
+    const inner = sweepRings(a, s0, sparEnd, (s) => tubeBore(a, st, s), 40, sparEnds)
+    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner))
+  } else {
+    for (let k = 0; k < nSpar; k++) add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }))
+  }
   const ribList = parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s)
   for (let i = 1; i < ribList.length; i++) {
     const from = ribList[i - 1].s + ribList[i - 1].thickness / 2
@@ -267,39 +518,13 @@ export function wing3d(a, structure, parts) {
     for (let k = 0; k < n; k++) add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4))
   }
 
-  // Sheeting: top and bottom, from the LE stock back to the spar's rear face (D-box) or the TE
-  // stock (fully sheeted), between the outer surface and the ribs' inset surface
+  // Sheeting, then the leading and trailing edge stock
   const cov = st.covering
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
-    const [, sparRear] = lineFaces(a.sparX, sparWidth(sp))
-    for (const which of ['upper', 'lower']) {
-      add('sheet', sweep(a, s0, s1, (s) => {
-        const sec = a.section(s)
-        if (!sec || !(sec.c > 1e-4)) return null
-        const x0 = sec.xl + st.le.width
-        const x1 = cov.type === 'sheeted' ? sec.xl + sec.c - st.te.width : sparRear(s)
-        const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
-        return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, st, s, x, which)])]
-      }, 40, { extend: ends, caps: 'strip' }))
-    }
+    for (const which of ['upper', 'lower']) add('sheet', sweep(a, s0, s1, (s) => sheetSection(a, st, s, which), 40, { extend: ends, caps: 'strip' }))
   }
-
-  // Leading and trailing edge stock: the section's own shape over their depth
-  const edgeShape = (s, from, to, k = 8) => {
-    const sec = a.section(s)
-    if (!sec || !(sec.c > 1e-4)) return null
-    const xs = Array.from({ length: k + 1 }, (_, i) => from(sec) + ((to(sec) - from(sec)) * i) / k)
-    return [...xs.map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
-  }
-  // Leading edge: cosine spacing so the nose stays round
-  add('le', sweep(a, s0, s1, (s) => {
-    const sec = a.section(s)
-    if (!sec || !(sec.c > 1e-4)) return null
-    const w = Math.min(st.le.width, sec.c / 2)
-    const xs = cosine(10).map((f) => sec.xl + f * w)
-    return [...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...xs.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
-  }, 40, { extend: ends }))
-  add('te', sweep(a, s0, s1, (s) => edgeShape(s, (sec) => sec.xl + sec.c - Math.min(st.te.width, sec.c / 2), (sec) => sec.xl + sec.c), 40, { extend: ends }))
+  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }))
+  add('te', sweep(a, s0, s1, (s) => teSection(a, st, s), 40, { extend: ends }))
 
   // Stringers, seated in their rib notches
   for (const str of st.stringers ?? []) {
@@ -367,13 +592,16 @@ export function wing3d(a, structure, parts) {
   // Bounds, for framing the camera
   const lo = [Infinity, Infinity, Infinity]
   const hi = [-Infinity, -Infinity, -Infinity]
-  const sk = skin(a)
+  const sk = skin(a, st)
   for (let i = 0; i < sk.positions.length; i += 3) {
     for (let k = 0; k < 3; k++) {
       lo[k] = Math.min(lo[k], sk.positions[i + k])
       hi[k] = Math.max(hi[k], sk.positions[i + k])
     }
   }
+  solids.push(...gussetPrisms(a, st, parts), ...bracePlates(a, st, parts))
+  const tip = tipBlock(a, st)
+  if (tip) solids.push({ kind: 'tip', ...tip })
   return { skin: sk, solids, ribs, capStrips, bounds: { min: lo, max: hi } }
 }
 
