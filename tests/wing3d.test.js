@@ -441,22 +441,26 @@ describe('3D wing', () => {
     expect(thick.short.length).toBeGreaterThan(0)
   })
 
-  it('squares the top and bottom views up like the plan', () => {
+  it('squares the top and bottom views up to the side the camera is on', () => {
     for (const face of [[0, 1, 0], [0, -1, 0]]) {
-      const v = faceView(face)
-      expect(Math.sign(v[1])).toBe(face[1])
-      expect(Math.abs(v[1])).toBeGreaterThan(0.999)
-      // Leaning aft, with no sideways component: span straight across the screen
-      expect(v[0]).toBe(0)
-      expect(v[2]).toBeGreaterThan(0)
+      for (const [from, aft] of [
+        [HOME_VIEW, true],
+        [[-0.2, 0.5, -1], false],
+      ]) {
+        const v = faceView(face, from)
+        expect(Math.sign(v[1])).toBe(face[1])
+        expect(Math.abs(v[1])).toBeGreaterThan(0.999)
+        // Leaning fore or aft only, so the span runs straight across the screen
+        expect(v[0]).toBe(0)
+        expect(v[2] > 0).toBe(aft)
+      }
     }
-    expect(faceView([0, 0, -1])).toEqual([0, 0, -1])
+    expect(faceView([0, 0, -1], HOME_VIEW)).toEqual([0, 0, -1])
   })
 
   it('swings round in heading and elevation, never over the top', () => {
-    const top = faceView([0, 1, 0])
-    // From ahead of the wing, where a straight arc would cross the pole at the end
     for (const from of [HOME_VIEW, [-0.2, 0.5, -1], [1, 0.3, 0.1]]) {
+      const top = faceView([0, 1, 0], from)
       let prev = null
       for (let i = 0; i <= 50; i++) {
         const v = orbitLerp(from, top, i / 50)

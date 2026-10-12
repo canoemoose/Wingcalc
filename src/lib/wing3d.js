@@ -28,13 +28,14 @@ function angleAt(a, s) {
 // tip right, leading edge at the top
 export const HOME_VIEW = [-0.55, 0.6, 0.75]
 
-// The view direction (target to camera) for a face of the view cube. Straight down or up is
-// a degenerate view for an orbit camera, so the top and bottom lean a hair aft: squared up like
-// the plan, span across with the root on the left (the leading edge at the top seen from above,
-// at the bottom from below).
-export function faceView(normal) {
+// The view direction (target to camera) for a face of the view cube, given where the camera
+// is now. Straight down or up is a degenerate view for an orbit camera, so the top and bottom
+// lean a hair fore or aft, towards whichever the camera is on, and square up to it: from behind,
+// the span runs across with the root on the left (from above, the leading edge at the top, as
+// the plan); from ahead, the same turned half round.
+export function faceView(normal, current = [0, 0, 1]) {
   if (Math.abs(normal[1]) <= 0.99) return normal
-  const v = [0, Math.sign(normal[1]), 1e-3]
+  const v = [0, Math.sign(normal[1]), current[2] < 0 ? -1e-3 : 1e-3]
   const l = Math.hypot(...v)
   return v.map((c) => c / l)
 }

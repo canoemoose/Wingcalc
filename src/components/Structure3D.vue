@@ -577,7 +577,8 @@ function cubeClick(e) {
   const hit = ray.intersectObject(cube.mesh)[0]
   if (!hit) return true
   const f = hit.face.normal
-  const n = new THREE.Vector3(...faceView([f.x, f.y, f.z]))
+  const off = camera.position.clone().sub(controls.target)
+  const n = new THREE.Vector3(...faceView([f.x, f.y, f.z], off.toArray()))
   const dist = camera.position.distanceTo(controls.target)
   swingTo(n.normalize().multiplyScalar(dist).add(controls.target), controls.target.clone())
   return true
