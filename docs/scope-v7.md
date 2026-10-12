@@ -29,7 +29,7 @@ Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D c
 6. [x] Units: `{ system, length, mass, speed }` saved with the project (`normaliseUnits` migrates the old system string); areas follow length, wing loading follows mass. `UnitsMenu.vue`; `UnitInput` shows a fixed unit.
 7. [x] 3D: orthographic default, projection icon under Home; outlines (30° creases) on every solid with a layer toggle; "Leading/Trailing edges" fits; section bar (native range over a tick track, cut kept off ribs, bay readout, Flip, Look at cut, ×); caption trimmed, hints in tooltips.
 8. [x] Tool rails removed (`ToolRail.vue` deleted). Structure plan: double-click or Add rib (longest bay, or A). Wing editor: Measure toggle top left, Add panel in the command bar when nothing is selected.
-9. [x] Card thumbnails (`src/lib/thumbnails.js`): plan from `planEntities`, wireframe from `ribPlacement` (factored out of `wing3d`) seen from ahead, above and inboard. Click opens the editor with that card expanded. three.js stays a lazy chunk.
+9. [x] Card thumbnails (`src/lib/thumbnails.js`): plan from `planEntities`, wireframe from `ribPlacement` (factored out of `wing3d`) in a root/back three-quarter view, so both read root left, tip right, LE at the top. Plain figures, not links (the card's button opens the editor). three.js stays a lazy chunk.
 10. [x] Export… is the structure editor's primary action beside undo/redo; Done goes plain there (`quietDone`).
 11. [x] Docs: user guide, methods, CLAUDE.md conventions.
 12. [x] Trailing-edge gussets: placement per edge (`teLayer`, null follows `layer`); `gussetFit` in wing3d.js measures the room over each gusset's triangle; placements without room are disabled, and a warning names the ribs where the chosen one doesn't fit.
@@ -37,4 +37,3 @@ Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D c
 ## Notes
 
 - Verified by tests (273) and by driving the running app for errors; the visual result of each item is for Matt to check.
-- The wireframe thumbnail's angle (`VIEW_DIR` in thumbnails.js) was chosen without seeing it rendered at size; it may want tuning.

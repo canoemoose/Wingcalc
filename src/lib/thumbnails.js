@@ -1,7 +1,7 @@
 // Small static drawings of the structure for the page's Structure and ribs card: the plan as
 // built, and a wireframe of the half wing (ribs, edges and spar) in parallel projection from
-// ahead, above and inboard, so the ribs show their profiles. Plain SVG path data, so the page
-// needs no three.js.
+// behind, above and inboard, so it reads like the plan (root left, tip right, leading edge at
+// the top) and the ribs show their profiles. Plain SVG path data, so the page needs no three.js.
 import { planEntities } from './dxf.js'
 import { worldPoint, ribPlacement, applyMatrix } from './wing3d.js'
 import { bounds } from './ribs.js'
@@ -33,8 +33,8 @@ export function planThumb(a, structure, parts) {
 }
 
 // The view direction (target to camera) and its screen axes: X out along the span, Y up, Z
-// aft in the world. Further round than the 3D view's start, which looks at the ribs edge on.
-const VIEW_DIR = [-0.55, 0.6, -0.75]
+// aft in the world. A three-quarter view from the root and the back.
+const VIEW_DIR = [-0.55, 0.6, 0.75]
 function camera(dir = VIEW_DIR) {
   const n = Math.hypot(...dir)
   const z = dir.map((v) => v / n)
