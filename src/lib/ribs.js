@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH } from './edgeStock.js'
@@ -564,7 +564,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         for (const ang of sides) {
           const key = `${edge}:${Math.round(ang * 2) / 2}`
           const cur = gussetGroups.get(key) ?? { edge, angle: Math.round(ang * 2) / 2, count: 0 }
-          cur.count += p.qty * (g.layer === 'both' ? 2 : 1)
+          cur.count += p.qty * (gussetLayer(g, edge) === 'both' ? 2 : 1)
           gussetGroups.set(key, cur)
         }
       }
@@ -590,7 +590,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         label: null,
         notes: [
           `${grp.edge === 'le' ? 'Leading' : 'Trailing'}-edge corner, ${grp.angle}° between rib and edge, flush with the ${
-            g.layer === 'both' ? 'top and bottom' : g.layer === 'bottom' ? 'bottom' : 'top'
+            { both: 'top and bottom', bottom: 'bottom', top: 'top' }[gussetLayer(g, grp.edge)]
           } of the rib`,
         ],
       })

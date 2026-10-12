@@ -52,6 +52,9 @@ const WEB_STIFFNESS_RATIO = Math.sqrt(0.05)
 // root, break, hard-point or tip rib
 export const isPlainRib = (kind) => kind === 'normal' || kind === 'manual'
 
+// How a corner gusset sits at the LE or TE: 'top', 'bottom' or 'both'
+export const gussetLayer = (gussets, edge) => (edge === 'te' ? (gussets.teLayer ?? gussets.layer) : gussets.layer) ?? 'top'
+
 export const MIN_SPACING = 0.015
 // Least rib material left around a hole or notch before it's flagged.
 export const MIN_MATERIAL = 0.0015
@@ -107,8 +110,9 @@ export function defaultStructure() {
       tabWidth: 0.006,
       tabClearance: 0.003,
     },
-    // layer: in the corner between rib and stock, flush with the rib's 'top' or 'bottom' edge, or 'both'
-    gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both', layer: 'top' },
+    // layer: flush with the rib's 'top', 'bottom' or 'both'; teLayer the same at the trailing
+    // edge, null to follow layer (as saves from before it did)
+    gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both', layer: 'top', teLayer: null },
     braces: { enabled: true, material: 'ply-birch', thickness: null, length: 0.08 },
     loads: { designG: 6, negativeG: 3, safetyFactor: 1.5 },
   }

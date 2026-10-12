@@ -20,8 +20,9 @@ import Structure3D from './components/Structure3D.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
-import { analyseStructure, sparFraction, MODES, MATERIALS } from './lib/structure.js'
+import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
+import { gussetFit } from './lib/wing3d.js'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
   wingGeometry,
@@ -459,10 +460,28 @@ const worstMargin = computed(() => {
   if (!w) return null
   return { ...w, label: MODES[w.mode] ?? w.mode, text: `${w.ms >= 0 ? '+' : ''}${w.ms.toFixed(2)}`, ok: w.ms >= 0 }
 })
+// Room for the corner gussets at each edge, and the ribs where they don't fit
+const gussetRoom = computed(() => {
+  const r = structureResult.value
+  return r ? gussetFit(r.a, r.a.structure, r.parts) : null
+})
 const structureWarnings = computed(() => {
   const r = structureResult.value
   if (!r) return []
   const out = [...r.a.warnings.map((w) => w.message)]
+  const g = input.structure.gussets
+  for (const edge of ['le', 'te']) {
+    const fit = gussetRoom.value?.[edge]
+    if (!fit?.short.length) continue
+    const thin = (v) => format(v, 'thin', u('thin'))
+    const where = edge === 'le' ? 'leading' : 'trailing'
+    const need = (gussetLayer(g, edge) === 'both' ? 2 : 1) * g.thickness
+    out.push(
+      `The ${where}-edge gussets at ${fit.short.join(', ')} don't fit: they need ${thin(need)} of depth, and there's only ${thin(fit.room)}${
+        fit.fits.top && !fit.fits.both ? '. Put them on the top or the bottom only' : '. Use thinner gussets or shorter legs'
+      }.`,
+    )
+  }
   for (const sk of r.skipped) {
     out.push(
       sk.reason === 'outside'
@@ -954,6 +973,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :brace-needs="braceNeeds"
             :rib-distances="ribDistances"
             :edges="structureResult?.a.edges"
+            :gusset-fit="gussetRoom"
           />
           <ul v-if="structureWarnings.length" class="wc-warnings">
             <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>

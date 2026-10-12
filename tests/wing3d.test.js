@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
-import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, bracePlates } from '../src/lib/wing3d.js'
+import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
@@ -401,6 +401,44 @@ describe('3D wing', () => {
       const face = rib.s + (gp.side * rib.thickness) / 2
       expect(Math.min(...pts.map(([X]) => Math.abs(X - face)))).toBeLessThan(1e-6)
     }
+  })
+
+  it('places LE and TE gussets independently, the TE following the LE until set', () => {
+    const count = (edit) => {
+      const { parts } = build((x) => {
+        x.gussets.le = x.gussets.te = true
+        x.gussets.layer = 'both'
+        edit(x)
+      })
+      return parts.filter((p) => p.group === 'gussets').reduce((n, p) => n + p.qty, 0)
+    }
+    const both = count(() => {})
+    const teTop = count((x) => (x.gussets.teLayer = 'top'))
+    // Half as many at the TE once it's top only
+    expect(teTop).toBe(both * 0.75)
+  })
+
+  it('checks the gussets fit the depth between the skins at each edge', () => {
+    const fit = (t) => {
+      const { a, st, parts } = build((x) => {
+        x.gussets.le = x.gussets.te = true
+        x.gussets.thickness = t
+        x.gussets.layer = 'top'
+      })
+      return gussetFit(a, st, parts)
+    }
+    const { le, te } = fit(0.0015)
+    // Deep at the LE, shallow at the TE
+    expect(le.room).toBeGreaterThan(te.room)
+    expect(le.fits.both).toBe(true)
+    // A gusset between one and two TE depths thick: top or bottom, not both
+    const mid = fit(te.room * 0.7).te
+    expect(mid.fits).toEqual({ top: true, bottom: true, both: false })
+    expect(mid.short).toEqual([])
+    // Thicker than the room: none fits, and the ribs are named
+    const thick = fit(te.room * 1.2).te
+    expect(thick.fits.top).toBe(false)
+    expect(thick.short.length).toBeGreaterThan(0)
   })
 
   it('draws each brace as two plates on the spar faces, the centre one in this half only', () => {

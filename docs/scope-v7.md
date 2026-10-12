@@ -23,8 +23,8 @@ Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D c
 
 1. [x] Export dialogue: CSS fix, rib details out, DXF text option removed. The lightening bug was hand-placed ribs (kind `manual`) being skipped by checks for `normal`; also fixed for perpendicular orientation and end-only gussets (`isPlainRib`).
 2. [x] Engrave rename (UI, default layer name `ENGRAVE`, docs). The data key stays `etch` so saved names carry over.
-3. [ ] Hershey Simplex font.
-4. [ ] Small-part labels in the waste.
+3. [x] Hershey Simplex font.
+4. [x] Small-part labels in the waste.
 5. [ ] Header: File menu and layout.
 6. [ ] Units popover; fixed unit labels.
 7. [ ] 3D: ortho default and projection button; outlines; layer rename; section bar; caption into tooltips.
@@ -32,6 +32,8 @@ Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D c
 9. [ ] Structure card thumbnails.
 10. [ ] Export as primary in the editor header.
 11. [ ] Docs: user guide, methods, backlog.
-12. [ ] Trailing-edge gussets: offer only the placements that fit (a thin TE has room for one), and warn when a gusset doesn't fit.
+12. [x] Trailing-edge gussets: placement per edge (`teLayer`, null follows `layer`), `gussetFit` in wing3d.js measures the room over each gusset's triangle; placements without room are disabled, and a warning names the ribs where the chosen one doesn't fit.
+3a. [x] Hershey font: from `hersheytext` (dev dependency) via `npm run build-stroke-font`; glyphs spaced by ink width plus a gap, digits in fixed cells.
+4a. [x] Labels: on the part if a 2 mm+ label fits its shape (checked against outline and holes), else engraved 1 mm below it in the waste.
 
 ## Notes

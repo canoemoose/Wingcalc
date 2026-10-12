@@ -9,7 +9,7 @@ import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import { format, defaultUnit } from '../lib/units.js'
-import { MATERIALS } from '../lib/structure.js'
+import { MATERIALS, gussetLayer } from '../lib/structure.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS } from '../lib/edgeStock.js'
 
 const props = defineProps({
@@ -22,6 +22,8 @@ const props = defineProps({
   ribDistances: { type: Array, default: () => [] },
   // The edge stock the analysis resolved (structure.js analyseStructure().edges), for Auto
   edges: { type: Object, default: null },
+  // Room for the corner gussets at each edge (wing3d.js gussetFit), to offer only what fits
+  gussetFit: { type: Object, default: null },
   idPrefix: { type: String, default: 'wcs' },
 })
 const structure = defineModel('structure', { type: Object, required: true })
@@ -110,6 +112,22 @@ const size = (a, b) => (Number.isFinite(a) && Number.isFinite(b) ? `${num(a)} ×
 const len = (v) => (Number.isFinite(v) ? format(v, 'length', defaultUnit(props.system, 'length')) : '–')
 const mat = (id) => MATERIALS[id]?.short ?? id
 const SPACING_SUMS = { suggested: 'from loads', uniform: 'even', tapered: 'tapered', manual: 'manual' }
+const LAYER_SUMS = { top: 'top', bottom: 'bottom', both: 'top and bottom' }
+
+// Gusset placements at one edge, those without the depth for them turned off (the current
+// one stays clickable so it can be seen; the warnings say it doesn't fit)
+function layerOptions(edge) {
+  const fit = props.gussetFit?.[edge]
+  const room = fit ? format(fit.room, 'thin', defaultUnit(props.system, 'thin')) : ''
+  return [
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'both', label: 'Top and bottom' },
+  ].map((o) => {
+    const off = fit && !fit.fits[o.value] && gussetLayer(st.value.gussets, edge) !== o.value
+    return { ...o, disabled: off, title: off ? `Needs more depth than the ${room} there` : '' }
+  })
+}
 const summaries = computed(() => {
   const x = st.value
   const sp = x.spar
@@ -129,7 +147,9 @@ const summaries = computed(() => {
   const spacing = r.spacing === 'manual' ? `manual, ${(r.manual ?? []).length} ribs` : SPACING_SUMS[r.spacing]
   const gussets = !(g.le || g.te)
     ? 'None'
-    : `${[g.le && 'LE', g.te && 'TE'].filter(Boolean).join(' and ')}, ${g.where === 'all' ? 'every rib' : 'ends'}, ${g.layer === 'both' ? 'top and bottom' : g.layer ?? 'top'}`
+    : `${[g.le && 'LE', g.te && 'TE'].filter(Boolean).join(' and ')}, ${g.where === 'all' ? 'every rib' : 'ends'}, ${[...new Set(
+        ['le', 'te'].filter((e) => g[e]).map((e) => LAYER_SUMS[gussetLayer(g, e)]),
+      )].join(' / ')}`
   return {
     loads: `${x.loads.designG} g, −${x.loads.negativeG} g, ×${x.loads.safetyFactor}`,
     spar,
@@ -590,16 +610,17 @@ const braceHint = computed(() => {
           @update:model-value="set('gussets.where', $event)"
         />
         <SegmentedField
-          :model-value="st.gussets.layer ?? 'top'"
-          label="Flush with the rib's"
-          :options="[
-            { value: 'top', label: 'Top' },
-            { value: 'bottom', label: 'Bottom' },
-            { value: 'both', label: 'Top and bottom' },
-          ]"
-          hint="Laid flat in the corner between the rib and the stock, under any sheeting, cap strip or covering."
-          @update:model-value="set('gussets.layer', $event)"
+          v-for="e in ['le', 'te'].filter((k) => st.gussets[k])"
+          :key="e"
+          :model-value="gussetLayer(st.gussets, e)"
+          :label="`${e === 'le' ? 'At the leading edge' : 'At the trailing edge'}, flush with the rib's`"
+          :options="layerOptions(e)"
+          @update:model-value="set(e === 'le' ? 'gussets.layer' : 'gussets.teLayer', $event)"
         />
+        <p class="wc-field__hint">
+          Laid flat in the corner between the rib and the stock, under any sheeting, cap strip or covering. Top and
+          bottom needs twice the gusset's thickness of depth there, which a thin trailing edge seldom has.
+        </p>
         <SegmentedField
           :model-value="st.gussets.sides"
           label="Sides of each rib"

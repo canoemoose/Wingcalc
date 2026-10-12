@@ -185,6 +185,10 @@
   color: var(--wc-accent-text);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
 }
+.wc-segmented__btn:disabled {
+  color: var(--wc-muted);
+  cursor: not-allowed;
+}
 .wingcalc button:focus-visible,
 .wingcalc input:focus-visible,
 .wingcalc select:focus-visible,

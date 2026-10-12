@@ -8,7 +8,7 @@
 // Washout rotates each section about the spar line (TE up), as in ribs.js, so the skin and
 // the ribs agree.
 
-import { skinAt, sparWidth, lineFaces, isPlainRib } from './structure.js'
+import { skinAt, sparWidth, lineFaces, isPlainRib, gussetLayer } from './structure.js'
 import { gussetSides } from './ribs.js'
 
 const RAD = Math.PI / 180
@@ -397,17 +397,15 @@ export function tipBlock(a, structure) {
   return loft(rings, { closed: true, caps: 'fan' })
 }
 
-// Corner gussets as small prisms: laid flat in the corner between a rib's face and the LE or
-// TE stock, legs along each, flush with the rib's top edge, bottom edge or both (kept under
-// the inset surface, so clear of sheeting, cap strips and covering). In this half only: the
-// centre rib's inboard ones come with the mirrored half.
-export function gussetPrisms(a, structure, parts) {
+// Each corner gusset's triangle in plan: laid flat in the corner between a rib's face and the
+// LE or TE stock, legs along each. In this half only: the centre rib's inboard ones come with
+// the mirrored half. Returns [{ rib, name, edge, side, tri: [[s, x] × 3] }].
+function gussetTriangles(a, structure, parts) {
   const st = structure
   const g = st.gussets
-  if (!(g.le || g.te) || !(g.size > 0) || !(g.thickness > 0)) return []
+  if (!(g.le || g.te) || !(g.size > 0)) return []
   const out = []
   const clampS = (s) => Math.min(a.tipS, Math.max(a.rootS, s))
-  const layers = g.layer === 'both' ? ['upper', 'lower'] : [g.layer === 'bottom' ? 'lower' : 'upper']
   for (const p of parts.filter((q) => q.group === 'ribs')) {
     if (g.where === 'ends' && isPlainRib(p.kind)) continue
     const r = p.rib
@@ -441,15 +439,62 @@ export function gussetPrisms(a, structure, parts) {
         const slope = (stockX(C[0] + h) - stockX(C[0] - h)) / (2 * h)
         const e = [1 / Math.hypot(1, slope), slope / Math.hypot(1, slope)]
         const B = [C[0] + e[0] * side * g.size, C[1] + e[1] * side * g.size]
-        const tri = [C, A, B]
-        for (const which of layers) {
-          const hs = tri.map(([s, x]) => insetHeight(a, st, clampS(s), x, which))
-          const face = which === 'upper' ? Math.min(...hs) : Math.max(...hs)
-          const [h0, h1] = which === 'upper' ? [face - g.thickness, face] : [face, face + g.thickness]
-          const ring = (hh) => tri.map(([s, x]) => worldPoint(a, s, x, hh))
-          out.push({ kind: 'gusset', rib: p.id, edge, side, layer: which, ...loft([ring(h0), ring(h1)], { closed: true, caps: 'fan' }) })
-        }
+        out.push({ rib: p.id, name: p.name, edge, side, tri: [C, A, B] })
       }
+    }
+  }
+  return out
+}
+
+// The faces a gusset is flush with: the lowest point of the inset upper surface over its
+// triangle, and the highest of the lower one. The room between is what it has to sit in.
+function gussetFaces(a, structure, tri) {
+  const at = (s, x, which) => insetHeight(a, structure, Math.min(a.tipS, Math.max(a.rootS, s)), x, which)
+  const up = Math.min(...tri.map(([s, x]) => at(s, x, 'upper')))
+  const lo = Math.max(...tri.map(([s, x]) => at(s, x, 'lower')))
+  return { up, lo }
+}
+
+// Room for the corner gussets at each edge: the least depth between the inset surfaces over
+// any gusset there, and which placements fit ('top' and 'bottom' need one thickness, 'both'
+// two). { le: { room, fits: { top, bottom, both }, short: [rib names] } | null, te: ... }
+export function gussetFit(a, structure, parts) {
+  const g = structure.gussets
+  const out = { le: null, te: null }
+  for (const t of gussetTriangles(a, structure, parts)) {
+    const { up, lo } = gussetFaces(a, structure, t.tri)
+    const room = up - lo
+    const cur = (out[t.edge] ??= { room: Infinity, rooms: new Map() })
+    cur.room = Math.min(cur.room, room)
+    cur.rooms.set(t.name, Math.min(cur.rooms.get(t.name) ?? Infinity, room))
+  }
+  for (const edge of ['le', 'te']) {
+    const cur = out[edge]
+    if (!cur) continue
+    const need = (layer) => (layer === 'both' ? 2 : 1) * g.thickness
+    const layer = gussetLayer(g, edge)
+    out[edge] = {
+      room: cur.room,
+      fits: { top: cur.room >= need('top') - 1e-9, bottom: cur.room >= need('bottom') - 1e-9, both: cur.room >= need('both') - 1e-9 },
+      short: [...cur.rooms].filter(([, r]) => r < need(layer) - 1e-9).map(([n]) => n),
+    }
+  }
+  return out
+}
+
+// Corner gussets as small prisms, flush with the rib's top edge, bottom edge or both (kept
+// under the inset surface, so clear of sheeting, cap strips and covering).
+export function gussetPrisms(a, structure, parts) {
+  const g = structure.gussets
+  if (!(g.thickness > 0)) return []
+  const out = []
+  for (const t of gussetTriangles(a, structure, parts)) {
+    const layer = gussetLayer(g, t.edge)
+    const { up, lo } = gussetFaces(a, structure, t.tri)
+    for (const which of layer === 'both' ? ['upper', 'lower'] : [layer === 'bottom' ? 'lower' : 'upper']) {
+      const [h0, h1] = which === 'upper' ? [up - g.thickness, up] : [lo, lo + g.thickness]
+      const ring = (hh) => t.tri.map(([s, x]) => worldPoint(a, s, x, hh))
+      out.push({ kind: 'gusset', rib: t.rib, edge: t.edge, side: t.side, layer: which, ...loft([ring(h0), ring(h1)], { closed: true, caps: 'fan' }) })
     }
   }
   return out
