@@ -25,7 +25,7 @@ const props = defineProps({
   structure: { type: Object, required: true },
   parts: { type: Array, required: true },
   selected: { type: String, default: null },
-  system: { type: String, default: 'metric' },
+  system: { type: [String, Object], default: 'metric' }, // a units setting (units.js normaliseUnits) or system name
 })
 const emit = defineEmits(['select'])
 

@@ -7,6 +7,7 @@ import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
+import UnitsMenu from './components/UnitsMenu.vue'
 import UndoRedo from './components/UndoRedo.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
 import InspectorSection from './components/InspectorSection.vue'
@@ -23,7 +24,7 @@ import ExportPanel from './components/ExportPanel.vue'
 import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit } from './lib/wing3d.js'
-import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
+import { format, defaultUnit, otherSystem, normaliseUnits } from './lib/units.js'
 import {
   wingGeometry,
   wingLoading,
@@ -95,8 +96,9 @@ watch(
 // new project (a typical 1.4 m sport model), in the units the host page asked for.
 const storage = browserStorage()
 const restored = readAutosave(storage)
-const start = restored?.state ?? { ...defaultState(), units: SYSTEMS[props.units] ? props.units : 'metric' }
+const start = restored?.state ?? { ...defaultState(), units: normaliseUnits(props.units) }
 
+// The project's units setting ({ system, length, mass, speed }), passed to every view as `system`
 const system = ref(start.units)
 const alt = computed(() => otherSystem(system.value))
 const u = (q, s = system.value) => defaultUnit(s, q)
@@ -538,20 +540,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
       />
       <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
       <div class="wc-header__prefs">
-        <div class="wc-toggle" role="radiogroup" aria-label="Unit system">
-          <button
-            v-for="(s, key) in SYSTEMS"
-            :key="key"
-            type="button"
-            role="radio"
-            :aria-checked="system === key"
-            class="wc-toggle__btn"
-            :class="{ 'wc-toggle__btn--active': system === key }"
-            @click="system = key"
-          >
-            {{ s.label }}
-          </button>
-        </div>
+        <UnitsMenu v-model="system" />
         <div class="wc-toggle" role="radiogroup" aria-label="Colour theme">
           <button
             v-for="t in THEMES"

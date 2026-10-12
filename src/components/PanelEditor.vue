@@ -11,7 +11,7 @@ import { panelAngle, appendPanel, removePanel, insertPanel, movePanel, panelMode
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   warnFields: { type: Array, default: () => [] },
   // Prefix for element ids, so two editors (page and expanded view) can coexist.
   idPrefix: { type: String, default: 'wc' },

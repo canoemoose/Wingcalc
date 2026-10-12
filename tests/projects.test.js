@@ -83,11 +83,11 @@ describe('autosave', () => {
   it('restores the working state and which project it belongs to', () => {
     const st = memoryStorage()
     const state = defaultState()
-    state.units = 'imperial'
+    state.units = { system: 'imperial', length: 'ft', mass: 'lb', speed: 'mph' }
     writeAutosave(st, { projectId: 'abc', name: 'Work', state })
     const a = readAutosave(st)
     expect(a.projectId).toBe('abc')
-    expect(a.state.units).toBe('imperial')
+    expect(a.state.units).toEqual({ system: 'imperial', length: 'ft', mass: 'lb', speed: 'mph' })
   })
 })
 
@@ -100,7 +100,13 @@ describe('migration', () => {
     expect(s.input.panels[0].stations).toBeNull()
     expect(s.input.dimensions).toEqual([])
     expect(s.airfoil.custom.thicknessPct).toBe(12)
-    expect(s.units).toBe('metric')
+    expect(s.units).toEqual({ system: 'metric', length: 'mm', mass: 'g', speed: 'kmh' })
+  })
+
+  it('turns a bare unit system from older saves into a units setting', () => {
+    expect(migrate({ units: 'imperial' }).units).toEqual({ system: 'imperial', length: 'in', mass: 'oz', speed: 'mph' })
+    // A choice from the other system goes back to this one's first
+    expect(migrate({ units: { system: 'imperial', length: 'mm', mass: 'lb' } }).units).toEqual({ system: 'imperial', length: 'in', mass: 'lb', speed: 'mph' })
   })
 
   it('drops typed Clmax values from older saves', () => {

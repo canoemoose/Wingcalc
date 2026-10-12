@@ -1,7 +1,8 @@
 <script setup>
 // Project controls: a File menu (new, open with delete, save as copy, export and import as a
 // file), then the name and Save. Storage itself lives in WingCalc; this only presents it.
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref } from 'vue'
+import { useMenuDismiss } from '../composables/useMenuDismiss.js'
 
 const name = defineModel('name', { type: String, default: '' })
 defineProps({
@@ -22,32 +23,11 @@ const when = (iso) => {
   return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-function close() {
-  menu.value?.removeAttribute('open')
-}
+const { close } = useMenuDismiss(menu)
 function act(event, arg) {
   close()
   emit(event, arg)
 }
-
-// A click anywhere else, or Esc, closes the menu
-function onOutside(e) {
-  if (menu.value?.open && !menu.value.contains(e.target)) close()
-}
-function onKey(e) {
-  if (e.key === 'Escape' && menu.value?.open) {
-    close()
-    menu.value.querySelector('summary')?.focus()
-  }
-}
-onMounted(() => {
-  document.addEventListener('pointerdown', onOutside)
-  document.addEventListener('keydown', onKey)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onOutside)
-  document.removeEventListener('keydown', onKey)
-})
 
 function onFile(e) {
   const file = e.target.files?.[0]

@@ -4,7 +4,7 @@ How to use the app. For how the numbers are worked out, see [Methods](methods.md
 
 ## Entering values
 
-Every input and output works in metric or imperial, with a global toggle and a per-field unit choice. Numeric boxes accept sums (`700 - 20`, `(120 + 80) / 2`) and numbers with their own units (`24in + 50mm` in a millimetre box); commas are thousands separators. An unfinished sum leaves the last good value in place, and the result shows under the box while you type.
+Every input and output works in metric or imperial. The units menu at the top right sets the system and, within it, the unit for lengths (mm or m; in or ft), weights (g or kg; oz or lb) and speeds (km/h or m/s); areas and wing loading follow the length and weight units. The units are kept with the project. Numeric boxes accept sums (`700 - 20`, `(120 + 80) / 2`) and numbers with their own units (`24in + 50mm` in a millimetre box); commas are thousands separators. An unfinished sum leaves the last good value in place, and the result shows under the box while you type.
 
 The wing is entered as fuselage width, root chord, then one or more panels per side, each with its own length, outer chord, sweep and dihedral, and straight edges, Bézier curves or chords dimensioned at stations, plus an optional rounded wingtip. For a quick check, mean chord or area can be entered instead.
 

@@ -5,13 +5,13 @@
 // key points and follow them as the wing changes. Numeric entry lives in PanelEditor.
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations } from '../lib/wing.js'
-import { format, defaultUnit } from '../lib/units.js'
+import { format, defaultUnit, systemOf } from '../lib/units.js'
 import { SELECT, MEASURE, ADD_PANEL } from '../lib/icons.js'
 import ToolRail from './ToolRail.vue'
 import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   // Fill the parent's height (the expanded editor) instead of a fixed height.
   fill: { type: Boolean, default: false },
 })
@@ -61,8 +61,11 @@ const STEPS = {
   metric: [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1],
   imperial: [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 6, 12, 24].map((i) => i * 0.0254),
 }
-const step = computed(() => STEPS[props.system].find((s) => s * view.scale >= 8) ?? STEPS[props.system].at(-1))
-const majorEvery = computed(() => (props.system === 'metric' ? 5 : 4))
+const step = computed(() => {
+  const list = STEPS[systemOf(props.system)]
+  return list.find((s) => s * view.scale >= 8) ?? list.at(-1)
+})
+const majorEvery = computed(() => (systemOf(props.system) === 'metric' ? 5 : 4))
 
 const grid = computed(() => {
   const s = step.value

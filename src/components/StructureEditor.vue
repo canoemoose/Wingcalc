@@ -13,7 +13,7 @@ import { MATERIALS, gussetLayer } from '../lib/structure.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS } from '../lib/edgeStock.js'
 
 const props = defineProps({
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   // The spar position the aerofoil suggests (its thickest point), shown as the placeholder
   autoSpar: { type: Number, default: null },
   // Brace thicknesses the loads call for, in metres, shown as placeholders

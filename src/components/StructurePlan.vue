@@ -14,7 +14,7 @@
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { flatPanels } from '../lib/wing.js'
 import { MODES, SPACING_MODES, sheetOutline } from '../lib/structure.js'
-import { format, defaultUnit } from '../lib/units.js'
+import { format, defaultUnit, systemOf } from '../lib/units.js'
 import { SELECT, ADD_RIB } from '../lib/icons.js'
 import ToolRail from './ToolRail.vue'
 import StageZoom from './StageZoom.vue'
@@ -23,7 +23,7 @@ const props = defineProps({
   analysis: { type: Object, required: true },
   parts: { type: Array, required: true },
   selected: { type: String, default: null },
-  system: { type: String, default: 'metric' },
+  system: { type: [String, Object], default: 'metric' }, // a units setting (units.js normaliseUnits) or system name
   // Manual spacing: ribs can be moved, added and removed here
   editable: { type: Boolean, default: false },
 })
@@ -222,14 +222,14 @@ const STEPS = {
   imperial: [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2].map((i) => i * 0.0254),
 }
 const step = computed(() => {
-  const list = STEPS[props.system] ?? STEPS.metric
+  const list = STEPS[systemOf(props.system)]
   return list.find((s) => s * pxPerMetre() >= 8) ?? list.at(-1)
 })
 const snapOn = ref(true)
 const grid = computed(() => {
   const v = vb.value
   const s = step.value
-  const major = props.system === 'imperial' ? 4 : 5
+  const major = systemOf(props.system) === 'imperial' ? 4 : 5
   const s0 = a.value.rootS // spanwise lines measured from the root rib
   const lines = []
   for (let i = Math.ceil((v.x - s0) / s); s0 + i * s <= v.x + v.w; i++) lines.push({ v: true, p: s0 + i * s, major: i % major === 0 })

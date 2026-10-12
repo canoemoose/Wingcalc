@@ -1,36 +1,28 @@
 <script setup>
-// Numeric input bound to a value in SI base units, displayed in a unit chosen from
-// the current unit system. Accepts arithmetic and per-number units ("250-12", "12in");
-// see src/lib/expr.js.
+// Numeric input bound to a value in SI base units, displayed in the project's unit for its
+// quantity (units.js defaultUnit). Accepts arithmetic and per-number units ("250-12", "12in",
+// "1.2kg"); see src/lib/expr.js.
 import { ref, watch, computed } from 'vue'
-import { SYSTEMS, UNITS, defaultUnit, toBase, inputValue, format } from '../lib/units.js'
+import { UNITS, defaultUnit, toBase, inputValue, format } from '../lib/units.js'
 import { evaluate, isExpression } from '../lib/expr.js'
 
 const props = defineProps({
   modelValue: { type: Number, default: null },
   quantity: { type: String, required: true },
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   label: { type: String, required: true },
   id: { type: String, required: true },
   warn: { type: Boolean, default: false },
   hint: { type: String, default: '' },
-  // Compact: label kept for screen readers only and a fixed unit, for use in tables.
+  // Compact: label kept for screen readers only, for use in tables.
   compact: { type: Boolean, default: false },
   placeholder: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue'])
 
-const unit = ref(defaultUnit(props.system, props.quantity))
-const units = computed(() => SYSTEMS[props.system][props.quantity])
+const unit = computed(() => defaultUnit(props.system, props.quantity))
 const text = ref(inputValue(props.modelValue, props.quantity, unit.value))
 const focused = ref(false)
-
-watch(
-  () => props.system,
-  (s) => {
-    unit.value = defaultUnit(s, props.quantity)
-  },
-)
 
 // Reformat when the unit changes, or when the value changes from outside while the
 // user isn't typing in this box (so the caret never jumps mid-entry).
@@ -92,15 +84,7 @@ function onBlur() {
         @blur="onBlur"
         @keydown.enter="tidy"
       />
-      <select
-        v-if="units.length > 1 && !compact"
-        v-model="unit"
-        class="wc-unit"
-        :aria-label="`${label} unit`"
-      >
-        <option v-for="u in units" :key="u" :value="u">{{ UNITS[quantity][u].label }}</option>
-      </select>
-      <span v-else class="wc-unit wc-unit--fixed">{{ UNITS[quantity][compact ? unit : units[0]].label }}</span>
+      <span class="wc-unit wc-unit--fixed">{{ UNITS[quantity][unit].label }}</span>
     </div>
     <p v-if="preview" class="wc-field__calc" :class="{ 'wc-field__calc--bad': !preview.ok }" aria-live="polite">
       {{ preview.text }}

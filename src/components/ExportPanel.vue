@@ -16,7 +16,7 @@ const props = defineProps({
   analysis: { type: Object, required: true },
   parts: { type: Array, required: true },
   cutList: { type: Array, required: true },
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   baseName: { type: String, default: 'wing' },
   projectName: { type: String, default: 'Untitled' },
 })

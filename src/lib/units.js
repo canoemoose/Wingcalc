@@ -78,8 +78,30 @@ export const SYSTEMS = {
   },
 }
 
-export function otherSystem(system) {
-  return system === 'metric' ? 'imperial' : 'metric'
+// A project's units: the system, and within it the unit for lengths, weights and speeds.
+// Areas follow the length unit and wing loading the weight unit, so the figures read together
+// (mm with dm² and g/dm², m with m² and kg/m²). Every other quantity has one unit per system.
+export const CHOICES = {
+  metric: { length: ['mm', 'm'], mass: ['g', 'kg'], speed: ['kmh', 'ms'] },
+  imperial: { length: ['in', 'ft'], mass: ['oz', 'lb'], speed: ['mph'] },
+}
+const AREA_FOR = { mm: 'dm2', m: 'm2', in: 'in2', ft: 'ft2' }
+const LOADING_FOR = { g: 'gdm2', kg: 'kgm2', oz: 'ozft2', lb: 'ozft2' }
+
+// A units setting from anything saved: a system name (as saves before the setting were), or
+// a setting with any unknown choice put back to the system's first.
+export function normaliseUnits(saved) {
+  const system = (typeof saved === 'string' ? saved : saved?.system) === 'imperial' ? 'imperial' : 'metric'
+  const out = { system }
+  for (const [q, list] of Object.entries(CHOICES[system])) out[q] = list.includes(saved?.[q]) ? saved[q] : list[0]
+  return out
+}
+
+// The system name of a units setting (or of a bare system name)
+export const systemOf = (units) => (typeof units === 'string' ? units : units?.system) ?? 'metric'
+
+export function otherSystem(units) {
+  return systemOf(units) === 'metric' ? 'imperial' : 'metric'
 }
 
 export function toBase(value, quantity, unit) {
@@ -94,8 +116,14 @@ export function convert(value, quantity, fromUnit, toUnit) {
   return fromBase(toBase(value, quantity, fromUnit), quantity, toUnit)
 }
 
-export function defaultUnit(system, quantity) {
-  return SYSTEMS[system][quantity][0]
+// The unit a quantity is shown in, for a units setting or a bare system name (its first units)
+export function defaultUnit(units, quantity) {
+  const sys = systemOf(units)
+  if (typeof units === 'string' || !units) return SYSTEMS[sys][quantity][0]
+  if (quantity === 'length' || quantity === 'mass' || quantity === 'speed') return normaliseUnits(units)[quantity]
+  if (quantity === 'area') return AREA_FOR[normaliseUnits(units).length]
+  if (quantity === 'wingLoading') return LOADING_FOR[normaliseUnits(units).mass]
+  return SYSTEMS[sys][quantity][0]
 }
 
 // Format a base-unit value in the given unit, e.g. "1,250 g". Uses UK number formatting.

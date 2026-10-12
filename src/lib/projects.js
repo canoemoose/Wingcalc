@@ -5,6 +5,7 @@
 import { normalisePanels } from './wing.js'
 import { defaultStructure } from './structure.js'
 import { defaultExportOptions } from './dxf.js'
+import { normaliseUnits } from './units.js'
 
 export const FORMAT_VERSION = 1
 const PROJECTS_KEY = 'wingcalc.projects.v1'
@@ -14,7 +15,7 @@ const FILE_APP = 'wingcalc'
 // The state of a new project, in SI base units. A typical 1.4 m sport model.
 export function defaultState() {
   return {
-    units: 'metric',
+    units: normaliseUnits('metric'), // { system, length, mass, speed }; see units.js
     input: {
       mass: 1.4,
       span: 1.4,
@@ -69,7 +70,8 @@ export function migrate(state) {
   // Typed Clmax values (custom sections, catalogue overrides) were dropped; ignore them in older saves.
   delete airfoil.clMaxOverride
   delete airfoil.custom.clMax
-  return { units: s.units === 'imperial' ? 'imperial' : 'metric', input, airfoil }
+  // Units were a bare system name before the per-project unit choices
+  return { units: normaliseUnits(s.units), input, airfoil }
 }
 
 // localStorage if it's usable, else null (private windows, blocked storage, previews).

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { UNITS, SYSTEMS, toBase, fromBase, convert, format, inputValue, defaultUnit, otherSystem } from '../src/lib/units.js'
+import { UNITS, SYSTEMS, toBase, fromBase, convert, format, inputValue, defaultUnit, otherSystem, normaliseUnits } from '../src/lib/units.js'
 
 describe('unit conversions', () => {
   it('converts lengths', () => {
@@ -53,6 +53,15 @@ describe('unit conversions', () => {
     expect(defaultUnit('metric', 'mass')).toBe('g')
     expect(defaultUnit('imperial', 'speed')).toBe('mph')
     expect(otherSystem('metric')).toBe('imperial')
+  })
+
+  it("takes a project's units setting, areas following lengths and loading following weights", () => {
+    const metres = { system: 'metric', length: 'm', mass: 'kg', speed: 'ms' }
+    expect(['length', 'area', 'mass', 'wingLoading', 'speed', 'thin'].map((q) => defaultUnit(metres, q))).toEqual(['m', 'm2', 'kg', 'kgm2', 'ms', 'mm'])
+    const feet = normaliseUnits({ system: 'imperial', length: 'ft', mass: 'lb' })
+    expect(['length', 'area', 'mass', 'wingLoading', 'speed'].map((q) => defaultUnit(feet, q))).toEqual(['ft', 'ft2', 'lb', 'ozft2', 'mph'])
+    expect(otherSystem(feet)).toBe('metric')
+    expect(normaliseUnits('metric')).toEqual({ system: 'metric', length: 'mm', mass: 'g', speed: 'kmh' })
   })
 })
 

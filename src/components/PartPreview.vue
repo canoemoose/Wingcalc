@@ -10,7 +10,7 @@ import { format, defaultUnit } from '../lib/units.js'
 const props = defineProps({
   parts: { type: Array, required: true },
   selected: { type: String, default: null },
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
 })
 const emit = defineEmits(['select'])
 

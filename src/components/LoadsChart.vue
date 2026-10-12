@@ -8,7 +8,7 @@ import { format, defaultUnit } from '../lib/units.js'
 const props = defineProps({
   analysis: { type: Object, required: true },
   ribs: { type: Array, required: true }, // parts of group 'ribs'
-  system: { type: String, required: true },
+  system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   designG: { type: Number, required: true },
 })
 
