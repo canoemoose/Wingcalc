@@ -204,6 +204,11 @@ function size() {
   orthoCam.left = (-half * w) / h
   orthoCam.right = (half * w) / h
   orthoCam.updateProjectionMatrix()
+  // Still as framed: frame again for the new size (the first layout, a card growing)
+  if (autoFramed && bounds) {
+    const dir = camera.position.clone().sub(controls.target)
+    frame(shownBounds(), [dir.x, dir.y, dir.z])
+  }
   render()
 }
 
@@ -372,7 +377,13 @@ function shownBounds() {
 // thumbnail); or along a given view direction (target to camera). At the distance that just
 // fits its bounding box in the view's actual proportions, so a long wing fills a wide card.
 const FRAME_INSET = 44 // px kept clear at the top and bottom, for the corner controls
-function frame(b, dir = HOME_VIEW) {
+// Room left round the wing's bounding box: one zoom step closer than the box needs, as its
+// corners are mostly empty
+const FIT_MARGIN = 1.08 / 1.25
+// Framed by Home, Fit or on opening, and not moved since: a resize (the card expanding, the
+// window changing) frames it again
+let autoFramed = false
+function frame(b, dir = HOME_VIEW, { animate = false } = {}) {
   const c = new THREE.Vector3(...b.min.map((v, k) => (v + b.max[k]) / 2))
   const size = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2], 0.1)
   // The view direction (target to camera) and the camera's own axes looking along it (up is
@@ -400,18 +411,18 @@ function frame(b, dir = HOME_VIEW) {
       }
     }
   }
-  dist *= 1.08
-  halfH *= 1.08
-  for (const cam of [perspCam, orthoCam]) cam.position.copy(c).add(z.clone().multiplyScalar(dist))
+  dist *= FIT_MARGIN
+  halfH *= FIT_MARGIN
   perspCam.near = Math.max(1e-4, dist / 500)
   perspCam.far = dist + size * 20
   perspCam.updateProjectionMatrix()
-  controls.target.copy(c)
-  // Nothing is clipped by being behind the orthographic camera
-  Object.assign(orthoCam, { left: -halfH * aspect, right: halfH * aspect, top: halfH, bottom: -halfH, zoom: 1, near: -size * 20, far: size * 20 })
+  // Nothing is clipped by being behind the orthographic camera; its scale is set by zoom, the
+  // frustum staying as it is
+  Object.assign(orthoCam, { near: -size * 20, far: size * 20 })
   orthoCam.updateProjectionMatrix()
-  controls.update()
   framed = true
+  autoFramed = true
+  moveTo({ target: c, offset: z.multiplyScalar(dist), zoom: orthoCam.top / halfH }, { animate })
 }
 
 function applyVisibility() {
@@ -584,41 +595,56 @@ function cubeClick(e) {
   return true
 }
 
-// Animate the camera to a new position and target, round in heading and elevation
-// (orbitLerp), so it never passes over the top or bottom and flips.
+// Move the camera to a new target, offset from it (the view direction and, in perspective,
+// the distance) and orthographic zoom: eased over a moment, round in heading and elevation
+// (orbitLerp) so it never passes over the top or bottom and flips; or at once. Both cameras
+// end up in step, so switching projection afterwards keeps the view.
 let swinging = 0
-function swingTo(position, target) {
+const SWING_MS = 450
+function moveTo({ target, offset, zoom = orthoCam.zoom }, { animate = true, ms = SWING_MS } = {}) {
   const fromTarget = controls.target.clone()
   const fromOffset = camera.position.clone().sub(fromTarget)
-  const toOffset = position.clone().sub(target)
   const r0 = fromOffset.length()
-  const r1 = toOffset.length()
+  const r1 = offset.length()
   const a = fromOffset.toArray()
-  const b = toOffset.toArray()
+  const b = offset.toArray()
+  const z0 = orthoCam.zoom
   const id = ++swinging
+  const apply = (e) => {
+    const off = new THREE.Vector3(...orbitLerp(a, b, e)).multiplyScalar(r0 + (r1 - r0) * e)
+    controls.target.lerpVectors(fromTarget, target, e)
+    camera.position.copy(controls.target).add(off)
+    camera.lookAt(controls.target)
+    orthoCam.zoom = z0 * Math.pow(zoom / z0, e) // even steps in scale
+    orthoCam.updateProjectionMatrix()
+  }
+  const finish = () => {
+    apply(1)
+    const other = camera === orthoCam ? perspCam : orthoCam
+    other.position.copy(camera.position)
+    other.quaternion.copy(camera.quaternion)
+    controls.update()
+    render()
+  }
+  if (!animate) return finish()
   const t0 = performance.now()
   const step = (now) => {
     if (id !== swinging) return
-    const t = Math.min(1, (now - t0) / 450)
-    const e = t * t * (3 - 2 * t)
-    const offset = new THREE.Vector3(...orbitLerp(a, b, e)).multiplyScalar(r0 + (r1 - r0) * e)
-    controls.target.lerpVectors(fromTarget, target, e)
-    camera.position.copy(controls.target).add(offset)
-    camera.lookAt(controls.target)
-    if (t < 1) requestAnimationFrame(step)
-    else controls.update()
+    const t = Math.min(1, (now - t0) / ms)
+    if (t >= 1) return finish()
+    apply(t * t * (3 - 2 * t))
     render()
+    requestAnimationFrame(step)
   }
-  // If the page gets no animation frames (a hidden pane), jump straight there
   requestAnimationFrame(step)
+  // If the page gets no animation frames (a hidden pane), jump straight there
   setTimeout(() => {
-    if (id === swinging && camera.position.distanceTo(position) > 1e-6 && performance.now() - t0 > 600) {
-      controls.target.copy(target)
-      camera.position.copy(position)
-      controls.update()
-      render()
-    }
-  }, 700)
+    if (id === swinging && performance.now() - t0 > ms + 150) finish()
+  }, ms + 250)
+}
+function swingTo(position, target) {
+  autoFramed = false
+  moveTo({ target, offset: position.clone().sub(target) })
 }
 
 // --- Pointer -------------------------------------------------------------------------------
@@ -645,33 +671,29 @@ function onUp(e) {
 // Home: the starting angle, framed
 function resetView() {
   if (!bounds) return
-  swinging++
-  frame(shownBounds())
-  render()
+  frame(shownBounds(), HOME_VIEW, { animate: true })
 }
 
 // Fit: frame the wing from where the camera is looking now
 function fitView() {
   if (!bounds) return
-  swinging++
   const dir = camera.position.clone().sub(controls.target)
-  frame(shownBounds(), [dir.x, dir.y, dir.z])
-  render()
+  frame(shownBounds(), [dir.x, dir.y, dir.z], { animate: true })
 }
 
 // Zoom about the centre of the view: closer in perspective, a larger scale in orthographic
+// Repeated clicks build on where the last one was heading, not where the view has got to
+let zoomGoal = null
 function zoomBy(k) {
   if (!THREE) return
-  swinging++
-  if (camera === orthoCam) {
-    orthoCam.zoom *= k
-    orthoCam.updateProjectionMatrix()
-  } else {
-    const offset = camera.position.clone().sub(controls.target).multiplyScalar(1 / k)
-    camera.position.copy(controls.target).add(offset)
-  }
-  controls.update()
-  render()
+  autoFramed = false
+  const target = controls.target.clone()
+  const offset = camera.position.clone().sub(target)
+  const ortho = camera === orthoCam
+  const goal = zoomGoal && swinging === zoomGoal.id ? zoomGoal : { zoom: orthoCam.zoom, dist: offset.length() }
+  const next = { zoom: goal.zoom * (ortho ? k : 1), dist: goal.dist / (ortho ? 1 : k) }
+  moveTo({ target, offset: offset.setLength(next.dist), zoom: next.zoom }, { ms: 220 })
+  zoomGoal = { ...next, id: swinging }
 }
 
 onMounted(async () => {
@@ -695,6 +717,11 @@ onMounted(async () => {
     scene.add(sun)
     controls = new OrbitControls(camera, renderer.domElement)
     controls.addEventListener('change', render)
+    // Turning, panning or scrolling the view by hand: it's no longer as framed
+    controls.addEventListener('start', () => {
+      swinging++
+      autoFramed = false
+    })
     makeCube()
     renderer.domElement.addEventListener('pointerdown', onDown)
     renderer.domElement.addEventListener('pointerup', onUp)
@@ -703,8 +730,13 @@ onMounted(async () => {
     resizeObs.observe(wrapEl.value)
     size()
     build()
-    // In case it was switched while three.js was loading
-    if (projection.value === 'orthographic') setProjection('orthographic')
+    // Start in the chosen projection, framed for it (switching after framing for perspective
+    // would keep the perspective view's looser framing)
+    if (projection.value === 'orthographic') {
+      camera = orthoCam
+      controls.object = camera
+      frame(shownBounds())
+    }
     status.value = ''
   } catch (err) {
     console.error('3D view failed:', err)

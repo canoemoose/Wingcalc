@@ -475,6 +475,8 @@ describe('3D wing', () => {
       const end = orbitLerp(from, top, 1)
       for (let k = 0; k < 3; k++) expect(end[k]).toBeCloseTo(top[k], 9)
     }
+    // A camera that starts on its target goes straight to the new view
+    expect(orbitLerp([0, 0, 0], [0, 0, 2], 0.3)).toEqual([0, 0, 1])
   })
 
   it('draws each brace as two plates on the spar faces, the centre one in this half only', () => {

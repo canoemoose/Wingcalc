@@ -46,6 +46,9 @@ export function faceView(normal, current = [0, 0, 1]) {
 // would flip, and it turns the camera's heading as it climbs, so a top or bottom view arrives
 // squared up.
 export function orbitLerp(from, to, e) {
+  const unit = (v) => v.map((c) => c / Math.hypot(...v))
+  // Arrived, or nowhere to come from (a camera sitting on its target)
+  if (e >= 1 || Math.hypot(...from) < 1e-12) return unit(to)
   const sph = (v) => {
     const r = Math.hypot(...v)
     return { phi: Math.acos(Math.max(-1, Math.min(1, v[1] / r))), theta: Math.atan2(v[0], v[2]) }
