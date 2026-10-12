@@ -33,6 +33,7 @@ export function defaultExportOptions() {
     rowLength: 0.9, // m: the usable length of a sheet
     gap: 0.003, // m between parts
     split: false, // one file per material and thickness, zipped
+    pdfPaper: 'a4', // printed templates: a paper size from pdf.js PAPERS, or 'fit' for one sheet
   }
 }
 
@@ -368,17 +369,33 @@ export function toDxf(entities, { layerNames = { cut: 'CUT', etch: 'ETCH', guide
 
 // The parts as one DXF (groups stacked down the page, each titled on the guide layer), or
 // one per group. Returns [{ name, text, title }].
+// A group of parts with its title above it, moved down the page by dy.
+function titledGroup(grp, dy, opts) {
+  const h = 5
+  const head =
+    opts.labelStyle === 'text'
+      ? [{ type: 'text', layer: 'guide', x: 0, y: dy + 4, h, text: grp.title }]
+      : strokeText(grp.title, 0, dy + 4, h).map((pts) => ({ type: 'poly', layer: 'guide', pts, closed: false }))
+  return [...head, ...grp.entities.map((e) => shiftEnt(e, 0, dy))]
+}
+
+// Every group of parts stacked down one drawing, in mm: the parts DXF, and the printed PDF.
+export function partsDrawing(parts, opts) {
+  const { groups } = layoutParts(parts, opts)
+  const ents = []
+  let y = 0
+  for (const grp of groups) {
+    ents.push(...titledGroup(grp, y, opts))
+    y -= grp.height + 25
+  }
+  return ents
+}
+
 export function partsDxf(parts, opts, baseName = 'wing') {
   const { groups } = layoutParts(parts, opts)
   const layerNames = opts.layers
   const file = (ents) => toDxf(ents, { layerNames, format: opts.format })
-  const titled = (grp, dy) => {
-    const h = 5
-    const head = opts.labelStyle === 'text'
-      ? [{ type: 'text', layer: 'guide', x: 0, y: dy + 4, h, text: grp.title }]
-      : strokeText(grp.title, 0, dy + 4, h).map((pts) => ({ type: 'poly', layer: 'guide', pts, closed: false }))
-    return [...head, ...grp.entities.map((e) => shiftEnt(e, 0, dy))]
-  }
+  const titled = (grp, dy) => titledGroup(grp, dy, opts)
   if (opts.split) {
     return groups.map((grp) => ({
       name: `${baseName}-${slug(grp.title)}.dxf`,
@@ -386,13 +403,7 @@ export function partsDxf(parts, opts, baseName = 'wing') {
       text: file(titled(grp, 0)),
     }))
   }
-  const ents = []
-  let y = 0
-  for (const grp of groups) {
-    ents.push(...titled(grp, y))
-    y -= grp.height + 25
-  }
-  return [{ name: `${baseName}-parts.dxf`, title: 'All parts', text: file(ents) }]
+  return [{ name: `${baseName}-parts.dxf`, title: 'All parts', text: file(partsDrawing(parts, opts)) }]
 }
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
