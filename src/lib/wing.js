@@ -613,7 +613,9 @@ export function wingSampler({ fuselageWidth = 0, rootChord, panels, tip = null }
     if (s <= half) {
       return { s, y: s, z: 0, xl: 0, c: rootChord, twist: 0, thickness: baseThickness, rad: 0, panel: -1, f: half > 0 ? s / half : 0 }
     }
-    if (s > last.outer.s) {
+    // The tip cap, if there is one; without one, a hair past the last panel (rounding in a
+    // caller's step to the tip) is the panel's own end
+    if (cap && s > last.outer.s) {
       const e = tip.extension
       const ds = s - last.outer.s
       const t = cap(Math.min(1, ds / e))

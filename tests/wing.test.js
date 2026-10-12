@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { panelWingGeometry, edgeX, panelEnds, pchip, flatPanels, setPanelMode, addStation, panelMode, keyPoints, insertPanel, movePanel, stationOrder, addBlankStation } from '../src/lib/wing.js'
+import { panelWingGeometry, edgeX, panelEnds, pchip, flatPanels, setPanelMode, addStation, panelMode, keyPoints, insertPanel, movePanel, stationOrder, addBlankStation, wingSampler } from '../src/lib/wing.js'
 
 const rect = (o = {}) => ({ length: 0.5, tipChord: 0.2, dihedral: 0, ...o })
 
@@ -319,5 +319,18 @@ describe('blank stations', () => {
     expect(le).toBeGreaterThan(0.04)
     expect(le).toBeLessThan(0.1)
     expect(e.te(0.8) - le).toBeCloseTo(0.2, 12)
+  })
+})
+
+describe('wing sampler', () => {
+  it('takes a hair past the last panel as its end when there is no tip cap', () => {
+    // A caller stepping to the tip can overshoot the end by a rounding error
+    const wing = { fuselageWidth: 0.1, rootChord: 0.25, panels: [{ id: 1, length: 0.7, tipChord: 0.18, sweep: 0.02 }], tip: null }
+    const sampler = wingSampler(wing, 0.12)
+    const end = sampler.ends.at(-1).outer.s
+    const at = sampler.at(end + 1e-13)
+    expect(at).not.toBe(null)
+    expect(at.c).toBeCloseTo(0.18, 9)
+    expect(sampler.at(end + 1e-6)).toBe(null)
   })
 })
