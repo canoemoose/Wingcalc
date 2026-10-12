@@ -528,6 +528,26 @@ export function bracePlates(a, structure, parts) {
   return out
 }
 
+// Where a rib part sits: a function giving the column-major 4×4 matrix that places something
+// of a given width across the rib, reaching `outer` outboard of the rib's centre plane, with
+// the rib's (u, z) in local X, Y and the width along local Z.
+export function ribPlacement(a, p) {
+  const r = p.rib
+  const g = angleAt(a, p.s)
+  const ang = r.angle * RAD
+  const ds = Math.sin(ang)
+  const dx = Math.cos(ang)
+  const eu = [ds * Math.cos(g), ds * Math.sin(g), dx]
+  const ez = [-Math.sin(g), Math.cos(g), 0]
+  const ew = [-dx * Math.cos(g), -dx * Math.sin(g), ds] // points inboard, so the width starts at -outer
+  const w = a.sampler.at(p.s)
+  const P = [w.y, w.z, a.sparX(p.s)] // the spar point, h = 0
+  return (width, outer = width / 2) => {
+    const O = [0, 1, 2].map((k) => P[k] - eu[k] * r.sparU - ew[k] * outer)
+    return [...eu, 0, ...ez, 0, ...ew, 0, ...O, 1]
+  }
+}
+
 // The built-up half wing: skin, spar, webs, edge stock and stringers as meshes, and every rib
 // as its outline (with holes) plus a column-major 4×4 matrix placing its plane, rib (u, z)
 // in local X, Y and its thickness along local Z.
@@ -587,22 +607,8 @@ export function wing3d(a, structure, parts) {
   const strips = cov.capStrips && cov.type !== 'sheeted' && cov.capStripThickness > 0 && cov.capStripWidth > 0
   for (const p of parts.filter((q) => q.group === 'ribs')) {
     const r = p.rib
-    const g = angleAt(a, p.s)
-    const ang = r.angle * RAD
-    const ds = Math.sin(ang)
-    const dx = Math.cos(ang)
-    const eu = [ds * Math.cos(g), ds * Math.sin(g), dx]
-    const ez = [-Math.sin(g), Math.cos(g), 0]
-    const ew = [-dx * Math.cos(g), -dx * Math.sin(g), ds]
-    const w = a.sampler.at(p.s)
-    const P = [w.y, w.z, a.sparX(p.s)] // the spar point, h = 0
     const t = p.thickness
-    // Placement for something of a given width across the rib, reaching `outer` outboard of
-    // the rib's centre plane (ew points inboard, so the extrusion starts at -outer)
-    const place = (width, outer = width / 2) => {
-      const O = [0, 1, 2].map((k) => P[k] - eu[k] * r.sparU - ew[k] * outer)
-      return [...eu, 0, ...ez, 0, ...ew, 0, ...O, 1]
-    }
+    const place = ribPlacement(a, p)
     const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece' // shared by both halves
     ribs.push({ id: p.id, name: p.name, kind: p.kind, outline: p.outline, holes: p.holes, thickness: t, matrix: place(t), centre })
     if (strips && r.surfaces) {
@@ -650,7 +656,7 @@ export function wing3d(a, structure, parts) {
   return { skin: sk, solids, ribs, capStrips, bounds: { min: lo, max: hi } }
 }
 
-// For tests: apply a column-major 4×4 matrix to a point.
+// Apply a column-major 4×4 matrix to a point (the tests, and the wireframe thumbnail).
 export function applyMatrix(m, [x, y, z]) {
   return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]]
 }

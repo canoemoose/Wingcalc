@@ -24,6 +24,7 @@ import ExportPanel from './components/ExportPanel.vue'
 import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit } from './lib/wing3d.js'
+import { planThumb, isoThumb } from './lib/thumbnails.js'
 import { format, defaultUnit, otherSystem, normaliseUnits } from './lib/units.js'
 import {
   wingGeometry,
@@ -428,6 +429,18 @@ function toggleExpand(card) {
   // Bring the card's top into view once it has grown
   nextTick(() => structureMainEl.value?.querySelector(`[data-card="${card}"]`)?.scrollIntoView({ block: 'start' }))
 }
+// The card's thumbnails of the plan and the 3D view; clicking one opens the editor with that
+// view grown to fill the window
+const thumbs = computed(() => {
+  const r = structureResult.value
+  if (!r || input.geometryMode !== 'panels') return null
+  return { plan: planThumb(r.a, r.a.structure, r.parts), iso: isoThumb(r.a, r.a.structure, r.parts) }
+})
+function openStructureAt(card) {
+  structureOpen.value = true
+  expandedCard.value = card
+  nextTick(() => structureMainEl.value?.querySelector(`[data-card="${card}"]`)?.scrollIntoView({ block: 'start' }))
+}
 const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs') ?? [])
 const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
 // The ribs between the fixed ones, as distances from the root rib: where manual spacing starts
@@ -828,6 +841,24 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             </button>
           </div>
           <template v-if="structureResult">
+            <div v-if="thumbs" class="wc-sthumbs">
+              <button
+                v-for="t in [
+                  { card: 'plan', label: 'Plan', thumb: thumbs.plan },
+                  { card: '3d', label: '3D', thumb: thumbs.iso },
+                ].filter((x) => x.thumb)"
+                :key="t.card"
+                type="button"
+                class="wc-sthumb"
+                :title="`Open the structure editor with the ${t.label === 'Plan' ? 'plan' : '3D view'} filling the window`"
+                @click="openStructureAt(t.card)"
+              >
+                <svg :viewBox="t.thumb.box" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                  <path v-for="(l, i) in t.thumb.lines" :key="i" :d="l.d" :class="`wc-sthumb__${l.kind}`" />
+                </svg>
+                <span class="wc-sthumb__label">{{ t.label }}</span>
+              </button>
+            </div>
             <dl class="wc-stats wc-structure-card__stats">
               <div>
                 <dt>Spar</dt>
