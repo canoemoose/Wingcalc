@@ -36,3 +36,7 @@ The single-stroke font for engraved labels (`src/data/strokeFont.json`), extract
 
 - The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of Standards.
 - The format of the Font data in this distribution was originally created by James Hurt, Cognition, Inc., 900 Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).
+
+## IBM Plex Sans
+
+The wordmark's typeface, regular and semibold, Latin subset, bundled from `@fontsource/ibm-plex-sans` 5.3. Copyright © 2017 IBM Corp. with Reserved Font Name "Plex". SIL Open Font License 1.1: <https://github.com/IBM/plex/blob/master/LICENSE.txt>.

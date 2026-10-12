@@ -120,6 +120,19 @@
 .wc-header__title {
   flex: 0 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* The mark: the sailplane on the blue tile, as the app icon (src/lib/logo.js) */
+.wc-logo {
+  flex: none;
+  display: block;
+  width: 40px;
+  height: 40px;
+}
+.wc-logo svg {
+  display: block;
 }
 .wc-header__prefs {
   display: flex;
@@ -134,9 +147,19 @@
   height: calc(var(--wc-control-h) - 2px);
   padding: 0 12px;
 }
+/* The wordmark: Wing in semibold, calc lighter, in IBM Plex Sans (bundled) */
 .wc-title {
-  font-size: 1.35rem;
-  font-weight: 650;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.wc-title__wing {
+  font-weight: 600;
+}
+.wc-title__calc {
+  font-weight: 400;
+  color: color-mix(in srgb, var(--wc-text) 62%, transparent);
 }
 .wc-subtitle,
 .wingcalc .wc-muted {

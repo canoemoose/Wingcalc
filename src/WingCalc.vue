@@ -26,6 +26,9 @@ import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS } from '.
 import { buildParts } from './lib/ribs.js'
 import { gussetFit } from './lib/wing3d.js'
 import { planThumb, isoThumb } from './lib/thumbnails.js'
+import { iconSvg } from './lib/logo.js'
+import '@fontsource/ibm-plex-sans/latin-400.css'
+import '@fontsource/ibm-plex-sans/latin-600.css'
 import { format, defaultUnit, otherSystem, normaliseUnits } from './lib/units.js'
 import {
   wingGeometry,
@@ -455,6 +458,10 @@ function toggleExpand(card) {
   // Bring the card's top into view once it has grown
   nextTick(() => structureMainEl.value?.querySelector(`[data-card="${card}"]`)?.scrollIntoView({ block: 'start' }))
 }
+// The header's mark, the same as the app icon (static SVG from our own geometry, so v-html
+// is safe)
+const LOGO_MARK = iconSvg(40)
+
 // The card's thumbnails of the plan and the wing in 3D
 const thumbs = computed(() => {
   const r = structureResult.value
@@ -553,8 +560,13 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
   <div ref="rootEl" class="wingcalc" :data-theme="themeMode">
     <header class="wc-header">
       <div class="wc-header__title">
-        <h2 class="wc-title">Wing loading calculator</h2>
-        <p class="wc-subtitle">RC fixed-wing aircraft, 600 mm to 3 m span</p>
+        <span class="wc-logo" aria-hidden="true" v-html="LOGO_MARK" />
+        <div>
+          <h2 class="wc-title">
+            <span class="wc-title__wing">Wing</span><span class="wc-title__calc">calc</span><span class="wc-sr-only">: wing loading calculator</span>
+          </h2>
+          <p class="wc-subtitle">RC fixed-wing aircraft, 600 mm to 3 m span</p>
+        </div>
       </div>
       <ProjectBar
         v-model:name="project.name"
