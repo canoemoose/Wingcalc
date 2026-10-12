@@ -46,7 +46,6 @@ describe('structure thumbnails', () => {
     const t = isoThumb(a, a.structure, parts)
     expect(t.lines.filter((l) => l.kind === 'rib')).toHaveLength(ribs)
     expect(t.lines.filter((l) => l.kind === 'edge')).toHaveLength(2)
-    expect(t.lines.filter((l) => l.kind === 'stock')).toHaveLength(2)
     expect(t.lines.filter((l) => l.kind === 'spar')).toHaveLength(2)
     for (const l of t.lines) expect(numbers(l.d).every(Number.isFinite)).toBe(true)
   })
@@ -60,7 +59,7 @@ describe('structure thumbnails', () => {
     expect(distinct.size).toBeGreaterThan(rib.outline.length * 0.9)
   })
 
-  it('runs the edge stock lines through the rib ends, washout and dihedral included', () => {
+  it('runs the edge lines through the rib ends, washout and dihedral included', () => {
     const twisted = build((input) => (input.panels = normalisePanels([{ length: 0.7, tipChord: 0.18, dihedral: 5, washout: 4 }])))
     const t = isoThumb(twisted.a, twisted.a.structure, twisted.parts)
     const pairs = (d) => {
@@ -79,9 +78,9 @@ describe('structure thumbnails', () => {
       return best
     }
     const ribLines = t.lines.filter((l) => l.kind === 'rib').map((l) => pairs(l.d))
-    const stock = t.lines.filter((l) => l.kind === 'stock').map((l) => pairs(l.d))
-    expect(stock).toHaveLength(2)
-    // Every stock line touches every rib (at its corner against the stock)
-    for (const line of stock) for (const rib of ribLines) expect(Math.min(...rib.map((q) => gap(q, line)))).toBeLessThan(0.15)
+    const edges = t.lines.filter((l) => l.kind === 'edge').map((l) => pairs(l.d))
+    expect(edges).toHaveLength(2)
+    // Both edges touch every rib (at its corner against the stock)
+    for (const line of edges) for (const rib of ribLines) expect(Math.min(...rib.map((q) => gap(q, line)))).toBeLessThan(0.15)
   })
 })

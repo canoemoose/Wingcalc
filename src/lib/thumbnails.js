@@ -49,9 +49,8 @@ function camera(dir = HOME_VIEW) {
 }
 
 // The half wing as a wireframe: each rib's outline (and lightening holes) at its mid-plane,
-// and lines along the span for the leading and trailing edges, the top of the edge stock's
-// inner faces, where the ribs end, and the spar's top and bottom. Every line
-// follows the washout, as the ribs do. Returns { box, lines: [{ kind, d }] } or null.
+// and lines along the span for the leading and trailing edges (where the ribs end) and the
+// spar's top and bottom. Every line follows the washout, as the ribs do. Returns { box, lines: [{ kind, d }] } or null.
 export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
   const view = camera()
   const lines = []
@@ -76,17 +75,13 @@ export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
     lines.push({ kind, pts })
   }
   const outer = (x, which) => (s) => [x(s), surfaceHeight(a, s, x(s), which)]
-  const inset = (x, which) => (s) => [x(s), insetHeight(a, structure, s, x(s), which)]
-  const nose = (s) => a.section(s).xl
-  const tail = (s) => a.section(s).xl + a.section(s).c
-  span('edge', outer(nose, 'upper'))
-  span('edge', outer(tail, 'upper'))
-  // The ribs stop at the edge stock: the top of its inner faces carries the rib ends (the
-  // bottom too would only clutter it)
+  // The leading and trailing edges, drawn where the ribs end against the edge stock (the top
+  // of its inner face), so every rib meets them; with no stock, the nose and the tail
   const le = structure.le?.width || 0
   const te = structure.te?.width || 0
-  if (le > 0) span('stock', inset((s) => nose(s) + Math.min(le, a.section(s).c / 2), 'upper'))
-  if (te > 0) span('stock', inset((s) => tail(s) - Math.min(te, a.section(s).c / 2), 'upper'))
+  const edge = (x) => (s) => [x(s), insetHeight(a, structure, s, x(s), 'upper')]
+  span('edge', edge((s) => a.section(s).xl + Math.min(le, a.section(s).c / 2)))
+  span('edge', edge((s) => a.section(s).xl + a.section(s).c - Math.min(te, a.section(s).c / 2)))
   for (const which of ['upper', 'lower']) span('spar', outer((s) => a.sparX(s), which))
   return framed(lines)
 }
