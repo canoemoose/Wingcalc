@@ -20,3 +20,9 @@ export const ADD_PANEL = ['M3 6h7l3 12h-10z', 'M18 8v8', 'M14 12h8']
 export const ADD_RIB = ['M5 5v14', 'M10 5v14', 'M3 5h9', 'M3 19h9', 'M18 9v6', 'M15 12h6']
 // A grid, for snapping
 export const SNAP = ['M4 9h16', 'M4 15h16', 'M9 4v16', 'M15 4v16']
+// A cube in parallel projection: orthographic
+export const ORTHO = ['M12 3l8 4.5v9l-8 4.5l-8 -4.5v-9z', 'M12 12l8 -4.5', 'M12 12v9', 'M12 12l-8 -4.5']
+// A box whose far face is smaller: perspective
+export const PERSPECTIVE = ['M3 9h11v11h-11z', 'M15 4h5v5h-5z', 'M3 9l12 -5', 'M14 9l6 -5', 'M14 20l6 -11']
+// A blade across a bar: the section cut
+export const CUT = ['M3 15h18', 'M3 9h18', 'M14 3l-4 18']

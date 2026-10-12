@@ -5,19 +5,22 @@
 //
 // Top right, a view cube with labelled faces: click a face to swing round to that view.
 //
-// Section: cuts the wing square to the span (between ribs, by default mid-bay), hides
-// everything outboard of the cut and fills the cut face, coloured by part.
+// Section: cuts the wing square to the span, hides everything outboard of the cut and fills
+// the cut face, coloured by part. Placed with a bar along the bottom of the view: a track the
+// length of the span with a tick at each rib (the cut is kept off the ribs themselves).
 //
 // three.js loads on first use, so it costs nothing until the view is opened. It renders on
 // demand, not in a loop; the only animation is swinging the camera to a chosen view.
 //
-// Perspective or orthographic: orthographic makes the cube's views true elevations (ribs in
-// line, dihedral and washout at their real angles). Switching keeps the same viewpoint and
-// the same framing at the point being looked at.
+// Orthographic (the default) or perspective: orthographic makes the cube's views true
+// elevations (ribs in line, dihedral and washout at their real angles). Switching keeps the
+// same viewpoint and the same framing at the point being looked at.
+//
+// Outlines: the sharp edges of every solid (not the covering), drawn as lines.
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { wing3d, sectionAt, spanPlane, worldPoint } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
-import { EYE, EYE_OFF, HOME } from '../lib/icons.js'
+import { EYE, EYE_OFF, HOME, ORTHO, PERSPECTIVE, CUT } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
@@ -31,21 +34,21 @@ const emit = defineEmits(['select'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-const show = ref({ skin: true, sheeting: true, ribs: true, joints: true, spar: true, edges: true, tip: true, stringers: true, mirror: false })
+const show = ref({ skin: true, sheeting: true, ribs: true, joints: true, spar: true, edges: true, tip: true, stringers: true, outlines: true, mirror: false })
 const LAYERS = [
   { id: 'skin', label: 'Covering' },
   { id: 'sheeting', label: 'Sheeting and cap strips' },
   { id: 'ribs', label: 'Ribs' },
   { id: 'joints', label: 'Gussets and braces' },
   { id: 'spar', label: 'Spar and webs' },
-  { id: 'edges', label: 'Edges' },
+  { id: 'edges', label: 'Leading/Trailing edges' },
   { id: 'tip', label: 'Tip block' },
   { id: 'stringers', label: 'Stringers' },
+  { id: 'outlines', label: 'Outlines' },
   { id: 'mirror', label: 'Both halves' },
 ]
-// The Layers and Section menus (after Screenvision's): one open at a time, until its button
-// or Esc closes it
-const menu = ref(null) // 'layers' | 'section' | null
+// The Layers menu (after Screenvision's): open until its button or Esc closes it
+const menu = ref(null) // 'layers' | null
 const toggleMenu = (m) => (menu.value = menu.value === m ? null : m)
 function onKeydown(e) {
   if (e.key === 'Escape' && menu.value) menu.value = null
@@ -84,17 +87,37 @@ const shown = (l) =>
 // Section
 const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s))
 const bays = computed(() =>
-  ribs.value.slice(1).map((r, i) => ({ value: i, label: `${ribs.value[i].name} and ${r.name}`, s: (ribs.value[i].s + r.s) / 2 })),
+  ribs.value.slice(1).map((r, i) => ({ value: i, label: `${ribs.value[i].name}–${r.name}`, s: (ribs.value[i].s + r.s) / 2 })),
 )
 const section = ref({ on: false, s: 0, flip: false }) // flip keeps the outboard part instead
-// The bay the cut is in, wherever the slider has put it
+// The bay the cut is in
 const bay = computed(() => {
   const s = section.value.s
   const i = ribs.value.findIndex((r, k) => k > 0 && s <= r.s)
   return Math.max(0, i - 1)
 })
 const sectionRange = computed(() => ({ min: props.analysis.rootS, max: props.analysis.tipS }))
-const sectionLabel = computed(() => format(section.value.s - props.analysis.rootS, 'length', defaultUnit(props.system, 'length')))
+const sectionLabel = computed(() => {
+  const d = format(section.value.s - props.analysis.rootS, 'length', defaultUnit(props.system, 'length'))
+  const b = bays.value[bay.value]
+  return b ? `${d}, ${b.label}` : d
+})
+// Each rib's place along the track, 0 to 1
+const ribTicks = computed(() => {
+  const { min, max } = sectionRange.value
+  return ribs.value.map((r) => ({ id: r.id, name: r.name, at: (r.s - min) / Math.max(1e-9, max - min) }))
+})
+// Move the cut along the span, kept clear of the ribs: a cut through a rib shows nothing
+// useful, so a value inside one moves to the side it came from
+function moveCut(s) {
+  const prev = section.value.s
+  for (const r of ribs.value) {
+    const half = r.thickness / 2 + 0.0008
+    if (Math.abs(s - r.s) < half) s = prev < r.s ? r.s - half : r.s + half
+  }
+  const { min, max } = sectionRange.value
+  section.value = { ...section.value, s: Math.min(max, Math.max(min, s)) }
+}
 function chooseBay(i) {
   const b = bays.value[i]
   if (b) section.value = { ...section.value, s: b.s }
@@ -115,7 +138,12 @@ let scene = null
 let camera = null // whichever of the two is in use
 let perspCam = null
 let orthoCam = null
-const projection = ref('perspective') // 'perspective' | 'orthographic'
+const projection = ref('orthographic') // 'orthographic' | 'perspective'
+const projectionText = computed(() =>
+  projection.value === 'orthographic'
+    ? { label: 'Orthographic: switch to perspective', title: "Orthographic: true elevations from the cube's faces. Click for perspective." }
+    : { label: 'Perspective: switch to orthographic', title: 'Perspective. Click for orthographic.' },
+)
 const FOV = 35
 let controls = null
 let root = null // this half
@@ -140,6 +168,7 @@ const COLOURS = {
   brace: 0xa8794a,
 }
 const GROUPS = ['skin', 'sheeting', 'ribs', 'joints', 'spar', 'edges', 'tip', 'stringers']
+const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
 const FILM = 0.0003 // m: how far the covering stands off the surface
 
 function cssColour(name, fallback) {
@@ -237,6 +266,15 @@ function build() {
     disposeGroup(root)
   }
   root = new THREE.Group()
+  // Every solid's sharp edges, as lines that hide with it (and with Outlines off)
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x5b4a32, transparent: true, opacity: 0.55 })
+  const outlined = (mesh) => {
+    const lines = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, OUTLINE_ANGLE), edgeMat)
+    lines.userData.outline = true
+    lines.raycast = () => {} // clicks go to the solid, not its outline
+    mesh.add(lines)
+    return mesh
+  }
   const groups = {}
   for (const id of GROUPS) {
     groups[id] = new THREE.Group()
@@ -289,9 +327,8 @@ function build() {
               : s.kind === 'tip'
                 ? groups.tip
                 : groups.edges
-    group.add(meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour)))
+    group.add(outlined(meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour))))
   }
-  const edgeMat = new THREE.LineBasicMaterial({ color: 0x5b4a32, transparent: true, opacity: 0.55 })
   for (const r of model.ribs) {
     const shape = new THREE.Shape(r.outline.map(([u, z]) => new THREE.Vector2(u, z)))
     for (const h of r.holes) shape.holes.push(new THREE.Path(h.map(([u, z]) => new THREE.Vector2(u, z))))
@@ -300,14 +337,13 @@ function build() {
     const mesh = new THREE.Mesh(geo, behind(COLOURS.rib))
     mesh.userData.partId = r.id
     mesh.userData.centre = r.centre
-    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat))
-    groups.ribs.add(mesh)
+    groups.ribs.add(outlined(mesh))
   }
   for (const c of model.capStrips) {
     const shape = new THREE.Shape(c.outline.map(([u, z]) => new THREE.Vector2(u, z)))
     const geo = new THREE.ExtrudeGeometry(shape, { depth: c.thickness, bevelEnabled: false, curveSegments: 1 })
     geo.applyMatrix4(new THREE.Matrix4().fromArray(c.matrix))
-    groups.sheeting.add(new THREE.Mesh(geo, wood(COLOURS.sheet)))
+    groups.sheeting.add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
   }
   mirror = root.clone()
   mirror.scale.x = -1
@@ -382,6 +418,7 @@ function frame(b, dir = HOME_DIR) {
 function applyVisibility() {
   if (!root) return
   for (const g of [root, mirror]) for (const id of GROUPS) g.getObjectByName(id).visible = show.value[id]
+  for (const g of [root, mirror]) g.traverse((o) => o.userData.outline && (o.visible = show.value.outlines))
   mirror.visible = show.value.mirror
   render()
 }
@@ -697,12 +734,28 @@ watch(projection, setProjection)
 <template>
   <figure class="wc-figure wc-3d">
     <!-- The view's controls sit in its corners: what's shown top left, orientation top right
-         (around the cube, which three.js draws), framing bottom right -->
-    <div ref="wrapEl" class="wc-3d__canvas" tabindex="0" aria-label="3D view of the wing structure" @keydown="onViewKey" @pointerdown="focusView">
+         (around the cube, which three.js draws), framing bottom right; the section bar along
+         the bottom while the wing is cut -->
+    <div
+      ref="wrapEl"
+      class="wc-3d__canvas"
+      :class="{ 'wc-3d__canvas--cut': section.on }"
+      tabindex="0"
+      aria-label="3D view of the wing structure"
+      @keydown="onViewKey"
+      @pointerdown="focusView"
+    >
       <p v-if="status" class="wc-3d__status wc-muted">{{ status }}</p>
       <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Show">
         <div class="wc-3d__menu">
-          <button type="button" class="wc-button wc-stage__btn" :aria-expanded="String(menu === 'layers')" aria-controls="wc-3d-layers" @click="toggleMenu('layers')">
+          <button
+            type="button"
+            class="wc-button wc-stage__btn"
+            :aria-expanded="String(menu === 'layers')"
+            aria-controls="wc-3d-layers"
+            title="Show and hide parts"
+            @click="toggleMenu('layers')"
+          >
             Layers
           </button>
           <!-- Stays open while you work in the view; the button or Esc closes it -->
@@ -724,91 +777,59 @@ watch(projection, setProjection)
             </ul>
           </div>
         </div>
-        <div class="wc-3d__menu">
-          <button
-            type="button"
-            class="wc-button wc-stage__btn"
-            :class="{ 'wc-3d__tool--active': section.on }"
-            :aria-expanded="String(menu === 'section')"
-            aria-controls="wc-3d-section"
-            :title="section.on ? 'The wing is cut' : ''"
-            @click="toggleMenu('section')"
-          >
-            Section
-          </button>
-          <div v-if="menu === 'section'" id="wc-3d-section" class="wc-layers" :style="{ maxHeight: menuMax }" role="group" aria-label="Section">
-            <label class="wc-check">
-              <input type="checkbox" :checked="section.on" @change="toggleSection($event.target.checked)" /> Cut the wing square to the span
-            </label>
-            <div v-if="section.on" class="wc-layers__section">
-              <select class="wc-input wc-select wc-select--small" :value="bay" aria-label="Section between ribs" @change="chooseBay(Number($event.target.value))">
-                <option v-for="b in bays" :key="b.value" :value="b.value">Between {{ b.label }}</option>
-              </select>
-              <input
-                v-model.number="section.s"
-                class="wc-range"
-                type="range"
-                :min="sectionRange.min"
-                :max="sectionRange.max"
-                step="0.0005"
-                aria-label="Section position along the span"
-              />
-              <span class="wc-3d__readout">{{ sectionLabel }} from the root rib</span>
-              <div class="wc-layers__actions">
-                <button type="button" class="wc-button wc-button--small" @click="lookAtCut">Look at the cut</button>
-                <button
-                  type="button"
-                  class="wc-button wc-button--small"
-                  :aria-pressed="section.flip"
-                  :title="section.flip ? 'Keep the inboard part' : 'Keep the outboard part'"
-                  @click="flipSection"
-                >
-                  Flip
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <button
-        v-if="!status"
-        type="button"
-        class="wc-3d__home"
-        :style="{ right: `${cube.size + cube.margin * 2}px`, top: `${cube.margin}px` }"
-        aria-label="Home view"
-        title="Home view: back to the starting angle"
-        @click="resetView"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in HOME" :key="k" :d="d" /></svg>
-      </button>
-      <div
-        class="wc-segmented wc-segmented--inline wc-3d__projection"
-        :style="{ right: `${cube.margin}px`, top: `${cube.size + cube.margin * 2}px` }"
-        role="radiogroup"
-        aria-label="Projection"
-      >
         <button
-          v-for="p in [
-            { id: 'perspective', label: 'Perspective' },
-            { id: 'orthographic', label: 'Orthographic' },
-          ]"
-          :key="p.id"
           type="button"
-          role="radio"
-          :aria-checked="projection === p.id"
-          class="wc-segmented__btn"
-          :class="{ 'wc-segmented__btn--active': projection === p.id }"
-          @click="projection = p.id"
+          class="wc-button wc-stage__btn wc-3d__section-btn"
+          :class="{ 'wc-3d__tool--active': section.on }"
+          :aria-pressed="String(section.on)"
+          :title="section.on ? 'Put the wing back together' : 'Cut the wing open across the span'"
+          @click="toggleSection(!section.on)"
         >
-          {{ p.label }}
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in CUT" :key="k" :d="d" /></svg>
+          Section
         </button>
+      </div>
+      <div v-if="!status" class="wc-3d__orient" :style="{ right: `${cube.size + cube.margin * 2}px`, top: `${cube.margin}px` }">
+        <button type="button" class="wc-3d__home" aria-label="Home view" title="Home view: back to the starting angle" @click="resetView">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in HOME" :key="k" :d="d" /></svg>
+        </button>
+        <button
+          type="button"
+          class="wc-3d__home"
+          :aria-label="projectionText.label"
+          :title="projectionText.title"
+          @click="projection = projection === 'orthographic' ? 'perspective' : 'orthographic'"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in projection === 'orthographic' ? ORTHO : PERSPECTIVE" :key="k" :d="d" /></svg>
+        </button>
+      </div>
+      <div v-if="section.on" class="wc-3d__sectionbar" role="group" aria-label="Section">
+        <div class="wc-3d__track">
+          <span v-for="t in ribTicks" :key="t.id" class="wc-3d__tick" :style="{ left: `${t.at * 100}%` }" :title="t.name" />
+          <input
+            class="wc-3d__slider"
+            type="range"
+            :min="sectionRange.min"
+            :max="sectionRange.max"
+            step="0.0005"
+            :value="section.s"
+            aria-label="Where to cut, along the span"
+            :aria-valuetext="sectionLabel"
+            @input="moveCut(Number($event.target.value))"
+          />
+        </div>
+        <span class="wc-3d__readout">{{ sectionLabel }}</span>
+        <button type="button" class="wc-button wc-button--small" :title="section.flip ? 'Keep the inboard part' : 'Keep the outboard part'" @click="flipSection">
+          Flip
+        </button>
+        <button type="button" class="wc-button wc-button--small" title="Swing round to face the cut" @click="lookAtCut">Look at cut</button>
+        <button type="button" class="wc-3d__close" aria-label="Close the section" title="Close the section" @click="toggleSection(false)">×</button>
       </div>
       <StageZoom fit-title="Frame the wing from this angle (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
     <figcaption class="wc-figure__caption">
-      Drag to turn, right-drag to move, scroll to zoom. Click a face of the cube at the top right to swing round to
-      that view (the house beside it goes back to the start), or a rib to select it. Layers shows and hides parts; Section
-      cuts the wing open. Twist and dihedral are true to scale.
+      Drag to turn, right-drag to move, scroll to zoom; click a rib to select it, or a face of the cube to see the wing from
+      that side. Twist and dihedral are true to scale.
     </figcaption>
   </figure>
 </template>

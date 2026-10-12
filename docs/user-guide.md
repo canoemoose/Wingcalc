@@ -85,9 +85,9 @@ The plan shades bays amber where ribs are too far apart and red where the spar, 
 The **3D** view shows the built-up half wing, built from the same geometry as the cut parts: see-through covering, sheeting and cap strips, ribs, gussets and braces, a rounded tip's block, spar, shear webs, edge stock and stringers, with twist and dihedral true to scale.
 
 - Drag to turn, right-drag to move, scroll to zoom; − + Fit in the bottom-right corner.
-- Click the view cube (Top, Bottom, Front, Back, Root, Tip) to swing round to that view. **Perspective / Orthographic** switches the projection; orthographic makes the cube's views true elevations.
-- **Layers** (top left): tick **Both halves** for the whole wing, untick layers to see inside. Click a rib to select it.
-- **Section** cuts the wing square to the span, mid-bay between the ribs you pick or anywhere along the slider: everything outboard is hidden and the cut face is filled, coloured by part. **Look at the cut** swings round to face it, and **Flip** keeps the outboard part instead.
+- Click the view cube (Top, Bottom, Front, Back, Root, Tip) to swing round to that view. The house beside it goes back to the starting angle, and the button under it switches between orthographic (the default, which makes the cube's views true elevations) and perspective.
+- **Layers** (top left): show **Both halves** for the whole wing, hide layers to see inside, and turn **Outlines** (the sharp edges of every part) on or off. Click a rib to select it.
+- **Section** cuts the wing square to the span: everything outboard is hidden and the cut face is filled, coloured by part. A bar along the bottom places the cut: drag along it (the ticks are the ribs; the cut is kept off the ribs themselves), and it shows the distance from the root rib and the bay. **Flip** keeps the outboard part instead, **Look at cut** swings round to face it, and × closes the section.
 
 ## Export
 
