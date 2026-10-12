@@ -29,3 +29,10 @@ The 3D view, loaded on demand. Copyright (c) 2010-2025 three.js authors. MIT lic
 ## Tabler Icons
 
 The eye, eye-off and home icons (path data only, in `src/lib/icons.js`). Copyright (c) 2020-2024 Paweł Kuna. MIT licence: <https://github.com/tabler/tabler-icons/blob/main/LICENSE>.
+
+## Hershey Sans 1-stroke
+
+The single-stroke font for engraved labels (`src/data/strokeFont.json`), extracted from the SVG fonts in `hersheytext` 2.0 (Copyright (c) 2014 James T, MIT licence: <https://github.com/techninja/hersheytext>), as prepared by Windell H. Oskay (Evil Mad Scientist). The font data carries these acknowledgements, as its licence requires:
+
+- The Hershey Fonts were originally created by Dr. A. V. Hershey while working at the U. S. National Bureau of Standards.
+- The format of the Font data in this distribution was originally created by James Hurt, Cognition, Inc., 900 Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).

@@ -99,7 +99,7 @@ The **3D** view shows the built-up half wing, built from the same geometry as th
 - **Cut list (CSV)**: every part with quantity, stock and size, and every length of strip, with how many lengths of edge stock to buy.
 - **Printed templates (PDF, 1:1)**: the parts (true size, no kerf allowance) or the plan, to build over or cut round by hand. On A4, A3, Letter or Tabloid the drawing is split across as few sheets as possible, overlapping by 10 mm, each named (A1, A2 …, rows down the drawing) with its neighbours marked on its edges. Or one sheet sized to the drawing, for a plotter or print shop. Every sheet has a title block and a 50 mm bar to check it printed at 100%.
 
-The DXF is AutoCAD R12 in millimetres, which nearly all laser, router and CAD software reads, as closed polylines or (for older software) separate lines. Layers are cut (red), engrave (blue) and notes (grey), with names you can change. Labels are single-stroke vector lines, so they engrave the same in any software.
+The DXF is AutoCAD R12 in millimetres, which nearly all laser, router and CAD software reads, as closed polylines or (for older software) separate lines. Layers are cut (red), engrave (blue) and notes (grey), with names you can change. Labels are single-stroke vector lines in a Hershey font, so they engrave the same in any software.
 
 Lightening holes and jig tabs change the parts themselves, so they're set in the structure editor under **Ribs**; the export dialogue only says which are on.
 

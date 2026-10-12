@@ -1,72 +1,40 @@
-// A minimal single-stroke font for engraving labels: each glyph is a few polylines on a grid
-// 4 units wide and 6 high (baseline at 0). Lasers and routers follow vector lines reliably,
-// where DXF TEXT entities depend on the software's own fonts. Lower case is drawn as upper.
+// Single-stroke text for engraving labels: Hershey Sans 1-stroke (Hershey's Simplex Roman),
+// extracted by scripts/build-stroke-font.mjs. Lasers and routers follow vector lines
+// reliably, where DXF TEXT entities depend on the software's own fonts.
+//
+// Heights are cap heights: h is the height of a capital, baseline at y. Letters are spaced
+// by their ink width; digits sit in cells of one width, so numbers line up.
+import font from '../data/strokeFont.json'
 
-const G = {
-  '0': [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0], [4, 6]]],
-  '1': [[[1, 5], [2, 6], [2, 0]], [[1, 0], [3, 0]]],
-  '2': [[[0, 6], [4, 6], [4, 3], [0, 3], [0, 0], [4, 0]]],
-  '3': [[[0, 6], [4, 6], [4, 0], [0, 0]], [[1, 3], [4, 3]]],
-  '4': [[[0, 6], [0, 3], [4, 3]], [[3, 6], [3, 0]]],
-  '5': [[[4, 6], [0, 6], [0, 3], [4, 3], [4, 0], [0, 0]]],
-  '6': [[[4, 6], [0, 6], [0, 0], [4, 0], [4, 3], [0, 3]]],
-  '7': [[[0, 6], [4, 6], [1, 0]]],
-  '8': [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]], [[0, 3], [4, 3]]],
-  '9': [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 3], [4, 3]]],
-  A: [[[0, 0], [0, 4], [2, 6], [4, 4], [4, 0]], [[0, 3], [4, 3]]],
-  B: [[[0, 0], [0, 6], [3, 6], [4, 5], [4, 4], [3, 3], [0, 3]], [[3, 3], [4, 2], [4, 1], [3, 0], [0, 0]]],
-  C: [[[4, 6], [0, 6], [0, 0], [4, 0]]],
-  D: [[[0, 0], [0, 6], [2, 6], [4, 4], [4, 2], [2, 0], [0, 0]]],
-  E: [[[4, 6], [0, 6], [0, 0], [4, 0]], [[0, 3], [3, 3]]],
-  F: [[[4, 6], [0, 6], [0, 0]], [[0, 3], [3, 3]]],
-  G: [[[4, 6], [0, 6], [0, 0], [4, 0], [4, 3], [2, 3]]],
-  H: [[[0, 0], [0, 6]], [[4, 0], [4, 6]], [[0, 3], [4, 3]]],
-  I: [[[1, 6], [3, 6]], [[2, 6], [2, 0]], [[1, 0], [3, 0]]],
-  J: [[[4, 6], [4, 0], [0, 0], [0, 2]]],
-  K: [[[0, 0], [0, 6]], [[4, 6], [0, 3], [4, 0]]],
-  L: [[[0, 6], [0, 0], [4, 0]]],
-  M: [[[0, 0], [0, 6], [2, 3], [4, 6], [4, 0]]],
-  N: [[[0, 0], [0, 6], [4, 0], [4, 6]]],
-  O: [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]]],
-  P: [[[0, 0], [0, 6], [4, 6], [4, 3], [0, 3]]],
-  Q: [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]], [[2, 2], [4, -1]]],
-  R: [[[0, 0], [0, 6], [4, 6], [4, 3], [0, 3], [4, 0]]],
-  S: [[[4, 6], [0, 6], [0, 3], [4, 3], [4, 0], [0, 0]]],
-  T: [[[0, 6], [4, 6]], [[2, 6], [2, 0]]],
-  U: [[[0, 6], [0, 0], [4, 0], [4, 6]]],
-  V: [[[0, 6], [2, 0], [4, 6]]],
-  W: [[[0, 6], [1, 0], [2, 3], [3, 0], [4, 6]]],
-  X: [[[0, 0], [4, 6]], [[0, 6], [4, 0]]],
-  Y: [[[0, 6], [2, 3], [4, 6]], [[2, 3], [2, 0]]],
-  Z: [[[0, 6], [4, 6], [0, 0], [4, 0]]],
-  '-': [[[1, 3], [3, 3]]],
-  '+': [[[1, 3], [3, 3]], [[2, 2], [2, 4]]],
-  '.': [[[2, 0], [2, 0.6]]],
-  ',': [[[2, 0.6], [1.4, -1]]],
-  ':': [[[2, 1], [2, 1.6]], [[2, 4], [2, 4.6]]],
-  '/': [[[0, 0], [4, 6]]],
-  '°': [[[1, 6], [2, 6], [2, 5], [1, 5], [1, 6]]],
-  '%': [[[0, 0], [4, 6]], [[0, 6], [1, 6], [1, 5], [0, 5], [0, 6]], [[3, 1], [4, 1], [4, 0], [3, 0], [3, 1]]],
-  '×': [[[1, 1], [3, 4]], [[1, 4], [3, 1]]],
-  '(': [[[3, 6], [2, 5], [2, 1], [3, 0]]],
-  ')': [[[1, 6], [2, 5], [2, 1], [1, 0]]],
-}
+const GAP = 0.22 // between glyphs, in cap heights
+const SPACE = 0.5
+const NARROW = 0.2 // the least cell, so I, l and punctuation don't crowd their neighbours
+const DIGIT = Math.max(...'0123456789'.split('').map((d) => font.glyphs[d].w))
+const isDigit = (ch) => ch >= '0' && ch <= '9'
+const glyph = (ch) => font.glyphs[ch] ?? font.glyphs['?']
+// Width of one character's cell, before the gap; the glyph is centred in it
+const cell = (ch) => (ch === ' ' ? SPACE : isDigit(ch) ? DIGIT : Math.max(NARROW, glyph(ch).w))
 
-const ADVANCE = 5.5 // grid units per character
-
-// Width of a string at height h.
+// Width of a string at cap height h, ink to ink.
 export function textWidth(text, h) {
-  return (String(text).length * ADVANCE - 1.5) * (h / 6)
+  const chars = [...String(text)]
+  if (!chars.length) return 0
+  return (chars.reduce((w, ch) => w + cell(ch), 0) + GAP * (chars.length - 1)) * h
 }
 
-// Polylines drawing text with its baseline starting at (x, y), h high.
+// Polylines drawing text with its baseline starting at (x, y), h the cap height.
 export function strokeText(text, x, y, h) {
-  const k = h / 6
   const out = []
-  let cx = x
-  for (const ch of String(text).toUpperCase()) {
-    for (const stroke of G[ch] ?? []) out.push(stroke.map(([gx, gy]) => [cx + gx * k, y + gy * k]))
-    cx += ADVANCE * k
+  let cx = 0
+  for (const ch of String(text)) {
+    const g = glyph(ch)
+    const dx = cx + (cell(ch) - g.w) / 2
+    for (const s of ch === ' ' ? [] : g.s) {
+      const pts = []
+      for (let i = 0; i < s.length; i += 2) pts.push([x + (dx + s[i]) * h, y + s[i + 1] * h])
+      out.push(pts)
+    }
+    cx += cell(ch) + GAP
   }
   return out
 }
