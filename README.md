@@ -1,4 +1,9 @@
-# Wingcalc
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png" />
+    <img src="docs/images/logo-light.png" alt="Wingcalc" width="192" height="48" />
+  </picture>
+</h1>
 
 **Will it fly, how will it stall, and how many ribs does it need?**
 
