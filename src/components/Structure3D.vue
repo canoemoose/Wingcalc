@@ -123,12 +123,20 @@ function chooseBay(i) {
   if (b) section.value = { ...section.value, s: b.s }
 }
 function toggleSection(on) {
+  let flip = section.value.flip
   if (on) {
     // Start in the bay outboard of the selected rib, if there is one
     const k = ribs.value.findIndex((r) => r.id === props.selected)
     chooseBay(Math.min(Math.max(0, k), bays.value.length - 1))
+    // Keep the part whose cut face is towards the camera: from inboard (as the home view),
+    // the outboard part
+    if (camera) {
+      const { point, normal } = spanPlane(props.analysis, section.value.s)
+      const off = camera.position.toArray().map((v, i) => v - point[i])
+      flip = off[0] * normal[0] + off[1] * normal[1] + off[2] * normal[2] < 0
+    }
   }
-  section.value = { ...section.value, on }
+  section.value = { ...section.value, on, flip }
 }
 
 let THREE = null
@@ -787,8 +795,8 @@ watch(projection, setProjection)
 <template>
   <figure class="wc-figure wc-3d">
     <!-- The view's controls sit in its corners: what's shown top left, orientation top right
-         (around the cube, which three.js draws), framing bottom right; the section bar along
-         the bottom while the wing is cut -->
+         (around the cube, which three.js draws), framing bottom right, with the section bar
+         beside it while the wing is cut -->
     <div
       ref="wrapEl"
       class="wc-3d__canvas"
@@ -856,29 +864,32 @@ watch(projection, setProjection)
           <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in projection === 'orthographic' ? ORTHO : PERSPECTIVE" :key="k" :d="d" /></svg>
         </button>
       </div>
-      <div v-if="section.on" class="wc-3d__sectionbar" role="group" aria-label="Section">
-        <div class="wc-3d__track">
-          <span v-for="t in ribTicks" :key="t.id" class="wc-3d__tick" :style="{ left: `${t.at * 100}%` }" :title="t.name" />
-          <input
-            class="wc-3d__slider"
-            type="range"
-            :min="sectionRange.min"
-            :max="sectionRange.max"
-            step="0.0005"
-            :value="section.s"
-            aria-label="Where to cut, along the span"
-            :aria-valuetext="sectionLabel"
-            @input="moveCut(Number($event.target.value))"
-          />
+      <!-- Along the bottom: the section bar while the wing is cut, then the zoom controls -->
+      <div class="wc-3d__bottom">
+        <div v-if="section.on" class="wc-3d__sectionbar" role="group" aria-label="Section">
+          <div class="wc-3d__track">
+            <span v-for="t in ribTicks" :key="t.id" class="wc-3d__tick" :style="{ left: `${t.at * 100}%` }" :title="t.name" />
+            <input
+              class="wc-3d__slider"
+              type="range"
+              :min="sectionRange.min"
+              :max="sectionRange.max"
+              step="0.0005"
+              :value="section.s"
+              aria-label="Where to cut, along the span"
+              :aria-valuetext="sectionLabel"
+              @input="moveCut(Number($event.target.value))"
+            />
+          </div>
+          <span class="wc-3d__readout">{{ sectionLabel }}</span>
+          <button type="button" class="wc-button wc-button--small" :title="section.flip ? 'Keep the inboard part' : 'Keep the outboard part'" @click="flipSection">
+            Flip
+          </button>
+          <button type="button" class="wc-button wc-button--small" title="Swing round to face the cut" @click="lookAtCut">Look at cut</button>
+          <button type="button" class="wc-3d__close" aria-label="Close the section" title="Close the section" @click="toggleSection(false)">×</button>
         </div>
-        <span class="wc-3d__readout">{{ sectionLabel }}</span>
-        <button type="button" class="wc-button wc-button--small" :title="section.flip ? 'Keep the inboard part' : 'Keep the outboard part'" @click="flipSection">
-          Flip
-        </button>
-        <button type="button" class="wc-button wc-button--small" title="Swing round to face the cut" @click="lookAtCut">Look at cut</button>
-        <button type="button" class="wc-3d__close" aria-label="Close the section" title="Close the section" @click="toggleSection(false)">×</button>
+        <StageZoom fit-title="Frame the wing from this angle (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
       </div>
-      <StageZoom fit-title="Frame the wing from this angle (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
     <figcaption class="wc-figure__caption">
       Drag to turn, right-drag to move, scroll to zoom; click a rib to select it, or a face of the cube to see the wing from

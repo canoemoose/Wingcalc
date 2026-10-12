@@ -2283,12 +2283,30 @@
 }
 /* The section bar along the bottom of the view while the wing is cut: a track the length of
    the span, a tick at each rib; the zoom corner moves up out of its way */
-.wc-3d__sectionbar {
+/* The bottom row: the section bar, when it's on, beside the zoom controls (above them when
+   there isn't room for both) */
+.wc-3d__bottom {
   position: absolute;
   left: 8px;
   right: 8px;
   bottom: 8px;
   z-index: 3;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.wc-3d__bottom > * {
+  pointer-events: auto;
+}
+.wc-3d__bottom .wc-stage__corner--br {
+  position: static;
+}
+.wc-3d__sectionbar {
+  flex: 1 1 420px;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2298,9 +2316,6 @@
   border: 1px solid var(--wc-border);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-}
-.wc-3d__canvas--cut .wc-stage__corner--br {
-  bottom: 56px;
 }
 .wc-3d__track {
   position: relative;

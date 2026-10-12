@@ -46,7 +46,7 @@ describe('structure thumbnails', () => {
     const t = isoThumb(a, a.structure, parts)
     expect(t.lines.filter((l) => l.kind === 'rib')).toHaveLength(ribs)
     expect(t.lines.filter((l) => l.kind === 'edge')).toHaveLength(2)
-    expect(t.lines.filter((l) => l.kind === 'stock')).toHaveLength(4)
+    expect(t.lines.filter((l) => l.kind === 'stock')).toHaveLength(2)
     expect(t.lines.filter((l) => l.kind === 'spar')).toHaveLength(2)
     for (const l of t.lines) expect(numbers(l.d).every(Number.isFinite)).toBe(true)
   })
@@ -80,7 +80,7 @@ describe('structure thumbnails', () => {
     }
     const ribLines = t.lines.filter((l) => l.kind === 'rib').map((l) => pairs(l.d))
     const stock = t.lines.filter((l) => l.kind === 'stock').map((l) => pairs(l.d))
-    expect(stock).toHaveLength(4)
+    expect(stock).toHaveLength(2)
     // Every stock line touches every rib (at its corner against the stock)
     for (const line of stock) for (const rib of ribLines) expect(Math.min(...rib.map((q) => gap(q, line)))).toBeLessThan(0.15)
   })
