@@ -323,6 +323,8 @@ const geometryModes = [
 
 const geometry = computed(() => wingGeometry({ ...input, mode: input.geometryMode }))
 const airfoil = computed(() => resolveAirfoil(airfoilSel.value, uiuc.value))
+const MULTI_ELEMENT_NOTE =
+  'A multi-element set (slat, main element and flap in one file): the figures and structure need a single section. Choose another, or one element of the set.'
 const baseThickness = computed(() => airfoil.value?.params?.thickness ?? null)
 
 // The tip section, when the thickness tapers or the tip has washout (panel mode only).
@@ -923,6 +925,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               Wood varies; treat margins under +0.3 with suspicion.
             </p>
           </template>
+          <p v-else-if="airfoil?.multiElement" class="wc-text-warn">
+            {{ airfoil.name }} is a multi-element set (separate slat, main element or flap), not one section, so it
+            can't be built as ribs. Choose a single section, or one element of the set on its own.
+          </p>
           <p v-else class="wc-muted">Needs a valid wing and aerofoil to work out the loads.</p>
         </article>
 
@@ -960,9 +966,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <SectionView
               v-if="airfoil"
               :coords="airfoil.coords"
-              :params="airfoil.params"
+              :params="airfoil.multiElement ? null : airfoil.params"
               :name="airfoil.name"
               :valid="airfoil.valid"
+              :invalid-note="airfoil.multiElement ? MULTI_ELEMENT_NOTE : undefined"
               :tip-coords="tipSection?.coords ?? null"
               :tip-note="tipSection?.note ?? ''"
             />

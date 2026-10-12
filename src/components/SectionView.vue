@@ -10,6 +10,7 @@ const props = defineProps({
   params: { type: Object, default: null }, // fractions of chord, as resolveAirfoil returns
   name: { type: String, default: '' },
   valid: { type: Boolean, default: true },
+  invalidNote: { type: String, default: 'These parameters give an impossible shape; adjust them.' },
   tipCoords: { type: Array, default: null },
   tipNote: { type: String, default: '' },
 })
@@ -79,7 +80,7 @@ const pct = (v, dp = 1) => (v === null || v === undefined ? '–' : `${(v * 100)
         {{ pct(params.camber) }} at {{ pct(params.camberPos, 0) }} · LE radius {{ pct(params.leRadius, 2) }}
       </span>
       <span v-if="tipNote">{{ tipNote }}</span>
-      <span v-if="!valid" class="wc-text-warn">These parameters give an impossible shape; adjust them.</span>
+      <span v-if="!valid" class="wc-text-warn">{{ invalidNote }}</span>
     </figcaption>
   </figure>
 </template>

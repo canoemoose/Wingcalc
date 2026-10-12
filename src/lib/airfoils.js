@@ -9,7 +9,7 @@
 
 import data from '../data/airfoils.json'
 import { analysePolar, ratePolar, rateGeometry, indicativePolar, spanwiseStall, sharper } from './stall.js'
-import { generateSection, upperOrdinate, zeroLiftAngle, unpack } from './airfoilGeom.js'
+import { generateSection, upperOrdinate, zeroLiftAngle, unpack, isMultiElement } from './airfoilGeom.js'
 import { stallSpeed, reynolds, WING_CLMAX_FACTOR, NU_SEA_LEVEL } from './calc.js'
 import { leastSquares } from './fit.js'
 import { quantiseRe, polarSegments, COMPARE_THRESHOLDS } from './xfoil.js'
@@ -51,8 +51,21 @@ export function entryCoords(entry) {
   return c
 }
 
+// Whether a UIUC entry is a multi-element set (slat, main and flap in one file, such as
+// 30P-30N). Nothing here can model one: the stats, XFOIL and the ribs all assume a single
+// closed section. Worked out once per entry.
+const multiElementCache = new WeakMap()
+export function isMultiElementEntry(s, packScale = 10000) {
+  let m = multiElementCache.get(s)
+  if (m === undefined) {
+    m = isMultiElement(unpack(s.pts, packScale))
+    multiElementCache.set(s, m)
+  }
+  return m
+}
+
 // Everything in a family for the picker: polar-backed sections first, then the rest of the
-// UIUC catalogue (skipping sections already in the polar library).
+// UIUC catalogue (skipping sections already in the polar library, and multi-element sets).
 export function catalogueFor(family, uiuc) {
   const lib = sectionsIn(family).map((s) => ({
     key: s.id,
@@ -66,7 +79,7 @@ export function catalogueFor(family, uiuc) {
   if (!uiuc) return lib
   const covered = new Set(data.sections.map((s) => s.uiuc))
   const rest = uiuc.sections
-    .filter((s) => s.family === family && !covered.has(s.id))
+    .filter((s) => s.family === family && !covered.has(s.id) && !isMultiElementEntry(s, uiuc.packScale))
     .map((s) => ({
       key: UIUC_PREFIX + s.id,
       name: s.name,
@@ -214,6 +227,8 @@ export function resolveAirfoil(selection, uiuc = null) {
   if (selection.id?.startsWith(UIUC_PREFIX)) {
     const s = findUiuc(uiuc, selection.id)
     if (!s) return null
+    // A multi-element set isn't offered, but an older saved project may still name one
+    const multiElement = isMultiElementEntry(s, uiuc.packScale)
     return {
       kind: 'catalogue',
       name: s.name,
@@ -221,7 +236,8 @@ export function resolveAirfoil(selection, uiuc = null) {
       entry: s,
       source: `${uiuc.coordUrl}${s.id}.dat`,
       coords: unpack(s.pts, uiuc.packScale),
-      valid: true,
+      valid: !multiElement,
+      multiElement,
       params: paramsFrom(s),
       upper125: s.upper125Pct / 100,
     }

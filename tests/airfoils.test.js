@@ -12,7 +12,10 @@ import {
   libraryCalibration,
   estimateClMax,
   UIUC_PREFIX,
+  entryCoords,
+  isMultiElementEntry,
 } from '../src/lib/airfoils.js'
+import { generateSection, nacaLeRadius, isMultiElement } from '../src/lib/airfoilGeom.js'
 import { stallSpeed, reynolds, WING_CLMAX_FACTOR } from '../src/lib/calc.js'
 
 describe('bundled aerofoil data', () => {
@@ -114,6 +117,24 @@ describe('UIUC catalogue', async () => {
     expect(new Set(list.map((e) => e.key)).size).toBe(list.length)
   })
 
+  it('lists no multi-element sets', () => {
+    for (const family of ['naca', 'eppler', 'other']) {
+      for (const e of catalogueFor(family, uiuc)) expect(isMultiElement(entryCoords(e)), e.key).toBe(false)
+    }
+    for (const s of LIBRARY.sections) expect(isMultiElement(s.coords), s.id).toBe(false)
+  })
+
+  // The only multi-element set in the catalogue as built in October 2026. The fetch script now
+  // skips such sets, so this runs only while the bundled data still has it.
+  const set = uiuc.sections.find((s) => s.id === '30p-30n')
+  it.runIf(set)('drops 30P-30N but keeps its elements, which come as separate files', () => {
+    expect(isMultiElementEntry(set, uiuc.packScale)).toBe(true)
+    const keys = catalogueFor('other', uiuc).map((e) => e.key)
+    expect(keys).not.toContain(`${UIUC_PREFIX}30p-30n`)
+    expect(keys).toContain(`${UIUC_PREFIX}30p-30n-main`)
+    expect(keys).toContain(`${UIUC_PREFIX}30p-30n-flap`)
+  })
+
   it('estimates Clmax and draws an indicative curve for a coordinates-only section', () => {
     const entry = catalogueFor('other', uiuc).find((e) => !e.hasPolar)
     const a = resolveAirfoil({ source: 'other', id: entry.key }, uiuc)
@@ -142,5 +163,40 @@ describe('Clmax estimate for sections without polars', () => {
     const swept = airfoilPerformance(a, { ...wing, clMaxFactor: 0.9 * Math.cos(Math.PI / 6) })
     const straight = airfoilPerformance(a, wing)
     expect(swept.stallSpeed).toBeGreaterThan(straight.stallSpeed)
+  })
+})
+
+describe('a saved project naming a multi-element set', () => {
+  // A two-element set (main element and flap) packed as the catalogue packs it
+  const sec = (t) => generateSection({ thickness: t, thicknessPos: 0.3, camber: 0.02, camberPos: 0.4, leRadius: nacaLeRadius(t) }).coords
+  const coords = [...sec(0.12).map(([x, y]) => [0.8 * x, 0.8 * y]), ...sec(0.1).map(([x, y]) => [0.82 + 0.3 * x, -0.02 + 0.3 * y])]
+  const entry = (id) => ({
+    id,
+    family: 'other',
+    name: id.toUpperCase(),
+    description: id,
+    thicknessPct: 9.6,
+    thicknessPosPct: 24,
+    camberPct: 1.6,
+    camberPosPct: 32,
+    leRadiusPct: 1,
+    upper125Pct: 1.5,
+    pts: (id === 'twin' ? coords : sec(0.12)).flatMap(([x, y]) => [Math.round(x * 1e4), Math.round(y * 1e4)]),
+  })
+  const uiuc = { packScale: 10000, coordUrl: 'https://example.invalid/', sections: [entry('twin'), entry('single')] }
+
+  it('is left out of the picker', () => {
+    const listed = catalogueFor('other', uiuc).filter((e) => !e.hasPolar)
+    expect(listed.map((e) => e.key)).toEqual([`${UIUC_PREFIX}single`])
+  })
+
+  it('still resolves, but as unusable, so no figures, XFOIL or structure are worked out from it', () => {
+    const a = resolveAirfoil({ source: 'other', id: `${UIUC_PREFIX}twin` }, uiuc)
+    expect(a.name).toBe('TWIN')
+    expect(a.multiElement).toBe(true)
+    expect(a.valid).toBe(false)
+    const ok = resolveAirfoil({ source: 'other', id: `${UIUC_PREFIX}single` }, uiuc)
+    expect(ok.multiElement).toBe(false)
+    expect(ok.valid).toBe(true)
   })
 })

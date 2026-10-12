@@ -319,6 +319,45 @@ export function zeroLiftAngle(coords, n = 200) {
   return (rad * 180) / Math.PI
 }
 
+// How many separate elements a coordinate set describes. A single section has one leading
+// edge: in Selig order x falls from the trailing edge to the nose and rises back again (in
+// Lednicer order it rises, jumps back to the nose and rises again, which also has one). A
+// multi-element set, such as a slat, main element and flap, is one such loop per element in
+// a row, so x turns from falling to rising once per element. Turns smaller than `tolerance`
+// of the x extent are ignored, so ragged points at a nose or trailing edge don't count.
+// A big gap between neighbouring points is not a test on its own: sparse files join long
+// straight stretches with a single step.
+export function elementCount(coords, tolerance = 0.02) {
+  if (coords.length < 3) return coords.length ? 1 : 0
+  let xMin = Infinity
+  let xMax = -Infinity
+  for (const [x] of coords) {
+    if (x < xMin) xMin = x
+    if (x > xMax) xMax = x
+  }
+  const h = tolerance * (xMax - xMin)
+  let dir = 0 // -1 falling, +1 rising, 0 not yet known
+  let turn = coords[0][0] // furthest x reached in the current direction (the start, until known)
+  let leadingEdges = 0
+  for (const [x] of coords) {
+    if (dir > 0) {
+      if (x > turn) turn = x
+      else if (x < turn - h) [dir, turn] = [-1, x]
+    } else if (dir < 0) {
+      if (x < turn) turn = x
+      else if (x > turn + h) {
+        leadingEdges++
+        ;[dir, turn] = [1, x]
+      }
+    } else if (Math.abs(x - turn) > h) [dir, turn] = [Math.sign(x - turn), x]
+  }
+  return Math.max(1, leadingEdges)
+}
+
+export function isMultiElement(coords) {
+  return elementCount(coords) > 1
+}
+
 // Unpack integer-packed coordinates (see scripts/fetch-airfoils.mjs).
 export function unpack(pts, scale = 10000) {
   const out = []

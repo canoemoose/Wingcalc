@@ -15,7 +15,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync, strFromU8 } from 'fflate'
-import { sectionStats, decimate } from '../src/lib/airfoilGeom.js'
+import { sectionStats, decimate, isMultiElement } from '../src/lib/airfoilGeom.js'
 import { familyOf, uiucId } from '../src/lib/family.js'
 
 const BASE = 'http://airfoiltools.com'
@@ -221,6 +221,7 @@ async function buildUiuc() {
     try {
       const { name, coords } = parseSelig(strFromU8(bytes))
       if (coords.length < 15) throw new Error('too few points')
+      if (isMultiElement(coords)) throw new Error('multi-element')
       const stats = sectionStats(coords)
       if (!(stats.thickness > 0.005 && stats.thickness < 0.6)) throw new Error('implausible thickness')
       sections.push({

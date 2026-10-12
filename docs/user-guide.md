@@ -55,7 +55,7 @@ In "Chords & panels" mode the results column shows the wing plan: one half of th
 
 ## Aerofoils
 
-Aerofoils are chosen from a catalogue of the whole UIUC Airfoil Coordinates Database in NACA, Eppler and Other tabs; 78 popular sections also have bundled polars. A **custom section** can be defined by its thickness and camber (each with its position) and its leading-edge radius, and is drawn to true proportion with its chord line, mean line and leading-edge circle so it can be checked by eye.
+Aerofoils are chosen from a catalogue of the whole UIUC Airfoil Coordinates Database in NACA, Eppler and Other tabs; 78 popular sections also have bundled polars. Multi-element sets (a slat, main element and flap together, such as 30P-30N) aren't listed, as nothing here can model them, but an element the database has as a file of its own is. A project saved with one before it was left out opens with a warning on the section drawing and the structure card, and no aerofoil figures, until another section is chosen. A **custom section** can be defined by its thickness and camber (each with its position) and its leading-edge radius, and is drawn to true proportion with its chord line, mean line and leading-edge circle so it can be checked by eye.
 
 Results appear in two stages: instantly from the bundled polars or an estimate, then a second or two later from an XFOIL polar computed in the browser at the stall's own Reynolds number. The lift curve is drawn with the peak and the stall band marked, so the stall rating can be checked by eye. See [Methods](methods.md#polars-computed-in-the-browser-xfoil).
 
