@@ -48,6 +48,10 @@ const POISSON = 0.3
 // effective modulus of √(E_L · E_T) with E_T ≈ 5% of E_L is a common first estimate.
 const WEB_STIFFNESS_RATIO = Math.sqrt(0.05)
 // Smallest rib spacing the suggestion will use; below it the spar or sheeting needs to change.
+// A plain rib between the fixed ones (spaced for you, or placed by hand), as opposed to a
+// root, break, hard-point or tip rib
+export const isPlainRib = (kind) => kind === 'normal' || kind === 'manual'
+
 export const MIN_SPACING = 0.015
 // Least rib material left around a hole or notch before it's flagged.
 export const MIN_MATERIAL = 0.0015

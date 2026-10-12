@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH } from './edgeStock.js'
@@ -195,7 +195,7 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 // rib: { s, kind, label } from the analysis; board: panel datum height (for jig tabs) or null.
 export function buildRib(a, structure, rib, { board = null } = {}) {
   const r = structure.ribs
-  const perpendicular = r.orientation === 'perpendicular' && rib.kind === 'normal'
+  const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
   const prof = cutProfile(a, rib.s, { perpendicular })
   if (!prof) return { ok: false, reason: 'outside', s: rib.s }
   const notes = []
@@ -404,7 +404,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
 
   // Lightening holes, in the open stretches either side of the spar (not on the root,
   // break or tip ribs, which take the joining loads), clear of the label
-  if (r.lightening && rib.kind === 'normal') {
+  if (r.lightening && isPlainRib(rib.kind)) {
     const m = r.lighteningMargin || 0.004
     const stretches = []
     for (const [from, to] of [
@@ -557,7 +557,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const gussetGroups = new Map()
   if ((g.le || g.te) && g.size > 0) {
     for (const p of parts.filter((q) => q.group === 'ribs')) {
-      if (g.where === 'ends' && p.kind === 'normal') continue
+      if (g.where === 'ends' && isPlainRib(p.kind)) continue
       for (const edge of ['le', 'te'].filter((e) => g[e])) {
         const angle = gussetAngle(a, p.s, edge, p.rib)
         const sides = gussetSides(p, g, r.rootJoint).map((k) => (k > 0 ? angle : 180 - angle))

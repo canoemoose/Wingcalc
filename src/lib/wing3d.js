@@ -8,7 +8,7 @@
 // Washout rotates each section about the spar line (TE up), as in ribs.js, so the skin and
 // the ribs agree.
 
-import { skinAt, sparWidth, lineFaces } from './structure.js'
+import { skinAt, sparWidth, lineFaces, isPlainRib } from './structure.js'
 import { gussetSides } from './ribs.js'
 
 const RAD = Math.PI / 180
@@ -409,7 +409,7 @@ export function gussetPrisms(a, structure, parts) {
   const clampS = (s) => Math.min(a.tipS, Math.max(a.rootS, s))
   const layers = g.layer === 'both' ? ['upper', 'lower'] : [g.layer === 'bottom' ? 'lower' : 'upper']
   for (const p of parts.filter((q) => q.group === 'ribs')) {
-    if (g.where === 'ends' && p.kind === 'normal') continue
+    if (g.where === 'ends' && isPlainRib(p.kind)) continue
     const r = p.rib
     const ang = (r.angle * Math.PI) / 180
     const d = [Math.sin(ang), Math.cos(ang)] // along the rib, aft, in plan (s, x)

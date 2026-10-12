@@ -118,6 +118,21 @@ describe('ribs', () => {
     }
   })
 
+  it('treats ribs placed by hand like spaced ones: lightening holes, no end gussets', () => {
+    const res = build((st) => {
+      st.ribs.spacing = 'manual'
+      st.ribs.manual = [0.1, 0.2, 0.3, 0.4].map((d, i) => ({ id: i + 1, d }))
+      st.ribs.lightening = true
+      st.gussets.le = true
+      st.gussets.where = 'ends'
+    })
+    const manual = ribsOf(res).filter((p) => p.kind === 'manual')
+    expect(manual.length).toBe(4)
+    for (const p of manual) expect(p.holes.length, p.name).toBeGreaterThan(0)
+    const gussets = res.parts.filter((p) => p.group === 'gussets').reduce((n, p) => n + p.qty, 0)
+    expect(gussets).toBe(2 * (ribsOf(res).length - 4))
+  })
+
   it('cuts a rib square to a swept spar shorter than the streamwise chord, by cos of the sweep', () => {
     const sweep = 0.15
     const res = build(
