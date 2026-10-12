@@ -6,15 +6,16 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
+import { SELECT, MEASURE, ADD_PANEL } from '../lib/icons.js'
+import ToolRail from './ToolRail.vue'
+import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
   system: { type: String, required: true },
-  canUndo: { type: Boolean, default: false },
-  canRedo: { type: Boolean, default: false },
   // Fill the parent's height (the expanded editor) instead of a fixed height.
   fill: { type: Boolean, default: false },
 })
-const emit = defineEmits(['undo', 'redo', 'commit'])
+const emit = defineEmits(['commit'])
 const rootChord = defineModel('rootChord', { type: Number, default: null })
 const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
 const panels = defineModel('panels', { type: Array, required: true })
@@ -27,6 +28,7 @@ const height = ref(FIXED_HEIGHT)
 const HANDLE_PX = 6
 const SNAP_PX = 10
 const wrapEl = ref(null)
+const stageEl = ref(null) // the drawing area, under the rail and the corner controls
 const svgEl = ref(null)
 const width = ref(600)
 const view = reactive({ ox: -0.05, oy: -0.1, scale: 400 }) // world origin of the top-left, px per metre
@@ -93,15 +95,20 @@ function bounds() {
   return { sMin: -0.08 * sMax, sMax, xMin, xMax }
 }
 
+// Space kept clear of the rail (left), the command bar (top) and the corner controls
+// (bottom), in pixels
+const INSET = { left: 76, top: 44, right: 12, bottom: 44 }
 function fit() {
   const b = bounds()
   const w = b.sMax - b.sMin
   const h = Math.max(b.xMax - b.xMin, 0.01)
-  const scale = Math.min((width.value * 0.88) / w, (height.value * 0.7) / h)
+  const aw = Math.max(40, width.value - INSET.left - INSET.right)
+  const ah = Math.max(40, height.value - INSET.top - INSET.bottom)
+  const scale = Math.min((aw * 0.94) / w, (ah * 0.9) / h)
   if (!Number.isFinite(scale) || scale <= 0) return
   view.scale = scale
-  view.ox = b.sMin - (width.value / scale - w) / 2
-  view.oy = b.xMin - (height.value / scale - h) / 2
+  view.ox = b.sMin - (INSET.left + (aw - w * scale) / 2) / scale
+  view.oy = b.xMin - (INSET.top + (ah - h * scale) / 2) / scale
 }
 
 function zoomAt(factor, sx, sy) {
@@ -111,6 +118,8 @@ function zoomAt(factor, sx, sy) {
   view.ox = wx - sx / view.scale
   view.oy = wy - sy / view.scale
 }
+
+const zoomBy = (k) => zoomAt(k, width.value / 2, height.value / 2)
 
 function onWheel(e) {
   e.preventDefault()
@@ -379,18 +388,43 @@ function setTool(t) {
   hoverSnap.value = null
 }
 
+// --- Rail and command bar --------------------------------------------------------------
+
+const railItems = computed(() => [
+  { id: 'select', kind: 'tool', caption: 'Select', title: 'Select and edit (V)', icon: SELECT, pressed: tool.value === 'select' },
+  { id: 'measure', kind: 'tool', caption: 'Measure', title: 'Measure and dimension (M)', icon: MEASURE, pressed: tool.value === 'measure' },
+  null,
+  { id: 'add-panel', kind: 'action', caption: 'Add panel', title: 'Add a panel at the tip', icon: ADD_PANEL },
+])
+function onRail(id) {
+  if (id === 'add-panel') addPanel()
+  else setTool(id)
+}
+
+// What the command bar acts on: the selected panel or dimension, or (measuring) all the
+// dimensions. Null hides it.
+const cmd = computed(() => {
+  if (tool.value === 'measure') return dimensions.value.length ? { kind: 'measure', label: 'Dimensions' } : null
+  if (selectedDim.value !== null) return { kind: 'dim', label: 'Dimension' }
+  if (selected.value !== null) return { kind: 'panel', label: `Panel ${selected.value + 1}` }
+  return null
+})
+
 // --- Keyboard --------------------------------------------------------------------------
 
 function onKey(e) {
-  const mod = e.ctrlKey || e.metaKey
-  if (mod && (e.key === 'z' || e.key === 'Z')) {
-    emit(e.shiftKey ? 'redo' : 'undo')
-  } else if (mod && (e.key === 'y' || e.key === 'Y')) {
-    emit('redo')
-  } else if (!mod && (e.key === 'm' || e.key === 'M')) {
+  // Ctrl+Z / Ctrl+Y are window-wide (WingCalc)
+  if (e.ctrlKey || e.metaKey) return
+  if (e.key === 'm' || e.key === 'M') {
     setTool('measure')
-  } else if (!mod && (e.key === 'v' || e.key === 'V')) {
+  } else if (e.key === 'v' || e.key === 'V') {
     setTool('select')
+  } else if (e.key === 'f' || e.key === 'F') {
+    fit()
+  } else if (e.key === '+' || e.key === '=') {
+    zoomBy(1.25)
+  } else if (e.key === '-' || e.key === '_') {
+    zoomBy(1 / 1.25)
   } else if (e.key === 'Escape') {
     if (drag.value?.kind === 'measure') drag.value = null
     else if (tool.value === 'measure') setTool('select')
@@ -556,7 +590,7 @@ const hint = computed(() => {
     if (mode === 'stations') return `Panel ${selected.value + 1} selected. Drag a station's leading-edge handle to move it, its trailing-edge handle to change its chord.`
     return `Panel ${selected.value + 1} selected. Drag the round handles at its tip; drag the small ones on its edges to curve them.`
   }
-  return 'Click a panel to select it. Drag to pan, scroll to zoom. Alt disables snapping. M measures, V selects.'
+  return 'Click a panel to select it. Drag to pan, scroll to zoom, F to fit. Alt disables snapping. M measures, V selects.'
 })
 
 // --- Lifecycle -------------------------------------------------------------------------
@@ -574,9 +608,9 @@ function measure(w, h) {
 }
 onMounted(() => {
   // Measure now so the first paint is right, then follow later size changes.
-  measure(wrapEl.value.clientWidth, wrapEl.value.clientHeight)
+  measure(stageEl.value.clientWidth, stageEl.value.clientHeight)
   ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width, entry.contentRect.height))
-  ro.observe(wrapEl.value)
+  ro.observe(stageEl.value)
   svgEl.value.addEventListener('wheel', onWheel, { passive: false })
 })
 onBeforeUnmount(() => {
@@ -608,319 +642,271 @@ watch(
 
 <template>
   <div class="wc-plan" :class="{ 'wc-plan--fill': fill }">
-    <div class="wc-plan__toolbar" role="toolbar" aria-label="Wing plan tools">
-      <div class="wc-segmented wc-segmented--inline" role="radiogroup" aria-label="Tool">
-        <button
-          type="button"
-          role="radio"
-          class="wc-segmented__btn"
-          :class="{ 'wc-segmented__btn--active': tool === 'select' }"
-          :aria-checked="tool === 'select'"
-          title="Select and edit (V)"
-          @click="setTool('select')"
-        >
-          Select
-        </button>
-        <button
-          type="button"
-          role="radio"
-          class="wc-segmented__btn"
-          :class="{ 'wc-segmented__btn--active': tool === 'measure' }"
-          :aria-checked="tool === 'measure'"
-          title="Measure and dimension (M)"
-          @click="setTool('measure')"
-        >
-          Measure
-        </button>
-      </div>
-      <span class="wc-plan__sep" />
-      <button type="button" class="wc-button" @click="addPanel">Add panel</button>
-      <template v-if="selected !== null">
-        <button type="button" class="wc-button" title="Insert a new panel outboard of the selected one" @click="insertAfterSelected">
-          Insert after
-        </button>
-        <button type="button" class="wc-button" :disabled="selected === 0" title="Move the selected panel inward" aria-label="Move panel inward" @click="moveSelected(-1)">
-          ←
-        </button>
-        <button
-          type="button"
-          class="wc-button"
-          :disabled="selected === panels.length - 1"
-          title="Move the selected panel outward"
-          aria-label="Move panel outward"
-          @click="moveSelected(1)"
-        >
-          →
-        </button>
-        <button type="button" class="wc-button" :disabled="panels.length < 2" @click="deletePanel">Delete panel</button>
-      </template>
-      <button v-if="selShape?.mode === 'stations'" type="button" class="wc-button" @click="newStation">Add station</button>
-      <button v-if="dimensions.length" type="button" class="wc-button" @click="clearDims">Clear dimensions</button>
-      <span class="wc-plan__sep" />
-      <button type="button" class="wc-button" :disabled="!canUndo" title="Undo (Ctrl+Z)" @click="emit('undo')">
-        Undo
-      </button>
-      <button type="button" class="wc-button" :disabled="!canRedo" title="Redo (Ctrl+Y)" @click="emit('redo')">
-        Redo
-      </button>
-      <span class="wc-plan__sep" />
-      <label class="wc-check"><input v-model="snapOn" type="checkbox" /> Snap</label>
-      <span class="wc-plan__spacer" />
-      <button type="button" class="wc-button" aria-label="Zoom out" @click="zoomAt(1 / 1.25, width / 2, height / 2)">
-        −
-      </button>
-      <button type="button" class="wc-button" aria-label="Zoom in" @click="zoomAt(1.25, width / 2, height / 2)">+</button>
-      <button type="button" class="wc-button" @click="fit">Fit</button>
-    </div>
-
     <div
       ref="wrapEl"
       class="wc-plan__canvas"
       tabindex="0"
-      aria-label="Wing plan editor. Arrow keys move the selected panel's tip; Delete removes the selection; M measures."
+      aria-label="Wing plan editor. Arrow keys move the selected panel's tip; Delete removes the selection; M measures, V selects, F fits."
       @keydown="onKey"
     >
-      <svg
-        ref="svgEl"
-        :viewBox="viewBox"
-        :width="width"
-        :height="height"
-        class="wc-plan__svg"
-        :class="{ 'wc-plan__svg--panning': drag?.kind === 'pan', 'wc-plan__svg--measure': tool === 'measure' }"
-        @pointerdown.self="startPan($event, { deselect: true })"
-        @pointermove="moveHandle"
-        @pointerup="endHandle"
-        @pointercancel="endHandle"
-        @pointerleave="hoverSnap = drag ? hoverSnap : null"
-      >
-        <!-- Grid -->
-        <g class="wc-plan__grid" pointer-events="none">
-          <template v-for="(l, k) in grid.lines" :key="k">
-            <line
-              v-if="l.v"
-              :x1="l.p"
-              :x2="l.p"
-              :y1="grid.y0"
-              :y2="grid.y1"
-              :class="l.major ? 'wc-plan__major' : 'wc-plan__minor'"
-            />
-            <line v-else :x1="grid.x0" :x2="grid.x1" :y1="l.p" :y2="l.p" :class="l.major ? 'wc-plan__major' : 'wc-plan__minor'" />
-          </template>
-          <line x1="0" x2="0" :y1="grid.y0" :y2="grid.y1" class="wc-plan__centre" />
-        </g>
-
-        <!-- Left half, mirrored for context -->
-        <g transform="scale(-1,1)" class="wc-plan__ghost" pointer-events="none">
-          <rect v-if="half > 0" x="0" y="0" :width="half" :height="rootChord" />
-          <polygon v-for="p in shapes" :key="'g' + p.index" :points="p.polygonPts" />
-          <polygon v-if="tipShape" :points="tipShape.polygonPts" />
-        </g>
-
-        <!-- Fuselage section -->
-        <rect
-          v-if="half > 0"
-          x="0"
-          y="0"
-          :width="half"
-          :height="rootChord"
-          class="wc-plan__fuselage"
-          @pointerdown="startPan($event, { deselect: true })"
-        />
-
-        <!-- Panels and tip -->
-        <polygon
-          v-for="p in shapes"
-          :key="'p' + p.panel.id"
-          :points="p.polygonPts"
-          class="wc-plan__panel"
-          :class="{ 'wc-plan__panel--selected': selected === p.index }"
-          @pointerdown="startPan($event, { select: p.index })"
-        />
-        <polygon
-          v-if="tipShape"
-          :points="tipShape.polygonPts"
-          class="wc-plan__panel wc-plan__panel--tip"
-          @pointerdown="startPan($event, { deselect: true })"
-        />
-        <polyline v-for="p in shapes" :key="'q' + p.panel.id" :points="p.quarter" class="wc-plan__quarter" pointer-events="none" />
-
-        <!-- Chord station ribs -->
-        <g pointer-events="none">
-          <template v-for="p in shapes" :key="'r' + p.panel.id">
-            <line v-for="r in p.ribs" :key="r.id" :x1="r.s" :y1="r.xl" :x2="r.s" :y2="r.xt" class="wc-plan__rib" />
-            <line
-              v-for="r in p.ignoredRibs"
-              :key="'x' + r.id"
-              :x1="r.s"
-              :y1="r.xl"
-              :x2="r.s"
-              :y2="r.xt"
-              class="wc-plan__rib wc-plan__rib--ignored"
-            />
-          </template>
-        </g>
-
-        <!-- Curve control lines for the selected panel -->
-        <g v-if="selShape" pointer-events="none" class="wc-plan__ctrl-lines">
-          <line
-            v-if="selShape.ctrlLe"
-            :x1="selShape.ctrlLe.s"
-            :y1="selShape.ctrlLe.x"
-            :x2="selShape.ctrlLe.anchor[0]"
-            :y2="selShape.ctrlLe.anchor[1]"
-          />
-          <line
-            v-if="selShape.ctrlTe"
-            :x1="selShape.ctrlTe.s"
-            :y1="selShape.ctrlTe.x"
-            :x2="selShape.ctrlTe.anchor[0]"
-            :y2="selShape.ctrlTe.anchor[1]"
-          />
-        </g>
-
-        <!-- Dimensions -->
-        <g class="wc-plan__dimset" :font-size="px(11)">
-          <g
-            v-for="d in dims"
-            :key="'d' + d.id"
-            class="wc-plan__dimension"
-            :class="{ 'wc-plan__dimension--selected': selectedDim === d.id }"
-            @pointerdown="selectDim($event, d.id)"
-          >
-            <line v-if="d.ext" :x1="d.ext[0]" :y1="d.ext[1]" :x2="d.ext[2]" :y2="d.ext[3]" class="wc-plan__dim-ext" />
-            <line :x1="d.line[0]" :y1="d.line[1]" :x2="d.line[2]" :y2="d.line[3]" class="wc-plan__dim-hit" />
-            <line :x1="d.line[0]" :y1="d.line[1]" :x2="d.line[2]" :y2="d.line[3]" class="wc-plan__dim-line" />
-            <circle :cx="d.line[0]" :cy="d.line[1]" :r="px(2.5)" :class="d.a.attached ? 'wc-plan__dim-end--attached' : 'wc-plan__dim-end'" />
-            <circle :cx="d.line[2]" :cy="d.line[3]" :r="px(2.5)" :class="d.b.attached ? 'wc-plan__dim-end--attached' : 'wc-plan__dim-end'" />
-            <text :x="d.label.s" :y="d.label.x" class="wc-plan__dim-text">{{ fmt(d.value) }}</text>
+      <div ref="stageEl" class="wc-plan__stage">
+        <svg
+          ref="svgEl"
+          :viewBox="viewBox"
+          :width="width"
+          :height="height"
+          class="wc-plan__svg"
+          :class="{ 'wc-plan__svg--panning': drag?.kind === 'pan', 'wc-plan__svg--measure': tool === 'measure' }"
+          @pointerdown.self="startPan($event, { deselect: true })"
+          @pointermove="moveHandle"
+          @pointerup="endHandle"
+          @pointercancel="endHandle"
+          @pointerleave="hoverSnap = drag ? hoverSnap : null"
+        >
+          <!-- Grid -->
+          <g class="wc-plan__grid" pointer-events="none">
+            <template v-for="(l, k) in grid.lines" :key="k">
+              <line
+                v-if="l.v"
+                :x1="l.p"
+                :x2="l.p"
+                :y1="grid.y0"
+                :y2="grid.y1"
+                :class="l.major ? 'wc-plan__major' : 'wc-plan__minor'"
+              />
+              <line v-else :x1="grid.x0" :x2="grid.x1" :y1="l.p" :y2="l.p" :class="l.major ? 'wc-plan__major' : 'wc-plan__minor'" />
+            </template>
+            <line x1="0" x2="0" :y1="grid.y0" :y2="grid.y1" class="wc-plan__centre" />
           </g>
-          <g v-if="liveDim" class="wc-plan__dimension wc-plan__dimension--live" pointer-events="none">
-            <line v-if="liveDim.ext" :x1="liveDim.ext[0]" :y1="liveDim.ext[1]" :x2="liveDim.ext[2]" :y2="liveDim.ext[3]" class="wc-plan__dim-ext" />
-            <line :x1="liveDim.line[0]" :y1="liveDim.line[1]" :x2="liveDim.line[2]" :y2="liveDim.line[3]" class="wc-plan__dim-line" />
-            <text :x="liveDim.label.s" :y="liveDim.label.x" class="wc-plan__dim-text">{{ fmt(liveDim.value) }}</text>
-          </g>
-        </g>
 
-        <!-- Handles (select tool) -->
-        <g v-if="tool === 'select'" class="wc-plan__handles">
-          <polygon :points="fuseHandle" class="wc-plan__handle wc-plan__handle--fuse" @pointerdown="startHandle($event, 'fuse')">
-            <title>Fuselage width: drag sideways</title>
-          </polygon>
-          <circle :cx="half" :cy="rootChord" :r="px(HANDLE_PX)" class="wc-plan__handle" @pointerdown="startHandle($event, 'root')">
-            <title>Root chord: drag up or down</title>
-          </circle>
-          <template v-for="p in shapes" :key="'h' + p.panel.id">
-            <circle
-              :cx="p.outer.s"
-              :cy="p.outer.x"
-              :r="px(HANDLE_PX)"
-              class="wc-plan__handle"
-              @pointerdown="startHandle($event, 'le', p.index)"
-            >
-              <title>Panel {{ p.index + 1 }} tip leading edge: drag for length and sweep (Shift keeps sweep)</title>
-            </circle>
-            <circle
-              :cx="p.outer.s"
-              :cy="p.outer.x + p.outer.c"
-              :r="px(HANDLE_PX)"
-              class="wc-plan__handle"
-              @pointerdown="startHandle($event, 'te', p.index)"
-            >
-              <title>Panel {{ p.index + 1 }} tip chord: drag up or down</title>
-            </circle>
-          </template>
-          <circle
+          <!-- Left half, mirrored for context -->
+          <g transform="scale(-1,1)" class="wc-plan__ghost" pointer-events="none">
+            <rect v-if="half > 0" x="0" y="0" :width="half" :height="rootChord" />
+            <polygon v-for="p in shapes" :key="'g' + p.index" :points="p.polygonPts" />
+            <polygon v-if="tipShape" :points="tipShape.polygonPts" />
+          </g>
+
+          <!-- Fuselage section -->
+          <rect
+            v-if="half > 0"
+            x="0"
+            y="0"
+            :width="half"
+            :height="rootChord"
+            class="wc-plan__fuselage"
+            @pointerdown="startPan($event, { deselect: true })"
+          />
+
+          <!-- Panels and tip -->
+          <polygon
+            v-for="p in shapes"
+            :key="'p' + p.panel.id"
+            :points="p.polygonPts"
+            class="wc-plan__panel"
+            :class="{ 'wc-plan__panel--selected': selected === p.index }"
+            @pointerdown="startPan($event, { select: p.index })"
+          />
+          <polygon
             v-if="tipShape"
-            :cx="tipShape.peak.s"
-            :cy="tipShape.peak.x"
-            :r="px(HANDLE_PX)"
-            class="wc-plan__handle wc-plan__handle--curve"
-            @pointerdown="startHandle($event, 'tip')"
-          >
-            <title>Wingtip: drag out for extension, along the chord for where it reaches furthest</title>
-          </circle>
-          <!-- Station handles on the selected panel -->
-          <template v-if="selShape?.mode === 'stations'">
-            <template v-for="r in selShape.ribs" :key="'sh' + r.id">
+            :points="tipShape.polygonPts"
+            class="wc-plan__panel wc-plan__panel--tip"
+            @pointerdown="startPan($event, { deselect: true })"
+          />
+          <polyline v-for="p in shapes" :key="'q' + p.panel.id" :points="p.quarter" class="wc-plan__quarter" pointer-events="none" />
+
+          <!-- Chord station ribs -->
+          <g pointer-events="none">
+            <template v-for="p in shapes" :key="'r' + p.panel.id">
+              <line v-for="r in p.ribs" :key="r.id" :x1="r.s" :y1="r.xl" :x2="r.s" :y2="r.xt" class="wc-plan__rib" />
+              <line
+                v-for="r in p.ignoredRibs"
+                :key="'x' + r.id"
+                :x1="r.s"
+                :y1="r.xl"
+                :x2="r.s"
+                :y2="r.xt"
+                class="wc-plan__rib wc-plan__rib--ignored"
+              />
+            </template>
+          </g>
+
+          <!-- Curve control lines for the selected panel -->
+          <g v-if="selShape" pointer-events="none" class="wc-plan__ctrl-lines">
+            <line
+              v-if="selShape.ctrlLe"
+              :x1="selShape.ctrlLe.s"
+              :y1="selShape.ctrlLe.x"
+              :x2="selShape.ctrlLe.anchor[0]"
+              :y2="selShape.ctrlLe.anchor[1]"
+            />
+            <line
+              v-if="selShape.ctrlTe"
+              :x1="selShape.ctrlTe.s"
+              :y1="selShape.ctrlTe.x"
+              :x2="selShape.ctrlTe.anchor[0]"
+              :y2="selShape.ctrlTe.anchor[1]"
+            />
+          </g>
+
+          <!-- Dimensions -->
+          <g class="wc-plan__dimset" :font-size="px(11)">
+            <g
+              v-for="d in dims"
+              :key="'d' + d.id"
+              class="wc-plan__dimension"
+              :class="{ 'wc-plan__dimension--selected': selectedDim === d.id }"
+              @pointerdown="selectDim($event, d.id)"
+            >
+              <line v-if="d.ext" :x1="d.ext[0]" :y1="d.ext[1]" :x2="d.ext[2]" :y2="d.ext[3]" class="wc-plan__dim-ext" />
+              <line :x1="d.line[0]" :y1="d.line[1]" :x2="d.line[2]" :y2="d.line[3]" class="wc-plan__dim-hit" />
+              <line :x1="d.line[0]" :y1="d.line[1]" :x2="d.line[2]" :y2="d.line[3]" class="wc-plan__dim-line" />
+              <circle :cx="d.line[0]" :cy="d.line[1]" :r="px(2.5)" :class="d.a.attached ? 'wc-plan__dim-end--attached' : 'wc-plan__dim-end'" />
+              <circle :cx="d.line[2]" :cy="d.line[3]" :r="px(2.5)" :class="d.b.attached ? 'wc-plan__dim-end--attached' : 'wc-plan__dim-end'" />
+              <text :x="d.label.s" :y="d.label.x" class="wc-plan__dim-text">{{ fmt(d.value) }}</text>
+            </g>
+            <g v-if="liveDim" class="wc-plan__dimension wc-plan__dimension--live" pointer-events="none">
+              <line v-if="liveDim.ext" :x1="liveDim.ext[0]" :y1="liveDim.ext[1]" :x2="liveDim.ext[2]" :y2="liveDim.ext[3]" class="wc-plan__dim-ext" />
+              <line :x1="liveDim.line[0]" :y1="liveDim.line[1]" :x2="liveDim.line[2]" :y2="liveDim.line[3]" class="wc-plan__dim-line" />
+              <text :x="liveDim.label.s" :y="liveDim.label.x" class="wc-plan__dim-text">{{ fmt(liveDim.value) }}</text>
+            </g>
+          </g>
+
+          <!-- Handles (select tool) -->
+          <g v-if="tool === 'select'" class="wc-plan__handles">
+            <polygon :points="fuseHandle" class="wc-plan__handle wc-plan__handle--fuse" @pointerdown="startHandle($event, 'fuse')">
+              <title>Fuselage width: drag sideways</title>
+            </polygon>
+            <circle :cx="half" :cy="rootChord" :r="px(HANDLE_PX)" class="wc-plan__handle" @pointerdown="startHandle($event, 'root')">
+              <title>Root chord: drag up or down</title>
+            </circle>
+            <template v-for="p in shapes" :key="'h' + p.panel.id">
               <circle
-                :cx="r.s"
-                :cy="r.xl"
-                :r="px(HANDLE_PX * 0.85)"
-                class="wc-plan__handle wc-plan__handle--station"
-                @pointerdown="startHandle($event, 'sle', selShape.index, { station: r.id })"
+                :cx="p.outer.s"
+                :cy="p.outer.x"
+                :r="px(HANDLE_PX)"
+                class="wc-plan__handle"
+                @pointerdown="startHandle($event, 'le', p.index)"
               >
-                <title>Station: drag to move it along the panel and set its leading edge</title>
+                <title>Panel {{ p.index + 1 }} tip leading edge: drag for length and sweep (Shift keeps sweep)</title>
               </circle>
               <circle
-                :cx="r.s"
-                :cy="r.xt"
-                :r="px(HANDLE_PX * 0.85)"
-                class="wc-plan__handle wc-plan__handle--station"
-                @pointerdown="startHandle($event, 'ste', selShape.index, { station: r.id })"
+                :cx="p.outer.s"
+                :cy="p.outer.x + p.outer.c"
+                :r="px(HANDLE_PX)"
+                class="wc-plan__handle"
+                @pointerdown="startHandle($event, 'te', p.index)"
               >
-                <title>Station chord: drag up or down</title>
+                <title>Panel {{ p.index + 1 }} tip chord: drag up or down</title>
               </circle>
             </template>
-          </template>
-          <!-- Curve handles on the selected panel -->
-          <template v-if="selShape && selShape.mode !== 'stations'">
-            <template v-for="edge in ['le', 'te']" :key="edge">
-              <rect
-                v-if="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe']"
-                :x="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe'].s - px(HANDLE_PX * 0.85)"
-                :y="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe'].x - px(HANDLE_PX * 0.85)"
-                :width="px(HANDLE_PX * 1.7)"
-                :height="px(HANDLE_PX * 1.7)"
-                class="wc-plan__handle wc-plan__handle--curve"
-                @pointerdown="startHandle($event, edge === 'le' ? 'cle' : 'cte', selShape.index)"
-                @dblclick="straighten(selShape.index, edge)"
-              >
-                <title>Curve handle: drag to shape the edge, double-click to straighten</title>
-              </rect>
-              <circle
-                v-else-if="selShape[edge === 'le' ? 'midLe' : 'midTe']"
-                :cx="selShape[edge === 'le' ? 'midLe' : 'midTe'][0]"
-                :cy="selShape[edge === 'le' ? 'midLe' : 'midTe'][1]"
-                :r="px(HANDLE_PX * 0.8)"
-                class="wc-plan__handle wc-plan__handle--add"
-                @pointerdown="startHandle($event, edge === 'le' ? 'mle' : 'mte', selShape.index)"
-              >
-                <title>Drag to curve this edge</title>
-              </circle>
+            <circle
+              v-if="tipShape"
+              :cx="tipShape.peak.s"
+              :cy="tipShape.peak.x"
+              :r="px(HANDLE_PX)"
+              class="wc-plan__handle wc-plan__handle--curve"
+              @pointerdown="startHandle($event, 'tip')"
+            >
+              <title>Wingtip: drag out for extension, along the chord for where it reaches furthest</title>
+            </circle>
+            <!-- Station handles on the selected panel -->
+            <template v-if="selShape?.mode === 'stations'">
+              <template v-for="r in selShape.ribs" :key="'sh' + r.id">
+                <circle
+                  :cx="r.s"
+                  :cy="r.xl"
+                  :r="px(HANDLE_PX * 0.85)"
+                  class="wc-plan__handle wc-plan__handle--station"
+                  @pointerdown="startHandle($event, 'sle', selShape.index, { station: r.id })"
+                >
+                  <title>Station: drag to move it along the panel and set its leading edge</title>
+                </circle>
+                <circle
+                  :cx="r.s"
+                  :cy="r.xt"
+                  :r="px(HANDLE_PX * 0.85)"
+                  class="wc-plan__handle wc-plan__handle--station"
+                  @pointerdown="startHandle($event, 'ste', selShape.index, { station: r.id })"
+                >
+                  <title>Station chord: drag up or down</title>
+                </circle>
+              </template>
             </template>
+            <!-- Curve handles on the selected panel -->
+            <template v-if="selShape && selShape.mode !== 'stations'">
+              <template v-for="edge in ['le', 'te']" :key="edge">
+                <rect
+                  v-if="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe']"
+                  :x="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe'].s - px(HANDLE_PX * 0.85)"
+                  :y="selShape[edge === 'le' ? 'ctrlLe' : 'ctrlTe'].x - px(HANDLE_PX * 0.85)"
+                  :width="px(HANDLE_PX * 1.7)"
+                  :height="px(HANDLE_PX * 1.7)"
+                  class="wc-plan__handle wc-plan__handle--curve"
+                  @pointerdown="startHandle($event, edge === 'le' ? 'cle' : 'cte', selShape.index)"
+                  @dblclick="straighten(selShape.index, edge)"
+                >
+                  <title>Curve handle: drag to shape the edge, double-click to straighten</title>
+                </rect>
+                <circle
+                  v-else-if="selShape[edge === 'le' ? 'midLe' : 'midTe']"
+                  :cx="selShape[edge === 'le' ? 'midLe' : 'midTe'][0]"
+                  :cy="selShape[edge === 'le' ? 'midLe' : 'midTe'][1]"
+                  :r="px(HANDLE_PX * 0.8)"
+                  class="wc-plan__handle wc-plan__handle--add"
+                  @pointerdown="startHandle($event, edge === 'le' ? 'mle' : 'mte', selShape.index)"
+                >
+                  <title>Drag to curve this edge</title>
+                </circle>
+              </template>
+            </template>
+          </g>
+
+          <!-- Snap target in measure mode -->
+          <circle
+            v-if="tool === 'measure' && hoverSnap"
+            :cx="hoverSnap.s"
+            :cy="hoverSnap.x"
+            :r="px(SNAP_PX * 0.8)"
+            class="wc-plan__snap"
+            pointer-events="none"
+          />
+
+          <!-- Dimensions for the selected panel -->
+          <g v-if="selShape && tool === 'select'" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
+            <text :x="(selShape.inner.s + selShape.outer.s) / 2" :y="Math.min(selShape.inner.x, selShape.outer.x) - px(10)" text-anchor="middle">
+              {{ fmt(selShape.panel.length) }}
+            </text>
+            <text :x="selShape.outer.s + px(10)" :y="selShape.outer.x + selShape.outer.c / 2" dominant-baseline="middle">
+              {{ fmt(selShape.outer.c) }}
+            </text>
+            <text
+              v-for="r in selShape.ribs"
+              :key="'rl' + r.id"
+              :x="r.s + px(4)"
+              :y="(r.xl + r.xt) / 2"
+              dominant-baseline="middle"
+              class="wc-plan__rib-label"
+            >
+              {{ fmt(r.chord) }}
+            </text>
+          </g>
+        </svg>
+        <ToolRail class="wc-stage__rail" :items="railItems" label="Wing plan tools" @pick="onRail" />
+        <div v-if="cmd" class="wc-cmd" role="toolbar" :aria-label="cmd.label">
+          <span class="wc-cmd__label">{{ cmd.label }}</span>
+          <template v-if="cmd.kind === 'panel'">
+            <button type="button" class="wc-cmd__btn" title="Insert a new panel outboard of this one" @click="insertAfterSelected">Insert after</button>
+            <button type="button" class="wc-cmd__btn" :disabled="selected === 0" title="Move this panel inward" aria-label="Move panel inward" @click="moveSelected(-1)">←</button>
+            <button type="button" class="wc-cmd__btn" :disabled="selected === panels.length - 1" title="Move this panel outward" aria-label="Move panel outward" @click="moveSelected(1)">→</button>
+            <button v-if="selShape?.mode === 'stations'" type="button" class="wc-cmd__btn" @click="newStation">Add station</button>
+            <span class="wc-cmd__sep" />
+            <button type="button" class="wc-cmd__btn" :disabled="panels.length < 2" title="Delete this panel (Delete)" @click="deletePanel">Delete</button>
           </template>
-        </g>
-
-        <!-- Snap target in measure mode -->
-        <circle
-          v-if="tool === 'measure' && hoverSnap"
-          :cx="hoverSnap.s"
-          :cy="hoverSnap.x"
-          :r="px(SNAP_PX * 0.8)"
-          class="wc-plan__snap"
-          pointer-events="none"
-        />
-
-        <!-- Dimensions for the selected panel -->
-        <g v-if="selShape && tool === 'select'" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
-          <text :x="(selShape.inner.s + selShape.outer.s) / 2" :y="Math.min(selShape.inner.x, selShape.outer.x) - px(10)" text-anchor="middle">
-            {{ fmt(selShape.panel.length) }}
-          </text>
-          <text :x="selShape.outer.s + px(10)" :y="selShape.outer.x + selShape.outer.c / 2" dominant-baseline="middle">
-            {{ fmt(selShape.outer.c) }}
-          </text>
-          <text
-            v-for="r in selShape.ribs"
-            :key="'rl' + r.id"
-            :x="r.s + px(4)"
-            :y="(r.xl + r.xt) / 2"
-            dominant-baseline="middle"
-            class="wc-plan__rib-label"
-          >
-            {{ fmt(r.chord) }}
-          </text>
-        </g>
-      </svg>
+          <button v-else-if="cmd.kind === 'dim'" type="button" class="wc-cmd__btn" title="Delete this dimension (Delete)" @click="deleteDim">Delete</button>
+          <button v-else-if="cmd.kind === 'measure'" type="button" class="wc-cmd__btn" @click="clearDims">Clear dimensions</button>
+        </div>
+        <StageZoom v-model:snap="snapOn" :snap-step="fmt(step)" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fit" />
+      </div>
       <p class="wc-plan__readout" aria-live="polite">{{ readout ?? hint }}</p>
     </div>
   </div>

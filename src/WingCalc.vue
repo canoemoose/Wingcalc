@@ -7,6 +7,7 @@ import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
+import UndoRedo from './components/UndoRedo.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
 import InspectorSection from './components/InspectorSection.vue'
 import { useHistory } from './composables/useHistory.js'
@@ -256,7 +257,7 @@ onMounted(() => {
   workspaceTarget.value = rootEl.value?.parentElement ?? null
 })
 
-// Undo/redo covers the wing shape and the plan's dimensions.
+// Undo/redo covers the wing shape, the plan's dimensions and the structure.
 const history = useHistory(
   () => ({
     fuselageWidth: input.fuselageWidth,
@@ -268,6 +269,18 @@ const history = useHistory(
   }),
   (v) => Object.assign(input, v),
 )
+// Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) anywhere, except in a text field, which keeps its own undo
+function onHistoryKey(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented) return
+  if (e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return
+  const k = e.key.toLowerCase()
+  if (k === 'z') e.shiftKey ? history.redo() : history.undo()
+  else if (k === 'y') history.redo()
+  else return
+  e.preventDefault()
+}
+onMounted(() => window.addEventListener('keydown', onHistoryKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onHistoryKey))
 
 const geometryModes = [
   { id: 'panels', label: 'Chords & panels' },
@@ -504,6 +517,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         @export="exportFile"
         @import="importFile"
       />
+      <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
       <div class="wc-header__prefs">
         <div class="wc-toggle" role="radiogroup" aria-label="Unit system">
           <button
@@ -794,10 +808,6 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:dimensions="input.dimensions"
             v-model:selected="selectedPanel"
             :system="system"
-            :can-undo="history.canUndo.value"
-            :can-redo="history.canRedo.value"
-            @undo="history.undo"
-            @redo="history.redo"
             @commit="history.commit"
           />
         </article>
@@ -933,6 +943,9 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           <span class="wc-stat"><span>Structure</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
           <button type="button" class="wc-button" @click="exportOpen = true">Export…</button>
         </template>
+        <template #actions>
+          <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
+        </template>
         <template #side>
           <StructureEditor
             v-model:structure="input.structure"
@@ -1033,6 +1046,9 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           </span>
           <span class="wc-stat"><span>Stall speed</span>{{ format(results.perf?.stallSpeed, 'speed', u('speed')) }}</span>
         </template>
+        <template #actions>
+          <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
+        </template>
         <template #side>
           <PanelEditor
             v-model:fuselage-width="input.fuselageWidth"
@@ -1058,11 +1074,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:dimensions="input.dimensions"
             v-model:selected="selectedPanel"
             :system="system"
-            :can-undo="history.canUndo.value"
-            :can-redo="history.canRedo.value"
             fill
-            @undo="history.undo"
-            @redo="history.redo"
             @commit="history.commit"
           />
           <PlanformView

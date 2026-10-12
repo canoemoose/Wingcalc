@@ -67,6 +67,7 @@ function onKey(e) {
       <div class="wc-workspace__stats">
         <slot name="stats" />
       </div>
+      <slot name="actions" />
       <button type="button" class="wc-button wc-button--primary" @click="open = false">Done</button>
     </header>
     <div class="wc-workspace__body">

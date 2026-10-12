@@ -17,6 +17,8 @@
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { wing3d, sectionAt, spanPlane, worldPoint } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
+import { EYE, EYE_OFF, HOME } from '../lib/icons.js'
+import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
   analysis: { type: Object, required: true },
@@ -41,6 +43,26 @@ const LAYERS = [
   { id: 'stringers', label: 'Stringers' },
   { id: 'mirror', label: 'Both halves' },
 ]
+// The Layers and Section menus (after Screenvision's): one open at a time, until its button
+// or Esc closes it
+const menu = ref(null) // 'layers' | 'section' | null
+const toggleMenu = (m) => (menu.value = menu.value === m ? null : m)
+function onKeydown(e) {
+  if (e.key === 'Escape' && menu.value) menu.value = null
+}
+// Shortcuts while the view has focus (a click in it gives it focus), as in the plans:
+// F fits, + and − zoom. Not while typing in one of its menus' fields.
+function onViewKey(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, select, textarea')) return
+  if (e.key === 'f' || e.key === 'F') fitView()
+  else if (e.key === '+' || e.key === '=') zoomBy(1.25)
+  else if (e.key === '-' || e.key === '_') zoomBy(1 / 1.25)
+  else return
+  e.preventDefault()
+}
+function focusView(e) {
+  if (!e.target.closest('button, input, select, label')) wrapEl.value?.focus({ preventScroll: true })
+}
 const hasStringers = computed(() => (props.structure.stringers ?? []).length > 0)
 const hasSheeting = computed(() => {
   const c = props.structure.covering
@@ -139,8 +161,13 @@ function render() {
   if (cube.scene) renderCube(w, h)
 }
 
+// The menus drop down inside the view, so they're capped to its height (and scroll)
+const stageH = ref(400)
+const menuMax = computed(() => `${Math.max(120, stageH.value - 56)}px`)
+
 function size() {
   const { w, h } = canvasSize()
+  stageH.value = h
   renderer.setSize(w, h, false)
   perspCam.aspect = w / h
   perspCam.updateProjectionMatrix()
@@ -292,23 +319,38 @@ function build() {
   applyVisibility()
   highlight()
   updateSection()
-  if (!framed) frame(model.bounds)
+  bounds = model.bounds
+  if (!framed) frame(shownBounds())
   render()
 }
 
-// Frame the wing: look from ahead, above and a little outboard, at the distance that just fits
-// its bounding box in the view's actual proportions, so a long wing fills a wide card.
-function frame(b) {
+// The model's bounds, with the other half when it's shown
+let bounds = null
+function shownBounds() {
+  if (!bounds || !show.value.mirror) return bounds
+  const m = Math.max(Math.abs(bounds.min[0]), Math.abs(bounds.max[0]))
+  return { min: [-m, bounds.min[1], bounds.min[2]], max: [m, bounds.max[1], bounds.max[2]] }
+}
+
+// Frame the wing: by default from ahead, above and a little outboard; or along a given view
+// direction (target to camera). At the distance that just fits its bounding box in the view's
+// actual proportions, so a long wing fills a wide card.
+const HOME_DIR = [-0.15, 0.55, -1.05]
+const FRAME_INSET = 44 // px kept clear at the top and bottom, for the corner controls
+function frame(b, dir = HOME_DIR) {
   const c = new THREE.Vector3(...b.min.map((v, k) => (v + b.max[k]) / 2))
   const size = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2], 0.1)
-  // The view direction (target to camera) and the camera's own axes looking along it
-  const z = new THREE.Vector3(-0.15, 0.55, -1.05).normalize()
+  // The view direction (target to camera) and the camera's own axes looking along it (up is
+  // always +Y for the orbit controls; the cube's top and bottom views lean a hair off it)
+  const z = new THREE.Vector3(...dir).normalize()
   const x = new THREE.Vector3(0, 1, 0).cross(z).normalize()
   const y = z.clone().cross(x)
   const { w, h } = canvasSize()
   const aspect = w / h
   const tanV = Math.tan(((FOV / 2) * Math.PI) / 180)
   const tanH = tanV * aspect
+  // Keep clear of the controls along the top and bottom edges
+  const inset = h / Math.max(1, h - 2 * FRAME_INSET)
   let dist = 0
   let halfH = 0
   for (const px of [b.min[0], b.max[0]]) {
@@ -317,9 +359,9 @@ function frame(b) {
         const p = new THREE.Vector3(px, py, pz).sub(c)
         const [cx, cy, cz] = [p.dot(x), p.dot(y), p.dot(z)]
         // Perspective: far enough that this corner is inside both edges of the view
-        dist = Math.max(dist, cz + Math.abs(cx) / tanH, cz + Math.abs(cy) / tanV)
+        dist = Math.max(dist, cz + Math.abs(cx) / tanH, cz + (Math.abs(cy) * inset) / tanV)
         // Orthographic: tall enough to hold it, and wide enough at this aspect
-        halfH = Math.max(halfH, Math.abs(cy), Math.abs(cx) / aspect)
+        halfH = Math.max(halfH, Math.abs(cy) * inset, Math.abs(cx) / aspect)
       }
     }
   }
@@ -563,9 +605,36 @@ function onUp(e) {
   if (hit?.object.userData.partId) emit('select', hit.object.userData.partId)
 }
 
+// Home: the starting angle, framed
 function resetView() {
-  framed = false
-  build()
+  if (!bounds) return
+  swinging++
+  frame(shownBounds())
+  render()
+}
+
+// Fit: frame the wing from where the camera is looking now
+function fitView() {
+  if (!bounds) return
+  swinging++
+  const dir = camera.position.clone().sub(controls.target)
+  frame(shownBounds(), [dir.x, dir.y, dir.z])
+  render()
+}
+
+// Zoom about the centre of the view: closer in perspective, a larger scale in orthographic
+function zoomBy(k) {
+  if (!THREE) return
+  swinging++
+  if (camera === orthoCam) {
+    orthoCam.zoom *= k
+    orthoCam.updateProjectionMatrix()
+  } else {
+    const offset = camera.position.clone().sub(controls.target).multiplyScalar(1 / k)
+    camera.position.copy(controls.target).add(offset)
+  }
+  controls.update()
+  render()
 }
 
 onMounted(async () => {
@@ -592,6 +661,7 @@ onMounted(async () => {
     makeCube()
     renderer.domElement.addEventListener('pointerdown', onDown)
     renderer.domElement.addEventListener('pointerup', onUp)
+    window.addEventListener('keydown', onKeydown)
     resizeObs = new ResizeObserver(size)
     resizeObs.observe(wrapEl.value)
     size()
@@ -607,6 +677,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   swinging++
+  window.removeEventListener('keydown', onKeydown)
   resizeObs?.disconnect()
   controls?.dispose()
   disposeGroup(root)
@@ -625,11 +696,97 @@ watch(projection, setProjection)
 
 <template>
   <figure class="wc-figure wc-3d">
-    <div class="wc-3d__bar" role="group" aria-label="Show in 3D">
-      <label v-for="l in LAYERS.filter(shown)" :key="l.id" class="wc-check">
-        <input v-model="show[l.id]" type="checkbox" /> {{ l.label }}
-      </label>
-      <div class="wc-segmented wc-segmented--small" role="radiogroup" aria-label="Projection">
+    <!-- The view's controls sit in its corners: what's shown top left, orientation top right
+         (around the cube, which three.js draws), framing bottom right -->
+    <div ref="wrapEl" class="wc-3d__canvas" tabindex="0" aria-label="3D view of the wing structure" @keydown="onViewKey" @pointerdown="focusView">
+      <p v-if="status" class="wc-3d__status wc-muted">{{ status }}</p>
+      <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Show">
+        <div class="wc-3d__menu">
+          <button type="button" class="wc-button wc-stage__btn" :aria-expanded="String(menu === 'layers')" aria-controls="wc-3d-layers" @click="toggleMenu('layers')">
+            Layers
+          </button>
+          <!-- Stays open while you work in the view; the button or Esc closes it -->
+          <div v-if="menu === 'layers'" id="wc-3d-layers" class="wc-layers" :style="{ maxHeight: menuMax }" role="group" aria-label="Layers">
+            <h4 class="wc-layers__head">Show</h4>
+            <ul class="wc-layers__rows">
+              <li v-for="l in LAYERS.filter(shown)" :key="l.id" class="wc-layers__row" :class="{ 'wc-layers__row--off': !show[l.id] }">
+                <span class="wc-layers__name">{{ l.label }}</span>
+                <button
+                  type="button"
+                  class="wc-layers__icon"
+                  :aria-pressed="String(show[l.id])"
+                  :title="`${show[l.id] ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`"
+                  @click="show[l.id] = !show[l.id]"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in show[l.id] ? EYE : EYE_OFF" :key="k" :d="d" /></svg>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="wc-3d__menu">
+          <button
+            type="button"
+            class="wc-button wc-stage__btn"
+            :class="{ 'wc-3d__tool--active': section.on }"
+            :aria-expanded="String(menu === 'section')"
+            aria-controls="wc-3d-section"
+            :title="section.on ? 'The wing is cut' : ''"
+            @click="toggleMenu('section')"
+          >
+            Section
+          </button>
+          <div v-if="menu === 'section'" id="wc-3d-section" class="wc-layers" :style="{ maxHeight: menuMax }" role="group" aria-label="Section">
+            <label class="wc-check">
+              <input type="checkbox" :checked="section.on" @change="toggleSection($event.target.checked)" /> Cut the wing square to the span
+            </label>
+            <div v-if="section.on" class="wc-layers__section">
+              <select class="wc-input wc-select wc-select--small" :value="bay" aria-label="Section between ribs" @change="chooseBay(Number($event.target.value))">
+                <option v-for="b in bays" :key="b.value" :value="b.value">Between {{ b.label }}</option>
+              </select>
+              <input
+                v-model.number="section.s"
+                class="wc-range"
+                type="range"
+                :min="sectionRange.min"
+                :max="sectionRange.max"
+                step="0.0005"
+                aria-label="Section position along the span"
+              />
+              <span class="wc-3d__readout">{{ sectionLabel }} from the root rib</span>
+              <div class="wc-layers__actions">
+                <button type="button" class="wc-button wc-button--small" @click="lookAtCut">Look at the cut</button>
+                <button
+                  type="button"
+                  class="wc-button wc-button--small"
+                  :aria-pressed="section.flip"
+                  :title="section.flip ? 'Keep the inboard part' : 'Keep the outboard part'"
+                  @click="flipSection"
+                >
+                  Flip
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button
+        v-if="!status"
+        type="button"
+        class="wc-3d__home"
+        :style="{ right: `${cube.size + cube.margin * 2}px`, top: `${cube.margin}px` }"
+        aria-label="Home view"
+        title="Home view: back to the starting angle"
+        @click="resetView"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in HOME" :key="k" :d="d" /></svg>
+      </button>
+      <div
+        class="wc-segmented wc-segmented--inline wc-3d__projection"
+        :style="{ right: `${cube.margin}px`, top: `${cube.size + cube.margin * 2}px` }"
+        role="radiogroup"
+        aria-label="Projection"
+      >
         <button
           v-for="p in [
             { id: 'perspective', label: 'Perspective' },
@@ -646,49 +803,12 @@ watch(projection, setProjection)
           {{ p.label }}
         </button>
       </div>
-      <button type="button" class="wc-button wc-button--small" @click="resetView">Reset view</button>
-    </div>
-    <div class="wc-3d__bar" role="group" aria-label="Section">
-      <label class="wc-check">
-        <input type="checkbox" :checked="section.on" @change="toggleSection($event.target.checked)" /> Section
-      </label>
-      <template v-if="section.on">
-        <select
-          class="wc-input wc-select wc-select--small"
-          :value="bay"
-          aria-label="Section between ribs"
-          @change="chooseBay(Number($event.target.value))"
-        >
-          <option v-for="b in bays" :key="b.value" :value="b.value">Between {{ b.label }}</option>
-        </select>
-        <input
-          v-model.number="section.s"
-          class="wc-range wc-3d__slider"
-          type="range"
-          :min="sectionRange.min"
-          :max="sectionRange.max"
-          step="0.0005"
-          aria-label="Section position along the span"
-        />
-        <span class="wc-3d__readout">{{ sectionLabel }} from the root rib</span>
-        <button type="button" class="wc-button wc-button--small" @click="lookAtCut">Look at the cut</button>
-        <button
-          type="button"
-          class="wc-button wc-button--small"
-          :aria-pressed="section.flip"
-          :title="section.flip ? 'Keep the inboard part' : 'Keep the outboard part'"
-          @click="flipSection"
-        >
-          Flip
-        </button>
-      </template>
-    </div>
-    <div ref="wrapEl" class="wc-3d__canvas">
-      <p v-if="status" class="wc-3d__status wc-muted">{{ status }}</p>
+      <StageZoom fit-title="Frame the wing from this angle (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
     <figcaption class="wc-figure__caption">
       Drag to turn, right-drag to move, scroll to zoom. Click a face of the cube at the top right to swing round to
-      that view, or a rib to select it. Twist and dihedral are true to scale.
+      that view (the house beside it goes back to the start), or a rib to select it. Layers shows and hides parts; Section
+      cuts the wing open. Twist and dihedral are true to scale.
     </figcaption>
   </figure>
 </template>

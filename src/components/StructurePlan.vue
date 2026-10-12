@@ -4,15 +4,20 @@
 // shaded. Click a rib to select it.
 //
 // It navigates like the wing plan editor: scroll to zoom about the pointer, drag empty space
-// to pan, Fit to frame the wing, with a grid that adapts to the zoom. With manual rib
-// spacing it edits like it too: drag a rib along the span (it snaps to the grid, measured
-// from the root rib; Alt to place freely), double-click the wing to add one, Delete removes
-// the selected one, and the arrow keys nudge it a grid step (Shift for ten). Manual ribs and
-// hard points move; the root, panel-break and tip ribs are fixed.
+// to pan, − + Fit in the bottom-right corner (F, + and −), with a grid that adapts to the
+// zoom. With manual rib spacing it edits like it too, with a rail of tools on the left:
+// Select (drag a rib along the span; it snaps to the grid, measured from the root rib, Alt
+// to place freely) and Add rib (click on the wing; double-click also adds one with Select).
+// Delete (or the command bar) removes the selected rib, and the arrow keys nudge it a grid
+// step (Shift for ten). Manual ribs and hard points move; root, panel-break and tip ribs
+// are fixed.
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { flatPanels } from '../lib/wing.js'
 import { MODES, SPACING_MODES, sheetOutline } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
+import { SELECT, ADD_RIB } from '../lib/icons.js'
+import ToolRail from './ToolRail.vue'
+import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
   analysis: { type: Object, required: true },
@@ -148,16 +153,20 @@ onBeforeUnmount(() => {
   sizeObs?.disconnect()
   window.removeEventListener('resize', remeasure)
 })
+// Space kept clear of the rail (when editing) and the controls along the top and bottom, px
+const inset = computed(() => ({ left: props.editable ? 76 : 8, right: 8, top: 40, bottom: 40 }))
 const vb = computed(() => {
   const f = fit.value
-  // Fit the wing inside the element's proportions, then zoom
-  const aspect = el.w / el.h
-  const fw = f.w / f.h > aspect ? f.w : f.h * aspect
-  const fh = fw / aspect
-  const w = fw / zoom.k
-  const h = fh / zoom.k
-  const cx = zoom.cx ?? f.x + f.w / 2
-  const cy = zoom.cy ?? f.y + f.h / 2
+  const ins = inset.value
+  // Fit the wing inside the space the controls leave, then zoom
+  const aw = Math.max(40, el.w - ins.left - ins.right)
+  const ah = Math.max(40, el.h - ins.top - ins.bottom)
+  const ppm = Math.min(aw / f.w, ah / f.h) * zoom.k // pixels per metre
+  const w = el.w / ppm
+  const h = el.h / ppm
+  // Fitted, the wing's centre sits in the middle of that space
+  const cx = zoom.cx ?? f.x + f.w / 2 - (ins.left - ins.right) / 2 / ppm
+  const cy = zoom.cy ?? f.y + f.h / 2 - (ins.top - ins.bottom) / 2 / ppm
   return { x: cx - w / 2, y: cy - h / 2, w, h }
 })
 const font = computed(() => (fit.value.chord * 0.07) / Math.sqrt(zoom.k))
@@ -182,6 +191,15 @@ const pxPerMetre = () => el.w / vb.value.w
 // The sheeting hatch, a fixed number of pixels apart whatever the zoom
 const hatchId = `wc-sp-hatch-${useId()}`
 const hatch = computed(() => ({ step: 7 / pxPerMetre(), width: 1 / pxPerMetre() }))
+
+// Zoom about the middle of the view, as the buttons and + and − do
+function zoomBy(f) {
+  const v = vb.value
+  const k = Math.min(60, Math.max(0.15, zoom.k * f))
+  zoom.cx = v.x + v.w / 2
+  zoom.cy = v.y + v.h / 2
+  zoom.k = k
+}
 
 function onWheel(e) {
   const before = toWorld(e)
@@ -222,6 +240,22 @@ const snap = (d, e) => (snapOn.value && !e?.altKey ? Math.round(d / step.value) 
 
 // --- Editing ---------------------------------------------------------------------------------
 
+// Tools on the rail, with manual spacing: select (and drag) ribs, or click to add one
+const tool = ref('select') // 'select' | 'add'
+const adding = computed(() => props.editable && tool.value === 'add')
+watch(
+  () => props.editable,
+  (on) => {
+    if (!on) tool.value = 'select'
+  },
+)
+const railItems = computed(() => [
+  { id: 'select', kind: 'tool', caption: 'Select', title: 'Select and drag ribs (V)', icon: SELECT, pressed: tool.value === 'select' },
+  { id: 'add', kind: 'tool', caption: 'Add rib', title: 'Click on the wing to add a rib (A)', icon: ADD_RIB, pressed: tool.value === 'add' },
+])
+// Where a click would add a rib, following the pointer (distance from the root rib)
+const addHover = ref(null)
+
 const partFor = (id) => ribs.value.find((p) => p.id === id)
 const selectedPart = computed(() => partFor(props.selected))
 const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1
@@ -248,16 +282,6 @@ function addAt(d) {
   pendingSource.value = id
   emit('commit')
 }
-// Add rib: in the middle of the widest bay
-function addInWidest() {
-  const list = ribs.value
-  let best = null
-  for (let i = 1; i < list.length; i++) {
-    const w = list[i].s - list[i - 1].s
-    if (!best || w > best.w) best = { w, s: (list[i].s + list[i - 1].s) / 2 }
-  }
-  if (best) addAt(snap(best.s - a.value.rootS))
-}
 function removeSelected() {
   const p = selectedPart.value
   if (!p || !movable(p)) return
@@ -282,7 +306,7 @@ function onRibDown(e, line) {
 function onBackgroundDown(e) {
   svgEl.value.setPointerCapture(e.pointerId)
   const v = vb.value
-  pan.value = { x: e.clientX, y: e.clientY, cx: v.x + v.w / 2, cy: v.y + v.h / 2 }
+  pan.value = { x: e.clientX, y: e.clientY, cx: v.x + v.w / 2, cy: v.y + v.h / 2, moved: false }
 }
 function onMove(e) {
   if (drag.value) {
@@ -290,12 +314,19 @@ function onMove(e) {
     if (Math.hypot(e.clientX - dr.startX, e.clientY - dr.startY) > 3) dr.moved = true
     if (dr.moved) dr.d = clampD(snap(toWorld(e).s - a.value.rootS, e))
   } else if (pan.value) {
+    if (Math.hypot(e.clientX - pan.value.x, e.clientY - pan.value.y) > 3) pan.value.moved = true
     const k = 1 / pxPerMetre()
     zoom.cx = pan.value.cx - (e.clientX - pan.value.x) * k
     zoom.cy = pan.value.cy - (e.clientY - pan.value.y) * k
   }
+  if (adding.value && !drag.value && !pan.value?.moved) {
+    const w = toWorld(e)
+    addHover.value = w.s > a.value.rootS && w.s < a.value.tipS ? clampD(snap(w.s - a.value.rootS, e)) : null
+  }
 }
 function onUp() {
+  // Add rib tool: a click on the wing (not a drag to pan) adds one there
+  if (adding.value && pan.value && !pan.value.moved && addHover.value !== null) addAt(addHover.value)
   if (drag.value?.moved) {
     setDistance(drag.value.part, drag.value.d)
     emit('commit')
@@ -304,12 +335,26 @@ function onUp() {
   pan.value = null
 }
 function onDblClick(e) {
-  if (!props.editable) return
+  // With the Add rib tool each click already adds one
+  if (!props.editable || adding.value) return
   const w = toWorld(e)
   if (w.s <= a.value.rootS || w.s >= a.value.tipS) return
   addAt(snap(w.s - a.value.rootS, e))
 }
 function onKey(e) {
+  if (e.ctrlKey || e.metaKey) return
+  const k = e.key.toLowerCase()
+  // View: F fits, + and − zoom; tools (when editing): V selects, A adds ribs, Esc back to select
+  if (k === 'f') fitView()
+  else if (k === '+' || k === '=') zoomBy(1.25)
+  else if (k === '-' || k === '_') zoomBy(1 / 1.25)
+  else if (props.editable && k === 'v') tool.value = 'select'
+  else if (props.editable && k === 'a') tool.value = 'add'
+  else if (props.editable && k === 'escape' && tool.value !== 'select') tool.value = 'select'
+  else return onEditKey(e)
+  e.preventDefault()
+}
+function onEditKey(e) {
   const p = selectedPart.value
   if ((e.key === 'Delete' || e.key === 'Backspace') && p && movable(p)) {
     e.preventDefault()
@@ -328,6 +373,12 @@ const preview = computed(() => {
   const s = a.value.rootS + dr.d
   const sec = a.value.section(s)
   return { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width }
+})
+const addPreview = computed(() => {
+  if (!adding.value || addHover.value === null || drag.value) return null
+  const s = a.value.rootS + addHover.value
+  const sec = a.value.section(s)
+  return sec ? { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width } : null
 })
 const KINDS = { root: 'Root rib', break: 'Panel break', tip: 'Tip rib', hard: 'Hard point', manual: 'Manual rib', normal: 'Rib' }
 const readout = computed(() => {
@@ -365,103 +416,103 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
 
 <template>
   <figure class="wc-figure wc-structure-plan">
-    <div class="wc-plan__toolbar" role="toolbar" aria-label="Structure plan tools">
-      <template v-if="editable">
-        <button type="button" class="wc-button" @click="addInWidest">Add rib</button>
-        <button type="button" class="wc-button" :disabled="!readout?.movable" @click="removeSelected">Delete rib</button>
-        <span class="wc-plan__sep" />
-      </template>
-      <label class="wc-check"><input v-model="snapOn" type="checkbox" /> Snap to grid ({{ fmt(step) }})</label>
-      <span class="wc-plan__spacer" />
-      <button type="button" class="wc-button" @click="fitView">Fit</button>
-    </div>
-    <svg
-      ref="svgEl"
-      :viewBox="`${vb.x} ${vb.y} ${vb.w} ${vb.h}`"
-      preserveAspectRatio="xMidYMid meet"
-      class="wc-structure-plan__svg"
-      :class="{ 'wc-structure-plan__svg--panning': pan }"
-      tabindex="0"
-      role="img"
-      aria-label="Wing structure seen from above, one side"
-      @wheel.prevent="onWheel"
-      @pointerdown="onBackgroundDown"
-      @pointermove="onMove"
-      @pointerup="onUp"
-      @pointercancel="onUp"
-      @dblclick="onDblClick"
-      @keydown="onKey"
-    >
-      <defs>
-        <!-- Stroke width in user units: non-scaling strokes inside a pattern tile aren't dependable -->
-        <pattern :id="hatchId" patternUnits="userSpaceOnUse" :width="hatch.step" :height="hatch.step" patternTransform="rotate(45)">
-          <line x1="0" y1="0" x2="0" :y2="hatch.step" :stroke-width="hatch.width" class="wc-sp__hatch" />
-        </pattern>
-      </defs>
-      <g pointer-events="none">
-        <line
-          v-for="(l, i) in grid"
-          :key="'g' + i"
-          :x1="l.v ? l.p : vb.x"
-          :x2="l.v ? l.p : vb.x + vb.w"
-          :y1="l.v ? vb.y : l.p"
-          :y2="l.v ? vb.y + vb.h : l.p"
-          :class="l.major ? 'wc-plan__major' : 'wc-plan__minor'"
-        />
-      </g>
-      <rect
-        v-for="(b, i) in weak"
-        :key="'w' + i"
-        :x="b.s0"
-        :y="vb.y"
-        :width="b.s1 - b.s0"
-        :height="vb.h"
-        class="wc-sp__weak"
-        :class="`wc-sp__weak--${b.kind}`"
+    <div class="wc-plan__stage">
+      <svg
+        ref="svgEl"
+        :viewBox="`${vb.x} ${vb.y} ${vb.w} ${vb.h}`"
+        preserveAspectRatio="xMidYMid meet"
+        class="wc-structure-plan__svg"
+        :class="{ 'wc-structure-plan__svg--panning': pan, 'wc-structure-plan__svg--add': adding }"
+        tabindex="0"
+        role="img"
+        aria-label="Wing structure seen from above, one side"
+        @wheel.prevent="onWheel"
+        @pointerdown="onBackgroundDown"
+        @pointermove="onMove"
+        @pointerleave="addHover = null"
+        @pointerup="onUp"
+        @pointercancel="onUp"
+        @dblclick="onDblClick"
+        @keydown="onKey"
       >
-        <title>Short of strength: {{ b.title }}</title>
-      </rect>
-      <g pointer-events="none">
-        <polygon v-if="fuselage" :points="fuselage" class="wc-sp__outline" />
-        <polygon v-for="p in flat.panels" :key="'p' + p.index" :points="poly(p.polygon)" class="wc-sp__outline" />
-        <polygon v-if="flat.tip" :points="poly(flat.tip.polygon)" class="wc-sp__outline wc-sp__tip" />
-        <template v-if="geom.sheet">
-          <polygon :points="geom.sheet" class="wc-sp__sheet" />
-          <polygon :points="geom.sheet" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
-        </template>
-        <polyline :points="geom.le" class="wc-sp__stock" />
-        <polyline :points="geom.te" class="wc-sp__stock" />
-        <polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" />
-        <polygon :points="geom.spar" class="wc-sp__spar" />
-      </g>
-      <g
-        v-for="(r, i) in ribLines"
-        :key="r.id"
-        class="wc-sp__rib"
-        :class="{
-          'wc-sp__rib--selected': r.id === selected,
-          'wc-sp__rib--hard': r.kind !== 'normal' && r.kind !== 'manual',
-          'wc-sp__rib--movable': r.movable,
-          'wc-sp__rib--dragging': drag?.moved && drag.part.id === r.id,
-        }"
-      >
-        <line :x1="r.x1" :y1="r.y1" :x2="r.x2" :y2="r.y2" class="wc-sp__ribline" />
-        <line :x1="r.x1" :y1="r.y1" :x2="r.x2" :y2="r.y2" class="wc-sp__ribhit" @pointerdown.stop="onRibDown($event, r)">
-          <title>{{ r.name }}{{ r.movable ? ': drag to move' : '' }}</title>
-        </line>
-        <text
-          v-if="i % labelEvery === 0 || r.id === selected"
-          :x="r.x1"
-          :y="r.y1 - font * 0.6"
-          :font-size="font"
-          text-anchor="middle"
-          class="wc-sp__label"
+        <defs>
+          <!-- Stroke width in user units: non-scaling strokes inside a pattern tile aren't dependable -->
+          <pattern :id="hatchId" patternUnits="userSpaceOnUse" :width="hatch.step" :height="hatch.step" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" :y2="hatch.step" :stroke-width="hatch.width" class="wc-sp__hatch" />
+          </pattern>
+        </defs>
+        <g pointer-events="none">
+          <line
+            v-for="(l, i) in grid"
+            :key="'g' + i"
+            :x1="l.v ? l.p : vb.x"
+            :x2="l.v ? l.p : vb.x + vb.w"
+            :y1="l.v ? vb.y : l.p"
+            :y2="l.v ? vb.y + vb.h : l.p"
+            :class="l.major ? 'wc-plan__major' : 'wc-plan__minor'"
+          />
+        </g>
+        <rect
+          v-for="(b, i) in weak"
+          :key="'w' + i"
+          :x="b.s0"
+          :y="vb.y"
+          :width="b.s1 - b.s0"
+          :height="vb.h"
+          class="wc-sp__weak"
+          :class="`wc-sp__weak--${b.kind}`"
         >
-          {{ r.name }}
-        </text>
-      </g>
-      <line v-if="preview" :x1="preview.s" :x2="preview.s" :y1="preview.y1" :y2="preview.y2" class="wc-sp__preview" />
-    </svg>
+          <title>Short of strength: {{ b.title }}</title>
+        </rect>
+        <g pointer-events="none">
+          <polygon v-if="fuselage" :points="fuselage" class="wc-sp__outline" />
+          <polygon v-for="p in flat.panels" :key="'p' + p.index" :points="poly(p.polygon)" class="wc-sp__outline" />
+          <polygon v-if="flat.tip" :points="poly(flat.tip.polygon)" class="wc-sp__outline wc-sp__tip" />
+          <template v-if="geom.sheet">
+            <polygon :points="geom.sheet" class="wc-sp__sheet" />
+            <polygon :points="geom.sheet" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
+          </template>
+          <polyline :points="geom.le" class="wc-sp__stock" />
+          <polyline :points="geom.te" class="wc-sp__stock" />
+          <polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" />
+          <polygon :points="geom.spar" class="wc-sp__spar" />
+        </g>
+        <g
+          v-for="(r, i) in ribLines"
+          :key="r.id"
+          class="wc-sp__rib"
+          :class="{
+            'wc-sp__rib--selected': r.id === selected,
+            'wc-sp__rib--hard': r.kind !== 'normal' && r.kind !== 'manual',
+            'wc-sp__rib--movable': r.movable,
+            'wc-sp__rib--dragging': drag?.moved && drag.part.id === r.id,
+          }"
+        >
+          <line :x1="r.x1" :y1="r.y1" :x2="r.x2" :y2="r.y2" class="wc-sp__ribline" />
+          <line :x1="r.x1" :y1="r.y1" :x2="r.x2" :y2="r.y2" class="wc-sp__ribhit" @pointerdown.stop="onRibDown($event, r)">
+            <title>{{ r.name }}{{ r.movable ? ': drag to move' : '' }}</title>
+          </line>
+          <text
+            v-if="i % labelEvery === 0 || r.id === selected"
+            :x="r.x1"
+            :y="r.y1 - font * 0.6"
+            :font-size="font"
+            text-anchor="middle"
+            class="wc-sp__label"
+          >
+            {{ r.name }}
+          </text>
+        </g>
+        <line v-if="preview" :x1="preview.s" :x2="preview.s" :y1="preview.y1" :y2="preview.y2" class="wc-sp__preview" />
+        <line v-if="addPreview" :x1="addPreview.s" :x2="addPreview.s" :y1="addPreview.y1" :y2="addPreview.y2" class="wc-sp__preview" />
+      </svg>
+      <ToolRail v-if="editable" class="wc-stage__rail" :items="railItems" label="Structure plan tools" @pick="tool = $event" />
+      <div v-if="readout?.movable" class="wc-cmd" role="toolbar" :aria-label="readout.name">
+        <span class="wc-cmd__label">{{ readout.name }}</span>
+        <button type="button" class="wc-cmd__btn" title="Delete this rib (Delete)" @click="removeSelected">Delete</button>
+      </div>
+      <StageZoom v-model:snap="snapOn" :snap-step="editable ? fmt(step) : ''" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
+    </div>
     <p v-if="readout" class="wc-plan__readout wc-structure-plan__readout">
       <strong>{{ readout.name }}</strong> {{ readout.kind }}, {{ readout.d }} from the root rib<template v-if="readout.bays"
         >; bays {{ readout.bays }}</template
@@ -475,7 +526,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to
       move around.
-      <template v-if="editable">Double-click the wing to add a rib.</template>
+      <template v-if="editable">Add rib on the rail (or a double-click) adds a rib where you click.</template>
       <template v-else>Click a rib to see it; set spacing to Manual to move ribs here.</template>
     </figcaption>
   </figure>

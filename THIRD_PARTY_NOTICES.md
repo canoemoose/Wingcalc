@@ -21,3 +21,7 @@ XFOIL compiled to WebAssembly (`xfoil.js`, `xfoil.wasm`), by Milos Petrasinovic 
 ## Vue
 
 Copyright (c) 2018-present Yuxi (Evan) You and Vue contributors. MIT licence: <https://github.com/vuejs/core/blob/main/LICENSE>.
+
+## Tabler Icons
+
+The eye, eye-off and home icons (path data only, in `src/lib/icons.js`). Copyright (c) 2020-2024 Paweł Kuna. MIT licence: <https://github.com/tabler/tabler-icons/blob/main/LICENSE>.
