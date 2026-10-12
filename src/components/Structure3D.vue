@@ -204,13 +204,23 @@ function size() {
   orthoCam.left = (-half * w) / h
   orthoCam.right = (half * w) / h
   orthoCam.updateProjectionMatrix()
-  // Still as framed: frame again for the new size (the first layout, a card growing)
+  // Still as framed: frame again for the new size (the first layout, a card growing).
+  // Otherwise keep the scale, so a taller view shows more round the wing rather than
+  // magnifying it.
   if (autoFramed && bounds) {
     const dir = camera.position.clone().sub(controls.target)
     frame(shownBounds(), [dir.x, dir.y, dir.z])
+  } else if (lastH && h !== lastH && controls) {
+    swinging++
+    orthoCam.zoom *= lastH / h
+    orthoCam.updateProjectionMatrix()
+    camera.position.sub(controls.target).multiplyScalar(camera === perspCam ? h / lastH : 1).add(controls.target)
+    controls.update()
   }
+  lastH = h
   render()
 }
+let lastH = 0
 
 // Half the height the perspective camera sees at the point it's looking at.
 const viewHalfHeight = (cam) => cam.position.distanceTo(controls.target) * Math.tan(((FOV / 2) * Math.PI) / 180)
@@ -361,12 +371,14 @@ function build() {
   highlight()
   updateSection()
   bounds = model.bounds
+  fitPts = model.skin.positions
   if (!framed) frame(shownBounds())
   render()
 }
 
 // The model's bounds, with the other half when it's shown
 let bounds = null
+let fitPts = new Float32Array(0) // the covering's vertices, which the wing fits inside
 function shownBounds() {
   if (!bounds || !show.value.mirror) return bounds
   const m = Math.max(Math.abs(bounds.min[0]), Math.abs(bounds.max[0]))
@@ -377,9 +389,8 @@ function shownBounds() {
 // thumbnail); or along a given view direction (target to camera). At the distance that just
 // fits its bounding box in the view's actual proportions, so a long wing fills a wide card.
 const FRAME_INSET = 44 // px kept clear at the top and bottom, for the corner controls
-// Room left round the wing's bounding box: one zoom step closer than the box needs, as its
-// corners are mostly empty
-const FIT_MARGIN = 1.08 / 1.25
+// Room left round the wing when it's fitted
+const FIT_MARGIN = 1.05
 // Framed by Home, Fit or on opening, and not moved since: a resize (the card expanding, the
 // window changing) frames it again
 let autoFramed = false
@@ -397,22 +408,32 @@ function frame(b, dir = HOME_VIEW, { animate = false } = {}) {
   const tanH = tanV * aspect
   // Keep clear of the controls along the top and bottom edges
   const inset = h / Math.max(1, h - 2 * FRAME_INSET)
-  let dist = 0
-  let halfH = 0
-  for (const px of [b.min[0], b.max[0]]) {
-    for (const py of [b.min[1], b.max[1]]) {
-      for (const pz of [b.min[2], b.max[2]]) {
-        const p = new THREE.Vector3(px, py, pz).sub(c)
-        const [cx, cy, cz] = [p.dot(x), p.dot(y), p.dot(z)]
-        // Perspective: far enough that this corner is inside both edges of the view
-        dist = Math.max(dist, cz + Math.abs(cx) / tanH, cz + (Math.abs(cy) * inset) / tanV)
-        // Orthographic: tall enough to hold it, and wide enough at this aspect
-        halfH = Math.max(halfH, Math.abs(cy) * inset, Math.abs(cx) / aspect)
-      }
+  // The wing's own outline as seen from here (the covering's points, with the other half if
+  // it's shown), not its bounding box, whose corners are mostly empty: centre on it, then
+  // fit it at this aspect
+  const pts = []
+  const halves = show.value.mirror ? [1, -1] : [1]
+  for (let i = 0; i < fitPts.length; i += 3) {
+    for (const k of halves) {
+      const px = fitPts[i] * k - c.x
+      const py = fitPts[i + 1] - c.y
+      const pz = fitPts[i + 2] - c.z
+      pts.push([px * x.x + py * x.y + pz * x.z, px * y.x + py * y.y + pz * y.z, px * z.x + py * z.y + pz * z.z])
     }
   }
+  if (!pts.length) pts.push([0, 0, 0])
+  const ext = (k) => [Math.min(...pts.map((p) => p[k])), Math.max(...pts.map((p) => p[k]))]
+  const [x0, x1] = ext(0)
+  const [y0, y1] = ext(1)
+  const mx = (x0 + x1) / 2
+  const my = (y0 + y1) / 2
+  const target = c.clone().addScaledVector(x, mx).addScaledVector(y, my)
+  // Orthographic: tall enough to hold it, and wide enough at this aspect
+  const halfH = Math.max(((y1 - y0) / 2) * inset, (x1 - x0) / 2 / aspect) * FIT_MARGIN
+  // Perspective: far enough that every point is inside both edges of the view
+  let dist = 0
+  for (const [px, py, pz] of pts) dist = Math.max(dist, pz + Math.abs(px - mx) / tanH, pz + (Math.abs(py - my) * inset) / tanV)
   dist *= FIT_MARGIN
-  halfH *= FIT_MARGIN
   perspCam.near = Math.max(1e-4, dist / 500)
   perspCam.far = dist + size * 20
   perspCam.updateProjectionMatrix()
@@ -422,7 +443,7 @@ function frame(b, dir = HOME_VIEW, { animate = false } = {}) {
   orthoCam.updateProjectionMatrix()
   framed = true
   autoFramed = true
-  moveTo({ target: c, offset: z.multiplyScalar(dist), zoom: orthoCam.top / halfH }, { animate })
+  moveTo({ target, offset: z.multiplyScalar(dist), zoom: orthoCam.top / halfH }, { animate })
 }
 
 function applyVisibility() {

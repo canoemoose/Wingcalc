@@ -1920,6 +1920,17 @@
 .wc-card--expanded .wc-3d__canvas {
   height: calc(100vh - 270px);
 }
+/* Growing and shrinking eases; the drawings refit as they go */
+.wc-figure .wc-structure-plan__svg,
+.wc-3d__canvas {
+  transition: height 0.3s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wc-figure .wc-structure-plan__svg,
+  .wc-3d__canvas {
+    transition: none;
+  }
+}
 .wc-export__body {
   flex: 1;
   min-height: 0;
