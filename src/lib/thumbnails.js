@@ -3,7 +3,7 @@
 // behind, above and inboard, so it reads like the plan (root left, tip right, leading edge at
 // the top) and the ribs show their profiles. Plain SVG path data, so the page needs no three.js.
 import { planEntities } from './dxf.js'
-import { worldPoint, ribPlacement, applyMatrix, HOME_VIEW } from './wing3d.js'
+import { worldPoint, ribPlacement, applyMatrix, HOME_VIEW, surfaceHeight, insetHeight } from './wing3d.js'
 import { bounds } from './ribs.js'
 
 const PAD = 0.04 // of the drawing's larger side, around it
@@ -49,37 +49,45 @@ function camera(dir = HOME_VIEW) {
 }
 
 // The half wing as a wireframe: each rib's outline (and lightening holes) at its mid-plane,
-// and lines along the span for the leading and trailing edges and the spar's top and bottom. Returns { box, lines: [{ kind, d }] } or null.
+// and lines along the span for the leading and trailing edges, the faces of the edge stock
+// where the ribs end, and the spar's top and bottom. Every line follows the washout, as the
+// ribs do. Returns { box, lines: [{ kind, d }] } or null.
 export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
   const view = camera()
   const lines = []
-  for (const p of parts.filter((q) => q.group === 'ribs')) {
+  const ribs = parts.filter((q) => q.group === 'ribs')
+  for (const p of ribs) {
     const m = ribPlacement(a, p)(p.thickness)
     const at = ([u, z]) => view(applyMatrix(m, [u, z, p.thickness / 2]))
     lines.push({ kind: 'rib', pts: p.outline.map(at), closed: true })
     for (const h of p.holes) lines.push({ kind: 'hole', pts: h.map(at), closed: true })
   }
-  // Along the span, from the root rib to the tip rib
-  const span = (fn) => {
+  // Along the span, from the root to the tip, through each rib's station so the lines meet
+  // the ribs there rather than cutting the corner between samples
+  const along = [...new Set([...Array.from({ length: steps + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / steps), ...ribs.map((p) => p.s)])]
+    .filter((s) => s >= a.rootS - 1e-9 && s <= a.tipS + 1e-9)
+    .sort((p, q) => p - q)
+  const span = (kind, fn) => {
     const pts = []
-    for (let i = 0; i <= steps; i++) {
-      const s = a.rootS + ((a.tipS - a.rootS) * i) / steps
+    for (const s of along) {
       const sec = a.section(s)
-      if (sec) pts.push(view(fn(s, sec)))
+      if (sec && sec.c > 1e-9) pts.push(view(worldPoint(a, s, ...fn(s, sec))))
     }
-    return pts
+    lines.push({ kind, pts })
   }
-  const surf = (sec, q, which) => sec.surf(Math.min(1, Math.max(0, q)))[which]
-  lines.push({ kind: 'edge', pts: span((s, sec) => worldPoint(a, s, sec.xl, surf(sec, 0, 'upper'))) })
-  lines.push({ kind: 'edge', pts: span((s, sec) => worldPoint(a, s, sec.xl + sec.c, surf(sec, 1, 'upper'))) })
+  const outer = (x, which) => (s) => [x(s), surfaceHeight(a, s, x(s), which)]
+  const inset = (x, which) => (s) => [x(s), insetHeight(a, structure, s, x(s), which)]
+  const nose = (s) => a.section(s).xl
+  const tail = (s) => a.section(s).xl + a.section(s).c
+  span('edge', outer(nose, 'upper'))
+  span('edge', outer(tail, 'upper'))
+  // The ribs stop at the edge stock: its inner faces, top and bottom, carry the rib ends
+  const le = structure.le?.width || 0
+  const te = structure.te?.width || 0
   for (const which of ['upper', 'lower']) {
-    lines.push({
-      kind: 'spar',
-      pts: span((s, sec) => {
-        const x = a.sparX(s)
-        return worldPoint(a, s, x, surf(sec, (x - sec.xl) / sec.c, which))
-      }),
-    })
+    if (le > 0) span('stock', inset((s) => nose(s) + Math.min(le, a.section(s).c / 2), which))
+    if (te > 0) span('stock', inset((s) => tail(s) - Math.min(te, a.section(s).c / 2), which))
   }
+  for (const which of ['upper', 'lower']) span('spar', outer((s) => a.sparX(s), which))
   return framed(lines)
 }

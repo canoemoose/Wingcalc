@@ -72,7 +72,7 @@ export function worldPoint(a, s, x, h) {
 }
 
 // Height of the upper or lower surface at (s, x), with washout.
-function surfaceHeight(a, s, x, which) {
+export function surfaceHeight(a, s, x, which) {
   const sec = a.section(s)
   // A rounded tip comes to a point: no chord there, so no thickness either
   const q = sec.c > 1e-9 ? Math.min(1, Math.max(0, (x - sec.xl) / sec.c)) : 0

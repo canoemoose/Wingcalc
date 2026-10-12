@@ -5,10 +5,12 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
+import { normalisePanels } from '../src/lib/wing.js'
 import { planThumb, isoThumb } from '../src/lib/thumbnails.js'
 
-function build() {
+function build(tweak = () => {}) {
   const s = defaultState()
+  tweak(s.input)
   const airfoil = resolveAirfoil(s.airfoil)
   const g = wingGeometry({ ...s.input, mode: 'panels' })
   const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
@@ -44,6 +46,7 @@ describe('structure thumbnails', () => {
     const t = isoThumb(a, a.structure, parts)
     expect(t.lines.filter((l) => l.kind === 'rib')).toHaveLength(ribs)
     expect(t.lines.filter((l) => l.kind === 'edge')).toHaveLength(2)
+    expect(t.lines.filter((l) => l.kind === 'stock')).toHaveLength(4)
     expect(t.lines.filter((l) => l.kind === 'spar')).toHaveLength(2)
     for (const l of t.lines) expect(numbers(l.d).every(Number.isFinite)).toBe(true)
   })
@@ -55,5 +58,30 @@ describe('structure thumbnails', () => {
     const distinct = new Set()
     for (let i = 0; i < n.length; i += 2) distinct.add(`${n[i]},${n[i + 1]}`)
     expect(distinct.size).toBeGreaterThan(rib.outline.length * 0.9)
+  })
+
+  it('runs the edge stock lines through the rib ends, washout and dihedral included', () => {
+    const twisted = build((input) => (input.panels = normalisePanels([{ length: 0.7, tipChord: 0.18, dihedral: 5, washout: 4 }])))
+    const t = isoThumb(twisted.a, twisted.a.structure, twisted.parts)
+    const pairs = (d) => {
+      const n = numbers(d)
+      return Array.from({ length: n.length / 2 }, (_, i) => [n[2 * i], n[2 * i + 1]])
+    }
+    // Distance from a point to a polyline, in the drawing's millimetres
+    const gap = (q, line) => {
+      let best = Infinity
+      for (let i = 1; i < line.length; i++) {
+        const [a, b] = [line[i - 1], line[i]]
+        const d = [b[0] - a[0], b[1] - a[1]]
+        const f = Math.max(0, Math.min(1, ((q[0] - a[0]) * d[0] + (q[1] - a[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1] || 1)))
+        best = Math.min(best, Math.hypot(q[0] - a[0] - f * d[0], q[1] - a[1] - f * d[1]))
+      }
+      return best
+    }
+    const ribLines = t.lines.filter((l) => l.kind === 'rib').map((l) => pairs(l.d))
+    const stock = t.lines.filter((l) => l.kind === 'stock').map((l) => pairs(l.d))
+    expect(stock).toHaveLength(4)
+    // Every stock line touches every rib (at its corner against the stock)
+    for (const line of stock) for (const rib of ribLines) expect(Math.min(...rib.map((q) => gap(q, line)))).toBeLessThan(0.15)
   })
 })
