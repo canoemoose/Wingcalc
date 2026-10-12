@@ -121,6 +121,9 @@ describe('DXF text', () => {
 describe('wing export', () => {
   const s = defaultState()
   const st = defaultStructure()
+  // Fixed edge widths, so the geometry checks below have known numbers
+  st.le.stock = 'custom'
+  st.te.stock = 'custom'
   st.gussets.te = true
   const airfoil = resolveAirfoil(s.airfoil)
   const g = wingGeometry({ ...s.input, mode: 'panels' })

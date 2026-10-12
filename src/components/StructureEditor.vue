@@ -10,6 +10,7 @@ import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS } from '../lib/structure.js'
+import { LE_STOCK, TE_STOCK, KIND_LABELS } from '../lib/edgeStock.js'
 
 const props = defineProps({
   system: { type: String, required: true },
@@ -19,6 +20,8 @@ const props = defineProps({
   braceNeeds: { type: Array, default: () => [] },
   // Where the ribs are now (distances from the root rib), to start manual spacing from
   ribDistances: { type: Array, default: () => [] },
+  // The edge stock the analysis resolved (structure.js analyseStructure().edges), for Auto
+  edges: { type: Object, default: null },
   idPrefix: { type: String, default: 'wcs' },
 })
 const structure = defineModel('structure', { type: Object, required: true })
@@ -131,13 +134,52 @@ const summaries = computed(() => {
     loads: `${x.loads.designG} g, −${x.loads.negativeG} g, ×${x.loads.safetyFactor}`,
     spar,
     covering,
-    edges: `LE ${mm(x.le.width)}, TE ${x.te.type} ${mm(x.te.width)}`,
+    edges: `LE ${edgeName('le')}, TE ${edgeName('te')}`,
     stringers: (x.stringers ?? []).length ? `${x.stringers.length} stringer${x.stringers.length === 1 ? '' : 's'}` : 'None',
     ribs: `${mm(r.thickness)} ${mat(r.material)}, ${spacing}${r.orientation === 'perpendicular' ? ', square to spar' : ''}`,
     gussets,
     braces: !x.braces.enabled ? 'Off' : `${mat(x.braces.material)}, ${len(x.braces.length)} each side`,
   }
 })
+
+// Edge stock: the standard sizes in the current units (SLEC's own metric or imperial
+// figures), plus Auto (picked to suit; shown with its pick) and Custom
+// Sizes as SLEC lists them: the square profiles by side, strip and triangular stock as
+// depth × height (strip) or thickness × width (triangular)
+const stockSize = (it) => {
+  if (it.kind === 'flat' || it.kind === 'symmetrical') return unit() === 'mm' ? `${num(it.width)} mm` : it.inch.split(' × ')[0]
+  if (unit() !== 'mm') return it.inch
+  return it.kind === 'triangular' ? `${num(it.height)} × ${num(it.width)} mm` : `${num(it.width)} × ${num(it.height)} mm`
+}
+const stockName = (it) => `${it.code}, ${stockSize(it)}`
+const LE_GROUPS = { flat: 'Flat profile', symmetrical: 'Symmetrical profile', strip: 'Strip, on edge (depth × height)' }
+const LE_OPTIONS = computed(() => [
+  { value: 'auto', label: props.edges ? `Auto (${stockName(props.edges.le.auto)} ${KIND_LABELS[props.edges.le.auto.kind]})` : 'Auto', title: 'The stock that carves to the section with the least wood removed' },
+  ...LE_STOCK.map((it) => ({ value: it.id, label: stockName(it), group: LE_GROUPS[it.kind] })),
+  { value: 'custom', label: 'Custom' },
+])
+const TE_OPTIONS = computed(() => [
+  { value: 'auto', label: props.edges ? `Auto (${stockName(props.edges.te.auto)})` : 'Auto', title: 'The stock that carves to the section with the least wood removed, at least 5% of the root chord deep' },
+  ...TE_STOCK.map((it) => ({ value: it.id, label: stockName(it), group: 'Triangular (thickness × width)' })),
+  { value: 'custom', label: 'Custom' },
+])
+// Going to Custom starts from the width in use, so nothing moves until it's edited
+function setStock(k, v) {
+  const e = st.value[k]
+  const from = props.edges?.[k]
+  const next = { ...e, stock: v }
+  if (v === 'custom' && e.stock !== 'custom' && from?.width > 0) {
+    next.width = from.width
+    if (k === 'te') next.type = 'triangular'
+  }
+  set(k, next)
+}
+function edgeName(k) {
+  const e = st.value[k]
+  const it = e.stock === 'custom' ? null : e.stock === 'auto' ? props.edges?.[k].auto : (k === 'le' ? LE_STOCK : TE_STOCK).find((x) => x.id === e.stock)
+  if (it) return `${it.code} ${KIND_LABELS[it.kind]}`
+  return k === 'le' ? mm(e.width) : `${e.type} ${mm(e.width)}`
+}
 
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 const braceHint = computed(() => {
@@ -303,7 +345,16 @@ const braceHint = computed(() => {
     </InspectorSection>
 
     <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :summary="summaries.edges">
+      <SelectField
+        :id="id('les')"
+        :model-value="st.le.stock"
+        label="Leading edge stock"
+        :options="LE_OPTIONS"
+        :hint="st.le.stock === 'custom' ? '' : 'Standard balsa sections (SLEC sizes, 915 mm lengths), carved to the section once glued on. The ribs are cut back by its depth.'"
+        @update:model-value="setStock('le', $event)"
+      />
       <UnitInput
+        v-if="st.le.stock === 'custom'"
         :id="id('lew')"
         :model-value="st.le.width"
         quantity="thin"
@@ -313,23 +364,33 @@ const braceHint = computed(() => {
         @update:model-value="set('le.width', $event)"
       />
       <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
-      <SegmentedField
-        :model-value="st.te.type"
+      <SelectField
+        :id="id('tes')"
+        :model-value="st.te.stock"
         label="Trailing edge stock"
-        :options="[
-          { value: 'triangular', label: 'Triangular' },
-          { value: 'flat', label: 'Flat strip' },
-        ]"
-        @update:model-value="set('te.type', $event)"
+        :options="TE_OPTIONS"
+        :hint="st.te.stock === 'custom' ? '' : 'Triangular balsa, thickness × width (SLEC sizes, 915 mm lengths).'"
+        @update:model-value="setStock('te', $event)"
       />
-      <UnitInput
-        :id="id('tew')"
-        :model-value="st.te.width"
-        quantity="thin"
-        :system="system"
-        label="Trailing edge stock, depth along the chord"
-        @update:model-value="set('te.width', $event)"
-      />
+      <template v-if="st.te.stock === 'custom'">
+        <SegmentedField
+          :model-value="st.te.type"
+          label="Trailing edge section"
+          :options="[
+            { value: 'triangular', label: 'Triangular' },
+            { value: 'flat', label: 'Flat strip' },
+          ]"
+          @update:model-value="set('te.type', $event)"
+        />
+        <UnitInput
+          :id="id('tew')"
+          :model-value="st.te.width"
+          quantity="thin"
+          :system="system"
+          label="Trailing edge stock, depth along the chord"
+          @update:model-value="set('te.width', $event)"
+        />
+      </template>
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />
     </InspectorSection>
 

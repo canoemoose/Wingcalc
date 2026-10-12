@@ -58,6 +58,11 @@ export function migrate(state) {
   input.panels = normalisePanels(Array.isArray(input.panels) && input.panels.length ? input.panels : d.input.panels)
   input.dimensions = Array.isArray(input.dimensions) ? input.dimensions : []
   input.structure = fillDefaults(d.input.structure, s.input?.structure)
+  // Edge stock saved before the catalogue keeps its own width, rather than an auto pick
+  for (const k of ['le', 'te']) {
+    const saved = s.input?.structure?.[k]
+    if (saved && typeof saved === 'object' && !('stock' in saved)) input.structure[k] = { ...input.structure[k], stock: 'custom' }
+  }
   input.exportOptions = fillDefaults(d.input.exportOptions, s.input?.exportOptions)
   const airfoil = { ...d.airfoil, ...(s.airfoil ?? {}) }
   airfoil.custom = { ...d.airfoil.custom, ...(s.airfoil?.custom ?? {}) }

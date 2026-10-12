@@ -25,6 +25,7 @@ import { wingSampler } from './wing.js'
 import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
+import { resolveEdges, applyEdges, KIND_LABELS } from './edgeStock.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -81,8 +82,9 @@ export function defaultStructure() {
       capStripThickness: 0.0015,
       capStripMaterial: 'balsa-medium',
     },
-    le: { width: 0.006, material: 'balsa-hard' },
-    te: { width: 0.015, type: 'triangular', material: 'balsa-medium' }, // 'triangular' | 'flat'
+    // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
+    le: { stock: 'auto', width: 0.006, material: 'balsa-hard' },
+    te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium' }, // 'triangular' | 'flat' (custom only)
     stringers: [], // { id, position (chord fraction), surface: 'upper' | 'lower' | 'both', width, height, material }
     ribs: {
       material: 'balsa-medium',
@@ -568,6 +570,8 @@ function sheetPanels(structure, surface, sparXi, leXi, teXi) {
 
 // Everything Stage A works out, for a wing, its aerofoil and structure, at the lifting
 // line's stall (perf.spanwise). Returns null if the wing or stall can't be resolved.
+// The result's structure has the edge stock resolved to widths (and edges says which
+// stock); pass that one, not the input, to buildParts and the views.
 export function analyseStructure({ wing, airfoil, structure, mass, spanwise, steps = 160 }) {
   if (!airfoil?.valid || !spanwise?.ll || !(mass > 0)) return null
   const base = airfoil.params.thickness
@@ -586,6 +590,11 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
   const section = sectionAt(sampler, airfoil.coords, base)
   const s0 = rootRibS(sampler, structure)
   const sTip = tipRibS(sampler)
+  // Edge stock resolved to a width from here on (auto picks are checked at the root rib,
+  // each panel end and the tip rib)
+  const checkAt = [s0, ...sampler.ends.map((e) => e.outer.s).filter((s) => s > s0 && s < sTip), sTip]
+  const edges = resolveEdges(structure, section, checkAt)
+  structure = applyEdges(structure, edges)
   const cov = structure.covering
   const sheet = material(cov.sheetMaterial)
   const ms = (allow, actual) => (actual > 0 ? allow / (actual * sf) - 1 : Infinity)
@@ -742,8 +751,24 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
       message: 'The structure would need ribs closer than 15 mm somewhere. Use stiffer or wider caps, thicker sheeting or stringers instead.',
     })
   }
+  // Catalogue edge stock too shallow for the section where it's cut
+  const mmText = (v) => `${(v * 1000).toFixed(1)} mm`
+  for (const [k, name] of [
+    ['le', 'leading edge'],
+    ['te', 'trailing edge'],
+  ]) {
+    const e = edges[k]
+    if (e.fits) continue
+    const fix = e.auto.id !== e.item.id && e.autoFits ? `; try ${e.auto.code} ${KIND_LABELS[e.auto.kind]}` : '; use a bigger custom size'
+    warnings.push({
+      id: `${k}-stock`,
+      message: `${e.item.code} ${KIND_LABELS[e.item.kind]} ${name} is too small to carve to the section: about ${mmText(e.shortfall)} short${fix}.`,
+    })
+  }
   return {
     wing,
+    structure,
+    edges,
     stations,
     ribs,
     pos,

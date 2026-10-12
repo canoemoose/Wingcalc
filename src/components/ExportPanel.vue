@@ -95,14 +95,14 @@ function downloadParts() {
   else save(`${props.baseName}-parts.zip`, zipSync(Object.fromEntries(files.map((f) => [f.name, strToU8(f.text)]))), 'application/zip')
 }
 function downloadPlan() {
-  const f = planDxf(props.analysis, structure.value, props.parts, o.value, props.baseName)
+  const f = planDxf(props.analysis, props.analysis.structure, props.parts, o.value, props.baseName)
   save(f.name, f.text, 'application/dxf')
 }
 // Printed templates: true outlines (no kerf or dogbones), 1:1 on the paper chosen
 const printOpts = computed(() => ({ ...o.value, machine: 'laser', kerf: 0, dogbones: false, toolOffset: false }))
 const printDrawings = computed(() => ({
   parts: partsDrawing(props.parts, printOpts.value),
-  plan: planEntities(props.analysis, structure.value, props.parts, { handedness: o.value.handedness }),
+  plan: planEntities(props.analysis, props.analysis.structure, props.parts, { handedness: o.value.handedness }),
 }))
 const sheets = (ents) => {
   const pts = ents.flatMap((e) => (e.type === 'text' ? [[e.x, e.y]] : e.pts))

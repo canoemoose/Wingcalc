@@ -33,7 +33,7 @@ const fmt = (v) => format(v, 'length', lengthUnit.value)
 
 const geom = computed(() => {
   const an = a.value
-  const st = structure.value
+  const st = an.structure
   const s0 = an.rootS
   const s1 = an.tipS
   const n = 80
@@ -336,7 +336,7 @@ const preview = computed(() => {
   if (!dr?.moved) return null
   const s = a.value.rootS + dr.d
   const sec = a.value.section(s)
-  return { s, y1: sec.xl + structure.value.le.width, y2: sec.xl + sec.c - structure.value.te.width }
+  return { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width }
 })
 const KINDS = { root: 'Root rib', break: 'Panel break', tip: 'Tip rib', hard: 'Hard point', manual: 'Manual rib', normal: 'Rib' }
 const readout = computed(() => {

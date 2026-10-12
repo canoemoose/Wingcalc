@@ -18,6 +18,7 @@
 import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
+import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH } from './edgeStock.js'
 
 const RAD = Math.PI / 180
 const PROFILE_POINTS = 120
@@ -876,6 +877,7 @@ function stripCutList(a, structure, parts, both) {
     return sec ? sec.depth(Math.min(1, Math.max(0, q / sec.c))) : 0
   }
   const sp = structure.spar
+  const edges = a.edges
   for (const p of panelSpans) {
     if (p.to - p.from < 1e-4) continue
     const sparLen = lenAlong(p.from, p.to, a.sparX)
@@ -884,14 +886,24 @@ function stripCutList(a, structure, parts, both) {
     } else if (sp.type === 'solid') {
       out.push({ item: `Spar, ${p.name}`, material: sp.solidMaterial, size: [sp.solidWidth, sp.solidDepth], length: sparLen, qty: sides })
     }
+    // Edge stock: a catalogue part at its own size, or custom at the depth the section needs
     const leH = Math.max(faceHeight(p.from, structure.le.width), faceHeight(p.to, structure.le.width))
-    out.push({ item: `Leading edge, ${p.name}`, material: structure.le.material, size: [structure.le.width, Math.ceil(leH * 1000) / 1000], length: lenAlong(p.from, p.to, edgeX('le')), qty: sides })
+    const leItem = edges?.le.item
+    out.push({
+      item: `Leading edge${leItem ? ` (${leItem.code} ${KIND_LABELS[leItem.kind]})` : ''}, ${p.name}`,
+      edge: 'le',
+      material: structure.le.material,
+      size: [structure.le.width, edges?.le.item ? edges.le.item.height : Math.ceil(leH * 1000) / 1000],
+      length: lenAlong(p.from, p.to, edgeX('le')),
+      qty: sides,
+    })
     const teQ = (s) => a.section(s).c - structure.te.width
     const teH = Math.max(faceHeight(p.from, teQ(p.from)), faceHeight(p.to, teQ(p.to)))
     out.push({
-      item: `Trailing edge (${structure.te.type}), ${p.name}`,
+      item: `Trailing edge (${edges?.te.item ? `${edges.te.item.code} triangular` : structure.te.type}), ${p.name}`,
+      edge: 'te',
       material: structure.te.material,
-      size: [structure.te.width, Math.ceil(teH * 1000) / 1000],
+      size: [structure.te.width, edges?.te.item ? edges.te.item.height : Math.ceil(teH * 1000) / 1000],
       length: lenAlong(p.from, p.to, edgeX('te')),
       qty: sides,
       triangular: structure.te.type === 'triangular',
@@ -916,6 +928,13 @@ function stripCutList(a, structure, parts, both) {
       total += Math.max(0, b.uB - from) * 2 * p.qty
     }
     out.push({ item: 'Cap strips (total, both surfaces)', material: cov.capStripMaterial, size: [cov.capStripWidth, cov.capStripThickness], length: total, qty: 1 })
+  }
+  // Catalogue edge stock: how many lengths to buy, noted on each edge's first line
+  for (const k of ['le', 'te']) {
+    if (!edges?.[k].item) continue
+    const lines = out.filter((c) => c.edge === k)
+    const n = lengthsToBuy(lines.flatMap((c) => Array(c.qty).fill(c.length)))
+    if (lines.length) lines[0].note = `Buy ${n} × ${Math.round(STOCK_LENGTH * 1000)} mm length${n === 1 ? '' : 's'}`
   }
   return out
 }

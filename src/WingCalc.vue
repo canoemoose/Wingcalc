@@ -391,7 +391,7 @@ const structureResult = computed(() => {
   const wing = { fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }
   const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise })
   if (!a) return null
-  return { a, ...buildParts(a, input.structure, { handedness: input.exportOptions.handedness }) }
+  return { a, ...buildParts(a, a.structure, { handedness: input.exportOptions.handedness }) }
 })
 const structureOpen = ref(false)
 const exportOpen = ref(false)
@@ -940,6 +940,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :auto-spar="autoSpar"
             :brace-needs="braceNeeds"
             :rib-distances="ribDistances"
+            :edges="structureResult?.a.edges"
           />
           <ul v-if="structureWarnings.length" class="wc-warnings">
             <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
@@ -1000,7 +1001,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               </div>
               <Structure3D
                 :analysis="structureResult.a"
-                :structure="input.structure"
+                :structure="structureResult.a.structure"
                 :parts="structureResult.parts"
                 :system="system"
                 :selected="selectedPart"
