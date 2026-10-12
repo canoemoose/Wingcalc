@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
-import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates, viewFromFace, HOME_VIEW } from '../src/lib/wing3d.js'
+import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates, faceView, orbitLerp, HOME_VIEW } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
@@ -441,19 +441,36 @@ describe('3D wing', () => {
     expect(thick.short.length).toBeGreaterThan(0)
   })
 
-  it('swings to the top or bottom view without crossing over the pole', () => {
-    // Coming from behind (the home view) or from ahead, the top view leans towards that side,
-    // so the camera's heading is kept and the picture doesn't flip
-    for (const from of [HOME_VIEW, [-0.2, 0.5, -1], [1, 0.3, 0.1]]) {
-      for (const face of [[0, 1, 0], [0, -1, 0]]) {
-        const v = viewFromFace(face, from)
-        expect(Math.sign(v[1])).toBe(face[1])
-        expect(Math.abs(v[1])).toBeGreaterThan(0.999)
-        expect(v[0] * from[0] + v[2] * from[2]).toBeGreaterThan(0)
-      }
+  it('squares the top and bottom views up like the plan', () => {
+    for (const face of [[0, 1, 0], [0, -1, 0]]) {
+      const v = faceView(face)
+      expect(Math.sign(v[1])).toBe(face[1])
+      expect(Math.abs(v[1])).toBeGreaterThan(0.999)
+      // Leaning aft, with no sideways component: span straight across the screen
+      expect(v[0]).toBe(0)
+      expect(v[2]).toBeGreaterThan(0)
     }
-    // The side faces are left as they are
-    expect(viewFromFace([0, 0, -1], HOME_VIEW)).toEqual([0, 0, -1])
+    expect(faceView([0, 0, -1])).toEqual([0, 0, -1])
+  })
+
+  it('swings round in heading and elevation, never over the top', () => {
+    const top = faceView([0, 1, 0])
+    // From ahead of the wing, where a straight arc would cross the pole at the end
+    for (const from of [HOME_VIEW, [-0.2, 0.5, -1], [1, 0.3, 0.1]]) {
+      let prev = null
+      for (let i = 0; i <= 50; i++) {
+        const v = orbitLerp(from, top, i / 50)
+        expect(Math.hypot(...v)).toBeCloseTo(1, 9)
+        // Heading changes smoothly: no sudden half turn
+        if (prev && Math.hypot(prev[0], prev[2]) > 0.05) {
+          const turn = Math.acos(Math.max(-1, Math.min(1, (prev[0] * v[0] + prev[2] * v[2]) / (Math.hypot(prev[0], prev[2]) * Math.hypot(v[0], v[2])))))
+          expect(turn).toBeLessThan(Math.PI / 8)
+        }
+        prev = v
+      }
+      const end = orbitLerp(from, top, 1)
+      for (let k = 0; k < 3; k++) expect(end[k]).toBeCloseTo(top[k], 9)
+    }
   })
 
   it('draws each brace as two plates on the spar faces, the centre one in this half only', () => {

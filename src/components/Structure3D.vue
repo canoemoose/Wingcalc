@@ -18,7 +18,7 @@
 //
 // Outlines: the sharp edges of every solid (not the covering), drawn as lines.
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
-import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, viewFromFace } from '../lib/wing3d.js'
+import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, faceView, orbitLerp } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { EYE, EYE_OFF, HOME, ORTHO, PERSPECTIVE, CUT } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
@@ -577,14 +577,14 @@ function cubeClick(e) {
   const hit = ray.intersectObject(cube.mesh)[0]
   if (!hit) return true
   const f = hit.face.normal
-  const off = camera.position.clone().sub(controls.target)
-  const n = new THREE.Vector3(...viewFromFace([f.x, f.y, f.z], [off.x, off.y, off.z]))
+  const n = new THREE.Vector3(...faceView([f.x, f.y, f.z]))
   const dist = camera.position.distanceTo(controls.target)
   swingTo(n.normalize().multiplyScalar(dist).add(controls.target), controls.target.clone())
   return true
 }
 
-// Animate the camera to a new position and target, on a short arc.
+// Animate the camera to a new position and target, round in heading and elevation
+// (orbitLerp), so it never passes over the top or bottom and flips.
 let swinging = 0
 function swingTo(position, target) {
   const fromTarget = controls.target.clone()
@@ -592,15 +592,15 @@ function swingTo(position, target) {
   const toOffset = position.clone().sub(target)
   const r0 = fromOffset.length()
   const r1 = toOffset.length()
-  const q = new THREE.Quaternion().setFromUnitVectors(fromOffset.clone().normalize(), toOffset.clone().normalize())
+  const a = fromOffset.toArray()
+  const b = toOffset.toArray()
   const id = ++swinging
   const t0 = performance.now()
   const step = (now) => {
     if (id !== swinging) return
     const t = Math.min(1, (now - t0) / 450)
     const e = t * t * (3 - 2 * t)
-    const qt = new THREE.Quaternion().slerp(q, e)
-    const offset = fromOffset.clone().normalize().applyQuaternion(qt).multiplyScalar(r0 + (r1 - r0) * e)
+    const offset = new THREE.Vector3(...orbitLerp(a, b, e)).multiplyScalar(r0 + (r1 - r0) * e)
     controls.target.lerpVectors(fromTarget, target, e)
     camera.position.copy(controls.target).add(offset)
     camera.lookAt(controls.target)

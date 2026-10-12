@@ -28,17 +28,35 @@ function angleAt(a, s) {
 // tip right, leading edge at the top
 export const HOME_VIEW = [-0.55, 0.6, 0.75]
 
-// The view direction for a face of the view cube, given where the camera is now (both target
-// to camera). Straight down or up is a degenerate view for an orbit camera, so the top and
-// bottom lean a hair off it, towards the side the camera is already on: leaning the other way
-// carries the camera over the pole at the end of the swing, and the view flips upside down.
-export function viewFromFace(normal, current) {
+// The view direction (target to camera) for a face of the view cube. Straight down or up is
+// a degenerate view for an orbit camera, so the top and bottom lean a hair aft: squared up like
+// the plan, span across with the root on the left (the leading edge at the top seen from above,
+// at the bottom from below).
+export function faceView(normal) {
   if (Math.abs(normal[1]) <= 0.99) return normal
-  const h = Math.hypot(current[0], current[2])
-  const side = h > 1e-9 ? [current[0] / h, 0, current[2] / h] : [0, 0, 1]
-  const v = normal.map((c, k) => c + side[k] * 1e-3)
+  const v = [0, Math.sign(normal[1]), 1e-3]
   const l = Math.hypot(...v)
   return v.map((c) => c / l)
+}
+
+// A view direction part way (e, 0 to 1) round from one to another, moving in heading and
+// elevation like the orbit camera (heading round the shorter way). Unlike a straight arc
+// between the two, this never carries the camera over the top or bottom, where its picture
+// would flip, and it turns the camera's heading as it climbs, so a top or bottom view arrives
+// squared up.
+export function orbitLerp(from, to, e) {
+  const sph = (v) => {
+    const r = Math.hypot(...v)
+    return { phi: Math.acos(Math.max(-1, Math.min(1, v[1] / r))), theta: Math.atan2(v[0], v[2]) }
+  }
+  const a = sph(from)
+  const b = sph(to)
+  let dTheta = b.theta - a.theta
+  if (dTheta > Math.PI) dTheta -= 2 * Math.PI
+  if (dTheta < -Math.PI) dTheta += 2 * Math.PI
+  const phi = a.phi + (b.phi - a.phi) * e
+  const theta = a.theta + dTheta * e
+  return [Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta)]
 }
 
 // World position of (s, x, h). At a dihedral break the section lies on the bisector of the
