@@ -9,6 +9,8 @@ import {
   unpack,
   elementCount,
   isMultiElement,
+  chordLine,
+  normaliseChord,
 } from '../src/lib/airfoilGeom.js'
 
 const naca = (t, m = 0, p = 0.4) => ({
@@ -147,5 +149,49 @@ describe('multi-element detection', () => {
       ...place(section(0.1, 0.03), 0.28, 0.86, -0.01, 0.4),
     ]
     expect(elementCount(decimate(set, 60))).toBe(3)
+  })
+})
+
+describe('unit chord', () => {
+  // Symmetric, so its nose is exactly the point furthest from the trailing edge
+  const section = generateSection(naca(0.12)).coords
+  // As an element file keeps it: chord 0.3, nose at (0.87, 0.01), drooped 30°
+  const droop = (30 * Math.PI) / 180
+  const flap = section.map(([x, y]) => [
+    0.87 + 0.3 * (x * Math.cos(droop) + y * Math.sin(droop)),
+    0.01 + 0.3 * (y * Math.cos(droop) - x * Math.sin(droop)),
+  ])
+
+  it('finds the chord of a placed element', () => {
+    const c = chordLine(flap)
+    expect(c.length).toBeCloseTo(0.3, 4)
+    expect(c.le[0]).toBeCloseTo(0.87, 6)
+    expect((c.angle * 180) / Math.PI).toBeCloseTo(-30, 4)
+  })
+
+  it('moves, turns and scales an element back to the section it came from', () => {
+    const back = normaliseChord(flap)
+    back.forEach(([x, y], i) => {
+      expect(x).toBeCloseTo(section[i][0], 4)
+      expect(y).toBeCloseTo(section[i][1], 4)
+    })
+    const a = sectionStats(section)
+    const b = sectionStats(back)
+    expect(b.thickness).toBeCloseTo(a.thickness, 4)
+    expect(b.thicknessPos).toBeCloseTo(a.thicknessPos, 2)
+  })
+
+  it('scales a section extended past x = 1', () => {
+    const extended = [[1.2, -0.09], ...section, [1.2, -0.09]]
+    const n = normaliseChord(extended)
+    expect(chordLine(n).length).toBeCloseTo(1, 6)
+    expect(n[0][0]).toBeCloseTo(1, 6)
+  })
+
+  it('leaves a section that is already unit chord alone, nose above the chord line or not', () => {
+    expect(normaliseChord(section)).toBe(section)
+    // A flat-bottomed section drawn on its flat: the nose sits above y = 0
+    const flat = section.map(([x, y]) => [x, y + 0.03 * (1 - x)])
+    expect(normaliseChord(flat)).toBe(flat)
   })
 })

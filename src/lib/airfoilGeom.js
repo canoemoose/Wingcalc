@@ -358,6 +358,42 @@ export function isMultiElement(coords) {
   return elementCount(coords) > 1
 }
 
+// The chord of a section given in Selig order: the trailing edge is the midpoint of the first
+// and last points, the leading edge the point furthest from it. angle is the chord's slope
+// in radians.
+export function chordLine(coords) {
+  const [xa, ya] = coords[0]
+  const [xb, yb] = coords[coords.length - 1]
+  const te = [(xa + xb) / 2, (ya + yb) / 2]
+  let le = coords[0]
+  let length = 0
+  for (const p of coords) {
+    const d = Math.hypot(p[0] - te[0], p[1] - te[1])
+    if (d > length) {
+      length = d
+      le = p
+    }
+  }
+  return { le, te, length, angle: Math.atan2(te[1] - le[1], te[0] - le[0]) }
+}
+
+// A section whose chord isn't 1, moved, turned and scaled so it runs from (0, 0) to (1, 0).
+// The database has some elements of multi-element sets as files of their own, still placed
+// where they sit in the set (a flap 0.3 long, nose at x = 0.87, drooped 30°), and a few
+// sections with an extension past x = 1. A section within `tolerance` of unit chord is left
+// as it is, so flat-bottomed sections drawn with the nose above the chord line keep it there.
+export function normaliseChord(coords, tolerance = 0.02) {
+  const { le, length, angle } = chordLine(coords)
+  if (!(length > 0) || Math.abs(length - 1) <= tolerance) return coords
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  return coords.map(([x, y]) => {
+    const dx = x - le[0]
+    const dy = y - le[1]
+    return [(dx * c + dy * s) / length, (dy * c - dx * s) / length]
+  })
+}
+
 // Unpack integer-packed coordinates (see scripts/fetch-airfoils.mjs).
 export function unpack(pts, scale = 10000) {
   const out = []

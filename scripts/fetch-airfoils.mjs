@@ -4,7 +4,7 @@
 //  - src/data/uiuc.json: every section in the UIUC Airfoil Coordinates Database
 //    (coordinates and measured geometry only, no polars)
 //
-// Run with: npm run fetch-airfoils
+// Run with: npm run fetch-airfoils  (add -- --uiuc to rebuild only the UIUC catalogue)
 //
 // Requests are made one at a time with a pause between them, to keep the load light.
 // airfoiltools.com takes roughly 7 requests per section; UIUC is two requests in total
@@ -15,7 +15,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { unzipSync, strFromU8 } from 'fflate'
-import { sectionStats, decimate, isMultiElement } from '../src/lib/airfoilGeom.js'
+import { sectionStats, decimate, isMultiElement, normaliseChord, chordLine } from '../src/lib/airfoilGeom.js'
 import { familyOf, uiucId } from '../src/lib/family.js'
 
 const BASE = 'http://airfoiltools.com'
@@ -214,14 +214,21 @@ async function buildUiuc() {
   const descriptions = parseUiucIndex(await get(UIUC_INDEX))
   const sections = []
   const skipped = []
+  const rescaled = []
   for (const [path, bytes] of Object.entries(zip)) {
     const m = path.match(/([^/]+)\.dat$/i)
     if (!m) continue
     const id = m[1].toLowerCase()
     try {
-      const { name, coords } = parseSelig(strFromU8(bytes))
-      if (coords.length < 15) throw new Error('too few points')
-      if (isMultiElement(coords)) throw new Error('multi-element')
+      const { name, coords: raw } = parseSelig(strFromU8(bytes))
+      if (raw.length < 15) throw new Error('too few points')
+      // A multi-element set, or a slat whose cove hooks back: either way no upper and lower surface
+      if (isMultiElement(raw)) throw new Error('more than one leading edge')
+      // Not a closed section at all (NACA-1 is a cowl profile)
+      const { length } = chordLine(raw)
+      if (Math.hypot(raw[0][0] - raw.at(-1)[0], raw[0][1] - raw.at(-1)[1]) > 0.5 * length) throw new Error('open outline')
+      const coords = normaliseChord(raw)
+      if (coords !== raw) rescaled.push(id)
       const stats = sectionStats(coords)
       if (!(stats.thickness > 0.005 && stats.thickness < 0.6)) throw new Error('implausible thickness')
       sections.push({
@@ -251,10 +258,12 @@ async function buildUiuc() {
   }
   await writeFile(OUT_UIUC, JSON.stringify(out) + '\n')
   console.log(`Wrote ${sections.length} UIUC sections to ${OUT_UIUC}`)
+  if (rescaled.length) console.log(`Rescaled to unit chord: ${rescaled.join(', ')}`)
   if (skipped.length) console.warn(`Skipped ${skipped.length}: ${skipped.join(', ')}`)
 }
 
 async function main() {
+  if (process.argv.includes('--uiuc')) return buildUiuc()
   const sections = []
   const failures = []
   for (const id of SECTIONS) {

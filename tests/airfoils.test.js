@@ -15,7 +15,7 @@ import {
   entryCoords,
   isMultiElementEntry,
 } from '../src/lib/airfoils.js'
-import { generateSection, nacaLeRadius, isMultiElement } from '../src/lib/airfoilGeom.js'
+import { generateSection, nacaLeRadius, isMultiElement, chordLine, unpack } from '../src/lib/airfoilGeom.js'
 import { stallSpeed, reynolds, WING_CLMAX_FACTOR } from '../src/lib/calc.js'
 
 describe('bundled aerofoil data', () => {
@@ -124,15 +124,22 @@ describe('UIUC catalogue', async () => {
     for (const s of LIBRARY.sections) expect(isMultiElement(s.coords), s.id).toBe(false)
   })
 
-  // The only multi-element set in the catalogue as built in October 2026. The fetch script now
-  // skips such sets, so this runs only while the bundled data still has it.
-  const set = uiuc.sections.find((s) => s.id === '30p-30n')
-  it.runIf(set)('drops 30P-30N but keeps its elements, which come as separate files', () => {
-    expect(isMultiElementEntry(set, uiuc.packScale)).toBe(true)
-    const keys = catalogueFor('other', uiuc).map((e) => e.key)
-    expect(keys).not.toContain(`${UIUC_PREFIX}30p-30n`)
-    expect(keys).toContain(`${UIUC_PREFIX}30p-30n-main`)
-    expect(keys).toContain(`${UIUC_PREFIX}30p-30n-flap`)
+  it('has every section at unit chord, including elements of multi-element sets', () => {
+    for (const s of uiuc.sections) {
+      if (isMultiElementEntry(s, uiuc.packScale)) continue
+      expect(chordLine(unpack(s.pts, uiuc.packScale)).length, s.id).toBeCloseTo(1, 1)
+    }
+  })
+
+  it('leaves out the 30P-30N set but keeps its main element and flap, at unit chord', () => {
+    const ids = new Set(uiuc.sections.map((s) => s.id))
+    expect(ids.has('30p-30n')).toBe(false)
+    for (const id of ['30p-30n-main', '30p-30n-flap']) {
+      const s = uiuc.sections.find((x) => x.id === id)
+      expect(chordLine(unpack(s.pts, uiuc.packScale)).length, id).toBeCloseTo(1, 2)
+      expect(s.thicknessPct, id).toBeGreaterThan(10)
+      expect(s.thicknessPct, id).toBeLessThan(20)
+    }
   })
 
   it('estimates Clmax and draws an indicative curve for a coordinates-only section', () => {
