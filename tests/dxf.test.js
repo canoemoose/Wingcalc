@@ -100,10 +100,10 @@ describe('DXF text', () => {
     const dxf = toDxf(ents)
     const back = parseDxf(dxf)
     expect(back.version).toBe('AC1009')
-    expect(back.layers).toEqual(['CUT', 'ETCH'])
+    expect(back.layers).toEqual(['CUT', 'ENGRAVE'])
     expect(back.polylines[0]).toEqual({ layer: 'CUT', closed: true, pts: square })
     expect(back.polylines[1].closed).toBe(false)
-    expect(back.texts[0]).toMatchObject({ layer: 'ETCH', x: 1, y: 2, h: 3, text: 'R1 2.5 deg x 3' })
+    expect(back.texts[0]).toMatchObject({ layer: 'ENGRAVE', x: 1, y: 2, h: 3, text: 'R1 2.5 deg x 3' })
     // Plain ASCII throughout, CRLF line ends
     expect(/^[\x20-\x7e\r\n]*$/.test(dxf)).toBe(true)
     const lines = parseDxf(toDxf(ents, { format: 'lines', layerNames: { cut: 'Cut-red', etch: 'E', guide: 'G' } }))
@@ -144,7 +144,7 @@ describe('wing export', () => {
     // R1 is the centre rib, cut once: 229 mm long (250 chord less 6 LE and 15 TE stock)
     const r1 = cut[0]
     expect(bounds(r1.pts).w).toBeCloseTo(229 + 0.15, 1)
-    expect(back.polylines.some((p) => p.layer === 'ETCH')).toBe(true)
+    expect(back.polylines.some((p) => p.layer === 'ENGRAVE')).toBe(true)
     expect(back.polylines.some((p) => p.layer === 'GUIDE')).toBe(true)
   })
 

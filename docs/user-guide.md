@@ -76,7 +76,7 @@ In "Chords & panels" mode a **Structure and ribs** card sums up the built-up str
 - **Ribs**: material and thickness; streamwise or square to the spar (the root, panel-break and tip ribs always stay streamwise so the panels and fuselage meet cleanly); one-piece wing (a centre rib shared by both halves) or two halves plugging in at the fuselage side. Optional **lightening holes** (not in the root, break or tip ribs) and **jig tabs**.
 - **Rib spacing**: **from loads** (as close as the structure needs, never wider than a maximum set for the covering), **even**, **tapered** from root to tip, or **manual**. **Hard points** add ribs at set distances (servo bays, aileron ends). Switching to manual starts from the ribs as they are; then use the rail's Add rib tool (or double-click the wing) to place ribs, drag a rib or hard point along the span (it snaps to the grid; Alt places it freely), Delete removes the selected one and the arrow keys nudge it (Shift for ten steps). The root, panel-break and tip ribs are fixed.
 - **Corner gussets** where ribs meet the leading or trailing edge, on the root, break and tip ribs or on every rib, one side or both, flush with the rib's top edge, bottom edge, or both. Each is cut to the actual angle between rib and edge.
-- **Dihedral braces**: ply plates on both faces of the spar at every dihedral break, shaped to the dihedral angle with the break etched on. Left blank, the thickness is the next standard ply thickness above what the bending at the break needs.
+- **Dihedral braces**: ply plates on both faces of the spar at every dihedral break, shaped to the dihedral angle with the break engraved on. Left blank, the thickness is the next standard ply thickness above what the bending at the break needs.
 - **Materials**: three grades of balsa, spruce, basswood, birch and lite ply, pultruded carbon strip and carbon tube. Balsa varies two to three times from sheet to sheet, so weigh your wood and pick the grade it matches.
 
 ### Reading the results
@@ -99,7 +99,7 @@ The **3D** view shows the built-up half wing, built from the same geometry as th
 - **Cut list (CSV)**: every part with quantity, stock and size, and every length of strip, with how many lengths of edge stock to buy.
 - **Printed templates (PDF, 1:1)**: the parts (true size, no kerf allowance) or the plan, to build over or cut round by hand. On A4, A3, Letter or Tabloid the drawing is split across as few sheets as possible, overlapping by 10 mm, each named (A1, A2 …, rows down the drawing) with its neighbours marked on its edges. Or one sheet sized to the drawing, for a plotter or print shop. Every sheet has a title block and a 50 mm bar to check it printed at 100%.
 
-The DXF is AutoCAD R12 in millimetres, which nearly all laser, router and CAD software reads, as closed polylines or (for older software) separate lines. Layers are cut (red), etch (blue) and notes (grey), with names you can change. Labels are single-stroke vector lines, so they etch the same in any software.
+The DXF is AutoCAD R12 in millimetres, which nearly all laser, router and CAD software reads, as closed polylines or (for older software) separate lines. Layers are cut (red), engrave (blue) and notes (grey), with names you can change. Labels are single-stroke vector lines, so they engrave the same in any software.
 
 Lightening holes and jig tabs change the parts themselves, so they're set in the structure editor under **Ribs**; the export dialogue only says which are on.
 

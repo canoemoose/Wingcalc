@@ -1,5 +1,5 @@
 <script setup>
-// One part at true proportions: its cut outline, holes, etch lines and label, with its size,
+// One part at true proportions: its cut outline, holes, engraved lines and label, with its size,
 // quantity and notes. Steps through the parts in order.
 import { computed } from 'vue'
 import { bounds } from '../lib/ribs.js'

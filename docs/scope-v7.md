@@ -1,0 +1,37 @@
+# Wingcalc v7 — scope
+
+Seventh round: small tweaks after v6, mostly the structure editor, export and the page header. Source of truth for this round; update as items land. Worked autonomously.
+
+## Objective
+
+Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D caption into tooltips, Export as the editor's primary action).
+
+## Decisions
+
+- **Structure card thumbnails**: a static SVG of the plan and an isometric SVG wireframe (ribs, spar, edges) from `wing3d.js` arrays. No three.js on the main page. Clicking one opens the structure editor with that view expanded.
+- **3D section**: Section is an on/off button; when on, a bar along the bottom of the view: a track the length of the span with a tick per rib, a handle (kept off the ribs), readout "N mm, R3–R4", Flip, Look at the cut, ×. Replaces the popover (checkbox, bay select, slider).
+- **Projection**: orthographic by default; one icon button under Home beside the cube.
+- **Edges in 3D**: crease lines (30°) on every solid, not the skin; a layer toggle "Outlines". The old "Edges" layer becomes "Leading/Trailing edges" (or "LE/TE stock" if it won't fit).
+- **No tool rail**: structure plan always selects; double-click adds a rib; "Add rib" in the command bar when nothing is selected. Wing editor: Measure as a toggle top left; Add panel in the command bar.
+- **Header**: File menu (New, saved projects with delete, Save as copy, Export file, Import file), name, Save, undo/redo on the left; Units and theme on the right.
+- **Units**: a Units popover replaces the Metric/Imperial toggle: system, then length (mm/m or in/ft), mass (g/kg or oz/lb), speed. Saved with the project. Fields show a fixed unit label, no per-field dropdowns. Area and loading follow the length/mass choice.
+- **Labels**: Hershey Simplex replaces the home-made stroke font. DXF text option removed (vector lines only). Parts too small for a legible label get it engraved in the waste beside them.
+- **Engrave** replaces "Etch" in UI copy and the default layer name (`ENGRAVE`). Saved projects keep their own layer names.
+- **Export**: lightening holes and jig tabs leave the export dialogue (structure editor only), with a one-line summary. Fix the preview's empty space (a later 60vh cap overrode the wide layout's flex fill). Export… becomes the primary button at the end of the editor header.
+
+## Steps
+
+1. [x] Export dialogue: CSS fix, rib details out, DXF text option removed. The lightening bug was hand-placed ribs (kind `manual`) being skipped by checks for `normal`; also fixed for perpendicular orientation and end-only gussets (`isPlainRib`).
+2. [x] Engrave rename (UI, default layer name `ENGRAVE`, docs). The data key stays `etch` so saved names carry over.
+3. [ ] Hershey Simplex font.
+4. [ ] Small-part labels in the waste.
+5. [ ] Header: File menu and layout.
+6. [ ] Units popover; fixed unit labels.
+7. [ ] 3D: ortho default and projection button; outlines; layer rename; section bar; caption into tooltips.
+8. [ ] Rail removed from the structure plan and wing editor.
+9. [ ] Structure card thumbnails.
+10. [ ] Export as primary in the editor header.
+11. [ ] Docs: user guide, methods, backlog.
+12. [ ] Trailing-edge gussets: offer only the placements that fit (a thin TE has room for one), and warn when a gusset doesn't fit.
+
+## Notes

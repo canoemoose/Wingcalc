@@ -25,7 +25,7 @@ export function defaultExportOptions() {
     dogbones: true,
     toolOffset: false,
     format: 'polyline', // 'polyline' | 'lines'
-    layers: { cut: 'CUT', etch: 'ETCH', guide: 'GUIDE' },
+    layers: { cut: 'CUT', etch: 'ENGRAVE', guide: 'GUIDE' }, // etch: the engrave layer (key kept for saved projects)
     labels: true,
     handedness: 'pair', // 'right' | 'left' | 'pair'
     repeat: true, // lay out one copy of each part per piece needed
@@ -271,7 +271,7 @@ const clean = (s) => String(s).replace(/[^\x20-\x7e]/g, (c) => ({ '°': ' deg', 
 
 // Write entities as an R12 DXF. layerNames maps the logical layers to the names wanted;
 // format 'lines' writes every polyline as separate LINEs.
-export function toDxf(entities, { layerNames = { cut: 'CUT', etch: 'ETCH', guide: 'GUIDE' }, format = 'polyline', extraLayers = {} } = {}) {
+export function toDxf(entities, { layerNames = { cut: 'CUT', etch: 'ENGRAVE', guide: 'GUIDE' }, format = 'polyline', extraLayers = {} } = {}) {
   const out = []
   const g = (code, value) => out.push(String(code), String(value))
   const names = { ...layerNames, ...Object.fromEntries(Object.keys(extraLayers).map((k) => [k, k])) }

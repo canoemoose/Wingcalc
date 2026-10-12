@@ -216,14 +216,14 @@ function downloadCutList() {
             <input type="checkbox" :checked="o.labels" @change="set('labels', $event.target.checked)" /> Label parts (R1, G2 …)
           </label>
           <div v-for="k in ['cut', 'etch', 'guide']" :key="k" class="wc-field">
-            <label :for="`wcx-layer-${k}`" class="wc-field__label">{{ { cut: 'Cut layer', etch: 'Etch layer', guide: 'Notes layer' }[k] }}</label>
+            <label :for="`wcx-layer-${k}`" class="wc-field__label">{{ { cut: 'Cut layer', etch: 'Engrave layer', guide: 'Notes layer' }[k] }}</label>
             <div class="wc-field__control">
               <input
                 :id="`wcx-layer-${k}`"
                 class="wc-input"
                 type="text"
                 :value="o.layers[k]"
-                @change="set(`layers.${k}`, $event.target.value.trim() || { cut: 'CUT', etch: 'ETCH', guide: 'GUIDE' }[k])"
+                @change="set(`layers.${k}`, $event.target.value.trim() || { cut: 'CUT', etch: 'ENGRAVE', guide: 'GUIDE' }[k])"
               />
             </div>
           </div>
@@ -257,7 +257,7 @@ function downloadCutList() {
           />
         </svg>
         <p v-else class="wc-muted">Nothing chosen to export.</p>
-        <p v-if="preview" class="wc-field__hint">Layout {{ preview.size }}: red cuts, blue etches, grey notes.</p>
+        <p v-if="preview" class="wc-field__hint">Layout {{ preview.size }}: red cuts, blue engraving, grey notes.</p>
         <ul v-if="layout.notes.length" class="wc-warnings">
           <li v-for="(n, i) in layout.notes" :key="i">{{ n }}</li>
         </ul>

@@ -191,7 +191,7 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 
 // --- One rib -----------------------------------------------------------------------------------
 
-// Build one rib: outline with notches and tabs, holes, etch lines and label.
+// Build one rib: outline with notches and tabs, holes, engraved lines and label.
 // rib: { s, kind, label } from the analysis; board: panel datum height (for jig tabs) or null.
 export function buildRib(a, structure, rib, { board = null } = {}) {
   const r = structure.ribs
@@ -341,7 +341,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   }
   const outline = clean([...topChain, ...botChain])
 
-  // Etch: where to cut each tab off, along the rib's lower edge
+  // Engraved: where to cut each tab off, along the rib's lower edge
   const etch = tabs.map((t) => [
     [t.u0, bot(t.u0)],
     [t.u1, bot(t.u1)],
@@ -635,7 +635,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         [kTop * Math.sin(d / 2), -kTop * Math.cos(d / 2)],
       ]
       // A flat plate (the spar's face is one plane across the break), shaped to the dihedral;
-      // the etched line marks the break, where it meets the break rib
+      // the engraved line marks the break, where it meets the break rib
       const fold = [raw[5], raw[2]]
       const bb = bounds(raw)
       const shift = ([x, y]) => [x - bb.x0, y - bb.y0]

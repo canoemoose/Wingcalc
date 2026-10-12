@@ -1,4 +1,4 @@
-// A minimal single-stroke font for etching labels: each glyph is a few polylines on a grid
+// A minimal single-stroke font for engraving labels: each glyph is a few polylines on a grid
 // 4 units wide and 6 high (baseline at 0). Lasers and routers follow vector lines reliably,
 // where DXF TEXT entities depend on the software's own fonts. Lower case is drawn as upper.
 
