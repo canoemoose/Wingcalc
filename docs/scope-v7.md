@@ -1,6 +1,6 @@
 # Wingcalc v7 — scope
 
-Seventh round: small tweaks after v6, mostly the structure editor, export and the page header. Source of truth for this round; update as items land. Worked autonomously.
+Seventh round: small tweaks after v6, mostly the structure editor, export and the page header. Source of truth for this round. Worked autonomously, then follow-ups interactively. Closed.
 
 ## Objective
 
@@ -44,3 +44,8 @@ Tidy the rough edges Matt listed on 2026-10-12, plus the two extras agreed (3D c
 ## Notes
 
 - Verified by tests (273) and by driving the running app for errors; the visual result of each item is for Matt to check.
+
+## Closed
+
+- Round complete and checked by Matt (2026-10-12).
+- Left open: multi-element aerofoils (such as 30P-30N) give nonsense ribs; offered as a separate task.
