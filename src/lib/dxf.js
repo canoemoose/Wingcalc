@@ -151,15 +151,51 @@ export function addDogbones(pts, r, wasteInside = false) {
 const toMm = (pts) => pts.map(([x, y]) => [x * MM, y * MM])
 const rotate90 = (pts) => pts.map(([x, y]) => [-y, x])
 
-function labelFor(part) {
-  if (part.label?.text) return { ...part.label, u: part.label.u * MM, z: part.label.z * MM, h: part.label.h * MM }
-  const b = bounds(toMm(part.outline))
-  const h = Math.min(4, 0.3 * Math.min(b.w, b.h))
-  if (h < 1.5) return null
-  const w = textWidth(part.name, h)
-  if (w > b.w * 0.9) return null
-  return { text: part.name, u: b.x0 + (b.w - w) / 2, z: b.y0 + (b.h - h) / 2, h }
+function insidePoly(poly, [x, y]) {
+  let c = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c
+  }
+  return c
 }
+
+// Whether a label box (with a margin) lies wholly on the part: inside the outline, clear of
+// the holes. Checked at points round the box's edge and through its middle.
+function boxOnPart(outline, holes, x0, y0, w, h, m) {
+  const pts = []
+  for (let i = 0; i <= 6; i++) {
+    const x = x0 - m + ((w + 2 * m) * i) / 6
+    for (const y of [y0 - m, y0 + h / 2, y0 + h + m]) pts.push([x, y])
+  }
+  return pts.every((p) => insidePoly(outline, p) && !holes.some((hl) => insidePoly(hl, p)))
+}
+
+// The tallest label (up to 4 mm, at least 2 mm, below which an engraving is hard to read)
+// that fits on the part, centred on its bounding box or its centroid, whichever takes the
+// larger; null if none fits.
+const LABEL_MAX = 4
+const LABEL_MIN = 2
+function labelOnPart(name, outline, holes) {
+  const b = bounds(outline)
+  const n = outline.length
+  const centroid = [outline.reduce((a, p) => a + p[0], 0) / n, outline.reduce((a, p) => a + p[1], 0) / n]
+  for (let h = LABEL_MAX; h >= LABEL_MIN - 1e-9; h -= 0.25) {
+    const w = textWidth(name, h)
+    for (const [cx, cy] of [[b.x0 + b.w / 2, b.y0 + b.h / 2], centroid]) {
+      const x0 = cx - w / 2
+      const y0 = cy - h / 2
+      if (boxOnPart(outline, holes, x0, y0, w, h, 0.6)) return { text: name, u: x0, z: y0, h }
+    }
+  }
+  return null
+}
+
+// A label engraved on the sheet just below a part too small to carry its own, so it can be
+// told apart while it's picked out of the sheet
+export const WASTE_LABEL = 2.5 // mm cap height
+const WASTE_GAP = 1 // mm between the part and its label
 
 // One part as entities in its own millimetre coordinates (bounding box at the origin), with
 // the machine compensation applied. Webs are turned so their grain runs along the sheet.
@@ -169,16 +205,20 @@ export function partEntities(part, opts) {
   let outline = toMm(part.outline)
   let holes = part.holes.map(toMm)
   let etch = part.etch.map(toMm)
-  let label = opts.labels ? labelFor(part) : null
   if (part.group === 'webs') {
     outline = rotate90(outline)
     holes = holes.map(rotate90)
     etch = etch.map(rotate90)
-    if (label) {
-      const b = bounds(outline)
-      const h = Math.min(4, 0.3 * Math.min(b.w, b.h))
-      label = h >= 1.5 && textWidth(part.name, h) < b.w * 0.9 ? { text: part.name, u: b.x0 + 1, z: b.y0 + (b.h - h) / 2, h } : null
-    }
+  }
+  // Ribs come with their label placed; anything else gets one if it fits, else in the waste
+  let label = null
+  let waste = null
+  if (opts.labels) {
+    label =
+      part.label?.text && part.group !== 'webs'
+        ? { ...part.label, u: part.label.u * MM, z: part.label.z * MM, h: part.label.h * MM }
+        : labelOnPart(part.name, outline, holes)
+    if (!label) waste = part.name
   }
   // Dogbones and offsets on the cut only
   let cutOuter = outline
@@ -206,9 +246,15 @@ export function partEntities(part, opts) {
   if (label) {
     for (const s of strokeText(label.text, label.u, label.z, label.h)) ents.push({ type: 'poly', layer: 'etch', pts: s, closed: false })
   }
-  // Shift so the part's (uncompensated) bounding box starts at the origin
+  // Shift so the part's (uncompensated) bounding box starts at the origin, or sits just above
+  // its label in the waste
   const b = bounds([...outline, ...ents.filter((e) => e.type === 'poly' && e.layer === 'cut').flatMap((e) => e.pts)])
-  return { ents: ents.map((e) => shiftEnt(e, -b.x0, -b.y0)), w: b.w, h: b.h, notes }
+  if (!waste) return { ents: ents.map((e) => shiftEnt(e, -b.x0, -b.y0)), w: b.w, h: b.h, notes }
+  const lw = textWidth(waste, WASTE_LABEL)
+  const up = WASTE_LABEL + WASTE_GAP
+  const out = ents.map((e) => shiftEnt(e, -b.x0, -b.y0 + up))
+  for (const s of strokeText(waste, 0, 0, WASTE_LABEL)) out.push({ type: 'poly', layer: 'etch', pts: s, closed: false, waste: true })
+  return { ents: out, w: Math.max(b.w, lw), h: b.h + up, notes }
 }
 
 function shiftEnt(e, dx, dy) {

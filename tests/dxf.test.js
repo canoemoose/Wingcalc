@@ -16,6 +16,7 @@ import {
   defaultExportOptions,
   layoutParts,
   hatchLines,
+  partEntities,
 } from '../src/lib/dxf.js'
 import { strokeText, textWidth } from '../src/lib/strokeFont.js'
 
@@ -146,6 +147,36 @@ describe('wing export', () => {
     expect(bounds(r1.pts).w).toBeCloseTo(229 + 0.15, 1)
     expect(back.polylines.some((p) => p.layer === 'ENGRAVE')).toBe(true)
     expect(back.polylines.some((p) => p.layer === 'GUIDE')).toBe(true)
+  })
+
+  it('labels a part on itself if the label fits, else in the waste just below it', () => {
+    const opts = { ...defaultExportOptions(), kerf: 0 }
+    const inside = (poly, [x, y]) => {
+      let c = false
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i]
+        const [xj, yj] = poly[j]
+        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c
+      }
+      return c
+    }
+    const gusset = parts.find((p) => p.group === 'gussets')
+    const web = parts.find((p) => p.group === 'webs')
+    for (const p of [gusset, web].filter(Boolean)) {
+      const pe = partEntities(p, opts)
+      const outline = pe.ents.find((e) => e.layer === 'cut').pts
+      const label = pe.ents.filter((e) => e.layer === 'etch' && !p.etch.length)
+      expect(label.length, p.name).toBeGreaterThan(0)
+      const ob = bounds(outline)
+      if (label[0].waste) {
+        // Below the part, clear of it
+        for (const e of label) for (const [, y] of e.pts) expect(y).toBeLessThan(ob.y0)
+      } else {
+        for (const e of label) for (const pt of e.pts) expect(inside(outline, pt), `${p.name} label`).toBe(true)
+      }
+    }
+    // A 10 mm gusset can't take a legible label inside its triangle
+    expect(partEntities(gusset, opts).ents.some((e) => e.waste)).toBe(true)
   })
 
   it('keeps each row within the sheet length', () => {
