@@ -16,7 +16,7 @@ export const RATINGS = {
   sharp: { label: 'Sharp', summary: 'Stalls abruptly with little warning; recovery is harder.' },
 }
 
-// Thresholds for the polar method (see README for how they were chosen).
+// Thresholds for the polar method (see docs/methods.md for how they were chosen).
 export const POLAR_THRESHOLDS = {
   // Average lift lost per degree over the first 2° past max lift, as a fraction of Clmax.
   dropGentle: 0.025, // below this: gentle

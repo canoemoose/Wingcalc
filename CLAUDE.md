@@ -1,6 +1,6 @@
 # Wingcalc
 
-Wing loading / cube loading / stall speed / stall character calculator for RC fixed-wing aircraft. Vue 3, plain JavaScript, Vite. See [README.md](README.md) for formulas and methods, and [SCOPE.md](SCOPE.md) for the original brief and build status.
+Wing loading / cube loading / stall speed / stall character calculator for RC fixed-wing aircraft. Vue 3, plain JavaScript, Vite. See [README.md](README.md) for the overview, [docs/methods.md](docs/methods.md) for formulas and methods, [docs/user-guide.md](docs/user-guide.md) for the UI, and [SCOPE.md](SCOPE.md) for the original brief and build status.
 
 ## Conventions
 
@@ -12,6 +12,7 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - XFOIL runs in the browser: pure parts (command script, parser, comparison) in `src/lib/xfoil.js`; the WebAssembly engine in `src/lib/xfoilEngine.js` (also used directly by the tests); the worker in `src/workers/`; queueing and the in-memory cache in `src/composables/usePolarSolver.js`; the stall-Re fixed point in `performanceWithXfoil` (`src/lib/airfoils.js`). Never call the engine on the main thread.
 - Licence is GPL-3.0-or-later (XFOIL and WebXFOIL are GPL-2.0-or-later); keep `THIRD_PARTY_NOTICES.md` current when bundling anything new.
 - Wing geometry for panel mode lives in `src/lib/wing.js` (flat s / projected y coordinates, Bézier edges); `calc.js` delegates to it.
+- Public docs (`README.md`, `docs/user-guide.md`, `docs/methods.md`, `docs/aerofoil-data.md`) describe the app as it is: no open questions, caveats to ourselves or links to scope files. Those go in `docs/backlog.md`. Update the user guide and methods when a change alters behaviour or a formula.
 - Decisions for later rounds are in `docs/scope-v2.md` and `docs/scope-v3.md`.
 - Projects: `src/lib/projects.js` (storage injected, every access guarded). Saved state is `{ units, input, airfoil }`; anything added to `input` must also go in `defaultState()` so older saves migrate. `input.structure` and `input.exportOptions` are filled from their defaults recursively (`fillDefaults`), so new nested settings migrate too.
 - Wing at any span station: `wingSampler` in `src/lib/wing.js` (chord, LE, twist, thickness, dihedral by flat s); `projectedSampler` looks it up by projected y for the lifting line.
