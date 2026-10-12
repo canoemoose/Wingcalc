@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { resolveAirfoil, airfoilPerformance, performanceWithXfoil, usableComputedPolar } from '../src/lib/airfoils.js'
 import { quantiseRe } from '../src/lib/xfoil.js'
+import { defaultState } from '../src/lib/projects.js'
+import { wingGeometry } from '../src/lib/calc.js'
+import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 
 const wing = { mass: 1.4, area: 0.3, chord: 0.22 }
 const custom = { thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 }
@@ -77,5 +80,37 @@ describe('performance from computed polars', () => {
     expect(near.curve.reference).toBeUndefined()
     const custom1 = airfoilPerformance(resolveAirfoil({ source: 'custom', custom }), wing, { polar: fakePolar(2e5) })
     expect(custom1.reference).toBeUndefined()
+  })
+})
+
+describe('computed polars with the lifting line', () => {
+  function setup() {
+    const s = defaultState()
+    const a = resolveAirfoil(s.airfoil)
+    const g = wingGeometry({ ...s.input, mode: 'panels' })
+    const planform = projectedSampler(wingSampler(s.input, a.params.thickness))
+    const opts = { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } }
+    return { a, opts }
+  }
+
+  it('takes the section Clmax from the computed polar and wing CLmax from the span', () => {
+    const { a, opts } = setup()
+    const instant = airfoilPerformance(a, opts)
+    const perf = airfoilPerformance(a, opts, { polar: fakePolar(instant.reynolds, 1.3) })
+    expect(perf.clMaxSource).toBe('xfoil')
+    expect(perf.method).toBe('lifting-line')
+    expect(perf.sectionClMax).toBeCloseTo(1.3, 6)
+    expect(perf.spanwise.distribution.length).toBeGreaterThan(0)
+    expect(perf.stall.spanwise).toBeDefined()
+    expect(perf.curve.computed).toBe(true)
+  })
+
+  it('moves wing CLmax with the computed section Clmax', () => {
+    const { a, opts } = setup()
+    const re = airfoilPerformance(a, opts).reynolds
+    const low = airfoilPerformance(a, opts, { polar: fakePolar(re, 1.1) })
+    const high = airfoilPerformance(a, opts, { polar: fakePolar(re, 1.4) })
+    expect(high.wingClMax).toBeGreaterThan(low.wingClMax)
+    expect(high.stallSpeed).toBeLessThan(low.stallSpeed)
   })
 })

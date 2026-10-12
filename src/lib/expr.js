@@ -6,8 +6,10 @@
 import { UNITS } from './units.js'
 
 // Unit spellings accepted after a number, per quantity, as factors to the SI base unit.
+const LENGTH = { mm: 0.001, cm: 0.01, m: 1, in: 0.0254, '"': 0.0254, inch: 0.0254, inches: 0.0254, ft: 0.3048, "'": 0.3048, feet: 0.3048 }
 const ALIASES = {
-  length: { mm: 0.001, cm: 0.01, m: 1, in: 0.0254, '"': 0.0254, inch: 0.0254, inches: 0.0254, ft: 0.3048, "'": 0.3048, feet: 0.3048 },
+  length: LENGTH,
+  thin: LENGTH,
   mass: { g: 0.001, kg: 1, oz: 0.028349523125, lb: 0.45359237, lbs: 0.45359237 },
   area: {
     mm2: 1e-6,

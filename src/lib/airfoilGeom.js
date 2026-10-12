@@ -155,6 +155,53 @@ export function interp(surface, x) {
   return surface[surface.length - 1][1]
 }
 
+// Fast evaluators for a section's surfaces: upper(x) and lower(x) for x in 0..1 (clamped),
+// by binary search on each surface sorted by x. For code that samples a section many times
+// (ribs, lifting line), where interp's linear scan would be slow.
+export function surfaceFns(coords) {
+  const { upper, lower } = splitSurfaces(coords)
+  const make = (surface) => {
+    const pts = [...surface].sort((a, b) => a[0] - b[0])
+    const xs = pts.map((p) => p[0])
+    const ys = pts.map((p) => p[1])
+    const n = xs.length
+    return (x) => {
+      if (x <= xs[0]) return ys[0]
+      if (x >= xs[n - 1]) return ys[n - 1]
+      let lo = 0
+      let hi = n - 1
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1
+        if (xs[mid] <= x) lo = mid
+        else hi = mid
+      }
+      const dx = xs[hi] - xs[lo]
+      return dx > 0 ? ys[lo] + ((ys[hi] - ys[lo]) * (x - xs[lo])) / dx : ys[lo]
+    }
+  }
+  return { upper: make(upper), lower: make(lower) }
+}
+
+// The same section with its thickness scaled by k and its camber line unchanged, so a
+// thinner tip section keeps the root's camber. Returned in Selig order at n + 1 cosine-spaced
+// stations. Thickness is added vertically to the camber line, which for ordinary sections
+// differs from the textbook normal-to-camber construction by a negligible amount.
+export function scaleThickness(coords, k, n = 80) {
+  const { upper, lower } = surfaceFns(coords)
+  const up = []
+  const lo = []
+  for (let i = 0; i <= n; i++) {
+    const x = 0.5 * (1 - Math.cos((Math.PI * i) / n))
+    const yu = upper(x)
+    const yl = lower(x)
+    const c = (yu + yl) / 2
+    const t = (yu - yl) / 2
+    up.push([x, c + k * t])
+    lo.push([x, c - k * t])
+  }
+  return [...up.reverse(), ...lo.slice(1)]
+}
+
 // Least-squares fit y = a √x + b x + c x² + d x³ to points near the LE; returns a.
 // For a round leading edge, y ≈ √(2 r x) as x -> 0, so r = a² / 2.
 function fitLeCoefficient(surface, xMax = 0.15) {

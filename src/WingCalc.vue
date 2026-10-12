@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, shallowRef, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, shallowRef, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import UnitInput from './components/UnitInput.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
@@ -8,9 +8,19 @@ import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
+import InspectorSection from './components/InspectorSection.vue'
 import { useHistory } from './composables/useHistory.js'
 import { usePolarSolver } from './composables/usePolarSolver.js'
 import LiftCurve from './components/LiftCurve.vue'
+import SpanLiftChart from './components/SpanLiftChart.vue'
+import StructureEditor from './components/StructureEditor.vue'
+import StructurePlan from './components/StructurePlan.vue'
+import Structure3D from './components/Structure3D.vue'
+import LoadsChart from './components/LoadsChart.vue'
+import PartPreview from './components/PartPreview.vue'
+import ExportPanel from './components/ExportPanel.vue'
+import { analyseStructure, sparFraction, MODES, MATERIALS } from './lib/structure.js'
+import { buildParts } from './lib/ribs.js'
 import { SYSTEMS, format, defaultUnit, otherSystem } from './lib/units.js'
 import {
   wingGeometry,
@@ -39,6 +49,8 @@ import {
   fileName,
 } from './lib/projects.js'
 import { RATINGS } from './lib/stall.js'
+import { panelSections, wingSampler, projectedSampler } from './lib/wing.js'
+import { scaleThickness } from './lib/airfoilGeom.js'
 
 const props = defineProps({
   units: { type: String, default: 'metric' },
@@ -252,6 +264,7 @@ const history = useHistory(
     panels: input.panels,
     tip: input.tip,
     dimensions: input.dimensions,
+    structure: input.structure,
   }),
   (v) => Object.assign(input, v),
 )
@@ -264,10 +277,34 @@ const geometryModes = [
 
 const geometry = computed(() => wingGeometry({ ...input, mode: input.geometryMode }))
 const airfoil = computed(() => resolveAirfoil(airfoilSel.value, uiuc.value))
+const baseThickness = computed(() => airfoil.value?.params?.thickness ?? null)
+
+// The tip section, when the thickness tapers or the tip has washout (panel mode only).
+const tipSection = computed(() => {
+  const a = airfoil.value
+  if (input.geometryMode !== 'panels' || !a?.valid || !(baseThickness.value > 0)) return null
+  const tip = panelSections(input.panels, baseThickness.value).at(-1)?.outer
+  if (!tip) return null
+  const tapered = Math.abs(tip.thickness - baseThickness.value) > 1e-6
+  if (!tapered && !tip.twist) return null
+  const notes = []
+  if (tapered) notes.push(`tip ${(tip.thickness * 100).toFixed(1)}% thick (dashed)`)
+  if (tip.twist) notes.push(`${tip.twist.toFixed(2).replace(/\.?0+$/, '')}° washout at the tip`)
+  return {
+    coords: tapered ? scaleThickness(a.coords, tip.thickness / baseThickness.value) : null,
+    note: notes.join(', ').replace(/^./, (c) => c.toUpperCase()) + '.',
+  }
+})
 
 // Wing CLmax = 0.9 × cos(quarter-chord sweep) × section Clmax.
 const sweepCos = computed(() => Math.cos(geometry.value.sweepQuarter ?? 0))
 const sweepDeg = computed(() => ((geometry.value.sweepQuarter ?? 0) * 180) / Math.PI)
+
+// The planform by projected span, for the lifting line (panel mode with a valid wing).
+const planform = computed(() => {
+  if (input.geometryMode !== 'panels' || !(geometry.value.area > 0) || geometry.value.invalid) return null
+  return projectedSampler(wingSampler(input, baseThickness.value))
+})
 
 // XFOIL polars, computed in a worker and kept for the page's lifetime. Results show the
 // instant answer (bundled polar or estimate) until the computed polar is ready.
@@ -281,7 +318,14 @@ const xfoil = computed(() => {
   if (!base) return { perf: null, need: null, status: null }
   const g = geometry.value
   // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
-  const wing = { mass: input.mass, area: g.projectedArea, chord: g.mac, clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value }
+  // In panel mode wing CLmax comes from the spanwise lift distribution, otherwise a fixed factor.
+  const wing = {
+    mass: input.mass,
+    area: g.projectedArea,
+    chord: g.mac,
+    clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value,
+    wing: planform.value ? { planform: planform.value, span: g.span, sweepCos: sweepCos.value } : null,
+  }
   return performanceWithXfoil(airfoil.value, wing, (re) => solver.lookup(`${base}@${re}`))
 })
 watch(
@@ -336,6 +380,103 @@ const marker = computed(() => {
 const rating = computed(() => {
   const s = results.value.perf?.stall
   return s ? { ...s, ...RATINGS[s.rating] } : null
+})
+
+// --- Structure ---------------------------------------------------------------------------
+
+// Stage A loads and the parts to cut, for a panel wing whose stall the lifting line resolved.
+const structureResult = computed(() => {
+  const spanwise = results.value.perf?.spanwise
+  if (!planform.value || !spanwise) return null
+  const wing = { fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }
+  const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise })
+  if (!a) return null
+  return { a, ...buildParts(a, input.structure, { handedness: input.exportOptions.handedness }) }
+})
+const structureOpen = ref(false)
+const exportOpen = ref(false)
+// Only one full-window editor at a time
+watch(workspaceOpen, (v) => v && (structureOpen.value = false))
+watch(structureOpen, (v) => {
+  if (v) workspaceOpen.value = false
+  else exportOpen.value = false
+})
+const selectedPart = ref(null)
+// The plan or 3D card grown to fill most of the window, for now; one at a time
+const expandedCard = ref(null)
+const structureMainEl = ref(null)
+const EXPAND_ICON = 'M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4'
+const SHRINK_ICON = 'M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4'
+function toggleExpand(card) {
+  expandedCard.value = expandedCard.value === card ? null : card
+  // Bring the card's top into view once it has grown
+  nextTick(() => structureMainEl.value?.querySelector(`[data-card="${card}"]`)?.scrollIntoView({ block: 'start' }))
+}
+const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs') ?? [])
+const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
+// The ribs between the fixed ones, as distances from the root rib: where manual spacing starts
+const ribDistances = computed(() => {
+  const a = structureResult.value?.a
+  return a ? a.ribs.filter((r) => r.kind === 'normal').map((r) => r.s - a.rootS) : []
+})
+const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.group === 'braces').map((p) => p.need) ?? [])
+const projectFileBase = computed(() => fileName(project.name).replace(/\.wingcalc\.json$/, ''))
+
+const thin = (v) => format(v, 'thin', u('thin'))
+const sparSummary = computed(() => {
+  const sp = input.structure.spar
+  const mat = (id) => MATERIALS[id]?.label.toLowerCase() ?? id
+  if (sp.type === 'tube') return `${thin(sp.tubeDiameter)} ${mat(sp.tubeMaterial)}`
+  if (sp.type === 'solid') return `${thin(sp.solidWidth)} × ${thin(sp.solidDepth)} ${mat(sp.solidMaterial)}`
+  return `${sp.type === 'box' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} web${sp.type === 'box' ? 's' : ''}`
+})
+const COVERING_LABELS = { open: 'Open, film covered', dbox: 'D-box', sheeted: 'Fully sheeted' }
+const ribSummary = computed(() => {
+  const r = structureResult.value?.a.ribs
+  if (!r?.length) return '–'
+  const bays = r.slice(1).map((x, i) => x.s - r[i].s)
+  const lo = Math.min(...bays)
+  const hi = Math.max(...bays)
+  const lu = u('length')
+  const spread = hi - lo < 0.002 ? format(hi, 'length', lu) : `${format(lo, 'length', lu)} to ${format(hi, 'length', lu)}`
+  return `${r.length} per side, ${spread} apart`
+})
+const worstMargin = computed(() => {
+  const w = structureResult.value?.a.summary.worst
+  if (!w) return null
+  return { ...w, label: MODES[w.mode] ?? w.mode, text: `${w.ms >= 0 ? '+' : ''}${w.ms.toFixed(2)}`, ok: w.ms >= 0 }
+})
+const structureWarnings = computed(() => {
+  const r = structureResult.value
+  if (!r) return []
+  const out = [...r.a.warnings.map((w) => w.message)]
+  for (const sk of r.skipped) {
+    out.push(
+      sk.reason === 'outside'
+        ? `${sk.name} is too close to a panel end to run square to the spar, so it's left out.`
+        : `${sk.name} is too short once the leading and trailing edge stock is taken off, so it's left out.`,
+    )
+  }
+  const thinTe = r.parts.filter((p) => p.notes.some((n) => n.startsWith('Very thin')))
+  if (thinTe.length) out.push(`${thinTe.map((p) => p.name).join(', ')}: very thin at the trailing edge cut. Use deeper TE stock or thinner skins.`)
+  return out
+})
+watch(
+  ribParts,
+  (list) => {
+    if (!list.length) return
+    const all = structureResult.value.parts
+    if (!all.some((p) => p.id === selectedPart.value)) selectedPart.value = list[0].id
+  },
+  { immediate: true },
+)
+
+// The wing geometry section's heading line when it's closed
+const wingSummary = computed(() => {
+  const g = geometry.value
+  if (!g.span) return ''
+  const n = input.geometryMode === 'panels' ? `${input.panels.length} panel${input.panels.length === 1 ? '' : 's'}, ` : ''
+  return `${n}${format(g.span, 'length', u('length'))} span, ${format(g.area, 'area', u('area'))}`
 })
 
 const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' : '–')
@@ -398,8 +539,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
 
     <div class="wc-layout">
       <!-- Inputs -->
-      <section class="wc-panel wc-inputs" aria-label="Inputs">
-        <h3 class="wc-panel__title">Aircraft</h3>
+      <section class="wc-panel wc-inputs wc-inspector" aria-label="Inputs">
+        <InspectorSection title="Aircraft" fold-key="page:aircraft" :summary="format(input.mass, 'mass', u('mass'))" open>
         <UnitInput
           id="wc-mass"
           v-model="input.mass"
@@ -408,9 +549,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           label="All-up weight"
           :warn="warnFor('mass')"
         />
+        </InspectorSection>
 
-        <h3 class="wc-panel__title">Wing geometry</h3>
-        <div class="wc-segmented" role="radiogroup" aria-label="Wing size from">
+        <InspectorSection title="Wing geometry" fold-key="page:wing" :summary="wingSummary" open>
+        <div class="wc-segmented wc-segmented--small" role="radiogroup" aria-label="Wing size from">
           <button
             v-for="m in geometryModes"
             :key="m.id"
@@ -433,6 +575,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-model:selected="selectedPanel"
           :system="system"
           :warn-fields="warnFields"
+          :base-thickness="baseThickness"
         />
         <UnitInput
           v-else
@@ -472,12 +615,14 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           Wing area {{ format(geometry.area, 'area', u('area')) }}
           <span class="wc-muted">({{ format(geometry.area, 'area', u('area', alt)) }})</span>
         </p>
+        </InspectorSection>
 
-        <h3 class="wc-panel__title">Aerofoil</h3>
+        <InspectorSection title="Aerofoil" fold-key="page:aerofoil" :summary="airfoil?.name ?? ''" open>
         <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" />
         <p v-if="catalogueError" class="wc-field__hint wc-text-warn">
           The full aerofoil catalogue couldn't be loaded; only sections with polar data are listed.
         </p>
+        </InspectorSection>
 
         <ul v-if="warnings.length" class="wc-warnings">
           <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
@@ -520,9 +665,20 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <p v-if="results.perf" class="wc-card__note">
               Level flight, sea level (ρ = {{ RHO_SEA_LEVEL }} kg/m³)<template v-if="geometry.hasDihedral"
                 >, projected wing area</template
-              >. Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }}
-              <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
-              section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
+              >.
+              <template v-if="results.perf.method === 'lifting-line'">
+                Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} from the spanwise lift distribution<template
+                  v-if="Math.abs(sweepDeg) >= 3"
+                >
+                  × cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep</template
+                >, {{ (results.perf.clMaxFactor * 100).toFixed(0) }}% of root section Clmax
+                {{ results.perf.sectionClMax.toFixed(2) }}
+              </template>
+              <template v-else>
+                Wing CLmax {{ results.perf.wingClMax.toFixed(2) }} = {{ WING_CLMAX_FACTOR }}
+                <template v-if="Math.abs(sweepDeg) >= 3">× cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep </template>×
+                section Clmax {{ results.perf.sectionClMax.toFixed(2) }}
+              </template>
               <template v-if="results.perf.clMaxSource === 'xfoil'"
                 >from XFOIL at Re {{ fmtRe(results.perf.polar.re) }}, computed here</template
               >
@@ -646,6 +802,56 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           />
         </article>
 
+        <article v-if="input.geometryMode === 'panels'" class="wc-card wc-structure-card">
+          <div class="wc-plan-card__head">
+            <h3 class="wc-card__label">Structure and ribs</h3>
+            <button type="button" class="wc-button" :disabled="!structureResult" @click="structureOpen = true">
+              Open structure editor
+            </button>
+          </div>
+          <template v-if="structureResult">
+            <dl class="wc-stats wc-structure-card__stats">
+              <div>
+                <dt>Spar</dt>
+                <dd>{{ sparSummary }}</dd>
+              </div>
+              <div>
+                <dt>Covering</dt>
+                <dd>{{ COVERING_LABELS[input.structure.covering.type] }}</dd>
+              </div>
+              <div>
+                <dt>Ribs</dt>
+                <dd>{{ ribSummary }}</dd>
+              </div>
+              <div v-if="worstMargin">
+                <dt>Lowest margin at {{ input.structure.loads.designG }} g</dt>
+                <dd :class="worstMargin.ok ? 'wc-text-ok' : 'wc-text-bad'">
+                  {{ worstMargin.text }} <span class="wc-muted">{{ worstMargin.label.toLowerCase() }}, {{ format(worstMargin.d, 'length', u('length')) }} out</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Root bending moment</dt>
+                <dd>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</dd>
+              </div>
+              <div>
+                <dt>Structure weight (estimate)</dt>
+                <dd>
+                  {{ format(structureResult.weight.total, 'mass', u('mass')) }}
+                  <span class="wc-muted">{{ Math.round((structureResult.weight.total / input.mass) * 100) }}% of all-up weight</span>
+                </dd>
+              </div>
+            </dl>
+            <ul v-if="structureWarnings.length" class="wc-warnings">
+              <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
+            </ul>
+            <p class="wc-disclaimer">
+              A first-order sizing check (Stage A): bending and shear at the design load, not torsion, flutter or joints.
+              Wood varies; treat margins under +0.3 with suspicion.
+            </p>
+          </template>
+          <p v-else class="wc-muted">Needs a valid wing and aerofoil to work out the loads.</p>
+        </article>
+
         <div class="wc-lower">
           <article v-if="rating" class="wc-card wc-stall" :data-rating="rating.rating">
             <div class="wc-stall__head">
@@ -661,6 +867,17 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               >
               <template v-else-if="rating.confidence === 'low'"> Limited post-stall data, so treat with extra caution.</template>
             </p>
+            <p v-if="rating.spanwise" class="wc-card__note">
+              {{ rating.spanwise.text }}
+              <template v-if="rating.spanwise.sharper && rating.sectionRating !== rating.rating">
+                The section alone rates {{ RATINGS[rating.sectionRating].label.toLowerCase() }}.</template
+              >
+            </p>
+            <SpanLiftChart
+              v-if="results.perf?.spanwise"
+              :distribution="results.perf.spanwise.distribution"
+              :onset-eta="results.perf.spanwise.onsetEta"
+            />
             <LiftCurve v-if="results.perf?.curve" :curve="results.perf.curve" />
             <p class="wc-disclaimer">Indicative only: not a substitute for flight testing.</p>
           </article>
@@ -672,6 +889,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               :params="airfoil.params"
               :name="airfoil.name"
               :valid="airfoil.valid"
+              :tip-coords="tipSection?.coords ?? null"
+              :tip-note="tipSection?.note ?? ''"
             />
             <PlanformView
               v-if="input.geometryMode !== 'panels' || geometry.hasDihedral"
@@ -703,6 +922,104 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
       </section>
     </div>
 
+    <Teleport v-if="workspaceTarget && structureResult" :to="workspaceTarget">
+      <WingWorkspace v-model:open="structureOpen" :theme="themeMode" title="Structure and ribs">
+        <template #stats>
+          <span class="wc-stat"><span>Ribs</span>{{ structureResult.a.ribs.length }} per side</span>
+          <span v-if="worstMargin" class="wc-stat" :class="worstMargin.ok ? 'wc-text-ok' : 'wc-text-bad'">
+            <span>Lowest margin</span>{{ worstMargin.text }} <em>{{ worstMargin.label.toLowerCase() }}</em>
+          </span>
+          <span class="wc-stat"><span>Root bending</span>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</span>
+          <span class="wc-stat"><span>Structure</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
+          <button type="button" class="wc-button" @click="exportOpen = true">Export…</button>
+        </template>
+        <template #side>
+          <StructureEditor
+            v-model:structure="input.structure"
+            :system="system"
+            :auto-spar="autoSpar"
+            :brace-needs="braceNeeds"
+            :rib-distances="ribDistances"
+          />
+          <ul v-if="structureWarnings.length" class="wc-warnings">
+            <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
+          </ul>
+        </template>
+        <template #main>
+          <ExportPanel
+            v-if="exportOpen"
+            v-model:options="input.exportOptions"
+            v-model:structure="input.structure"
+            :analysis="structureResult.a"
+            :parts="structureResult.parts"
+            :cut-list="structureResult.cutList"
+            :system="system"
+            :base-name="projectFileBase"
+            :project-name="project.name || 'Untitled'"
+            @close="exportOpen = false"
+          />
+          <div ref="structureMainEl" class="wc-structure-main">
+            <article class="wc-card wc-structure-main__wide" :class="{ 'wc-card--expanded': expandedCard === 'plan' }" data-card="plan">
+              <div class="wc-card__head">
+                <h3 class="wc-card__label">Plan</h3>
+                <button
+                  type="button"
+                  class="wc-iconbtn wc-expand"
+                  :aria-pressed="expandedCard === 'plan'"
+                  :aria-label="expandedCard === 'plan' ? 'Shrink the plan' : 'Expand the plan'"
+                  :title="expandedCard === 'plan' ? 'Shrink back' : 'Expand to fill the window'"
+                  @click="toggleExpand('plan')"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="expandedCard === 'plan' ? SHRINK_ICON : EXPAND_ICON" /></svg>
+                </button>
+              </div>
+              <StructurePlan
+                v-model:structure="input.structure"
+                :analysis="structureResult.a"
+                :parts="structureResult.parts"
+                :selected="selectedPart"
+                :system="system"
+                :editable="input.structure.ribs.spacing === 'manual'"
+                @select="selectedPart = $event"
+                @commit="history.commit"
+              />
+            </article>
+            <article class="wc-card wc-structure-main__wide" :class="{ 'wc-card--expanded': expandedCard === '3d' }" data-card="3d">
+              <div class="wc-card__head">
+                <h3 class="wc-card__label">3D</h3>
+                <button
+                  type="button"
+                  class="wc-iconbtn wc-expand"
+                  :aria-pressed="expandedCard === '3d'"
+                  :aria-label="expandedCard === '3d' ? 'Shrink the 3D view' : 'Expand the 3D view'"
+                  :title="expandedCard === '3d' ? 'Shrink back' : 'Expand to fill the window'"
+                  @click="toggleExpand('3d')"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="expandedCard === '3d' ? SHRINK_ICON : EXPAND_ICON" /></svg>
+                </button>
+              </div>
+              <Structure3D
+                :analysis="structureResult.a"
+                :structure="input.structure"
+                :parts="structureResult.parts"
+                :system="system"
+                :selected="selectedPart"
+                @select="selectedPart = $event"
+              />
+            </article>
+            <article class="wc-card">
+              <h3 class="wc-card__label">Loads</h3>
+              <LoadsChart :analysis="structureResult.a" :ribs="ribParts" :system="system" :design-g="input.structure.loads.designG" />
+            </article>
+            <article class="wc-card">
+              <h3 class="wc-card__label">Part</h3>
+              <PartPreview :parts="structureResult.parts" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
+            </article>
+          </div>
+        </template>
+      </WingWorkspace>
+    </Teleport>
+
     <Teleport v-if="workspaceTarget" :to="workspaceTarget">
       <WingWorkspace v-model:open="workspaceOpen" :theme="themeMode">
         <template #stats>
@@ -724,7 +1041,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:selected="selectedPanel"
             :system="system"
             :warn-fields="warnFields"
-            focused
+            :base-thickness="baseThickness"
             id-prefix="wcx"
           />
           <ul v-if="warnings.length" class="wc-warnings">

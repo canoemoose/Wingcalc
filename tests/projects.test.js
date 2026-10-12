@@ -135,3 +135,18 @@ describe('project files', () => {
     expect(fileName('')).toBe('wing.wingcalc.json')
   })
 })
+
+describe('structure in saved projects', () => {
+  it('fills settings added since a project was saved', () => {
+    const old = defaultState()
+    delete old.input.exportOptions
+    old.input.structure = { spar: { type: 'tube', tubeDiameter: 0.01 }, ribs: { manual: [{ id: 1, d: 0.1 }] } }
+    const m = migrate(old)
+    expect(m.input.structure.spar.type).toBe('tube')
+    expect(m.input.structure.spar.tubeDiameter).toBe(0.01)
+    expect(m.input.structure.spar.capWidth).toBe(0.006)
+    expect(m.input.structure.ribs.manual).toEqual([{ id: 1, d: 0.1 }])
+    expect(m.input.structure.covering.type).toBe('dbox')
+    expect(m.input.exportOptions.machine).toBe('laser')
+  })
+})

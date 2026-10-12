@@ -27,6 +27,11 @@
 //             edge, 0.25 = quarter-chord) of a line kept straight from end to end. Stations
 //             then set only their chord; `le` is ignored and the edges lie either side of the
 //             straight line in proportion.
+//   washout   twist at the panel's outer end relative to the root, degrees, + nose down
+//             (washout), default 0. Varies linearly across the panel from the inner end's value.
+//   thickness section thickness at the outer end as a fraction of chord, or null to keep the
+//             inner end's. The root has the aerofoil's own thickness; it varies linearly
+//             across each panel and only the thickness is scaled, never the camber.
 //
 // The tip (wing-level, optional): { extension, peak } adds a rounded cap beyond the last
 // panel, reaching `extension` further out at fraction `peak` of the tip chord. It is made of
@@ -445,7 +450,7 @@ const nextId = (items) => items.reduce((m, p) => Math.max(m, p.id ?? 0), 0) + 1
 export function appendPanel(panels, rootChord) {
   const prev = panels.at(-1)
   if (!prev)
-    return [{ id: 1, length: 0.3, tipChord: (rootChord || 0.2) * 0.75, sweep: 0, dihedral: 0, le: null, te: null, stations: null }]
+    return [{ id: 1, length: 0.3, tipChord: (rootChord || 0.2) * 0.75, sweep: 0, dihedral: 0, le: null, te: null, stations: null, washout: 0, thickness: null }]
   const len = Math.max(0.05, Math.round(((prev.length || 0.25) * 0.4) / 0.005) * 0.005)
   const scale = prev.length > 0 ? len / prev.length : 0
   const tilt = 'rise' in prev ? { rise: Number.isFinite(prev.rise) ? prev.rise * scale : 0 } : { dihedral: prev.dihedral ?? 0 }
@@ -460,6 +465,9 @@ export function appendPanel(panels, rootChord) {
       le: null,
       te: null,
       stations: null,
+      // Same twist as the previous panel's tip, so the new panel adds none of its own.
+      washout: prev.washout ?? 0,
+      thickness: null,
     },
   ]
 }
@@ -474,7 +482,7 @@ export function removePanel(panels, i) {
 export function normalisePanels(panels) {
   let id = nextId(panels) - 1
   return panels.map((p) => {
-    const out = { sweep: 0, le: null, te: null, stations: null, ...p, id: p.id ?? ++id }
+    const out = { sweep: 0, le: null, te: null, stations: null, washout: 0, thickness: null, ...p, id: p.id ?? ++id }
     if (Array.isArray(out.stations)) {
       let sid = nextId(out.stations) - 1
       out.stations = out.stations.map((st) => ({ ...st, id: st.id ?? ++sid }))
@@ -564,8 +572,118 @@ export function insertPanel(panels, i, rootChord) {
     le: null,
     te: null,
     stations: null,
+    washout: before?.washout ?? 0,
+    thickness: null,
   }
   return [...panels.slice(0, i + 1), panel, ...panels.slice(i + 1)]
+}
+
+// Twist (degrees, + washout) and thickness (fraction of chord) at each panel's inner and
+// outer ends. baseThickness is the aerofoil's own thickness, used at the root and by any
+// panel whose thickness is left blank.
+export function panelSections(panels, baseThickness = null) {
+  let twist = 0
+  let t = baseThickness
+  return panels.map((p) => {
+    const inner = { twist, thickness: t }
+    twist = Number.isFinite(p.washout) ? p.washout : twist
+    t = Number.isFinite(p.thickness) && p.thickness > 0 ? p.thickness : t
+    return { inner, outer: { twist, thickness: t } }
+  })
+}
+
+// The wing at any flat spanwise distance s (m from the centreline, one side), for code that
+// works along the span (lifting line, loads, ribs). Returns a function s -> { s, y, z, xl,
+// c, twist, thickness, rad, panel, f }, where panel is the panel index (-1 in the fuselage
+// section, panels.length in the tip cap) and f the fraction along it. Beyond the tip it
+// returns null. Sections are resolved once, so calling it many times is cheap.
+export function wingSampler({ fuselageWidth = 0, rootChord, panels, tip = null }, baseThickness = null) {
+  const half = Math.max(0, fuselageWidth || 0) / 2
+  if (!(rootChord > 0) || !panels?.length) return null
+  const ends = panelEnds({ fuselageWidth, rootChord, panels })
+  const edges = ends.map(({ inner, outer, panel }) => panelEdges(inner, outer, panel))
+  if (edges.some((e) => !e)) return null
+  const sections = panelSections(panels, baseThickness)
+  const last = ends.at(-1)
+  const lastSec = sections.at(-1).outer
+  const cap = hasTip(tip) ? tipShape(last.outer, tip) : null
+  const reach = last.outer.s + (cap ? tip.extension : 0)
+  const at = (s) => {
+    if (s < -1e-12 || s > reach + 1e-12) return null
+    if (s <= half) {
+      return { s, y: s, z: 0, xl: 0, c: rootChord, twist: 0, thickness: baseThickness, rad: 0, panel: -1, f: half > 0 ? s / half : 0 }
+    }
+    if (s > last.outer.s) {
+      const e = tip.extension
+      const ds = s - last.outer.s
+      const t = cap(Math.min(1, ds / e))
+      return {
+        s,
+        y: last.outer.y + ds * Math.cos(last.rad),
+        z: last.outer.z + ds * Math.sin(last.rad),
+        xl: t.xl,
+        c: t.c,
+        twist: lastSec.twist,
+        thickness: lastSec.thickness,
+        rad: last.rad,
+        panel: panels.length,
+        f: ds / e,
+      }
+    }
+    let i = ends.findIndex((e) => s <= e.outer.s + 1e-12)
+    if (i < 0) i = ends.length - 1
+    const { inner, outer, rad } = ends[i]
+    const f = Math.min(1, Math.max(0, (s - inner.s) / (outer.s - inner.s)))
+    const xl = edges[i].le(f)
+    const sec = sections[i]
+    const lerp = (a, b) => (a === null || b === null ? null : a + (b - a) * f)
+    return {
+      s,
+      y: inner.y + (outer.y - inner.y) * f,
+      z: inner.z + (outer.z - inner.z) * f,
+      xl,
+      c: edges[i].te(f) - xl,
+      twist: sec.inner.twist + (sec.outer.twist - sec.inner.twist) * f,
+      thickness: lerp(sec.inner.thickness, sec.outer.thickness),
+      rad,
+      panel: i,
+      f,
+    }
+  }
+  return { at, half, reach, ends, edges, sections }
+}
+
+// The same wing looked up by projected spanwise distance y (as the lifting line needs),
+// by sampling s finely and interpolating. Panel ends are always sampled, so the chord and
+// twist kinks there are exact. Returns { atY(y), semiSpan } or null.
+export function projectedSampler(sampler, n = 600) {
+  if (!sampler) return null
+  const ss = new Set()
+  for (let i = 0; i <= n; i++) ss.add((sampler.reach * i) / n)
+  ss.add(sampler.half)
+  for (const e of sampler.ends) ss.add(e.outer.s)
+  const rows = [...ss]
+    .sort((a, b) => a - b)
+    .map((s) => sampler.at(Math.min(s, sampler.reach)))
+    .filter(Boolean)
+  const semiSpan = rows.at(-1).y
+  const atY = (y) => {
+    if (y <= 0) return rows[0]
+    if (y >= semiSpan) return rows.at(-1)
+    let lo = 0
+    let hi = rows.length - 1
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1
+      if (rows[mid].y <= y) lo = mid
+      else hi = mid
+    }
+    const a = rows[lo]
+    const b = rows[hi]
+    const t = b.y > a.y ? (y - a.y) / (b.y - a.y) : 0
+    const mix = (u, v) => (u === null || v === null ? null : u + (v - u) * t)
+    return { ...a, s: mix(a.s, b.s), y, c: mix(a.c, b.c), xl: mix(a.xl, b.xl), twist: mix(a.twist, b.twist), thickness: mix(a.thickness, b.thickness) }
+  }
+  return { atY, semiSpan }
 }
 
 // Move panel i one place inward (dir = -1) or outward (+1). Each panel keeps its own length,

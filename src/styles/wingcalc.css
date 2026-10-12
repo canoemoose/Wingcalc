@@ -369,6 +369,12 @@
 .wingcalc .wc-text-warn {
   color: var(--wc-warn);
 }
+.wingcalc .wc-text-ok {
+  color: var(--wc-gentle);
+}
+.wingcalc .wc-text-bad {
+  color: var(--wc-sharp);
+}
 
 /* Panel editor */
 .wc-panelset {
@@ -631,6 +637,13 @@
 .wc-svg-outline--bad {
   stroke: var(--wc-sharp);
   fill: color-mix(in srgb, var(--wc-sharp) 14%, transparent);
+}
+.wc-svg-tipsection {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 3;
+  stroke-linejoin: round;
 }
 .wc-svg-chord {
   stroke: var(--wc-muted);
@@ -1011,7 +1024,7 @@
 
 /* Chord stations and tip */
 .wc-segmented--small .wc-segmented__btn {
-  padding: 4px 6px;
+  padding: 3px 6px;
   font-size: 0.8rem;
 }
 .wc-stations {
@@ -1513,4 +1526,546 @@
 }
 .wc-stations__why--todo {
   color: var(--wc-muted);
+}
+
+/* Structure: summary card, editor fields, plan, loads, part preview and export */
+.wc-structure-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wc-structure-card__stats dd {
+  font-size: 0.9rem;
+}
+.wc-structure-editor__check {
+  display: flex;
+  margin: 2px 0 10px;
+}
+.wc-structure-editor__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+.wc-structure-editor__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0 8px;
+  align-items: end;
+}
+.wc-structure-editor__row:has(> :nth-child(2):last-child) {
+  grid-template-columns: 1fr auto;
+}
+.wc-structure-editor__row .wc-stations__remove {
+  margin-bottom: 14px;
+}
+.wc-structure-editor__item {
+  border-top: 1px solid var(--wc-border);
+  padding-top: 6px;
+  margin-bottom: 8px;
+}
+.wc-structure-editor__itemhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.wc-structure-editor__sub {
+  margin: 4px 0 10px;
+}
+.wc-structure-editor__add {
+  margin-bottom: 10px;
+}
+
+/* Plan, 3D, loads and part as cards. A half wing is long and thin, so the plan and 3D run
+   the full width; loads and part go two across when there's room. */
+.wc-structure-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-content: start;
+}
+@container (min-width: 1100px) {
+  .wc-structure-main {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.wc-structure-main > .wc-card {
+  min-width: 0;
+}
+.wc-structure-main > .wc-structure-main__wide {
+  grid-column: 1 / -1;
+}
+.wc-structure-plan .wc-plan__toolbar {
+  margin-bottom: 6px;
+}
+/* More specific than .wc-figure svg (height: auto), which would otherwise size the plan from
+   its own drawing while the drawing is sized from the plan, so it could never shrink back */
+.wc-figure .wc-structure-plan__svg {
+  display: block;
+  width: 100%;
+  height: clamp(220px, 34vh, 400px);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  background: var(--wc-bg);
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+}
+.wc-structure-plan__svg:focus-visible {
+  border-color: var(--wc-accent);
+}
+.wc-structure-plan__svg--panning {
+  cursor: grabbing;
+}
+.wc-sp__rib--movable .wc-sp__ribhit {
+  cursor: ew-resize;
+}
+.wc-sp__rib--movable .wc-sp__ribline {
+  stroke: var(--wc-accent);
+}
+.wc-sp__rib--dragging .wc-sp__ribline {
+  opacity: 0.35;
+}
+.wc-sp__preview {
+  stroke: var(--wc-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+}
+.wc-structure-plan__readout {
+  margin-top: 6px;
+  font-size: 0.85rem;
+}
+.wc-sp__outline {
+  fill: var(--wc-bg);
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+}
+.wc-sp__tip {
+  fill: color-mix(in srgb, var(--wc-moderate) 12%, var(--wc-bg));
+}
+.wc-sp__sheet {
+  fill: color-mix(in srgb, var(--wc-accent) 9%, transparent);
+  stroke: none;
+}
+.wc-sp__stock {
+  fill: none;
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+}
+.wc-sp__stringer {
+  fill: none;
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.wc-sp__spar {
+  fill: color-mix(in srgb, var(--wc-accent) 45%, transparent);
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+}
+.wc-sp__weak {
+  fill: color-mix(in srgb, var(--wc-sharp) 12%, transparent);
+}
+.wc-sp__weak--spacing {
+  fill: color-mix(in srgb, var(--wc-moderate) 18%, transparent);
+}
+.wc-sp__ribline {
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+}
+.wc-sp__rib--hard .wc-sp__ribline {
+  stroke-width: 2.2;
+}
+.wc-sp__rib--selected .wc-sp__ribline {
+  stroke: var(--wc-accent);
+  stroke-width: 3;
+}
+.wc-sp__ribhit {
+  stroke: transparent;
+  stroke-width: 12;
+  cursor: pointer;
+}
+.wc-sp__rib:hover .wc-sp__ribline {
+  stroke: var(--wc-accent);
+}
+.wc-sp__label {
+  fill: var(--wc-muted);
+}
+.wc-sp__rib--selected .wc-sp__label {
+  fill: var(--wc-accent);
+  font-weight: 650;
+}
+
+.wc-loads svg {
+  width: 100%;
+  display: block;
+}
+.wc-loads__rib {
+  stroke: var(--wc-border);
+  stroke-width: 1;
+}
+.wc-loads__bad {
+  fill: color-mix(in srgb, var(--wc-sharp) 9%, transparent);
+}
+
+.wc-part__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.wc-part__size {
+  font-size: 0.8rem;
+  color: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wc-part svg {
+  width: 100%;
+  max-height: 240px;
+}
+.wc-part__cut {
+  fill: color-mix(in srgb, var(--wc-moderate) 14%, transparent);
+  stroke: var(--wc-sharp);
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+.wc-part__hole {
+  fill: var(--wc-bg);
+  stroke: var(--wc-sharp);
+  stroke-width: 1.3;
+}
+.wc-part__etch {
+  fill: none;
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+}
+
+/* Export: a large dialog over the structure editor */
+.wc-export__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 2vh 2vw;
+  background: color-mix(in srgb, #000 45%, transparent);
+}
+.wc-export {
+  width: min(1900px, 96vw);
+  height: 96vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--wc-bg);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+  outline: none;
+}
+.wc-export__title {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+.wc-export__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.wc-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wc-card__head .wc-card__label {
+  margin: 0;
+}
+.wingcalc .wc-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+}
+.wc-expand svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: block;
+}
+/* A card grown to fill most of the window: its drawing takes the height */
+.wc-card--expanded .wc-figure .wc-structure-plan__svg {
+  height: calc(100vh - 230px);
+}
+.wc-card--expanded .wc-3d__canvas {
+  height: calc(100vh - 270px);
+}
+.wc-export__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  overflow-y: auto;
+}
+@container (min-width: 1000px) {
+  .wc-export__body {
+    grid-template-columns: minmax(300px, 400px) 1fr;
+    overflow: hidden;
+  }
+  .wc-export__options {
+    overflow-y: auto;
+    min-height: 0;
+  }
+  /* The preview takes whatever height the dialog has left after the buttons below it */
+  .wc-export__preview {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .wc-export__preview svg {
+    flex: 1 1 auto;
+    min-height: 120px;
+    max-height: none;
+  }
+}
+.wc-export__preview svg {
+  width: 100%;
+  max-height: 60vh;
+  background: var(--wc-surface);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+}
+.wc-export__preview polyline {
+  fill: none;
+  stroke-width: 1;
+}
+.wc-export__cut {
+  stroke: var(--wc-sharp);
+}
+.wc-export__etch {
+  stroke: var(--wc-accent);
+}
+.wc-export__guide {
+  stroke: var(--wc-muted);
+}
+.wc-export__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.wc-3d__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-bottom: 6px;
+}
+.wc-3d__canvas {
+  position: relative;
+  height: clamp(240px, 38vh, 440px);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  background: var(--wc-surface);
+  overflow: hidden;
+  touch-action: none;
+}
+.wc-3d__canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.wc-3d__status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+}
+
+.wc-3d__slider {
+  flex: 1 1 140px;
+  min-width: 100px;
+}
+.wc-3d__readout {
+  font-size: 0.8rem;
+  color: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inspector column: foldable sections with their key values on the heading (after
+   Screenvision's properties panel), and label-left rows, so a long set of settings reads
+   like an editor's inspector rather than a web form */
+.wc-fold {
+  border-bottom: 1px solid var(--wc-border);
+}
+.wc-fold__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 2px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.wc-fold__head::-webkit-details-marker {
+  display: none;
+}
+.wc-fold__head::before {
+  content: '';
+  flex: 0 0 auto;
+  align-self: center;
+  border-left: 5px solid var(--wc-muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.12s ease;
+}
+.wc-fold[open] > .wc-fold__head::before {
+  transform: rotate(90deg);
+}
+.wc-fold__title {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--wc-muted);
+}
+.wc-fold__head:hover .wc-fold__title {
+  color: var(--wc-text);
+}
+.wc-fold__sum {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.8rem;
+  color: var(--wc-text);
+}
+.wc-fold__body {
+  padding: 2px 2px 10px;
+}
+/* Rows: label on the left, value on the right; hints and sums span both */
+.wc-inspector .wc-field:not(.wc-field--compact):has(> .wc-field__control) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  align-items: center;
+  column-gap: 10px;
+  margin-bottom: 6px;
+}
+.wc-inspector .wc-field:not(.wc-field--compact):has(> .wc-field__control) > .wc-field__label {
+  margin: 0;
+}
+.wc-inspector .wc-field:not(.wc-field--compact):has(> .wc-field__control) > .wc-field__hint,
+.wc-inspector .wc-field:not(.wc-field--compact):has(> .wc-field__control) > .wc-field__calc {
+  grid-column: 1 / -1;
+}
+.wc-inspector .wc-structure-editor__pair {
+  grid-template-columns: 1fr;
+}
+.wc-inspector .wc-field__label {
+  font-weight: 450;
+  font-size: 0.85rem;
+}
+
+.wc-export__print {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--wc-border);
+}
+.wc-export__subtitle {
+  font-size: 0.9rem;
+  font-weight: 650;
+  margin: 0 0 4px;
+}
+.wc-export__printrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wc-export__printrow .wc-field__label {
+  margin: 0;
+}
+/* Inspector density: tighter than the page's forms, like an editor's properties panel */
+.wc-inspector .wc-fold__body {
+  padding: 0 2px 8px;
+}
+.wc-inspector .wc-field,
+.wc-inspector .wc-param {
+  margin-bottom: 4px;
+}
+.wc-inspector .wc-field:not(.wc-field--compact):has(> .wc-field__control) {
+  margin-bottom: 3px;
+}
+.wc-inspector .wc-input,
+.wc-inspector .wc-unit,
+.wc-inspector .wc-select {
+  height: 28px;
+}
+.wc-inspector .wc-field__label {
+  margin-bottom: 2px;
+}
+.wc-inspector .wc-field__hint {
+  margin-top: 1px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+.wc-inspector .wc-param__row {
+  gap: 6px;
+}
+.wc-inspector .wc-structure-editor__check {
+  margin: 2px 0 5px;
+}
+.wc-inspector .wc-structure-editor__add {
+  margin: 2px 0 6px;
+}
+.wc-inspector .wc-structure-editor__item {
+  padding-top: 4px;
+  margin-bottom: 4px;
+}
+.wc-inspector .wc-structure-editor__sub {
+  margin: 2px 0 6px;
+}
+.wc-inspector .wc-structure-editor__row .wc-stations__remove {
+  margin-bottom: 6px;
+}
+
+/* Sections inside sections (panels within the page's wing geometry): quieter headings */
+.wc-fold .wc-fold > .wc-fold__head .wc-fold__title {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.85rem;
+  color: var(--wc-text);
+}
+.wc-fold .wc-fold:last-of-type {
+  border-bottom: 0;
+}
+/* The selected panel, as in the plan */
+.wc-fold--selected > .wc-fold__head {
+  box-shadow: inset 3px 0 0 var(--wc-accent);
+  padding-left: 8px;
+}
+/* Panel actions (move, insert, delete) along the top of an open panel */
+.wc-fold .wc-panelset__actions {
+  position: static;
+  justify-content: flex-end;
+  background: none;
+  margin: -2px 0 4px;
 }

@@ -179,6 +179,39 @@ export function rateGeometry({ upper125, camber, camberPos, re = null }, t = GEO
   }
 }
 
+// Where along the span the wing stalls first, from the lifting line (onsetEta: fraction of
+// the semi-span, 0 at the centreline). A stall that starts outboard, where the ailerons are,
+// drops a wing and costs roll control just when it's needed, so it makes the wing's
+// character one step sharper than the section's alone.
+export const SPANWISE_THRESHOLDS = { inboard: 0.4, outboard: 0.6 }
+
+export function spanwiseStall(onsetEta, t = SPANWISE_THRESHOLDS) {
+  const pct = Math.round(onsetEta * 100)
+  if (onsetEta >= t.outboard) {
+    return {
+      where: 'outboard',
+      sharper: true,
+      text: `The wing stalls first at ${pct}% of the semi-span, out where the ailerons are, so expect a wing to drop. Washout, or a thicker tip section, moves the stall inboard.`,
+    }
+  }
+  if (onsetEta <= t.inboard) {
+    return {
+      where: 'inboard',
+      sharper: false,
+      text: `The wing stalls first at ${pct}% of the semi-span, inboard, so the ailerons keep working through the stall.`,
+    }
+  }
+  return {
+    where: 'mid',
+    sharper: false,
+    text: `The wing stalls first at ${pct}% of the semi-span. Some washout would move it further inboard, away from the ailerons.`,
+  }
+}
+
+export function sharper(rating) {
+  return SHARPER[rating] ?? rating
+}
+
 // Shape parameters for the indicative lift curve, per rating: pre-stall rounding (lift
 // gained over the last 3° before the peak, as a fraction of linear) and the post-stall drop
 // per degree. Values sit inside the bands the polar method uses, so the drawn curve and

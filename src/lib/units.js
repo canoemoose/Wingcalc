@@ -2,6 +2,8 @@
 // carries a factor: value_in_base = value_in_unit × factor.
 //
 // Base units: length m, area m², mass kg, wing loading kg/m², cube loading kg/m³, speed m/s.
+// `thin` is a length too, for material sizes, shown to a tenth of a millimetre. `percent` is
+// a fraction (0.12 is 12%).
 
 const OZ = 0.028349523125 // kg
 const LB = 0.45359237 // kg
@@ -14,6 +16,13 @@ export const UNITS = {
     m: { factor: 1, label: 'm', dp: 3 },
     in: { factor: IN, label: 'in', dp: 2 },
     ft: { factor: FT, label: 'ft', dp: 3 },
+  },
+  thin: {
+    mm: { factor: 0.001, label: 'mm', dp: 1 },
+    in: { factor: IN, label: 'in', dp: 3 },
+  },
+  percent: {
+    pct: { factor: 0.01, label: '%', dp: 1 },
   },
   area: {
     dm2: { factor: 0.01, label: 'dm²', dp: 2 },
@@ -48,6 +57,8 @@ export const SYSTEMS = {
   metric: {
     label: 'Metric',
     length: ['mm', 'm'],
+    thin: ['mm'],
+    percent: ['pct'],
     area: ['dm2', 'm2'],
     mass: ['g', 'kg'],
     wingLoading: ['gdm2', 'kgm2'],
@@ -57,6 +68,8 @@ export const SYSTEMS = {
   imperial: {
     label: 'Imperial',
     length: ['in', 'ft'],
+    thin: ['in'],
+    percent: ['pct'],
     area: ['in2', 'ft2'],
     mass: ['oz', 'lb'],
     wingLoading: ['ozft2'],
