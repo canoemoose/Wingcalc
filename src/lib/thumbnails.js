@@ -3,7 +3,7 @@
 // behind, above and inboard, so it reads like the plan (root left, tip right, leading edge at
 // the top) and the ribs show their profiles. Plain SVG path data, so the page needs no three.js.
 import { planEntities } from './dxf.js'
-import { worldPoint, ribPlacement, applyMatrix } from './wing3d.js'
+import { worldPoint, ribPlacement, applyMatrix, HOME_VIEW } from './wing3d.js'
 import { bounds } from './ribs.js'
 
 const PAD = 0.04 // of the drawing's larger side, around it
@@ -32,10 +32,8 @@ export function planThumb(a, structure, parts) {
   return framed(lines)
 }
 
-// The view direction (target to camera) and its screen axes: X out along the span, Y up, Z
-// aft in the world. A three-quarter view from the root and the back.
-const VIEW_DIR = [-0.55, 0.6, 0.75]
-function camera(dir = VIEW_DIR) {
+// Screen axes looking along a view direction (target to camera), the 3D view's home by default
+function camera(dir = HOME_VIEW) {
   const n = Math.hypot(...dir)
   const z = dir.map((v) => v / n)
   const cross = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]]

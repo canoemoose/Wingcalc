@@ -18,7 +18,7 @@
 //
 // Outlines: the sharp edges of every solid (not the covering), drawn as lines.
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
-import { wing3d, sectionAt, spanPlane, worldPoint } from '../lib/wing3d.js'
+import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, viewFromFace } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { EYE, EYE_OFF, HOME, ORTHO, PERSPECTIVE, CUT } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
@@ -368,12 +368,11 @@ function shownBounds() {
   return { min: [-m, bounds.min[1], bounds.min[2]], max: [m, bounds.max[1], bounds.max[2]] }
 }
 
-// Frame the wing: by default from ahead, above and a little outboard; or along a given view
-// direction (target to camera). At the distance that just fits its bounding box in the view's
-// actual proportions, so a long wing fills a wide card.
-const HOME_DIR = [-0.15, 0.55, -1.05]
+// Frame the wing: by default from the home view (behind, above and inboard, as the card's
+// thumbnail); or along a given view direction (target to camera). At the distance that just
+// fits its bounding box in the view's actual proportions, so a long wing fills a wide card.
 const FRAME_INSET = 44 // px kept clear at the top and bottom, for the corner controls
-function frame(b, dir = HOME_DIR) {
+function frame(b, dir = HOME_VIEW) {
   const c = new THREE.Vector3(...b.min.map((v, k) => (v + b.max[k]) / 2))
   const size = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2], 0.1)
   // The view direction (target to camera) and the camera's own axes looking along it (up is
@@ -577,9 +576,9 @@ function cubeClick(e) {
   ray.setFromCamera(new THREE.Vector2((px / r.s) * 2 - 1, -(py / r.s) * 2 + 1), cube.camera)
   const hit = ray.intersectObject(cube.mesh)[0]
   if (!hit) return true
-  const n = hit.face.normal.clone()
-  // Straight down or up is a degenerate view for an orbit camera; lean a hair forward
-  if (Math.abs(n.y) > 0.99) n.z = -1e-3
+  const f = hit.face.normal
+  const off = camera.position.clone().sub(controls.target)
+  const n = new THREE.Vector3(...viewFromFace([f.x, f.y, f.z], [off.x, off.y, off.z]))
   const dist = camera.position.distanceTo(controls.target)
   swingTo(n.normalize().multiplyScalar(dist).add(controls.target), controls.target.clone())
   return true

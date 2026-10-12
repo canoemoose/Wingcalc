@@ -23,6 +23,24 @@ function angleAt(a, s) {
   return ((lo?.rad ?? 0) + (hi?.rad ?? lo?.rad ?? 0)) / 2
 }
 
+// The direction the 3D view and the card's wireframe look from (target to camera; X out along
+// the span, Y up, Z aft): behind, above and inboard, so they read like the plan, root left,
+// tip right, leading edge at the top
+export const HOME_VIEW = [-0.55, 0.6, 0.75]
+
+// The view direction for a face of the view cube, given where the camera is now (both target
+// to camera). Straight down or up is a degenerate view for an orbit camera, so the top and
+// bottom lean a hair off it, towards the side the camera is already on: leaning the other way
+// carries the camera over the pole at the end of the swing, and the view flips upside down.
+export function viewFromFace(normal, current) {
+  if (Math.abs(normal[1]) <= 0.99) return normal
+  const h = Math.hypot(current[0], current[2])
+  const side = h > 1e-9 ? [current[0] / h, 0, current[2] / h] : [0, 0, 1]
+  const v = normal.map((c, k) => c + side[k] * 1e-3)
+  const l = Math.hypot(...v)
+  return v.map((c) => c / l)
+}
+
 // World position of (s, x, h). At a dihedral break the section lies on the bisector of the
 // two panels, where the break rib is, so both panels meet it cleanly.
 export function worldPoint(a, s, x, h) {

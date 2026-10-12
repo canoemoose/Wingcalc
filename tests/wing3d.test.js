@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
-import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates } from '../src/lib/wing3d.js'
+import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates, viewFromFace, HOME_VIEW } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
@@ -439,6 +439,21 @@ describe('3D wing', () => {
     const thick = fit(te.room * 1.2).te
     expect(thick.fits.top).toBe(false)
     expect(thick.short.length).toBeGreaterThan(0)
+  })
+
+  it('swings to the top or bottom view without crossing over the pole', () => {
+    // Coming from behind (the home view) or from ahead, the top view leans towards that side,
+    // so the camera's heading is kept and the picture doesn't flip
+    for (const from of [HOME_VIEW, [-0.2, 0.5, -1], [1, 0.3, 0.1]]) {
+      for (const face of [[0, 1, 0], [0, -1, 0]]) {
+        const v = viewFromFace(face, from)
+        expect(Math.sign(v[1])).toBe(face[1])
+        expect(Math.abs(v[1])).toBeGreaterThan(0.999)
+        expect(v[0] * from[0] + v[2] * from[2]).toBeGreaterThan(0)
+      }
+    }
+    // The side faces are left as they are
+    expect(viewFromFace([0, 0, -1], HOME_VIEW)).toEqual([0, 0, -1])
   })
 
   it('draws each brace as two plates on the spar faces, the centre one in this half only', () => {
