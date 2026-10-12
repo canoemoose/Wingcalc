@@ -1567,24 +1567,23 @@
   margin-bottom: 10px;
 }
 
+/* Plan, 3D, loads and part as cards: two across when there's room */
 .wc-structure-main {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.wc-structure-main__lower {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
-  align-items: start;
+  align-content: start;
 }
 @container (min-width: 1100px) {
-  .wc-structure-main__lower {
+  .wc-structure-main {
     grid-template-columns: 1fr 1fr;
   }
+}
+.wc-structure-main > .wc-card {
+  min-width: 0;
 }
 .wc-structure-plan svg {
   width: 100%;
@@ -1759,9 +1758,6 @@
   margin-top: 10px;
 }
 
-.wc-structure-main__view {
-  margin-bottom: -4px;
-}
 .wc-3d__bar {
   display: flex;
   flex-wrap: wrap;
@@ -1771,7 +1767,7 @@
 }
 .wc-3d__canvas {
   position: relative;
-  height: clamp(280px, 48vh, 560px);
+  height: clamp(260px, 40vh, 480px);
   border: 1px solid var(--wc-border);
   border-radius: var(--wc-radius);
   background: var(--wc-surface);

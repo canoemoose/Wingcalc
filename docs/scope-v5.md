@@ -75,7 +75,7 @@ All steps done on the `ribs` branch; 196 tests pass. Exercised in the browser: w
 
 ### Added after (2026-10-12)
 
-- 3D view of the built-up half wing in the structure editor (Plan / 3D switch): three.js, loaded on first use. Geometry in `src/lib/wing3d.js`, tested so every rib placed in 3D lands on the lofted wing.
+- 3D view of the built-up half wing as a card in the structure editor, beside the plan, loads and part cards: three.js, loaded on first use. Stringers are seated exactly as the rib notches are cut (shared skin rule, `skinAt` in `structure.js`). Geometry in `src/lib/wing3d.js`, tested so every rib placed in 3D lands on the lofted wing.
 
 ### Not done, or worth a look
 

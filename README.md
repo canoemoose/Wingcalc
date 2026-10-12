@@ -96,7 +96,7 @@ The same values can be typed in the inputs column, which is the precise route; t
 
 ## Structure, ribs and export
 
-In "Chords & panels" mode a **Structure and ribs** card sums up the built-up structure: spar, covering, rib count and spacing, the lowest margin of safety at the design load, the root bending moment and an estimate of the bare structure's weight. **Open structure editor** fills the window: settings on the left; the plan with every rib, the loads along the span and a preview of any part on the right. **Plan / 3D** switches the plan for a 3D view of the built-up half wing (`src/lib/wing3d.js` makes the geometry, three.js draws it): see-through skin, ribs at their thickness, spar, webs, edge stock and stringers, with twist and dihedral true to scale. Drag to turn, right-drag to move, scroll to zoom; tick **Both halves** for the whole wing, untick layers to see inside, click a rib to select it. three.js loads only when the 3D view is first opened (about 190 KB gzipped). **Export…** in its top strip opens the export options.
+In "Chords & panels" mode a **Structure and ribs** card sums up the built-up structure: spar, covering, rib count and spacing, the lowest margin of safety at the design load, the root bending moment and an estimate of the bare structure's weight. **Open structure editor** fills the window: settings on the left; on the right, cards for the plan with every rib, a 3D view, the loads along the span and a preview of any part (two across when the window is wide enough). The **3D** card shows the built-up half wing (`src/lib/wing3d.js` makes the geometry, three.js draws it): see-through covering, sheeting and cap strips, ribs at their thickness, spar, the shear webs as the separate pieces fitted between ribs, edge stock and stringers, with twist and dihedral true to scale. It's built from the same geometry as the cut parts, and a test checks every joint where a rib meets the spar, caps, webs, stringers or edge stock. Drag to turn, right-drag to move, scroll to zoom; tick **Both halves** for the whole wing, untick layers to see inside, click a rib to select it. three.js loads only when the structure editor is first opened (about 190 KB gzipped). **Export…** in its top strip opens the export options.
 
 ### What you set
 
@@ -135,7 +135,7 @@ Implementation: `src/lib/ribs.js`. Each rib is the wing cut along the rib's line
 
 - inset for the covering, measured square to the surface;
 - cut back square for the leading and trailing edge stock;
-- notched for the spar caps (or holed for a tube, slotted or notched for a solid spar) and for each stringer;
+- notched for the spar caps (or holed for a tube, slotted or notched for a solid spar) and for each stringer. Every cut is placed where the rib line actually crosses the stock, and stock sizes are the stock's own, square to its length, so a rib crossing a swept spar at an angle gets a notch a little wider than the cap (and an oval hole for a tube);
 - **washout** built in by rotating each section about the spar line, trailing edge up;
 - **jig tabs** on every rib in a panel reach down to one flat line (below the lowest rib by the least tab height you set), so the panel builds on a flat board with its washout in; the line where each tab is cut off is etched;
 - **lightening holes**: the largest circles that fit ahead of and behind the spar, leaving the margin you set around each and clear of notches;

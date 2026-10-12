@@ -16,9 +16,10 @@ const emit = defineEmits(['select'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-const show = ref({ skin: true, ribs: true, spar: true, edges: true, stringers: true, mirror: false })
+const show = ref({ skin: true, sheeting: true, ribs: true, spar: true, edges: true, stringers: true, mirror: false })
 const LAYERS = [
-  { id: 'skin', label: 'Skin' },
+  { id: 'skin', label: 'Covering' },
+  { id: 'sheeting', label: 'Sheeting and cap strips' },
   { id: 'ribs', label: 'Ribs' },
   { id: 'spar', label: 'Spar and webs' },
   { id: 'edges', label: 'Edges' },
@@ -26,8 +27,14 @@ const LAYERS = [
   { id: 'mirror', label: 'Both halves' },
 ]
 const hasStringers = computed(() => (props.structure.stringers ?? []).length > 0)
+const hasSheeting = computed(() => {
+  const c = props.structure.covering
+  return c.type !== 'open' || c.capStrips
+})
+const shown = (l) => (l.id === 'stringers' ? hasStringers.value : l.id === 'sheeting' ? hasSheeting.value : true)
 
 let THREE = null
+let toCreasedNormals = null
 let renderer = null
 let scene = null
 let camera = null
@@ -38,7 +45,8 @@ let resizeObs = null
 const ribMeshes = shallowRef([])
 let framed = false
 
-const COLOURS = { rib: 0xd9b77e, spar: 0xb98a4e, web: 0xe6cf9f, le: 0xe3c48f, te: 0xe3c48f, stringer: 0xc9a46a, tube: 0x2f3337 }
+const COLOURS = { rib: 0xd9b77e, spar: 0xb98a4e, web: 0xe6cf9f, le: 0xe3c48f, te: 0xe3c48f, stringer: 0xc9a46a, tube: 0x2f3337, sheet: 0xecd9b0 }
+const GROUPS = ['skin', 'sheeting', 'ribs', 'spar', 'edges', 'stringers']
 
 function cssColour(name, fallback) {
   const v = wrapEl.value ? getComputedStyle(wrapEl.value).getPropertyValue(name).trim() : ''
@@ -67,11 +75,14 @@ function disposeGroup(g) {
   })
 }
 
-function meshFrom(data, material) {
-  const geo = new THREE.BufferGeometry()
+// Smooth shading across gentle curves, sharp at corners (the end faces, a box's edges), so
+// solids don't look blurred at their edges. The skin stays smooth all over.
+function meshFrom(data, material, { creased = true } = {}) {
+  let geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3))
   geo.setIndex(new THREE.BufferAttribute(data.indices, 1))
-  geo.computeVertexNormals()
+  if (creased && toCreasedNormals) geo = toCreasedNormals(geo, Math.PI / 6)
+  else geo.computeVertexNormals()
   return new THREE.Mesh(geo, material)
 }
 
@@ -85,12 +96,15 @@ function build() {
   }
   root = new THREE.Group()
   const groups = {}
-  for (const id of ['skin', 'ribs', 'spar', 'edges', 'stringers']) {
+  for (const id of GROUPS) {
     groups[id] = new THREE.Group()
     groups[id].name = id
     root.add(groups[id])
   }
   const wood = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0, side: THREE.DoubleSide })
+  // Ribs and webs share faces with the caps, stringers and edge stock that pass through or
+  // butt against them; pushing them a hair back in depth stops the shared faces flickering.
+  const behind = (c) => Object.assign(wood(c), { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
   const skinMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(cssColour('--wc-accent', '#1f6feb')),
     transparent: true,
@@ -98,15 +112,21 @@ function build() {
     depthWrite: false,
     side: THREE.DoubleSide,
     roughness: 0.4,
+    // The covering lies on the sheeting's outer surface. Pull it a hair towards the camera so
+    // it's always drawn over the sheeting (an even tint) instead of flickering through it.
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   })
-  const skin = meshFrom(model.skin, skinMat)
+  const skin = meshFrom(model.skin, skinMat, { creased: false })
   skin.renderOrder = 2
   groups.skin.add(skin)
   const tube = props.structure.spar.type === 'tube'
   for (const s of model.solids) {
     const colour = s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
-    const group = s.kind === 'spar' || s.kind === 'web' ? groups.spar : s.kind === 'stringer' ? groups.stringers : groups.edges
-    group.add(meshFrom(s, wood(colour)))
+    const group =
+      s.kind === 'spar' || s.kind === 'web' ? groups.spar : s.kind === 'stringer' ? groups.stringers : s.kind === 'sheet' ? groups.sheeting : groups.edges
+    group.add(meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour)))
   }
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x5b4a32, transparent: true, opacity: 0.55 })
   const meshes = []
@@ -115,16 +135,26 @@ function build() {
     for (const h of r.holes) shape.holes.push(new THREE.Path(h.map(([u, z]) => new THREE.Vector2(u, z))))
     const geo = new THREE.ExtrudeGeometry(shape, { depth: r.thickness, bevelEnabled: false, curveSegments: 1 })
     geo.applyMatrix4(new THREE.Matrix4().fromArray(r.matrix))
-    const mesh = new THREE.Mesh(geo, wood(COLOURS.rib))
+    const mesh = new THREE.Mesh(geo, behind(COLOURS.rib))
     mesh.userData.partId = r.id
+    mesh.userData.centre = r.centre
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat)
     mesh.add(edges)
     groups.ribs.add(mesh)
     meshes.push(mesh)
   }
   ribMeshes.value = meshes
+  for (const c of model.capStrips) {
+    const shape = new THREE.Shape(c.outline.map(([u, z]) => new THREE.Vector2(u, z)))
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: c.thickness, bevelEnabled: false, curveSegments: 1 })
+    geo.applyMatrix4(new THREE.Matrix4().fromArray(c.matrix))
+    groups.sheeting.add(new THREE.Mesh(geo, wood(COLOURS.sheet)))
+  }
   mirror = root.clone()
   mirror.scale.x = -1
+  // The centre rib belongs to both halves: draw it once
+  const ribsOther = mirror.getObjectByName('ribs')
+  for (const m of [...ribsOther.children]) if (m.userData.centre) ribsOther.remove(m)
   scene.add(root)
   scene.add(mirror)
   applyVisibility()
@@ -148,7 +178,7 @@ function frame(b) {
 
 function applyVisibility() {
   if (!root) return
-  for (const g of [root, mirror]) for (const id of ['skin', 'ribs', 'spar', 'edges', 'stringers']) g.getObjectByName(id).visible = show.value[id]
+  for (const g of [root, mirror]) for (const id of GROUPS) g.getObjectByName(id).visible = show.value[id]
   mirror.visible = show.value.mirror
   render()
 }
@@ -190,6 +220,8 @@ onMounted(async () => {
   try {
     THREE = await import('three')
     const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js')
+    const utils = await import('three/examples/jsm/utils/BufferGeometryUtils.js')
+    toCreasedNormals = utils.toCreasedNormals
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
     wrapEl.value.appendChild(renderer.domElement)
@@ -230,7 +262,7 @@ watch(show, applyVisibility, { deep: true })
 <template>
   <figure class="wc-figure wc-3d">
     <div class="wc-3d__bar" role="group" aria-label="Show in 3D">
-      <label v-for="l in LAYERS.filter((x) => x.id !== 'stringers' || hasStringers)" :key="l.id" class="wc-check">
+      <label v-for="l in LAYERS.filter(shown)" :key="l.id" class="wc-check">
         <input v-model="show[l.id]" type="checkbox" /> {{ l.label }}
       </label>
       <button type="button" class="wc-button wc-button--small" @click="resetView">Reset view</button>
