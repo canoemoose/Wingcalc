@@ -7,6 +7,7 @@ import { worldPoint, ribPlacement, applyMatrix } from './wing3d.js'
 import { bounds } from './ribs.js'
 
 const PAD = 0.04 // of the drawing's larger side, around it
+// Coordinates are written to 0.01, so drawings are in millimetres
 const path = (pts, closed = false) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)}`).join('') + (closed ? 'Z' : '')
 
 function framed(lines) {
@@ -45,7 +46,8 @@ function camera(dir = VIEW_DIR) {
   const x = unit(cross([0, 1, 0], z))
   const y = cross(z, x)
   const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2]
-  return (p) => [dot(p, x), -dot(p, y)]
+  // World metres to millimetres on the screen
+  return (p) => [dot(p, x) * 1000, -dot(p, y) * 1000]
 }
 
 // The half wing as a wireframe: each rib's outline (and lightening holes) at its mid-plane,

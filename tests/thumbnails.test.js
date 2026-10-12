@@ -47,4 +47,13 @@ describe('structure thumbnails', () => {
     expect(t.lines.filter((l) => l.kind === 'spar')).toHaveLength(2)
     for (const l of t.lines) expect(numbers(l.d).every(Number.isFinite)).toBe(true)
   })
+
+  it('keeps each rib outline smooth, not snapped to a coarse grid', () => {
+    const t = isoThumb(a, a.structure, parts)
+    const rib = parts.filter((p) => p.group === 'ribs')[0]
+    const n = numbers(t.lines.find((l) => l.kind === 'rib').d)
+    const distinct = new Set()
+    for (let i = 0; i < n.length; i += 2) distinct.add(`${n[i]},${n[i + 1]}`)
+    expect(distinct.size).toBeGreaterThan(rib.outline.length * 0.9)
+  })
 })
