@@ -171,4 +171,4 @@ Ribs at dihedral breaks note their cant, half the change in dihedral. The same m
 
 The 3D view (`src/lib/wing3d.js`) is built from the same geometry as the cut parts, and the tests check every joint where a rib meets the spar, caps, webs, stringers or edge stock.
 
-DXF export is `src/lib/dxf.js`, and the PDF templates are written directly by `src/lib/pdf.js`.
+DXF export is `src/lib/dxf.js`, and the PDF templates are written directly by `src/lib/pdf.js`. Labels are engraved in Hershey Sans 1-stroke (`src/lib/strokeFont.js`). Other than the ribs (whose label is placed with the rib), each part takes the tallest label from 4 mm down to 2 mm that lies wholly on it, clear of its holes, centred on its bounding box or its centroid; a part with no room for 2 mm has its label engraved 1 mm below it on the sheet instead.
