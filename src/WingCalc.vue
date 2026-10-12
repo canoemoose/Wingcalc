@@ -963,7 +963,6 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           <ExportPanel
             v-if="exportOpen"
             v-model:options="input.exportOptions"
-            v-model:structure="input.structure"
             :analysis="structureResult.a"
             :parts="structureResult.parts"
             :cut-list="structureResult.cutList"

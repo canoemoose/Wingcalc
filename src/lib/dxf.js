@@ -1,9 +1,9 @@
 // DXF export: the wing's parts laid out for cutting, and a full-size plan view to build on.
 //
 // Output is AutoCAD R12 ASCII DXF (AC1009) in millimetres, which nearly every laser,
-// router and CAD program reads: closed POLYLINEs (or plain LINEs, for picky software) and
-// optional TEXT. Labels are drawn as single-stroke vector lines by default so they etch the
-// same everywhere.
+// router and CAD program reads: closed POLYLINEs (or plain LINEs, for picky software). Labels
+// are single-stroke vector lines, so they engrave the same everywhere (DXF TEXT depends on
+// the reading program's fonts).
 //
 // Machine compensation, applied to the cut geometry only:
 //  - laser: each cut path moves half the kerf into the waste, so parts come out true size;
@@ -27,7 +27,6 @@ export function defaultExportOptions() {
     format: 'polyline', // 'polyline' | 'lines'
     layers: { cut: 'CUT', etch: 'ETCH', guide: 'GUIDE' },
     labels: true,
-    labelStyle: 'strokes', // 'strokes' | 'text'
     handedness: 'pair', // 'right' | 'left' | 'pair'
     repeat: true, // lay out one copy of each part per piece needed
     rowLength: 0.9, // m: the usable length of a sheet
@@ -205,8 +204,7 @@ export function partEntities(part, opts) {
   for (const h of cutHoles) ents.push({ type: 'poly', layer: 'cut', pts: h, closed: true })
   for (const e of etch) ents.push({ type: 'poly', layer: 'etch', pts: e, closed: false })
   if (label) {
-    if (opts.labelStyle === 'text') ents.push({ type: 'text', layer: 'etch', x: label.u, y: label.z, h: label.h, text: label.text })
-    else for (const s of strokeText(label.text, label.u, label.z, label.h)) ents.push({ type: 'poly', layer: 'etch', pts: s, closed: false })
+    for (const s of strokeText(label.text, label.u, label.z, label.h)) ents.push({ type: 'poly', layer: 'etch', pts: s, closed: false })
   }
   // Shift so the part's (uncompensated) bounding box starts at the origin
   const b = bounds([...outline, ...ents.filter((e) => e.type === 'poly' && e.layer === 'cut').flatMap((e) => e.pts)])
@@ -370,12 +368,9 @@ export function toDxf(entities, { layerNames = { cut: 'CUT', etch: 'ETCH', guide
 // The parts as one DXF (groups stacked down the page, each titled on the guide layer), or
 // one per group. Returns [{ name, text, title }].
 // A group of parts with its title above it, moved down the page by dy.
-function titledGroup(grp, dy, opts) {
+function titledGroup(grp, dy) {
   const h = 5
-  const head =
-    opts.labelStyle === 'text'
-      ? [{ type: 'text', layer: 'guide', x: 0, y: dy + 4, h, text: grp.title }]
-      : strokeText(grp.title, 0, dy + 4, h).map((pts) => ({ type: 'poly', layer: 'guide', pts, closed: false }))
+  const head = strokeText(grp.title, 0, dy + 4, h).map((pts) => ({ type: 'poly', layer: 'guide', pts, closed: false }))
   return [...head, ...grp.entities.map((e) => shiftEnt(e, 0, dy))]
 }
 
@@ -385,7 +380,7 @@ export function partsDrawing(parts, opts) {
   const ents = []
   let y = 0
   for (const grp of groups) {
-    ents.push(...titledGroup(grp, y, opts))
+    ents.push(...titledGroup(grp, y))
     y -= grp.height + 25
   }
   return ents
@@ -395,7 +390,7 @@ export function partsDxf(parts, opts, baseName = 'wing') {
   const { groups } = layoutParts(parts, opts)
   const layerNames = opts.layers
   const file = (ents) => toDxf(ents, { layerNames, format: opts.format })
-  const titled = (grp, dy) => titledGroup(grp, dy, opts)
+  const titled = (grp, dy) => titledGroup(grp, dy)
   if (opts.split) {
     return groups.map((grp) => ({
       name: `${baseName}-${slug(grp.title)}.dxf`,

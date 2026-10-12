@@ -1,8 +1,8 @@
 <script setup>
 // Export options and downloads: the parts laid out for cutting (DXF), a full-size plan
 // (DXF) and a cut list (CSV). Options are kept with the project, so a re-export comes out
-// the same. Rib details that change the parts themselves (lightening holes, jig tabs) are
-// shared with the structure editor.
+// the same. Rib details that change the parts themselves (lightening holes, jig tabs) are set
+// in the structure editor; this only names them.
 import { computed, ref, onMounted } from 'vue'
 import { zipSync, strToU8 } from 'fflate'
 import UnitInput from './UnitInput.vue'
@@ -22,7 +22,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 const options = defineModel('options', { type: Object, required: true })
-const structure = defineModel('structure', { type: Object, required: true })
 
 const o = computed(() => options.value)
 const dialogEl = ref(null)
@@ -31,9 +30,6 @@ function set(path, value) {
   const keys = path.split('.')
   const copy = (obj, i) => ({ ...obj, [keys[i]]: i === keys.length - 1 ? value : copy(obj[keys[i]], i + 1) })
   options.value = copy(options.value, 0)
-}
-function setRibs(key, value) {
-  structure.value = { ...structure.value, ribs: { ...structure.value.ribs, [key]: value } }
 }
 
 const GROUPS = [
@@ -68,15 +64,19 @@ const preview = computed(() => {
 
 // One line per section, shown on its heading while it's closed
 const fmtThin = (v) => `${Number((v * 1000).toFixed(2))} mm`
+// Rib details are structure decisions (weight, 3D, plan), so they're set in the editor
+const ribDetails = computed(() => {
+  const r = props.analysis.structure.ribs
+  const on = [r.lightening && 'lightening holes', r.jigTabs && 'jig tabs'].filter(Boolean)
+  return on.length ? `Ribs have ${on.join(' and ')}.` : 'Ribs are plain: no lightening holes or jig tabs.'
+})
 const summaries = computed(() => {
   const x = o.value
-  const r = structure.value.ribs
   const on = present.value.filter((g) => x.parts[g.id] !== false).length
   return {
     parts: `${on} of ${present.value.length} kinds, ${{ pair: 'both halves', right: 'right half', left: 'left half' }[x.handedness]}`,
-    ribs: [r.lightening && 'lightening holes', r.jigTabs && 'jig tabs'].filter(Boolean).join(', ') || 'Plain',
     machine: x.machine === 'laser' ? `Laser, ${fmtThin(x.kerf || 0)} kerf` : `Router, ${fmtThin(x.toolDiameter)} cutter${x.dogbones ? ', dogbones' : ''}`,
-    drawing: `${x.format === 'lines' ? 'Lines' : 'Polylines'}, ${x.labels ? (x.labelStyle === 'text' ? 'text labels' : 'vector labels') : 'no labels'}`,
+    drawing: `${x.format === 'lines' ? 'Lines' : 'Polylines'}, ${x.labels ? 'labelled' : 'no labels'}`,
     layout: `${x.repeat ? 'Every piece' : 'One of each'}, ${Math.round(x.rowLength * 1000)} mm rows${x.split ? ', split' : ''}`,
   }
 })
@@ -158,37 +158,7 @@ function downloadCutList() {
             hint="Ribs are the same for either side; the plan is mirrored for the left. A pair doubles every quantity except parts on the centreline."
             @update:model-value="set('handedness', $event)"
           />
-        </InspectorSection>
-
-        <InspectorSection title="Rib details" fold-key="export:ribs" :summary="summaries.ribs" open>
-          <label class="wc-check wc-structure-editor__check">
-            <input type="checkbox" :checked="structure.ribs.lightening" @change="setRibs('lightening', $event.target.checked)" />
-            Lightening holes
-          </label>
-          <UnitInput
-            v-if="structure.ribs.lightening"
-            id="wcx-lhm"
-            :model-value="structure.ribs.lighteningMargin"
-            quantity="thin"
-            :system="system"
-            label="Material left around each hole"
-            @update:model-value="setRibs('lighteningMargin', $event)"
-          />
-          <label class="wc-check wc-structure-editor__check">
-            <input type="checkbox" :checked="structure.ribs.jigTabs" @change="setRibs('jigTabs', $event.target.checked)" />
-            Jig tabs down to a flat board
-          </label>
-          <div v-if="structure.ribs.jigTabs" class="wc-structure-editor__pair">
-            <UnitInput id="wcx-tabw" :model-value="structure.ribs.tabWidth" quantity="thin" :system="system" label="Tab width" @update:model-value="setRibs('tabWidth', $event)" />
-            <UnitInput
-              id="wcx-tabc"
-              :model-value="structure.ribs.tabClearance"
-              quantity="thin"
-              :system="system"
-              label="Least height"
-              @update:model-value="setRibs('tabClearance', $event)"
-            />
-          </div>
+          <p class="wc-field__hint">{{ ribDetails }} Change these in the structure editor, under Ribs.</p>
         </InspectorSection>
 
         <InspectorSection title="Machine" fold-key="export:machine" :summary="summaries.machine" open>
@@ -245,17 +215,6 @@ function downloadCutList() {
           <label class="wc-check wc-structure-editor__check">
             <input type="checkbox" :checked="o.labels" @change="set('labels', $event.target.checked)" /> Label parts (R1, G2 …)
           </label>
-          <SegmentedField
-            v-if="o.labels"
-            :model-value="o.labelStyle"
-            label="Labels as"
-            :options="[
-              { value: 'strokes', label: 'Vector lines' },
-              { value: 'text', label: 'DXF text' },
-            ]"
-            hint="Vector lines etch the same in any software; DXF text depends on its fonts."
-            @update:model-value="set('labelStyle', $event)"
-          />
           <div v-for="k in ['cut', 'etch', 'guide']" :key="k" class="wc-field">
             <label :for="`wcx-layer-${k}`" class="wc-field__label">{{ { cut: 'Cut layer', etch: 'Etch layer', guide: 'Notes layer' }[k] }}</label>
             <div class="wc-field__control">
