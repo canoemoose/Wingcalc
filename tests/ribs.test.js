@@ -5,6 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
+import { textWidth } from '../src/lib/strokeFont.js'
 
 // Two segments properly cross (touching at ends doesn't count)
 function crosses(a, b, c, d) {
@@ -179,5 +180,36 @@ describe('ribs', () => {
     expect(res.weight.total).toBeLessThan(0.25)
     const ribArea = ribsOf(res).reduce((s, p) => s + Math.abs(polygonArea(p.outline)) * p.qty, 0)
     expect(ribArea).toBeGreaterThan(0)
+  })
+
+  it('keeps each label clear of the lightening holes and inside the rib', () => {
+    for (const orientation of ['streamwise', 'perpendicular']) {
+      const res = build(
+        (st) => {
+          st.ribs.lightening = true
+          st.ribs.orientation = orientation
+          st.spar.type = 'tube'
+        },
+        swept,
+      )
+      for (const p of ribsOf(res)) {
+        const l = p.label
+        const box = { x0: l.u, x1: l.u + textWidth(l.text, l.h), y0: l.z, y1: l.z + l.h }
+        for (const corner of [
+          [box.x0, box.y0],
+          [box.x1, box.y0],
+          [box.x0, box.y1],
+          [box.x1, box.y1],
+        ]) {
+          expect(inside(p.outline, corner), `${p.name} ${orientation} label inside`).toBe(true)
+        }
+        for (const h of p.holes) {
+          const hb = bounds(h)
+          const overlaps = box.x0 < hb.x1 && box.x1 > hb.x0 && box.y0 < hb.y1 && box.y1 > hb.y0
+          expect(overlaps, `${p.name} ${orientation} label over a hole`).toBe(false)
+        }
+        expect(l.h).toBeGreaterThanOrEqual(0.0015)
+      }
+    }
   })
 })

@@ -17,6 +17,7 @@
 
 import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth } from './structure.js'
 import { flatPanels } from './wing.js'
+import { textWidth } from './strokeFont.js'
 
 const RAD = Math.PI / 180
 const PROFILE_POINTS = 120
@@ -345,23 +346,75 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     [t.u1, bot(t.u1)],
   ])
 
+  // The clear height of the rib at u, keeping `m` from the edges and from any notch
+  const band = (u, m) => {
+    let t = top(u) - m
+    let b = bot(u) + m
+    for (const nt of upper) if (u > nt.u0 - m && u < nt.u1 + m) t = Math.min(t, top(u) - nt.depth - m)
+    for (const nt of lower) if (u > nt.u0 - m && u < nt.u1 + m) b = Math.max(b, bot(u) + nt.depth + m)
+    return { t, b }
+  }
+  const clearOver = (u0, u1, m) => {
+    let t = Infinity
+    let b = -Infinity
+    for (let k = 0; k <= 8; k++) {
+      const bd = band(u0 + ((u1 - u0) * k) / 8, m)
+      t = Math.min(t, bd.t)
+      b = Math.max(b, bd.b)
+    }
+    return { t, b }
+  }
+
+  // The label goes first, in the roomiest clear stretch (ahead of the spar if it fits as well
+  // there), and the lightening holes keep clear of it
+  const name = rib.name ?? ''
+  const edge = 0.0015
+  let best = null
+  for (const [from, to, pref] of [
+    [uA + edge, uSpar0 - edge, 1.1],
+    [uSpar1 + edge, uB - edge, 1],
+  ]) {
+    for (let u0 = from; u0 < to; u0 += 0.001) {
+      // The tallest label (up to 5 mm) whose box fits clear from here
+      let h = 0.005
+      for (let it = 0; it < 4 && h >= 0.0015; it++) {
+        const u1 = u0 + textWidth(name, h)
+        if (u1 > to) {
+          h *= (to - u0) / (u1 - u0)
+          continue
+        }
+        const c = clearOver(u0, u1, edge)
+        const fit = Math.min(h, (c.t - c.b) * 0.8)
+        if (fit >= h - 1e-6) break
+        h = fit
+      }
+      if (h < 0.0015) continue
+      const u1 = u0 + textWidth(name, h)
+      if (u1 > to) continue
+      const c = clearOver(u0, u1, edge)
+      if (c.t - c.b < h) continue
+      if (!best || h * pref > best.h * best.pref + 1e-9) best = { u0, u1, h, pref, z: (c.t + c.b) / 2 - h / 2 }
+    }
+  }
+  const label = best
+    ? { text: name, u: best.u0, z: best.z, h: best.h }
+    : { text: name, u: uA + 0.004, z: (top(uA + 0.004) + bot(uA + 0.004)) / 2 - 0.00075, h: 0.0015 }
+  const labelBox = best ? [best.u0, best.u1] : null
+
   // Lightening holes, in the open stretches either side of the spar (not on the root,
-  // break or tip ribs, which take the joining loads)
+  // break or tip ribs, which take the joining loads), clear of the label
   if (r.lightening && rib.kind === 'normal') {
     const m = r.lighteningMargin || 0.004
-    const clearFront = uSpar0 - m
-    const clearRear = uSpar1 + m
-    const band = (u) => {
-      let t = top(u) - m
-      let b = bot(u) + m
-      for (const nt of upper) if (u > nt.u0 - m && u < nt.u1 + m) t = Math.min(t, top(u) - nt.depth - m)
-      for (const nt of lower) if (u > nt.u0 - m && u < nt.u1 + m) b = Math.max(b, bot(u) + nt.depth + m)
-      return { t, b }
-    }
+    const stretches = []
     for (const [from, to] of [
-      [uA + m, clearFront],
-      [clearRear, uB - m],
+      [uA + m, uSpar0 - m],
+      [uSpar1 + m, uB - m],
     ]) {
+      if (labelBox && labelBox[1] + m > from && labelBox[0] - m < to) {
+        stretches.push([from, labelBox[0] - m], [labelBox[1] + m, to])
+      } else stretches.push([from, to])
+    }
+    for (const [from, to] of stretches) {
       let u = from
       while (u < to) {
         // Largest circle starting here whose band fits all across it
@@ -375,7 +428,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
               h = 0
               break
             }
-            const bd = band(x)
+            const bd = band(x, m)
             h = Math.min(h, bd.t - bd.b)
           }
           const next = Math.min(h, to - u)
@@ -384,18 +437,13 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
         }
         if (D >= 0.006) {
           const cu = u + D / 2
-          const bd = band(cu)
+          const bd = band(cu, m)
           holes.push(circle(cu, (bd.t + bd.b) / 2, D / 2))
           u += D + m
         } else u += 0.002
       }
     }
   }
-
-  // Label, in the deepest clear spot ahead of the spar
-  const lu = Math.max(uA + 0.004, (uA + uSpar0) / 2)
-  const lh = Math.min(0.005, Math.max(0.0015, (top(lu) - bot(lu)) * 0.35))
-  const label = { text: rib.name ?? '', u: lu, z: (top(lu) + bot(lu)) / 2 - lh / 2, h: lh }
 
   // Height between the cap notch floors: what a shear web here has to fill
   const capGap =
@@ -492,6 +540,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       qty: qtyOf(rb.s),
       s: rb.s,
       kind: rb.kind,
+      sourceId: rb.id ?? null, // the manual rib or hard point it comes from, if any
       outline: b.outline,
       holes: b.holes,
       etch: b.etch,
@@ -510,11 +559,11 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       if (g.where === 'ends' && p.kind === 'normal') continue
       for (const edge of ['le', 'te'].filter((e) => g[e])) {
         const angle = gussetAngle(a, p.s, edge, p.rib)
-        const sides = g.sides === 'one' ? [angle] : [angle, 180 - angle]
+        const sides = gussetSides(p, g, r.rootJoint).map((k) => (k > 0 ? angle : 180 - angle))
         for (const ang of sides) {
           const key = `${edge}:${Math.round(ang * 2) / 2}`
           const cur = gussetGroups.get(key) ?? { edge, angle: Math.round(ang * 2) / 2, count: 0 }
-          cur.count += p.qty
+          cur.count += p.qty * (g.layer === 'both' ? 2 : 1)
           gussetGroups.set(key, cur)
         }
       }
@@ -538,7 +587,11 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         holes: [],
         etch: [],
         label: null,
-        notes: [`${grp.edge === 'le' ? 'Leading' : 'Trailing'}-edge corner, ${grp.angle}° between rib and edge`],
+        notes: [
+          `${grp.edge === 'le' ? 'Leading' : 'Trailing'}-edge corner, ${grp.angle}° between rib and edge, flush with the ${
+            g.layer === 'both' ? 'top and bottom' : g.layer === 'bottom' ? 'bottom' : 'top'
+          } of the rib`,
+        ],
       })
       k++
     }
@@ -561,21 +614,27 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         return Math.max(0, sec.depth(q) - 2 * skin)
       }
       const Lb = br.length || 0.08
+      const centre = brk.s < 1e-6 && r.rootJoint !== 'two-piece'
+      // Each arm stops where the wing does: inboard at the centreline (or a two-piece root),
+      // outboard at the tip rib. A centre brace's inboard arm is the other half's outboard one.
+      const Lout = Math.max(0, Math.min(Lb, a.tipS - brk.s))
+      const Lin = centre ? Lout : Math.max(0, Math.min(Lb, brk.s - a.rootS))
       const h0 = at(brk.s)
-      const hi = brk.s - Lb >= a.rootS - 1e-9 ? at(brk.s - Lb) : at(Math.abs(brk.s - Lb))
-      const ho = at(brk.s + Lb)
+      const hi = at(centre ? brk.s + Lin : brk.s - Lin)
+      const ho = at(brk.s + Lout)
       const d = delta * RAD
       const rot = ([x, y]) => [x * Math.cos(d) - y * Math.sin(d), x * Math.sin(d) + y * Math.cos(d)]
       const kTop = (h0 / 2) / Math.cos(d / 2)
       const raw = [
-        [-Lb, -hi / 2],
-        [-Lb, hi / 2],
+        [-Lin, -hi / 2],
+        [-Lin, hi / 2],
         [-kTop * Math.sin(d / 2), kTop * Math.cos(d / 2)],
-        rot([Lb, ho / 2]),
-        rot([Lb, -ho / 2]),
+        rot([Lout, ho / 2]),
+        rot([Lout, -ho / 2]),
         [kTop * Math.sin(d / 2), -kTop * Math.cos(d / 2)],
       ]
-      // The fold line, where the brace meets the break rib
+      // A flat plate (the spar's face is one plane across the break), shaped to the dihedral;
+      // the etched line marks the break, where it meets the break rib
       const fold = [raw[5], raw[2]]
       const bb = bounds(raw)
       const shift = ([x, y]) => [x - bb.x0, y - bb.y0]
@@ -584,7 +643,6 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       const m = material(br.material)
       const need = (6 * M * a.safetyFactor) / (2 * Math.min(m.compression, m.tension) * Math.max(1e-4, h0) ** 2)
       const t = Number.isFinite(br.thickness) && br.thickness > 0 ? br.thickness : (PLY.find((x) => x >= need) ?? PLY.at(-1))
-      const centre = brk.s < 1e-6 && r.rootJoint !== 'two-piece'
       parts.push({
         id: `B${k}`,
         name: `B${k}`,
@@ -601,6 +659,9 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
           `Needs at least ${(need * 1000).toFixed(1)} mm ${m.label.toLowerCase()} for the bending there`,
         ],
         need,
+        // Where it goes, for the 3D view: the break, its reach each side, and the plate's depth
+        // at its inner end, the break and its outer end
+        at: { s: brk.s, inner: Lin, outer: Lout, depths: [hi, h0, ho], centre }
       })
       k++
     }
@@ -701,6 +762,16 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const cutList = stripCutList(a, structure, parts, both)
   const weight = estimateWeight(parts, cutList)
   return { parts, skipped, cutList, weight, boards }
+}
+
+// The sides of a rib that get corner gussets: +1 outboard, -1 inboard. Never outboard of the
+// tip rib or inboard of a two-piece wing's root rib, where they'd hang outside the wing; with
+// 'one' side, outboard unless that's the tip.
+export function gussetSides(part, gussets, rootJoint) {
+  const tip = part.kind === 'tip'
+  const plugRoot = part.kind === 'root' && rootJoint === 'two-piece'
+  if (gussets.sides === 'one') return [tip ? -1 : 1]
+  return [1, -1].filter((k) => !(tip && k === 1) && !(plugRoot && k === -1))
 }
 
 // Which panel a rib belongs to for its board: the inner panel at a break.

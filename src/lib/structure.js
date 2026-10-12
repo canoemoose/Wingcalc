@@ -29,15 +29,15 @@ import { clDistribution } from './liftingLine.js'
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
 export const MATERIALS = {
-  'balsa-light': { label: 'Balsa, light (100 kg/m³)', density: 100, E: 2.1e9, compression: 6.5e6, tension: 9e6, shear: 1.1e6 },
-  'balsa-medium': { label: 'Balsa, medium (160 kg/m³)', density: 160, E: 3.4e9, compression: 10.5e6, tension: 15e6, shear: 1.8e6 },
-  'balsa-hard': { label: 'Balsa, hard (220 kg/m³)', density: 220, E: 4.6e9, compression: 14.5e6, tension: 20e6, shear: 2.4e6 },
-  spruce: { label: 'Spruce', density: 450, E: 9.5e9, compression: 33e6, tension: 55e6, shear: 5.5e6 },
-  basswood: { label: 'Basswood / lime', density: 420, E: 9e9, compression: 28e6, tension: 45e6, shear: 5e6 },
-  'ply-birch': { label: 'Birch aircraft plywood', density: 680, E: 7e9, compression: 25e6, tension: 35e6, shear: 6e6 },
-  'ply-lite': { label: 'Lite ply (poplar)', density: 450, E: 4e9, compression: 12e6, tension: 16e6, shear: 3e6 },
-  carbon: { label: 'Carbon strip (pultruded)', density: 1550, E: 110e9, compression: 550e6, tension: 1000e6, shear: 40e6 },
-  'carbon-tube': { label: 'Carbon tube (roll-wrapped)', density: 1550, E: 85e9, compression: 400e6, tension: 600e6, shear: 40e6 },
+  'balsa-light': { label: 'Balsa, light (100 kg/m³)', short: 'light balsa', density: 100, E: 2.1e9, compression: 6.5e6, tension: 9e6, shear: 1.1e6 },
+  'balsa-medium': { label: 'Balsa, medium (160 kg/m³)', short: 'medium balsa', density: 160, E: 3.4e9, compression: 10.5e6, tension: 15e6, shear: 1.8e6 },
+  'balsa-hard': { label: 'Balsa, hard (220 kg/m³)', short: 'hard balsa', density: 220, E: 4.6e9, compression: 14.5e6, tension: 20e6, shear: 2.4e6 },
+  spruce: { label: 'Spruce', short: 'spruce', density: 450, E: 9.5e9, compression: 33e6, tension: 55e6, shear: 5.5e6 },
+  basswood: { label: 'Basswood / lime', short: 'basswood', density: 420, E: 9e9, compression: 28e6, tension: 45e6, shear: 5e6 },
+  'ply-birch': { label: 'Birch aircraft plywood', short: 'birch ply', density: 680, E: 7e9, compression: 25e6, tension: 35e6, shear: 6e6 },
+  'ply-lite': { label: 'Lite ply (poplar)', short: 'lite ply', density: 450, E: 4e9, compression: 12e6, tension: 16e6, shear: 3e6 },
+  carbon: { label: 'Carbon strip (pultruded)', short: 'carbon strip', density: 1550, E: 110e9, compression: 550e6, tension: 1000e6, shear: 40e6 },
+  'carbon-tube': { label: 'Carbon tube (roll-wrapped)', short: 'carbon tube', density: 1550, E: 85e9, compression: 400e6, tension: 600e6, shear: 40e6 },
 }
 
 export const material = (id) => MATERIALS[id] ?? MATERIALS['balsa-medium']
@@ -101,7 +101,8 @@ export function defaultStructure() {
       tabWidth: 0.006,
       tabClearance: 0.003,
     },
-    gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both' },
+    // layer: in the corner between rib and stock, flush with the rib's 'top' or 'bottom' edge, or 'both'
+    gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both', layer: 'top' },
     braces: { enabled: true, material: 'ply-birch', thickness: null, length: 0.08 },
     loads: { designG: 6, negativeG: 3, safetyFactor: 1.5 },
   }
@@ -230,7 +231,8 @@ export function spacedRibs(points, limit) {
         const xs = []
         let s = a
         while (xs.length < n && s < b - 1e-9) {
-          s += kappa * bayFrom(s, limit, b)
+          // 1% in hand, so rounding the positions to 0.5 mm never stretches a bay past its limit
+          s += kappa * 0.99 * bayFrom(s, limit, b)
           xs.push(s)
         }
         return xs
@@ -425,6 +427,30 @@ function eulerSpacing(E, b, sigma) {
   return Math.PI * b * Math.sqrt(E / (12 * sigma))
 }
 
+// Shear buckling stress of a web panel between ribs a apart, with web height d.
+export function webBuckling(sp, a) {
+  const b = Math.min(a, sp.d)
+  const l = Math.max(a, sp.d)
+  const ks = 5.35 + 4 * (b / l) ** 2
+  return ks * plateK(sp.web.E * WEB_STIFFNESS_RATIO) * (sp.tw / b) ** 2
+}
+
+// The largest rib spacing at which the web carries shear stress tau without buckling, or
+// Infinity if it holds at any spacing.
+function webSpacing(sp, tau) {
+  if (!(tau > 0) || !(sp.d > 0)) return Infinity
+  if (webBuckling(sp, 1e3) >= tau) return Infinity
+  let lo = 1e-4
+  let hi = 1e3
+  if (webBuckling(sp, lo) < tau) return lo
+  for (let i = 0; i < 80; i++) {
+    const m = Math.sqrt(lo * hi)
+    if (webBuckling(sp, m) >= tau) lo = m
+    else hi = m
+  }
+  return lo
+}
+
 // Plate buckling coefficient factor for a simply supported sheet: σcr = K (t/b)², K = π² E / 12(1−ν²).
 const plateK = (E) => (Math.PI * Math.PI * E) / (12 * (1 - POISSON * POISSON))
 
@@ -608,6 +634,8 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
       row.capThicknessNeeded = structure.spar.capThickness * ratio
       // An open structure leaves the compressed cap free to buckle sideways between ribs
       if (cov.type === 'open') row.limit = Math.min(row.limit, eulerSpacing(sp.mat.E, sp.b, sigC * sf))
+      // The web buckles in shear more readily the further apart the ribs are
+      row.limit = Math.min(row.limit, webSpacing(sp, tau * sf))
     }
     // Sheeting: crushing, and buckling between ribs panel by panel
     if (cov.type !== 'open' && cov.sheetThickness > 0) {
@@ -645,16 +673,56 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     if ((r.spar === 'caps' || r.spar === 'box') && a > 0 && r.tau > 0) {
       // Web shear buckling: a panel between ribs (a) by the web height
       const sp = sparSection(structure, r.h, r.d)
-      const b = Math.min(a, sp.d)
-      const l = Math.max(a, sp.d)
-      const ks = 5.35 + 4 * (b / l) ** 2
-      const tcr = ks * plateK(sp.web.E * WEB_STIFFNESS_RATIO) * (sp.tw / b) ** 2
-      r.ms.webBuckling = tcr / (r.tau * sf) - 1
+      r.ms.webBuckling = webBuckling(sp, a) / (r.tau * sf) - 1
     }
   }
 
   const summary = summarise(stations)
   const warnings = []
+  // Each mode that falls short: what it is, where, and what would help. Closer ribs only fix
+  // the buckling modes; the rest need a stronger section.
+  const where = (d) => (d < 0.002 ? 'at the root rib' : `${Math.round(d * 1000)} mm out from the root rib`)
+  const short = (k) => `${Math.round(-summary.modes[k].ms * 100)}%`
+  const sp = structure.spar
+  for (const k of ['compression', 'tension']) {
+    const m = summary.modes[k]
+    if (!m || m.ms >= 0) continue
+    const row = stations.find((r) => r.s === m.s)
+    const remedy =
+      sp.type === 'tube'
+        ? 'a larger tube or a thicker wall'
+        : sp.type === 'solid'
+          ? 'a deeper or wider spar, or a stronger wood'
+          : `thicker caps (about ${(Math.ceil((row?.capThicknessNeeded ?? 0) * 2000) / 2).toFixed(1)} mm there), wider caps, a stronger material, or sheeting the leading edge so it shares the load`
+    warnings.push({
+      id: `short-${k}`,
+      mode: k,
+      message: `The spar is ${short(k)} short of strength in ${k} ${where(m.d)}. Closer ribs won't help: try ${remedy}.`,
+    })
+  }
+  if (summary.modes.webShear?.ms < 0) {
+    warnings.push({
+      id: 'short-webShear',
+      mode: 'webShear',
+      message: `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${sp.type === 'caps' ? ', or a box spar (two webs)' : ''}.`,
+    })
+  }
+  if (summary.modes.sheet?.ms < 0) {
+    warnings.push({
+      id: 'short-sheet',
+      mode: 'sheet',
+      message: `The sheeting is ${short('sheet')} short of strength in compression ${where(summary.modes.sheet.d)}. Closer ribs won't help: try thicker or harder sheeting, or stronger spar caps to take more of the load.`,
+    })
+  }
+  for (const k of ['spacing', 'webBuckling']) {
+    const m = summary.modes[k]
+    if (!m || m.ms >= 0) continue
+    warnings.push({
+      id: `short-${k}`,
+      mode: k,
+      message: `The ribs are too far apart for the ${k === 'webBuckling' ? 'shear web' : 'spar or sheeting'} ${where(m.d)} (${short(k)} short). Put ribs closer there, or set the spacing to From loads.`,
+    })
+  }
   const misfit = stations.find((r) => r.spar !== 'none' && !r.fits)
   if (misfit) {
     warnings.push({
@@ -693,6 +761,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     warnings,
   }
 }
+
+// The modes closer ribs can fix; the others need a stronger section.
+export const SPACING_MODES = ['spacing', 'webBuckling']
 
 export const MODES = {
   compression: 'Spar in compression',

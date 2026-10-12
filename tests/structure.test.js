@@ -214,4 +214,32 @@ describe('structure analysis', () => {
     expect(tube.warnings.map((w) => w.id)).toContain('tube-short')
     expect(tube.stations.at(-1).spar).toBe('none')
   })
+
+  it('spaces ribs from the loads so no spacing or web-buckling margin is negative', () => {
+    for (const cov of ['open', 'dbox', 'sheeted']) {
+      for (const type of ['caps', 'box', 'tube', 'solid']) {
+        for (const g of [6, 12]) {
+          const r = run((st) => {
+            st.covering.type = cov
+            st.spar.type = type
+            st.loads.designG = g
+            st.spar.webThickness = 0.0008
+          })
+          for (const row of r.stations) {
+            for (const k of ['spacing', 'webBuckling']) if (row.ms[k] !== undefined) expect(row.ms[k], `${cov} ${type} ${g}g ${k}`).toBeGreaterThanOrEqual(0)
+          }
+        }
+      }
+    }
+  })
+
+  it('explains a strength shortfall that closer ribs cannot fix', () => {
+    const r = run((st) => (st.covering.type = 'open'))
+    const w = r.warnings.find((x) => x.id === 'short-compression')
+    expect(r.summary.modes.compression.ms).toBeLessThan(0)
+    expect(w.message).toContain("Closer ribs won't help")
+    expect(w.message).toMatch(/thicker caps \(about \d+\.\d mm there\)/)
+    // Plenty of strength: no such warning
+    expect(run().warnings.some((x) => x.id.startsWith('short-'))).toBe(false)
+  })
 })
