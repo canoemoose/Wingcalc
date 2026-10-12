@@ -23,17 +23,15 @@ Sixth round: feedback on the structure editor. Source of truth for this round; u
 
 1. [x] Edge stock catalogue, fit check, auto pick, editor, cut list, migration, tests (`tests/edgeStock.test.js`). Checked by Matt.
 2. [x] Plan hatch for sheeted areas: 45° SVG pattern, 7 px pitch at any zoom, over a lighter tint; the DXF plan gets 5 mm hatch lines on a HATCH layer (R12 has no hatch entity). Both start at the LE stock's inner edge (`sheetOutline` in structure.js). Checked by Matt (in-app).
-3. [x] 3D view controls in the canvas, no toolbar: Layers and Section top left (drop-down cards after Screenvision's, one open at a time, until the button or Esc; capped to the view's height); Home and Perspective/Orthographic around the cube top right; − + Fit bottom right. Fit frames from the current angle, 44 px clear top and bottom; F, + and − work while the view has focus. Section's button is tinted while a cut is in place. Awaiting Matt's check.
+3. [x] 3D view controls in the canvas, no toolbar: Layers and Section top left (drop-down cards after Screenvision's, one open at a time, until the button or Esc; capped to the view's height); Home and Perspective/Orthographic around the cube top right; − + Fit bottom right. Fit frames from the current angle, 44 px clear top and bottom; F, + and − work while the view has focus. Section's button is tinted while a cut is in place. Checked by Matt.
 4. [x] Common view controls.
    - Rule: no toolbar above any view. − + Fit bottom right in the canvas, same shortcuts (F, +, −), with a Snap toggle beside them in views that edit (tooltip gives the grid step; Alt places freely). Editing tools in a vertical rail on the canvas's left edge, after Screenvision's ToolRail (icon over a short caption, 56 × 44 px buttons, radio-style tools, flyouts for families, separators, tooltips with shortcuts). Selection actions in a command bar at the top centre, shown only with a selection.
    - a. [x] Undo/Redo at window level (`UndoRedo.vue`): page header after the project bar, and each editor's header beside Done; Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z anywhere except in a text field (handled in WingCalc). Removed from the plan editor.
    - b. [x] Wing editor: rail (Select, Measure; Add panel as an action at its foot), command bar (panel: Insert after, ← →, Add station, Delete; dimension: Delete; measuring: Clear dimensions), Snap + zoom corner (`StageZoom.vue`, `ToolRail.vue`, icons in `src/lib/icons.js`). The drawing sits in a stage element with the readout strip below it; Fit keeps clear of the rail, command bar and corner.
    - c. [x] Structure plan: rail in manual spacing (Select, Add rib: click on the wing to place one, with a preview line; A, V, Esc), command bar for a movable rib (Delete), Snap + zoom corner; zoom corner only otherwise. The 3D view uses the same zoom corner. Old toolbar CSS removed.
 
-## Not verified by eye
+## Closed
 
-Checked by script in the running app (no console errors, positions measured, interactions exercised), not looked at: the rail, command bar and corner styling in both themes, the 3D view's corners, and the expanded cards. The browser pane was hidden for part of the session, so layout was measured in an emulated 1400 × 900 viewport.
-
-## Open questions
-
-- TE strip laid flat isn't in the catalogue (Custom covers a flat strip); add it if it's wanted.
+- Round complete and checked by Matt (2026-10-12).
+- TE strip laid flat: not added to the catalogue; Custom covers it.
+- Also fixed: a crash sampling just past the last panel of a wing with no tip cap.
