@@ -972,7 +972,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
     </div>
 
     <Teleport v-if="workspaceTarget && structureResult" :to="workspaceTarget">
-      <WingWorkspace v-model:open="structureOpen" :theme="themeMode" title="Structure and ribs">
+      <WingWorkspace v-model:open="structureOpen" :theme="themeMode" title="Structure and ribs" quiet-done>
         <template #stats>
           <span class="wc-stat"><span>Ribs</span>{{ structureResult.a.ribs.length }} per side</span>
           <span v-if="worstMargin" class="wc-stat" :class="worstMargin.ok ? 'wc-text-ok' : 'wc-text-bad'">
@@ -980,10 +980,12 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           </span>
           <span class="wc-stat"><span>Root bending</span>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</span>
           <span class="wc-stat"><span>Structure</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
-          <button type="button" class="wc-button" @click="exportOpen = true">Export…</button>
         </template>
         <template #actions>
           <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
+          <button type="button" class="wc-button wc-button--primary" title="Parts for cutting, the plan, a cut list and printed templates" @click="exportOpen = true">
+            Export…
+          </button>
         </template>
         <template #side>
           <StructureEditor

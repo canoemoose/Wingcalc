@@ -63,7 +63,7 @@ Results appear in two stages: instantly from the bundled polars or an estimate, 
 
 In "Chords & panels" mode a **Structure and ribs** card sums up the built-up structure: small drawings of the plan and the wing in 3D, then the spar, covering, rib count and spacing, the lowest margin of safety at the design load, the root bending moment and an estimate of the bare structure's weight. Click either drawing to open the editor with that view filling the window.
 
-**Open structure editor** fills the window: settings on the left, and on the right, cards for the plan with every rib, a 3D view, the loads along the span and a preview of any part. The expand arrows on the Plan and 3D cards grow that card to most of the window's height, and back. **Export…** in the top strip opens the export options.
+**Open structure editor** fills the window: settings on the left, and on the right, cards for the plan with every rib, a 3D view, the loads along the span and a preview of any part. The expand arrows on the Plan and 3D cards grow that card to most of the window's height, and back. **Export…** at the right of the top strip opens the export options.
 
 ### What you set
 

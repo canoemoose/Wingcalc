@@ -10,6 +10,9 @@ const open = defineModel('open', { type: Boolean, default: false })
 defineProps({
   theme: { type: String, default: 'auto' },
   title: { type: String, default: 'Wing editor' },
+  // The actions slot holds the editor's main action, so Done steps back to a plain button
+  // (one accent per view)
+  quietDone: { type: Boolean, default: false },
 })
 
 const dialogEl = ref(null)
@@ -68,7 +71,7 @@ function onKey(e) {
         <slot name="stats" />
       </div>
       <slot name="actions" />
-      <button type="button" class="wc-button wc-button--primary" @click="open = false">Done</button>
+      <button type="button" class="wc-button" :class="{ 'wc-button--primary': !quietDone }" @click="open = false">Done</button>
     </header>
     <div class="wc-workspace__body">
       <aside class="wc-workspace__side" aria-label="Wing and panel settings">
