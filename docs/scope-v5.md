@@ -44,9 +44,9 @@ Fifth round: rib generator, structure layout and DXF export. Source of truth for
 
 ## Working notes
 
-- Work is on the `ribs` branch in its own worktree (`.claude/worktrees/ribs`), so the XFOIL session in the main checkout is unaffected.
-- The embed build is being removed on another branch: nothing here depends on it or adds to it.
-- Preview: the main checkout's `.claude/launch.json` has a `ribs-dev` entry (vite on this worktree, port 5181), clear of the XFOIL servers on 5178 to 5180. `tests/render.test.js` also renders the whole app on the server from a saved state and fails on any error or Vue warning, as a quick crash check.
+- Developed on the `ribs` branch in its own worktree, alongside the XFOIL work. Both were merged into `master` on 2026-10-12 and the branches and worktrees removed.
+- The embed build was removed on `master` before the merge; nothing here depends on it.
+- `tests/render.test.js` renders the whole app on the server from a saved state and fails on any error or Vue warning, as a quick crash check.
 
 ## Files in play (planned)
 
@@ -85,6 +85,10 @@ All steps done on the `ribs` branch; 196 tests pass. Exercised in the browser: w
 - Parts: brace arms stop at the centreline and tip; gussets never hang outside the wing and can sit at the rib's top, bottom or both; labels are placed before lightening holes.
 - Export: a large dialog; 1:1 PDF templates (parts or plan) tiled on A4/A3/Letter/Tabloid or one sheet, with a title block and a 50 mm check bar on each sheet.
 - Side columns (page inputs, panel fields, structure settings, export options) are foldable inspector sections after Screenvision's properties panel, with key values on closed headings; fold state is remembered per browser.
+
+### Merged with XFOIL (2026-10-12)
+
+- Merged into `master` with the in-browser XFOIL work. When a computed polar is ready, it sets the section Clmax and the lifting line still varies Clmax by station: each station moves the computed value by the change the bundled polars (or the estimate) predict between the polar's Reynolds number and the station's. Typed Clmax fields are gone (removed on the XFOIL side), so the "entered" Clmax source is too. 253 tests pass.
 
 ### Not done, or worth a look
 
