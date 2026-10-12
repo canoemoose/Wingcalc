@@ -1,10 +1,11 @@
 <script setup>
 // Numeric entry for the panel wing: fuselage width, root chord, then each panel outward
 // from the fuselage side. The same values can be dragged in the wing plan editor; the two
-// share the selected panel. In `focused` mode (the expanded wing editor) only the selected
-// panel is shown, with tabs to switch between panels.
+// share the selected panel: each panel is a foldable section, and opening one selects its
+// panel, while selecting a panel in the plan opens its section.
 import { computed, ref, nextTick } from 'vue'
 import UnitInput from './UnitInput.vue'
+import InspectorSection from './InspectorSection.vue'
 import ParamInput from './ParamInput.vue'
 import { panelAngle, appendPanel, removePanel, insertPanel, movePanel, panelMode, setPanelMode, addBlankStation, checkStations, stationOrder, panelSections } from '../lib/wing.js'
 import { format, defaultUnit } from '../lib/units.js'
@@ -12,7 +13,6 @@ import { format, defaultUnit } from '../lib/units.js'
 const props = defineProps({
   system: { type: String, required: true },
   warnFields: { type: Array, default: () => [] },
-  focused: { type: Boolean, default: false },
   // Prefix for element ids, so two editors (page and expanded view) can coexist.
   idPrefix: { type: String, default: 'wc' },
   // The aerofoil's own thickness (fraction of chord), shown where a panel keeps it.
@@ -205,11 +205,12 @@ function segmentLabel(p, k) {
   return `${from} to ${to}`
 }
 
-// The panels to show: all of them, or just the selected one in focused mode.
-const shownIndex = computed(() => Math.min(selected.value ?? 0, panels.value.length - 1))
-const shown = computed(() =>
-  props.focused ? [{ p: panels.value[shownIndex.value], i: shownIndex.value }] : panels.value.map((p, i) => ({ p, i })),
-)
+const shown = computed(() => panels.value.map((p, i) => ({ p, i })))
+// Working in a panel's fields selects it; clicking its heading only folds it (opening it
+// selects it, through its toggle), so a click to close doesn't reselect and reopen it
+const focusPanel = (e, i) => {
+  if (!e.target.closest('summary')) selected.value = i
+}
 
 function setTip(on) {
   tip.value = on ? { extension: Math.max(0.02, (panels.value.at(-1)?.tipChord || 0.1) * 0.5), peak: 0.4 } : null
@@ -282,6 +283,18 @@ function move(i, dir) {
   selected.value = j
 }
 
+// One line per section, shown on its heading while it's closed
+const len = (v) => (Number.isFinite(v) ? format(v, 'length', defaultUnit(props.system, 'length')) : '–')
+const rootSummary = computed(() => `${len(rootChord.value)} chord${fuselageWidth.value > 0 ? `, fuselage ${len(fuselageWidth.value)}` : ''}`)
+function panelSummary(p) {
+  const rad = panelAngle(p)
+  const parts = [`${len(p.length)}, tip ${len(p.tipChord)}`]
+  if (rad) parts.push(`${((rad * 180) / Math.PI).toFixed(1).replace(/\.0$/, '')}°`)
+  if (p.washout) parts.push(`${p.washout}° washout`)
+  if (panelMode(p) !== 'straight') parts.push(panelMode(p) === 'curves' ? 'curved' : 'stations')
+  return parts.join(', ')
+}
+
 function title(i) {
   const n = panels.value.length
   if (n === 1) return 'Each wing panel'
@@ -292,7 +305,8 @@ function title(i) {
 </script>
 
 <template>
-  <div ref="rootEl" class="wc-panels">
+  <div ref="rootEl" class="wc-panels wc-inspector">
+    <InspectorSection title="Root" :fold-key="`${idPrefix}:root`" :summary="rootSummary" open>
     <UnitInput
       :id="`${idPrefix}-fuselage`"
       v-model="fuselageWidth"
@@ -304,7 +318,7 @@ function title(i) {
     <UnitInput :id="`${idPrefix}-root`" v-model="rootChord" quantity="length" :system="system" label="Root chord" />
     <div class="wc-field">
       <span class="wc-field__label">Enter dihedral as</span>
-      <div class="wc-segmented" role="radiogroup" aria-label="Enter dihedral as">
+      <div class="wc-segmented wc-segmented--small" role="radiogroup" aria-label="Enter dihedral as">
         <button
           v-for="m in [
             { id: 'angle', label: 'Angle' },
@@ -322,30 +336,19 @@ function title(i) {
         </button>
       </div>
     </div>
-    <div v-if="focused" class="wc-tabs wc-paneltabs" role="tablist" aria-label="Panel">
-      <button
-        v-for="(p, i) in panels"
-        :key="p.id ?? i"
-        type="button"
-        role="tab"
-        class="wc-tab"
-        :aria-selected="shownIndex === i"
-        :class="{ 'wc-tab--active': shownIndex === i }"
-        @click="selected = i"
-      >
-        {{ i + 1 }}
-      </button>
-    </div>
-    <fieldset
+    </InspectorSection>
+    <InspectorSection
       v-for="{ p, i } in shown"
       :key="p.id ?? i"
-      class="wc-panelset"
-      :class="{ 'wc-panelset--selected': selected === i && !focused }"
-      @focusin="selected = i"
+      :title="title(i)"
+      :fold-key="`${idPrefix}:panel-${i}`"
+      :summary="panelSummary(p)"
+      :open="panels.length === 1"
+      :open-when="selected === i"
+      :class="{ 'wc-fold--selected': selected === i }"
+      @focusin="focusPanel($event, i)"
+      @toggle="(o) => o && (selected = i)"
     >
-      <legend class="wc-panelset__legend">
-        <button type="button" class="wc-linkish" @click="selected = selected === i ? null : i">{{ title(i) }}</button>
-      </legend>
       <div class="wc-panelset__actions">
         <button
           type="button"
@@ -697,12 +700,11 @@ function title(i) {
         </div>
         <button type="button" class="wc-button wc-button--small" @click="newStation(i)">Add station</button>
       </div>
-    </fieldset>
+    </InspectorSection>
     <div class="wc-panels__actions">
       <button type="button" class="wc-button" @click="add">Add panel</button>
     </div>
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Wingtip</legend>
+    <InspectorSection title="Wingtip" :fold-key="`${idPrefix}:tip`" :summary="tip ? `Rounded, ${len(tip.extension)}` : 'Square'" :open="!!tip">
       <label class="wc-check wc-tipcheck">
         <input type="checkbox" :checked="!!tip" @change="setTip($event.target.checked)" /> Rounded tip beyond the last
         panel
@@ -729,7 +731,7 @@ function title(i) {
           @update:model-value="tip = { ...tip, peak: $event / 100 }"
         />
       </template>
-    </fieldset>
+    </InspectorSection>
     <p class="wc-field__hint">
       Add panel puts a new one at the tip; + on a panel inserts one just outboard of it, and the arrows move a panel
       inward or outward. Shape curves by dragging their handles in the wing plan.

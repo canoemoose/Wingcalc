@@ -7,6 +7,8 @@ import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
 import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
+import InspectorSection from './InspectorSection.vue'
+import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS } from '../lib/structure.js'
 
 const props = defineProps({
@@ -15,6 +17,8 @@ const props = defineProps({
   autoSpar: { type: Number, default: null },
   // Brace thicknesses the loads call for, in metres, shown as placeholders
   braceNeeds: { type: Array, default: () => [] },
+  // Where the ribs are now (distances from the root rib), to start manual spacing from
+  ribDistances: { type: Array, default: () => [] },
   idPrefix: { type: String, default: 'wcs' },
 })
 const structure = defineModel('structure', { type: Object, required: true })
@@ -32,7 +36,9 @@ function set(path, value) {
 const st = computed(() => structure.value)
 const id = (k) => `${props.idPrefix}-${k}`
 
-const materials = (ids) => ids.map((k) => ({ value: k, label: MATERIALS[k].label }))
+// Short names fit the inspector's value column; the full description is the option's tooltip
+const materials = (ids) =>
+  ids.map((k) => ({ value: k, label: MATERIALS[k].short.replace(/^./, (c) => c.toUpperCase()), title: MATERIALS[k].label }))
 const WOOD = materials(['balsa-light', 'balsa-medium', 'balsa-hard', 'spruce', 'basswood', 'ply-lite', 'ply-birch'])
 const CAPS = materials(['spruce', 'basswood', 'balsa-hard', 'balsa-medium', 'carbon'])
 const SHEET = materials(['balsa-light', 'balsa-medium', 'balsa-hard', 'ply-lite', 'ply-birch'])
@@ -76,7 +82,62 @@ function removeFrom(path, itemId) {
     list.filter((x) => x.id !== itemId),
   )
 }
+// Switching to manual starts from the ribs on screen, so the layout is adjusted rather than
+// built up from nothing (or from manual ribs left over from some earlier layout)
+function setSpacing(mode) {
+  if (mode === 'manual' && st.value.ribs.spacing !== 'manual') {
+    structure.value = {
+      ...structure.value,
+      ribs: { ...structure.value.ribs, spacing: mode, manual: props.ribDistances.map((d, i) => ({ id: i + 1, d: Math.round(d * 2000) / 2000 })) },
+    }
+  } else set('ribs.spacing', mode)
+}
 const byDistance = (list) => [...(list ?? [])].sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity))
+
+// What each section holds, one line, shown on its heading while it's closed
+// Sizes without trailing zeros, the unit once: "6 × 3 mm", "1.5 mm"
+const num = (v) => {
+  const u = defaultUnit(props.system, 'thin')
+  const n = u === 'mm' ? v * 1000 : v / 0.0254
+  return String(Number(n.toFixed(u === 'mm' ? 1 : 3)))
+}
+const unit = () => (defaultUnit(props.system, 'thin') === 'mm' ? 'mm' : 'in')
+const mm = (v) => (Number.isFinite(v) ? `${num(v)} ${unit()}` : '–')
+const size = (a, b) => (Number.isFinite(a) && Number.isFinite(b) ? `${num(a)} × ${num(b)} ${unit()}` : '–')
+const len = (v) => (Number.isFinite(v) ? format(v, 'length', defaultUnit(props.system, 'length')) : '–')
+const mat = (id) => MATERIALS[id]?.short ?? id
+const SPACING_SUMS = { suggested: 'from loads', uniform: 'even', tapered: 'tapered', manual: 'manual' }
+const summaries = computed(() => {
+  const x = st.value
+  const sp = x.spar
+  const cov = x.covering
+  const r = x.ribs
+  const g = x.gussets
+  const spar =
+    sp.type === 'tube'
+      ? `Tube ${mm(sp.tubeDiameter)}, ${mm(sp.tubeWall)} wall`
+      : sp.type === 'solid'
+        ? `Solid ${size(sp.solidWidth, sp.solidDepth)} ${mat(sp.solidMaterial)}`
+        : `${sp.type === 'box' ? 'Box' : 'Caps and web'}, ${size(sp.capWidth, sp.capThickness)} ${mat(sp.capMaterial)}`
+  const covering =
+    cov.type === 'open'
+      ? `Open${cov.capStrips ? ', cap strips' : ''}`
+      : `${cov.type === 'dbox' ? 'D-box' : 'Fully sheeted'}, ${mm(cov.sheetThickness)} ${mat(cov.sheetMaterial)}`
+  const spacing = r.spacing === 'manual' ? `manual, ${(r.manual ?? []).length} ribs` : SPACING_SUMS[r.spacing]
+  const gussets = !(g.le || g.te)
+    ? 'None'
+    : `${[g.le && 'LE', g.te && 'TE'].filter(Boolean).join(' and ')}, ${g.where === 'all' ? 'every rib' : 'ends'}, ${g.layer === 'both' ? 'top and bottom' : g.layer ?? 'top'}`
+  return {
+    loads: `${x.loads.designG} g, −${x.loads.negativeG} g, ×${x.loads.safetyFactor}`,
+    spar,
+    covering,
+    edges: `LE ${mm(x.le.width)}, TE ${x.te.type} ${mm(x.te.width)}`,
+    stringers: (x.stringers ?? []).length ? `${x.stringers.length} stringer${x.stringers.length === 1 ? '' : 's'}` : 'None',
+    ribs: `${mm(r.thickness)} ${mat(r.material)}, ${spacing}${r.orientation === 'perpendicular' ? ', square to spar' : ''}`,
+    gussets,
+    braces: !x.braces.enabled ? 'Off' : `${mat(x.braces.material)}, ${len(x.braces.length)} each side`,
+  }
+})
 
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 const braceHint = computed(() => {
@@ -89,9 +150,8 @@ const braceHint = computed(() => {
 </script>
 
 <template>
-  <div class="wc-structure-editor">
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Design loads</legend>
+  <div class="wc-structure-editor wc-inspector">
+    <InspectorSection title="Design loads" fold-key="structure:loads" :summary="summaries.loads">
       <ParamInput
         :id="id('g')"
         :model-value="st.loads.designG"
@@ -125,10 +185,9 @@ const braceHint = computed(() => {
         hint="Applied on top of the load factor. 1.5 is the aircraft standard."
         @update:model-value="set('loads.safetyFactor', $event)"
       />
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Spar</legend>
+    <InspectorSection title="Spar" fold-key="structure:spar" :summary="summaries.spar">
       <SegmentedField :model-value="st.spar.type" label="Type" :options="SPAR_TYPES" @update:model-value="set('spar.type', $event)" />
       <UnitInput
         :id="id('sparpos')"
@@ -157,7 +216,11 @@ const braceHint = computed(() => {
           quantity="thin"
           :system="system"
           label="Shear web thickness"
-          :hint="st.spar.type === 'box' ? 'Webs on both faces of the caps, fitted between the ribs.' : 'One web on the front face of the caps, fitted between the ribs, grain vertical.'"
+          :hint="
+            st.spar.type === 'box'
+              ? 'Two webs between the caps, flush with their front and rear faces, fitted between the ribs, grain vertical.'
+              : 'One web between the caps, flush with their front face, fitted between the ribs, grain vertical.'
+          "
           @update:model-value="set('spar.webThickness', $event)"
         />
         <SelectField :id="id('webm')" :model-value="st.spar.webMaterial" label="Web material" :options="SHEET" @update:model-value="set('spar.webMaterial', $event)" />
@@ -192,10 +255,9 @@ const braceHint = computed(() => {
           @update:model-value="set('spar.solidMount', $event)"
         />
       </template>
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Covering</legend>
+    <InspectorSection title="Covering" fold-key="structure:covering" :summary="summaries.covering">
       <SegmentedField :model-value="st.covering.type" label="Structure" :options="COVERINGS" @update:model-value="set('covering.type', $event)" />
       <template v-if="st.covering.type !== 'open'">
         <UnitInput
@@ -238,10 +300,9 @@ const braceHint = computed(() => {
           />
         </template>
       </template>
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Leading and trailing edges</legend>
+    <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :summary="summaries.edges">
       <UnitInput
         :id="id('lew')"
         :model-value="st.le.width"
@@ -270,10 +331,9 @@ const braceHint = computed(() => {
         @update:model-value="set('te.width', $event)"
       />
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Stringers and turbulator spars</legend>
+    <InspectorSection title="Stringers and turbulator spars" fold-key="structure:stringers" :summary="summaries.stringers">
       <div v-for="(s, k) in st.stringers" :key="s.id" class="wc-structure-editor__item">
         <div class="wc-structure-editor__itemhead">
           <span>Stringer {{ k + 1 }}</span>
@@ -314,10 +374,9 @@ const braceHint = computed(() => {
       >
         Add stringer
       </button>
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Ribs</legend>
+    <InspectorSection title="Ribs" fold-key="structure:ribs" :summary="summaries.ribs">
       <UnitInput :id="id('ribt')" :model-value="st.ribs.thickness" quantity="thin" :system="system" label="Rib thickness" @update:model-value="set('ribs.thickness', $event)" />
       <SelectField :id="id('ribm')" :model-value="st.ribs.material" label="Rib material" :options="WOOD" @update:model-value="set('ribs.material', $event)" />
       <SegmentedField
@@ -348,7 +407,7 @@ const braceHint = computed(() => {
         "
         @update:model-value="set('ribs.rootJoint', $event)"
       />
-      <SegmentedField :model-value="st.ribs.spacing" label="Spacing" :options="SPACINGS" @update:model-value="set('ribs.spacing', $event)" />
+      <SegmentedField :model-value="st.ribs.spacing" label="Spacing" :options="SPACINGS" @update:model-value="setSpacing" />
       <UnitInput
         v-if="st.ribs.spacing === 'suggested' || st.ribs.spacing === 'uniform'"
         :id="id('pitch')"
@@ -368,7 +427,10 @@ const braceHint = computed(() => {
         <UnitInput :id="id('tipp')" :model-value="st.ribs.tipPitch" quantity="length" :system="system" label="At the tip" @update:model-value="set('ribs.tipPitch', $event)" />
       </div>
       <template v-else-if="st.ribs.spacing === 'manual'">
-        <p class="wc-field__hint">Distances from the root rib. The root, panel ends, tip and hard points always get a rib.</p>
+        <p class="wc-field__hint">
+          Distances from the root rib. The root, panel ends, tip and hard points always get a rib. You can also drag ribs
+          in the plan, double-click it to add one, and press Delete to remove the selected one.
+        </p>
         <div v-for="(m, k) in byDistance(st.ribs.manual)" :key="m.id" class="wc-structure-editor__row">
           <UnitInput
             :id="id(`man${m.id}`)"
@@ -447,10 +509,9 @@ const braceHint = computed(() => {
           />
         </div>
       </template>
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Corner gussets</legend>
+    <InspectorSection title="Corner gussets" fold-key="structure:gussets" :summary="summaries.gussets">
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.gussets.le" @change="set('gussets.le', $event.target.checked)" /> Where ribs meet the leading edge
       </label>
@@ -468,6 +529,17 @@ const braceHint = computed(() => {
           @update:model-value="set('gussets.where', $event)"
         />
         <SegmentedField
+          :model-value="st.gussets.layer ?? 'top'"
+          label="Flush with the rib's"
+          :options="[
+            { value: 'top', label: 'Top' },
+            { value: 'bottom', label: 'Bottom' },
+            { value: 'both', label: 'Top and bottom' },
+          ]"
+          hint="Laid flat in the corner between the rib and the stock, under any sheeting, cap strip or covering."
+          @update:model-value="set('gussets.layer', $event)"
+        />
+        <SegmentedField
           :model-value="st.gussets.sides"
           label="Sides of each rib"
           :options="[
@@ -482,10 +554,9 @@ const braceHint = computed(() => {
         </div>
         <SelectField :id="id('gm')" :model-value="st.gussets.material" label="Material" :options="SHEET" @update:model-value="set('gussets.material', $event)" />
       </template>
-    </fieldset>
+    </InspectorSection>
 
-    <fieldset class="wc-panelset">
-      <legend class="wc-panelset__legend">Dihedral braces</legend>
+    <InspectorSection title="Dihedral braces" fold-key="structure:braces" :summary="summaries.braces">
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.braces.enabled" @change="set('braces.enabled', $event.target.checked)" />
         Brace plates on the spar at each dihedral break
@@ -512,6 +583,6 @@ const braceHint = computed(() => {
           @update:model-value="set('braces.length', $event)"
         />
       </template>
-    </fieldset>
+    </InspectorSection>
   </div>
 </template>

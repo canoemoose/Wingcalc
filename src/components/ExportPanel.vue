@@ -3,11 +3,13 @@
 // (DXF) and a cut list (CSV). Options are kept with the project, so a re-export comes out
 // the same. Rib details that change the parts themselves (lightening holes, jig tabs) are
 // shared with the structure editor.
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { zipSync, strToU8 } from 'fflate'
 import UnitInput from './UnitInput.vue'
 import SegmentedField from './SegmentedField.vue'
-import { layoutParts, partsDxf, planDxf, cutListCsv } from '../lib/dxf.js'
+import InspectorSection from './InspectorSection.vue'
+import { layoutParts, partsDxf, planDxf, cutListCsv, partsDrawing, planEntities } from '../lib/dxf.js'
+import { drawingPdf, tiling, PAPERS } from '../lib/pdf.js'
 import { bounds } from '../lib/ribs.js'
 
 const props = defineProps({
@@ -16,12 +18,15 @@ const props = defineProps({
   cutList: { type: Array, required: true },
   system: { type: String, required: true },
   baseName: { type: String, default: 'wing' },
+  projectName: { type: String, default: 'Untitled' },
 })
 const emit = defineEmits(['close'])
 const options = defineModel('options', { type: Object, required: true })
 const structure = defineModel('structure', { type: Object, required: true })
 
 const o = computed(() => options.value)
+const dialogEl = ref(null)
+onMounted(() => dialogEl.value?.focus({ preventScroll: true }))
 function set(path, value) {
   const keys = path.split('.')
   const copy = (obj, i) => ({ ...obj, [keys[i]]: i === keys.length - 1 ? value : copy(obj[keys[i]], i + 1) })
@@ -61,6 +66,21 @@ const preview = computed(() => {
   }
 })
 
+// One line per section, shown on its heading while it's closed
+const fmtThin = (v) => `${Number((v * 1000).toFixed(2))} mm`
+const summaries = computed(() => {
+  const x = o.value
+  const r = structure.value.ribs
+  const on = present.value.filter((g) => x.parts[g.id] !== false).length
+  return {
+    parts: `${on} of ${present.value.length} kinds, ${{ pair: 'both halves', right: 'right half', left: 'left half' }[x.handedness]}`,
+    ribs: [r.lightening && 'lightening holes', r.jigTabs && 'jig tabs'].filter(Boolean).join(', ') || 'Plain',
+    machine: x.machine === 'laser' ? `Laser, ${fmtThin(x.kerf || 0)} kerf` : `Router, ${fmtThin(x.toolDiameter)} cutter${x.dogbones ? ', dogbones' : ''}`,
+    drawing: `${x.format === 'lines' ? 'Lines' : 'Polylines'}, ${x.labels ? (x.labelStyle === 'text' ? 'text labels' : 'vector labels') : 'no labels'}`,
+    layout: `${x.repeat ? 'Every piece' : 'One of each'}, ${Math.round(x.rowLength * 1000)} mm rows${x.split ? ', split' : ''}`,
+  }
+})
+
 function save(name, data, type) {
   const blob = new Blob([data], { type })
   const a = document.createElement('a')
@@ -78,21 +98,51 @@ function downloadPlan() {
   const f = planDxf(props.analysis, structure.value, props.parts, o.value, props.baseName)
   save(f.name, f.text, 'application/dxf')
 }
+// Printed templates: true outlines (no kerf or dogbones), 1:1 on the paper chosen
+const printOpts = computed(() => ({ ...o.value, machine: 'laser', kerf: 0, dogbones: false, toolOffset: false }))
+const printDrawings = computed(() => ({
+  parts: partsDrawing(props.parts, printOpts.value),
+  plan: planEntities(props.analysis, structure.value, props.parts, { handedness: o.value.handedness }),
+}))
+const sheets = (ents) => {
+  const pts = ents.flatMap((e) => (e.type === 'text' ? [[e.x, e.y]] : e.pts))
+  if (!pts.length) return 0
+  const b = bounds(pts)
+  const t = tiling(b.w, b.h, o.value.pdfPaper ?? 'a4')
+  return t.cols * t.rows
+}
+const sheetCount = computed(() => ({ parts: sheets(printDrawings.value.parts), plan: sheets(printDrawings.value.plan) }))
+function downloadPdf(which) {
+  const drawing =
+    which === 'parts'
+      ? 'Parts, true size (no kerf allowance)'
+      : `Plan, ${{ right: 'right half', left: 'left half', pair: 'both halves' }[o.value.handedness] ?? 'right half'}`
+  const pdf = drawingPdf(printDrawings.value[which], { paper: o.value.pdfPaper ?? 'a4', project: props.projectName, drawing })
+  save(`${props.baseName}-${which}.pdf`, pdf, 'application/pdf')
+}
 function downloadCutList() {
   save(`${props.baseName}-cut-list.csv`, cutListCsv(props.parts, props.cutList), 'text/csv')
 }
 </script>
 
 <template>
-  <section class="wc-export" role="dialog" aria-label="Export">
+  <div class="wc-export__backdrop" @pointerdown.self="emit('close')">
+  <section
+    ref="dialogEl"
+    class="wc-export"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Export for cutting"
+    tabindex="-1"
+    @keydown.esc.stop.prevent="emit('close')"
+  >
     <header class="wc-export__head">
-      <h3 class="wc-card__label">Export for cutting</h3>
+      <h3 class="wc-export__title">Export for cutting</h3>
       <button type="button" class="wc-button" @click="emit('close')">Close</button>
     </header>
     <div class="wc-export__body">
-      <div class="wc-export__options">
-        <fieldset class="wc-panelset">
-          <legend class="wc-panelset__legend">Parts</legend>
+      <div class="wc-export__options wc-inspector">
+        <InspectorSection title="Parts" fold-key="export:parts" :summary="summaries.parts" open>
           <label v-for="g in present" :key="g.id" class="wc-check wc-structure-editor__check">
             <input type="checkbox" :checked="o.parts[g.id] !== false" @change="set(`parts.${g.id}`, $event.target.checked)" />
             {{ g.label }} <span class="wc-muted">({{ count(g.id) }})</span>
@@ -108,10 +158,9 @@ function downloadCutList() {
             hint="Ribs are the same for either side; the plan is mirrored for the left. A pair doubles every quantity except parts on the centreline."
             @update:model-value="set('handedness', $event)"
           />
-        </fieldset>
+        </InspectorSection>
 
-        <fieldset class="wc-panelset">
-          <legend class="wc-panelset__legend">Rib details</legend>
+        <InspectorSection title="Rib details" fold-key="export:ribs" :summary="summaries.ribs" open>
           <label class="wc-check wc-structure-editor__check">
             <input type="checkbox" :checked="structure.ribs.lightening" @change="setRibs('lightening', $event.target.checked)" />
             Lightening holes
@@ -140,10 +189,9 @@ function downloadCutList() {
               @update:model-value="setRibs('tabClearance', $event)"
             />
           </div>
-        </fieldset>
+        </InspectorSection>
 
-        <fieldset class="wc-panelset">
-          <legend class="wc-panelset__legend">Machine</legend>
+        <InspectorSection title="Machine" fold-key="export:machine" :summary="summaries.machine" open>
           <SegmentedField
             :model-value="o.machine"
             label="Cutting with"
@@ -181,10 +229,9 @@ function downloadCutList() {
               Offset the paths by the cutter radius (leave off if your CAM does it)
             </label>
           </template>
-        </fieldset>
+        </InspectorSection>
 
-        <fieldset class="wc-panelset">
-          <legend class="wc-panelset__legend">Drawing</legend>
+        <InspectorSection title="Drawing" fold-key="export:drawing" :summary="summaries.drawing" open>
           <SegmentedField
             :model-value="o.format"
             label="Shapes as"
@@ -209,9 +256,9 @@ function downloadCutList() {
             hint="Vector lines etch the same in any software; DXF text depends on its fonts."
             @update:model-value="set('labelStyle', $event)"
           />
-          <div class="wc-export__layers">
-            <div v-for="k in ['cut', 'etch', 'guide']" :key="k" class="wc-field">
-              <label :for="`wcx-layer-${k}`" class="wc-field__label">{{ { cut: 'Cut layer', etch: 'Etch layer', guide: 'Notes layer' }[k] }}</label>
+          <div v-for="k in ['cut', 'etch', 'guide']" :key="k" class="wc-field">
+            <label :for="`wcx-layer-${k}`" class="wc-field__label">{{ { cut: 'Cut layer', etch: 'Etch layer', guide: 'Notes layer' }[k] }}</label>
+            <div class="wc-field__control">
               <input
                 :id="`wcx-layer-${k}`"
                 class="wc-input"
@@ -221,10 +268,9 @@ function downloadCutList() {
               />
             </div>
           </div>
-        </fieldset>
+        </InspectorSection>
 
-        <fieldset class="wc-panelset">
-          <legend class="wc-panelset__legend">Layout</legend>
+        <InspectorSection title="Layout" fold-key="export:layout" :summary="summaries.layout" open>
           <label class="wc-check wc-structure-editor__check">
             <input type="checkbox" :checked="o.repeat" @change="set('repeat', $event.target.checked)" /> One copy of each part per piece needed
           </label>
@@ -239,7 +285,7 @@ function downloadCutList() {
             Parts are laid in rows grouped by stock, with the grain left to right along the sheet (shear webs are turned so
             theirs runs up the web).
           </p>
-        </fieldset>
+        </InspectorSection>
       </div>
 
       <div class="wc-export__preview">
@@ -261,7 +307,28 @@ function downloadCutList() {
           <button type="button" class="wc-button" @click="downloadPlan">Download plan (DXF)</button>
           <button type="button" class="wc-button" @click="downloadCutList">Download cut list (CSV)</button>
         </div>
+        <div class="wc-export__print">
+          <h4 class="wc-export__subtitle">Printed templates (PDF, 1:1)</h4>
+          <p class="wc-field__hint">
+            To build over or cut round by hand: true size, with a title block and a 50 mm bar on every sheet to check the
+            print. Print at 100% (actual size). Larger drawings are split across sheets that overlap by 10 mm, each named
+            (A1, A2 …) with its neighbours marked on its edges.
+          </p>
+          <div class="wc-export__printrow">
+            <label class="wc-field__label" for="wcx-paper">Paper</label>
+            <select id="wcx-paper" class="wc-input wc-select wc-select--small" :value="o.pdfPaper ?? 'a4'" @change="set('pdfPaper', $event.target.value)">
+              <option v-for="(p, k) in PAPERS" :key="k" :value="k">{{ p.label }}</option>
+            </select>
+            <button type="button" class="wc-button" :disabled="!sheetCount.parts" @click="downloadPdf('parts')">
+              Parts (PDF, {{ sheetCount.parts }} sheet{{ sheetCount.parts === 1 ? '' : 's' }})
+            </button>
+            <button type="button" class="wc-button" @click="downloadPdf('plan')">
+              Plan (PDF, {{ sheetCount.plan }} sheet{{ sheetCount.plan === 1 ? '' : 's' }})
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
+  </div>
 </template>

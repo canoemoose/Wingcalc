@@ -77,9 +77,18 @@ All steps done on the `ribs` branch; 196 tests pass. Exercised in the browser: w
 
 - 3D view of the built-up half wing as a card in the structure editor, beside the plan, loads and part cards: three.js, loaded on first use. Stringers are seated exactly as the rib notches are cut (shared skin rule, `skinAt` in `structure.js`). Geometry in `src/lib/wing3d.js`, tested so every rib placed in 3D lands on the lofted wing.
 
+### Added after review (2026-10-12)
+
+- 3D view: view cube (top right), perspective / orthographic switch, section between ribs (bay picker, slider, flip, look at the cut, filled cut face), sheeting and cap strips, gussets and braces, the rounded tip's block, a hollow tube, webs between the caps. Expand toggles on the plan and 3D cards.
+- Plan card: zoom, pan, grid and snap like the wing plan editor; manual spacing edits ribs in place (drag, double-click to add, Delete, arrow keys). Switching to manual starts from the ribs on screen.
+- Strength: shortfalls that closer ribs can't fix are explained (which part, where, by how much, what would help) and shaded red; amber is kept for spacing. Web buckling is part of the load-based spacing limit.
+- Parts: brace arms stop at the centreline and tip; gussets never hang outside the wing and can sit at the rib's top, bottom or both; labels are placed before lightening holes.
+- Export: a large dialog; 1:1 PDF templates (parts or plan) tiled on A4/A3/Letter/Tabloid or one sheet, with a title block and a 50 mm check bar on each sheet.
+- Side columns (page inputs, panel fields, structure settings, export options) are foldable inspector sections after Screenvision's properties panel, with key values on closed headings; fold state is remembered per browser.
+
 ### Not done, or worth a look
 
-- The DXF has not been opened in real CAM or laser software yet. It's plain R12, so it should be fine, but try one in LightBurn or your CAM before cutting wood.
+- The DXF and PDF have not been opened in real CAM, laser or PDF software, nor the PDF printed and measured, yet. It's plain R12, so it should be fine, but try one in LightBurn or your CAM before cutting wood.
 - Developed sheeting templates are approximate (straight between ribs); cut oversize.
 - Stage B (inertia relief, torsion, D-box torsional stiffness) is undecided.
 - Nesting onto stock sheets is still simple rows.

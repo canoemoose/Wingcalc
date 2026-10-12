@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, shallowRef, onMounted, watch } from 'vue'
+import { ref, reactive, computed, shallowRef, onMounted, watch, nextTick } from 'vue'
 import UnitInput from './components/UnitInput.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
@@ -8,6 +8,7 @@ import PanelEditor from './components/PanelEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
+import InspectorSection from './components/InspectorSection.vue'
 import { useHistory } from './composables/useHistory.js'
 import LiftCurve from './components/LiftCurve.vue'
 import SpanLiftChart from './components/SpanLiftChart.vue'
@@ -382,8 +383,23 @@ watch(structureOpen, (v) => {
   else exportOpen.value = false
 })
 const selectedPart = ref(null)
+// The plan or 3D card grown to fill most of the window, for now; one at a time
+const expandedCard = ref(null)
+const structureMainEl = ref(null)
+const EXPAND_ICON = 'M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4'
+const SHRINK_ICON = 'M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4'
+function toggleExpand(card) {
+  expandedCard.value = expandedCard.value === card ? null : card
+  // Bring the card's top into view once it has grown
+  nextTick(() => structureMainEl.value?.querySelector(`[data-card="${card}"]`)?.scrollIntoView({ block: 'start' }))
+}
 const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs') ?? [])
 const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
+// The ribs between the fixed ones, as distances from the root rib: where manual spacing starts
+const ribDistances = computed(() => {
+  const a = structureResult.value?.a
+  return a ? a.ribs.filter((r) => r.kind === 'normal').map((r) => r.s - a.rootS) : []
+})
 const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.group === 'braces').map((p) => p.need) ?? [])
 const projectFileBase = computed(() => fileName(project.name).replace(/\.wingcalc\.json$/, ''))
 
@@ -435,6 +451,14 @@ watch(
   },
   { immediate: true },
 )
+
+// The wing geometry section's heading line when it's closed
+const wingSummary = computed(() => {
+  const g = geometry.value
+  if (!g.span) return ''
+  const n = input.geometryMode === 'panels' ? `${input.panels.length} panel${input.panels.length === 1 ? '' : 's'}, ` : ''
+  return `${n}${format(g.span, 'length', u('length'))} span, ${format(g.area, 'area', u('area'))}`
+})
 
 const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' : '–')
 </script>
@@ -496,8 +520,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
 
     <div class="wc-layout">
       <!-- Inputs -->
-      <section class="wc-panel wc-inputs" aria-label="Inputs">
-        <h3 class="wc-panel__title">Aircraft</h3>
+      <section class="wc-panel wc-inputs wc-inspector" aria-label="Inputs">
+        <InspectorSection title="Aircraft" fold-key="page:aircraft" :summary="format(input.mass, 'mass', u('mass'))" open>
         <UnitInput
           id="wc-mass"
           v-model="input.mass"
@@ -506,9 +530,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           label="All-up weight"
           :warn="warnFor('mass')"
         />
+        </InspectorSection>
 
-        <h3 class="wc-panel__title">Wing geometry</h3>
-        <div class="wc-segmented" role="radiogroup" aria-label="Wing size from">
+        <InspectorSection title="Wing geometry" fold-key="page:wing" :summary="wingSummary" open>
+        <div class="wc-segmented wc-segmented--small" role="radiogroup" aria-label="Wing size from">
           <button
             v-for="m in geometryModes"
             :key="m.id"
@@ -571,12 +596,14 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           Wing area {{ format(geometry.area, 'area', u('area')) }}
           <span class="wc-muted">({{ format(geometry.area, 'area', u('area', alt)) }})</span>
         </p>
+        </InspectorSection>
 
-        <h3 class="wc-panel__title">Aerofoil</h3>
+        <InspectorSection title="Aerofoil" fold-key="page:aerofoil" :summary="airfoil?.name ?? ''" open>
         <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" :estimated-cl-max="estimatedClMax" />
         <p v-if="catalogueError" class="wc-field__hint wc-text-warn">
           The full aerofoil catalogue couldn't be loaded; only sections with polar data are listed.
         </p>
+        </InspectorSection>
 
         <ul v-if="warnings.length" class="wc-warnings">
           <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
@@ -867,7 +894,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           </span>
           <span class="wc-stat"><span>Root bending</span>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</span>
           <span class="wc-stat"><span>Structure</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
-          <button type="button" class="wc-button" @click="exportOpen = !exportOpen">{{ exportOpen ? 'Back to structure' : 'Export…' }}</button>
+          <button type="button" class="wc-button" @click="exportOpen = true">Export…</button>
         </template>
         <template #side>
           <StructureEditor
@@ -875,6 +902,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :system="system"
             :auto-spar="autoSpar"
             :brace-needs="braceNeeds"
+            :rib-distances="ribDistances"
           />
           <ul v-if="structureWarnings.length" class="wc-warnings">
             <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
@@ -890,25 +918,54 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :cut-list="structureResult.cutList"
             :system="system"
             :base-name="projectFileBase"
+            :project-name="project.name || 'Untitled'"
             @close="exportOpen = false"
           />
-          <div v-else class="wc-structure-main">
-            <article class="wc-card">
-              <h3 class="wc-card__label">Plan</h3>
+          <div ref="structureMainEl" class="wc-structure-main">
+            <article class="wc-card wc-structure-main__wide" :class="{ 'wc-card--expanded': expandedCard === 'plan' }" data-card="plan">
+              <div class="wc-card__head">
+                <h3 class="wc-card__label">Plan</h3>
+                <button
+                  type="button"
+                  class="wc-iconbtn wc-expand"
+                  :aria-pressed="expandedCard === 'plan'"
+                  :aria-label="expandedCard === 'plan' ? 'Shrink the plan' : 'Expand the plan'"
+                  :title="expandedCard === 'plan' ? 'Shrink back' : 'Expand to fill the window'"
+                  @click="toggleExpand('plan')"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="expandedCard === 'plan' ? SHRINK_ICON : EXPAND_ICON" /></svg>
+                </button>
+              </div>
               <StructurePlan
+                v-model:structure="input.structure"
                 :analysis="structureResult.a"
-                :structure="input.structure"
                 :parts="structureResult.parts"
                 :selected="selectedPart"
+                :system="system"
+                :editable="input.structure.ribs.spacing === 'manual'"
                 @select="selectedPart = $event"
+                @commit="history.commit"
               />
             </article>
-            <article class="wc-card">
-              <h3 class="wc-card__label">3D</h3>
+            <article class="wc-card wc-structure-main__wide" :class="{ 'wc-card--expanded': expandedCard === '3d' }" data-card="3d">
+              <div class="wc-card__head">
+                <h3 class="wc-card__label">3D</h3>
+                <button
+                  type="button"
+                  class="wc-iconbtn wc-expand"
+                  :aria-pressed="expandedCard === '3d'"
+                  :aria-label="expandedCard === '3d' ? 'Shrink the 3D view' : 'Expand the 3D view'"
+                  :title="expandedCard === '3d' ? 'Shrink back' : 'Expand to fill the window'"
+                  @click="toggleExpand('3d')"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="expandedCard === '3d' ? SHRINK_ICON : EXPAND_ICON" /></svg>
+                </button>
+              </div>
               <Structure3D
                 :analysis="structureResult.a"
                 :structure="input.structure"
                 :parts="structureResult.parts"
+                :system="system"
                 :selected="selectedPart"
                 @select="selectedPart = $event"
               />
@@ -948,7 +1005,6 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :system="system"
             :warn-fields="warnFields"
             :base-thickness="baseThickness"
-            focused
             id-prefix="wcx"
           />
           <ul v-if="warnings.length" class="wc-warnings">
