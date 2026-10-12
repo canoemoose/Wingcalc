@@ -5,18 +5,16 @@
 //
 // It navigates like the wing plan editor: scroll to zoom about the pointer, drag empty space
 // to pan, − + Fit in the bottom-right corner (F, + and −), with a grid that adapts to the
-// zoom. With manual rib spacing it edits like it too, with a rail of tools on the left:
-// Select (drag a rib along the span; it snaps to the grid, measured from the root rib, Alt
-// to place freely) and Add rib (click on the wing; double-click also adds one with Select).
-// Delete (or the command bar) removes the selected rib, and the arrow keys nudge it a grid
-// step (Shift for ten). Manual ribs and hard points move; root, panel-break and tip ribs
-// are fixed.
+// zoom. With manual rib spacing it edits too, without modes: drag a rib along the span (it
+// snaps to the grid, measured from the root rib; Alt places freely), double-click the wing to
+// add one there, or Add rib in the command bar (or A) to add one mid-way along the longest
+// bay. Delete (or the command bar) removes the selected rib, and the arrow keys nudge it a
+// grid step (Shift for ten). Manual ribs and hard points move; root, panel-break and tip
+// ribs are fixed.
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { flatPanels } from '../lib/wing.js'
 import { MODES, SPACING_MODES, sheetOutline } from '../lib/structure.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
-import { SELECT, ADD_RIB } from '../lib/icons.js'
-import ToolRail from './ToolRail.vue'
 import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
@@ -240,22 +238,6 @@ const snap = (d, e) => (snapOn.value && !e?.altKey ? Math.round(d / step.value) 
 
 // --- Editing ---------------------------------------------------------------------------------
 
-// Tools on the rail, with manual spacing: select (and drag) ribs, or click to add one
-const tool = ref('select') // 'select' | 'add'
-const adding = computed(() => props.editable && tool.value === 'add')
-watch(
-  () => props.editable,
-  (on) => {
-    if (!on) tool.value = 'select'
-  },
-)
-const railItems = computed(() => [
-  { id: 'select', kind: 'tool', caption: 'Select', title: 'Select and drag ribs (V)', icon: SELECT, pressed: tool.value === 'select' },
-  { id: 'add', kind: 'tool', caption: 'Add rib', title: 'Click on the wing to add a rib (A)', icon: ADD_RIB, pressed: tool.value === 'add' },
-])
-// Where a click would add a rib, following the pointer (distance from the root rib)
-const addHover = ref(null)
-
 const partFor = (id) => ribs.value.find((p) => p.id === id)
 const selectedPart = computed(() => partFor(props.selected))
 const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1
@@ -281,6 +263,16 @@ function addAt(d) {
   structure.value = { ...structure.value, ribs: { ...r, manual: [...(r.manual ?? []), { id, d: clampD(d) }] } }
   pendingSource.value = id
   emit('commit')
+}
+// A rib mid-way along the longest bay, snapped to the grid
+function addInLongestBay() {
+  const list = ribs.value
+  let best = null
+  for (let i = 1; i < list.length; i++) {
+    const gap = list[i].s - list[i - 1].s
+    if (!best || gap > best.gap) best = { gap, mid: (list[i].s + list[i - 1].s) / 2 }
+  }
+  if (best) addAt(snap(best.mid - a.value.rootS))
 }
 function removeSelected() {
   const p = selectedPart.value
@@ -319,14 +311,8 @@ function onMove(e) {
     zoom.cx = pan.value.cx - (e.clientX - pan.value.x) * k
     zoom.cy = pan.value.cy - (e.clientY - pan.value.y) * k
   }
-  if (adding.value && !drag.value && !pan.value?.moved) {
-    const w = toWorld(e)
-    addHover.value = w.s > a.value.rootS && w.s < a.value.tipS ? clampD(snap(w.s - a.value.rootS, e)) : null
-  }
 }
 function onUp() {
-  // Add rib tool: a click on the wing (not a drag to pan) adds one there
-  if (adding.value && pan.value && !pan.value.moved && addHover.value !== null) addAt(addHover.value)
   if (drag.value?.moved) {
     setDistance(drag.value.part, drag.value.d)
     emit('commit')
@@ -335,8 +321,7 @@ function onUp() {
   pan.value = null
 }
 function onDblClick(e) {
-  // With the Add rib tool each click already adds one
-  if (!props.editable || adding.value) return
+  if (!props.editable) return
   const w = toWorld(e)
   if (w.s <= a.value.rootS || w.s >= a.value.tipS) return
   addAt(snap(w.s - a.value.rootS, e))
@@ -344,13 +329,11 @@ function onDblClick(e) {
 function onKey(e) {
   if (e.ctrlKey || e.metaKey) return
   const k = e.key.toLowerCase()
-  // View: F fits, + and − zoom; tools (when editing): V selects, A adds ribs, Esc back to select
+  // View: F fits, + and − zoom; when editing, A adds a rib in the longest bay
   if (k === 'f') fitView()
   else if (k === '+' || k === '=') zoomBy(1.25)
   else if (k === '-' || k === '_') zoomBy(1 / 1.25)
-  else if (props.editable && k === 'v') tool.value = 'select'
-  else if (props.editable && k === 'a') tool.value = 'add'
-  else if (props.editable && k === 'escape' && tool.value !== 'select') tool.value = 'select'
+  else if (props.editable && k === 'a') addInLongestBay()
   else return onEditKey(e)
   e.preventDefault()
 }
@@ -373,12 +356,6 @@ const preview = computed(() => {
   const s = a.value.rootS + dr.d
   const sec = a.value.section(s)
   return { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width }
-})
-const addPreview = computed(() => {
-  if (!adding.value || addHover.value === null || drag.value) return null
-  const s = a.value.rootS + addHover.value
-  const sec = a.value.section(s)
-  return sec ? { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width } : null
 })
 const KINDS = { root: 'Root rib', break: 'Panel break', tip: 'Tip rib', hard: 'Hard point', manual: 'Manual rib', normal: 'Rib' }
 const readout = computed(() => {
@@ -422,14 +399,13 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         :viewBox="`${vb.x} ${vb.y} ${vb.w} ${vb.h}`"
         preserveAspectRatio="xMidYMid meet"
         class="wc-structure-plan__svg"
-        :class="{ 'wc-structure-plan__svg--panning': pan, 'wc-structure-plan__svg--add': adding }"
+        :class="{ 'wc-structure-plan__svg--panning': pan }"
         tabindex="0"
         role="img"
         aria-label="Wing structure seen from above, one side"
         @wheel.prevent="onWheel"
         @pointerdown="onBackgroundDown"
         @pointermove="onMove"
-        @pointerleave="addHover = null"
         @pointerup="onUp"
         @pointercancel="onUp"
         @dblclick="onDblClick"
@@ -504,12 +480,16 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           </text>
         </g>
         <line v-if="preview" :x1="preview.s" :x2="preview.s" :y1="preview.y1" :y2="preview.y2" class="wc-sp__preview" />
-        <line v-if="addPreview" :x1="addPreview.s" :x2="addPreview.s" :y1="addPreview.y1" :y2="addPreview.y2" class="wc-sp__preview" />
       </svg>
-      <ToolRail v-if="editable" class="wc-stage__rail" :items="railItems" label="Structure plan tools" @pick="tool = $event" />
-      <div v-if="readout?.movable" class="wc-cmd" role="toolbar" :aria-label="readout.name">
-        <span class="wc-cmd__label">{{ readout.name }}</span>
-        <button type="button" class="wc-cmd__btn" title="Delete this rib (Delete)" @click="removeSelected">Delete</button>
+      <div v-if="editable" class="wc-cmd" role="toolbar" :aria-label="readout?.movable ? readout.name : 'Ribs'">
+        <template v-if="readout?.movable">
+          <span class="wc-cmd__label">{{ readout.name }}</span>
+          <button type="button" class="wc-cmd__btn" title="Delete this rib (Delete)" @click="removeSelected">Delete</button>
+          <span class="wc-cmd__sep" aria-hidden="true" />
+        </template>
+        <button type="button" class="wc-cmd__btn" title="Add a rib mid-way along the longest bay (A). Or double-click the wing to add one there." @click="addInLongestBay">
+          Add rib
+        </button>
       </div>
       <StageZoom v-model:snap="snapOn" :snap-step="editable ? fmt(step) : ''" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
@@ -526,7 +506,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to
       move around.
-      <template v-if="editable">Add rib on the rail (or a double-click) adds a rib where you click.</template>
+      <template v-if="editable">Double-click the wing to add a rib there.</template>
       <template v-else>Click a rib to see it; set spacing to Manual to move ribs here.</template>
     </figcaption>
   </figure>

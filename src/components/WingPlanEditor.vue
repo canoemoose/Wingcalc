@@ -6,8 +6,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations } from '../lib/wing.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
-import { SELECT, MEASURE, ADD_PANEL } from '../lib/icons.js'
-import ToolRail from './ToolRail.vue'
+import { MEASURE } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
 
 const props = defineProps({
@@ -28,7 +27,7 @@ const height = ref(FIXED_HEIGHT)
 const HANDLE_PX = 6
 const SNAP_PX = 10
 const wrapEl = ref(null)
-const stageEl = ref(null) // the drawing area, under the rail and the corner controls
+const stageEl = ref(null) // the drawing area, under the corner controls and the command bar
 const svgEl = ref(null)
 const width = ref(600)
 const view = reactive({ ox: -0.05, oy: -0.1, scale: 400 }) // world origin of the top-left, px per metre
@@ -98,9 +97,9 @@ function bounds() {
   return { sMin: -0.08 * sMax, sMax, xMin, xMax }
 }
 
-// Space kept clear of the rail (left), the command bar (top) and the corner controls
-// (bottom), in pixels
-const INSET = { left: 76, top: 44, right: 12, bottom: 44 }
+// Space kept clear of the command bar and Measure (top) and the corner controls (bottom), in
+// pixels
+const INSET = { left: 12, top: 44, right: 12, bottom: 44 }
 function fit() {
   const b = bounds()
   const w = b.sMax - b.sMin
@@ -391,26 +390,18 @@ function setTool(t) {
   hoverSnap.value = null
 }
 
-// --- Rail and command bar --------------------------------------------------------------
+// --- Measure and the command bar ---------------------------------------------------------
 
-const railItems = computed(() => [
-  { id: 'select', kind: 'tool', caption: 'Select', title: 'Select and edit (V)', icon: SELECT, pressed: tool.value === 'select' },
-  { id: 'measure', kind: 'tool', caption: 'Measure', title: 'Measure and dimension (M)', icon: MEASURE, pressed: tool.value === 'measure' },
-  null,
-  { id: 'add-panel', kind: 'action', caption: 'Add panel', title: 'Add a panel at the tip', icon: ADD_PANEL },
-])
-function onRail(id) {
-  if (id === 'add-panel') addPanel()
-  else setTool(id)
-}
+// Measure is the one mode: a toggle top left (M), off again with Esc
+const toggleMeasure = () => setTool(tool.value === 'measure' ? 'select' : 'measure')
 
-// What the command bar acts on: the selected panel or dimension, or (measuring) all the
-// dimensions. Null hides it.
+// What the command bar acts on: the selected panel or dimension, (measuring) all the
+// dimensions, or with nothing selected the wing itself (Add panel). Null hides it.
 const cmd = computed(() => {
   if (tool.value === 'measure') return dimensions.value.length ? { kind: 'measure', label: 'Dimensions' } : null
   if (selectedDim.value !== null) return { kind: 'dim', label: 'Dimension' }
   if (selected.value !== null) return { kind: 'panel', label: `Panel ${selected.value + 1}` }
-  return null
+  return { kind: 'wing', label: '' }
 })
 
 // --- Keyboard --------------------------------------------------------------------------
@@ -419,7 +410,7 @@ function onKey(e) {
   // Ctrl+Z / Ctrl+Y are window-wide (WingCalc)
   if (e.ctrlKey || e.metaKey) return
   if (e.key === 'm' || e.key === 'M') {
-    setTool('measure')
+    toggleMeasure()
   } else if (e.key === 'v' || e.key === 'V') {
     setTool('select')
   } else if (e.key === 'f' || e.key === 'F') {
@@ -894,9 +885,20 @@ watch(
             </text>
           </g>
         </svg>
-        <ToolRail class="wc-stage__rail" :items="railItems" label="Wing plan tools" @pick="onRail" />
-        <div v-if="cmd" class="wc-cmd" role="toolbar" :aria-label="cmd.label">
-          <span class="wc-cmd__label">{{ cmd.label }}</span>
+        <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Tools">
+          <button
+            type="button"
+            class="wc-button wc-stage__btn wc-stage__snap"
+            :aria-pressed="String(tool === 'measure')"
+            title="Measure and dimension (M): click two points. Esc stops."
+            @click="toggleMeasure"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in MEASURE" :key="k" :d="d" /></svg>
+            Measure
+          </button>
+        </div>
+        <div v-if="cmd" class="wc-cmd" role="toolbar" :aria-label="cmd.label || 'Wing'">
+          <span v-if="cmd.label" class="wc-cmd__label">{{ cmd.label }}</span>
           <template v-if="cmd.kind === 'panel'">
             <button type="button" class="wc-cmd__btn" title="Insert a new panel outboard of this one" @click="insertAfterSelected">Insert after</button>
             <button type="button" class="wc-cmd__btn" :disabled="selected === 0" title="Move this panel inward" aria-label="Move panel inward" @click="moveSelected(-1)">←</button>
@@ -907,6 +909,7 @@ watch(
           </template>
           <button v-else-if="cmd.kind === 'dim'" type="button" class="wc-cmd__btn" title="Delete this dimension (Delete)" @click="deleteDim">Delete</button>
           <button v-else-if="cmd.kind === 'measure'" type="button" class="wc-cmd__btn" @click="clearDims">Clear dimensions</button>
+          <button v-else-if="cmd.kind === 'wing'" type="button" class="wc-cmd__btn" title="Add a panel at the tip" @click="addPanel">Add panel</button>
         </div>
         <StageZoom v-model:snap="snapOn" :snap-step="fmt(step)" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fit" />
       </div>

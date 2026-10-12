@@ -1967,59 +1967,7 @@
   background: color-mix(in srgb, var(--wc-accent) 10%, var(--wc-bg));
 }
 
-/* The editing tools' rail on a drawing's left edge, after Screenvision's */
-.wc-stage__rail {
-  position: absolute;
-  z-index: 4;
-  left: 8px;
-  top: 8px;
-}
-.wc-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px;
-  background: var(--wc-bg);
-  border: 1px solid var(--wc-border);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-.wc-rail__sep {
-  height: 1px;
-  margin: 3px 4px;
-  background: var(--wc-border);
-}
-.wc-rail__btn {
-  font: inherit;
-  width: 56px;
-  height: 44px;
-  padding: 3px 0 2px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--wc-text);
-  cursor: pointer;
-}
-.wc-rail__btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--wc-text) 7%, transparent);
-}
-/* Filled when pressed, with a darkened edge so it doesn't read taller than its neighbours */
-.wc-rail__btn[aria-pressed='true'],
-.wc-rail__btn[aria-pressed='true']:hover {
-  background: var(--wc-accent);
-  color: #fff;
-  border-color: rgba(0, 0, 0, 0.2);
-}
-.wc-rail__btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.wc-rail__btn svg,
+/* Icons in the view controls (Snap, Measure) and the command bar */
 .wc-stage__snap svg,
 .wc-cmd__btn svg {
   fill: none;
@@ -2028,29 +1976,18 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.wc-rail__btn svg {
-  width: 20px;
-  height: 20px;
-}
-.wc-rail__btn svg *,
 .wc-stage__snap svg * {
   vector-effect: none;
-}
-.wc-rail__caption {
-  font-size: 11px;
-  line-height: 1.1;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 /* Actions on the selection, along the top of a drawing, after Screenvision's command bar */
 .wc-cmd {
   position: absolute;
   z-index: 4;
-  /* Centred in the space right of the rail */
+  /* Centred along the top, clear of the corner controls */
   top: 8px;
-  left: 82px;
-  right: 8px;
+  left: 120px;
+  right: 120px;
   width: fit-content;
   margin: 0 auto;
   display: flex;

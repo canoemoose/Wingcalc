@@ -10,14 +10,8 @@ export const EYE_OFF = [
 ]
 export const HOME = ['M5 12l-2 0l9 -9l9 9l-2 0', 'M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7', 'M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6']
 
-// A pointer arrow
-export const SELECT = ['M6 3.5l12 8.5l-5.5 1.2l-2.7 5.3z', 'M12.5 13.2l4 5.3']
 // A ruler laid diagonally, with ticks
 export const MEASURE = ['M3.5 16l12.5 -12.5l4.5 4.5l-12.5 12.5z', 'M7.5 12l2 2', 'M10.5 9l1.5 1.5', 'M13.5 6l2 2']
-// A wing panel (trapezoid) with a plus
-export const ADD_PANEL = ['M3 6h7l3 12h-10z', 'M18 8v8', 'M14 12h8']
-// Ribs with a plus
-export const ADD_RIB = ['M5 5v14', 'M10 5v14', 'M3 5h9', 'M3 19h9', 'M18 9v6', 'M15 12h6']
 // A grid, for snapping
 export const SNAP = ['M4 9h16', 'M4 15h16', 'M9 4v16', 'M15 4v16']
 // A cube in parallel projection: orthographic
