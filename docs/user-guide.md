@@ -12,11 +12,10 @@ The inputs column, the panel fields and the structure settings are foldable sect
 
 ## Projects
 
-The bar at the top holds the project name and its controls, then the units and theme toggles.
+The bar at the top holds the **File** menu, the project name, **Save** and undo/redo on the left, and the units and theme on the right.
 
 - **Save** stores the project in this browser under its name; saving again updates it. A dot in the name box means there are unsaved changes.
-- **New** starts a fresh project (asking first if there are unsaved changes).
-- **Open** lists saved projects, newest first, with **Save as copy**, **Export file** and **Import file** underneath. Delete a saved project with its ×.
+- **File** holds **New project** (asking first if there are unsaved changes), **Save as copy**, the saved projects to open (newest first; delete one with its ×), and **Export to file** and **Import from file**.
 - **Auto / Light / Dark** sets the colour theme. Auto follows the system setting. The choice is remembered in this browser; it isn't part of a project.
 - The work in progress **autosaves** and comes back on reload, saved or not.
 - **Export to file** downloads the project as a `.wingcalc.json` file; **Import from file** opens one. Use these to back up or move projects between browsers: saved projects belong to one browser on one machine and are lost if site data is cleared.
