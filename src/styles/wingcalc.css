@@ -108,7 +108,8 @@
   font-size: 0.9em;
 }
 
-/* Header: title, then the project controls and preferences, all on one control height */
+/* Header: title, then the project controls from the left; units and theme on the right. All
+   on one control height. */
 .wc-header {
   display: flex;
   flex-wrap: wrap;
@@ -117,7 +118,7 @@
   margin-bottom: 16px;
 }
 .wc-header__title {
-  flex: 1 1 240px;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .wc-header__prefs {
@@ -125,6 +126,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 .wc-header .wc-toggle__btn {
   display: inline-flex;
@@ -1194,9 +1196,14 @@
 .wc-project__menu > summary::-webkit-details-marker {
   display: none;
 }
+.wc-project__caret {
+  margin-left: 6px;
+  font-size: 0.75em;
+  color: var(--wc-muted);
+}
 .wc-project__popover {
   position: absolute;
-  right: 0;
+  left: 0;
   top: calc(100% + 4px);
   z-index: 10;
   width: min(320px, 90vw);
@@ -1251,12 +1258,45 @@
 .wc-project__delete:hover {
   color: var(--wc-sharp);
 }
-.wc-project__more {
+/* Menu commands: full-width rows, like a menu */
+.wc-project__actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+}
+.wc-project__actions--foot {
   border-top: 1px solid var(--wc-border);
-  padding-top: 8px;
+  padding-top: 4px;
+}
+.wc-project__item {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.wc-project__item:hover:not(:disabled) {
+  background: var(--wc-surface);
+}
+.wc-project__item:disabled {
+  color: var(--wc-muted);
+  cursor: not-allowed;
+}
+.wc-project__head {
+  margin: 6px 0 2px;
+  padding: 6px 8px 0;
+  border-top: 1px solid var(--wc-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--wc-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wc-project__note {
+  margin: 0;
+  padding: 4px 8px 8px;
 }
 .wc-project__status {
   position: absolute;

@@ -19,7 +19,7 @@ The bar at the top holds the project name and its controls, then the units and t
 - **Open** lists saved projects, newest first, with **Save as copy**, **Export file** and **Import file** underneath. Delete a saved project with its ×.
 - **Auto / Light / Dark** sets the colour theme. Auto follows the system setting. The choice is remembered in this browser; it isn't part of a project.
 - The work in progress **autosaves** and comes back on reload, saved or not.
-- **Export file** downloads the project as a `.wingcalc.json` file; **Import file** opens one. Use these to back up or move projects between browsers: saved projects belong to one browser on one machine and are lost if site data is cleared.
+- **Export to file** downloads the project as a `.wingcalc.json` file; **Import from file** opens one. Use these to back up or move projects between browsers: saved projects belong to one browser on one machine and are lost if site data is cleared.
 
 A project holds the units, weight, wing shape (including stations, tip, washout, thickness taper and dimensions), the aerofoil choice, the structure and the export options. Files from older versions open with anything missing filled from the defaults. If the browser blocks storage, saving is disabled with a note and Export still works.
 

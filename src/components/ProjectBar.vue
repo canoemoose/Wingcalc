@@ -1,10 +1,10 @@
 <script setup>
-// Project controls: name, save, open (with delete), new, and export/import as a file.
-// Storage itself lives in WingCalc; this only presents it.
-import { ref } from 'vue'
+// Project controls: a File menu (new, open with delete, save as copy, export and import as a
+// file), then the name and Save. Storage itself lives in WingCalc; this only presents it.
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 const name = defineModel('name', { type: String, default: '' })
-const props = defineProps({
+defineProps({
   projects: { type: Array, default: () => [] }, // [{ id, name, savedAt }]
   currentId: { type: String, default: null },
   dirty: { type: Boolean, default: false },
@@ -13,7 +13,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['save', 'save-copy', 'open', 'delete', 'new', 'export', 'import'])
 
-const openMenu = ref(null)
+const menu = ref(null)
 const fileInput = ref(null)
 
 const when = (iso) => {
@@ -22,10 +22,32 @@ const when = (iso) => {
   return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-function choose(id) {
-  openMenu.value?.removeAttribute('open')
-  emit('open', id)
+function close() {
+  menu.value?.removeAttribute('open')
 }
+function act(event, arg) {
+  close()
+  emit(event, arg)
+}
+
+// A click anywhere else, or Esc, closes the menu
+function onOutside(e) {
+  if (menu.value?.open && !menu.value.contains(e.target)) close()
+}
+function onKey(e) {
+  if (e.key === 'Escape' && menu.value?.open) {
+    close()
+    menu.value.querySelector('summary')?.focus()
+  }
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', onOutside)
+  document.addEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onOutside)
+  document.removeEventListener('keydown', onKey)
+})
 
 function onFile(e) {
   const file = e.target.files?.[0]
@@ -37,6 +59,36 @@ function onFile(e) {
 
 <template>
   <div class="wc-project" role="group" aria-label="Project">
+    <details ref="menu" class="wc-project__menu">
+      <summary class="wc-button">File <span class="wc-project__caret" aria-hidden="true">▾</span></summary>
+      <div class="wc-project__popover">
+        <div class="wc-project__actions">
+          <button type="button" class="wc-project__item" @click="act('new')">New project</button>
+          <button type="button" class="wc-project__item" :disabled="!storageOk" @click="act('save-copy')">Save as copy</button>
+        </div>
+        <h4 class="wc-project__head">Open</h4>
+        <p v-if="!storageOk" class="wc-muted wc-project__note">
+          This browser isn't allowing local storage, so projects can't be saved here. Use Export to file instead.
+        </p>
+        <p v-else-if="!projects.length" class="wc-muted wc-project__note">No saved projects yet.</p>
+        <ul v-else class="wc-project__list">
+          <li v-for="p in projects" :key="p.id" :class="{ 'wc-project__item--current': p.id === currentId }">
+            <button type="button" class="wc-project__open" @click="act('open', p.id)">
+              <strong>{{ p.name }}</strong>
+              <span class="wc-muted">{{ when(p.savedAt) }}</span>
+            </button>
+            <button type="button" class="wc-project__delete" :aria-label="`Delete ${p.name}`" title="Delete" @click="emit('delete', p.id)">
+              ×
+            </button>
+          </li>
+        </ul>
+        <div class="wc-project__actions wc-project__actions--foot">
+          <button type="button" class="wc-project__item" @click="act('export')">Export to file</button>
+          <button type="button" class="wc-project__item" @click="close(), fileInput?.click()">Import from file</button>
+        </div>
+        <input ref="fileInput" type="file" accept=".json,application/json" class="wc-sr-only" tabindex="-1" @change="onFile" />
+      </div>
+    </details>
     <div class="wc-project__namebox">
       <label for="wc-project-name" class="wc-sr-only">Project name</label>
       <input
@@ -51,33 +103,6 @@ function onFile(e) {
       <span v-if="dirty" class="wc-sr-only">Unsaved changes</span>
     </div>
     <button type="button" class="wc-button wc-button--primary" :disabled="!storageOk" @click="emit('save')">Save</button>
-    <button type="button" class="wc-button" @click="emit('new')">New</button>
-    <details ref="openMenu" class="wc-project__menu">
-      <summary class="wc-button">Open</summary>
-      <div class="wc-project__popover">
-        <p v-if="!storageOk" class="wc-muted">This browser isn't allowing local storage, so projects can't be saved here. Use Export instead.</p>
-        <p v-else-if="!projects.length" class="wc-muted">No saved projects yet.</p>
-        <ul v-else class="wc-project__list">
-          <li v-for="p in projects" :key="p.id" :class="{ 'wc-project__item--current': p.id === currentId }">
-            <button type="button" class="wc-project__open" @click="choose(p.id)">
-              <strong>{{ p.name }}</strong>
-              <span class="wc-muted">{{ when(p.savedAt) }}</span>
-            </button>
-            <button type="button" class="wc-project__delete" :aria-label="`Delete ${p.name}`" title="Delete" @click="emit('delete', p.id)">
-              ×
-            </button>
-          </li>
-        </ul>
-        <div class="wc-project__more">
-          <button type="button" class="wc-button wc-button--small" :disabled="!storageOk" @click="emit('save-copy')">
-            Save as copy
-          </button>
-          <button type="button" class="wc-button wc-button--small" @click="emit('export')">Export file</button>
-          <button type="button" class="wc-button wc-button--small" @click="fileInput?.click()">Import file</button>
-          <input ref="fileInput" type="file" accept=".json,application/json" class="wc-sr-only" tabindex="-1" @change="onFile" />
-        </div>
-      </div>
-    </details>
     <span class="wc-project__status" aria-live="polite">{{ status }}</span>
   </div>
 </template>
