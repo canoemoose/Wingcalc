@@ -1,6 +1,7 @@
 <script setup>
-// Along the span from the root rib: bending moment at the design load, and the lowest
-// margin of safety at each station (0 is just enough). Rib positions are ticked.
+// Along the span from the root rib: bending moment at the design load, and the margin of
+// safety for each failure mode at each station (0 is just enough), with a legend; the
+// lowest is marked. Rib positions are ticked.
 import { computed } from 'vue'
 import { MODES } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
@@ -37,6 +38,15 @@ const chart = computed(() => {
     return { d: r.d, m, mode }
   })
   const msPts = lowest.filter((p) => Number.isFinite(p.m))
+  // One line per mode, in MODES order so each keeps its colour whatever else is present
+  const modes = Object.keys(MODES)
+    .map((k, i) => {
+      const pts = st.filter((r) => Number.isFinite(r.ms[k]))
+      if (!pts.length) return null
+      const low = pts.reduce((w, r) => (r.ms[k] < w.ms[k] ? r : w))
+      return { key: k, slot: i + 1, label: MODES[k], low: low.ms[k], points: pts.map((r) => `${x(r.d).toFixed(1)},${yS(r.ms[k]).toFixed(1)}`).join(' ') }
+    })
+    .filter(Boolean)
   const worst = msPts.reduce((w, p) => (!w || p.m < w.m ? p : w), null)
   const lengthUnit = defaultUnit(props.system, 'length')
   return {
@@ -45,7 +55,7 @@ const chart = computed(() => {
     momentNeg: st.some((r) => r.Mneg > 0) ? st.map((r) => `${x(r.d).toFixed(1)},${yM(r.Mneg).toFixed(1)}`).join(' ') : null,
     mMax,
     yM,
-    margin: msPts.map((p) => `${x(p.d).toFixed(1)},${yS(p.m).toFixed(1)}`).join(' '),
+    modes,
     zero: yS(0),
     yS,
     worst,
@@ -73,13 +83,26 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
       <rect :x="M.l" :y="chart.zero" :width="W - M.l - M.r" :height="H - M.b - chart.zero" class="wc-loads__bad" />
       <line v-for="(x, i) in chart.ribX" :key="'r' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__rib" />
       <line :x1="M.l" :x2="W - M.r" :y1="chart.zero" :y2="chart.zero" class="wc-svg-axis" />
-      <polyline :points="chart.margin" class="wc-svg-curve" />
+      <polyline
+        v-for="m in chart.modes"
+        :key="m.key"
+        :points="m.points"
+        :class="['wc-loads__mode', `wc-loads__mode--${m.slot}`, { 'wc-loads__mode--worst': m.key === chart.worst?.mode }]"
+      >
+        <title>{{ m.label }}: lowest {{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</title>
+      </polyline>
       <circle v-if="chart.worst" :cx="chart.x(chart.worst.d)" :cy="chart.yS(chart.worst.m)" r="3.5" class="wc-svg-peak" />
       <text :x="M.l - 4" :y="chart.yS(MS_MAX) + 4" text-anchor="end" class="wc-svg-tick">+{{ MS_MAX }}</text>
       <text :x="M.l - 4" :y="chart.zero + 3" text-anchor="end" class="wc-svg-tick">0</text>
       <text :x="M.l - 4" :y="chart.yS(MS_MIN)" text-anchor="end" class="wc-svg-tick">{{ MS_MIN }}</text>
-      <text :x="M.l + 4" :y="M.t + 4" class="wc-svg-tick">Lowest margin of safety</text>
+      <text :x="M.l + 4" :y="M.t + 4" class="wc-svg-tick">Margin of safety by failure mode</text>
     </svg>
+    <ul class="wc-loads__legend" aria-label="Failure modes">
+      <li v-for="m in chart.modes" :key="m.key" :class="{ 'wc-loads__legend--worst': m.key === chart.worst?.mode }">
+        <span :class="['wc-loads__swatch', `wc-loads__mode--${m.slot}`]" aria-hidden="true"></span>
+        {{ m.label }} <span class="wc-muted">{{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</span>
+      </li>
+    </ul>
     <figcaption class="wc-figure__caption">
       <span>
         Root bending {{ nm(analysis.rootMoment) }} and shear {{ analysis.rootShear.toFixed(0) }} N at
@@ -87,8 +110,8 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
       </span>
       <span v-if="chart.worst">
         Lowest margin {{ chart.worst.m >= 0 ? '+' : '' }}{{ chart.worst.m.toFixed(2) }} ({{ MODES[chart.worst.mode] ?? chart.worst.mode }}),
-        {{ format(chart.worst.d, 'length', defaultUnit(system, 'length')) }} from the root rib. Margins above +3 are drawn
-        at +3.
+        {{ format(chart.worst.d, 'length', defaultUnit(system, 'length')) }} from the root rib (the dot; its line is drawn
+        heavier). Margins above +3 are drawn at +3.
       </span>
     </figcaption>
   </figure>

@@ -82,6 +82,8 @@ In "Chords & panels" mode a **Structure and ribs** card sums up the built-up str
 
 The plan shades bays amber where ribs are too far apart and red where the spar, web or sheeting is short of strength in itself; closer ribs only fix the first. A warning says which part, where, by how much and what would help, including roughly the cap thickness needed. Sheeted areas are hatched.
 
+The **Loads** card plots the bending moment along the span, and below it the margin of safety for each failure mode (spar in compression and tension, sheeting, shear web, web buckling, buckling between ribs), one coloured line each with a legend giving its lowest margin. The lowest of all is marked with a dot, and its line and legend entry are heavier. The shaded band below 0 is short of strength; margins above +3 are drawn at +3.
+
 The **3D** view shows the built-up half wing, built from the same geometry as the cut parts: see-through covering, sheeting and cap strips, ribs, gussets and braces, a rounded tip's block, spar, shear webs, edge stock and stringers, with twist and dihedral true to scale.
 
 - Drag to turn, right-drag to move, scroll to zoom; − + Fit in the bottom-right corner.

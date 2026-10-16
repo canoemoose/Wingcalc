@@ -9,7 +9,7 @@ import { defaultState } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, MODES } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
 
 function memoryStorage(entries = {}) {
@@ -94,6 +94,9 @@ describe('app render', () => {
         }),
       )
       expect(html).toContain('Leading edge')
+      // The margin chart's legend names every mode it draws
+      expect(html).toContain('wc-loads__legend')
+      for (const k of Object.keys(a.summary.modes)) expect(html).toContain(MODES[k])
       if (html.includes('wc-edgefit')) fitDrawn++
       if (!a.edges.le.fits) misfits++
     }
