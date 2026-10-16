@@ -579,7 +579,7 @@ export function cutListCsv(parts, cutList) {
     rows.push([p.name, p.qty, materialLabel(p.material), `${mm(p.thickness)} thick, ${mm(b.w)} x ${mm(b.h)}`, '', p.notes.join('; ')])
   }
   for (const c of cutList) {
-    rows.push([c.item, c.qty, materialLabel(c.material), c.tube ? `${mm(c.size[0])} OD, ${mm(c.size[1])} wall` : `${mm(c.size[0])} x ${mm(c.size[1])}`, mm(c.length), [c.triangular && 'Triangular section', c.note].filter(Boolean).join('; ')])
+    rows.push([c.item, c.qty, materialLabel(c.material), c.tube ? `${mm(c.size[0])} OD, ${mm(c.size[1])} wall` : c.round ? `${mm(c.size[0])} diameter` : `${mm(c.size[0])} x ${mm(c.size[1])}`, mm(c.length), [c.triangular && 'Triangular section', c.note].filter(Boolean).join('; ')])
   }
   const cell = (v) => {
     const s = String(v)

@@ -25,7 +25,7 @@ import { wingSampler } from './wing.js'
 import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
-import { resolveEdges, applyEdges, KIND_LABELS } from './edgeStock.js'
+import { resolveEdges, applyEdges, fitOver, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -39,6 +39,9 @@ export const MATERIALS = {
   'ply-lite': { label: 'Lite ply (poplar)', short: 'lite ply', density: 450, E: 4e9, compression: 12e6, tension: 16e6, shear: 3e6 },
   carbon: { label: 'Carbon strip (pultruded)', short: 'carbon strip', density: 1550, E: 110e9, compression: 550e6, tension: 1000e6, shear: 40e6 },
   'carbon-tube': { label: 'Carbon tube (roll-wrapped)', short: 'carbon tube', density: 1550, E: 85e9, compression: 400e6, tension: 600e6, shear: 40e6 },
+  'carbon-rod': { label: 'Carbon rod (pultruded)', short: 'carbon rod', density: 1550, E: 110e9, compression: 550e6, tension: 1000e6, shear: 40e6 },
+  // Beech or ramin dowel
+  hardwood: { label: 'Hardwood dowel (beech, ramin)', short: 'hardwood', density: 700, E: 10e9, compression: 40e6, tension: 60e6, shear: 7e6 },
 }
 
 export const material = (id) => MATERIALS[id] ?? MATERIALS['balsa-medium']
@@ -54,6 +57,11 @@ export const isPlainRib = (kind) => kind === 'normal' || kind === 'manual'
 
 // How a corner gusset sits at the LE or TE: 'top', 'bottom' or 'both'
 export const gussetLayer = (gussets, edge) => (edge === 'te' ? (gussets.teLayer ?? gussets.layer) : gussets.layer) ?? 'top'
+
+// The edges that get corner gussets: the leading edge only against balsa stock (there's
+// nothing square to glue to on a rod, or with a sheeted nose)
+export const gussetEdges = (structure) =>
+  ['le', 'te'].filter((e) => structure.gussets[e] && (e === 'te' || !structure.le.type || structure.le.type === 'balsa'))
 
 export const MIN_SPACING = 0.015
 // Least rib material left around a hole or notch before it's flagged.
@@ -89,8 +97,10 @@ export function defaultStructure() {
       capStripThickness: 0.0015,
       capStripMaterial: 'balsa-medium',
     },
+    // type: 'balsa' (stock) | 'rod' (carbon) | 'dowel' (hardwood) | 'none' (the sheeting forms the nose)
     // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
-    le: { stock: 'auto', width: 0.006, material: 'balsa-hard' },
+    // diameter: a rod or dowel's, null for the type's default (edgeStock.js LE_TYPES)
+    le: { type: 'balsa', stock: 'auto', width: 0.006, material: 'balsa-hard', diameter: null },
     te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium' }, // 'triangular' | 'flat' (custom only)
     stringers: [], // { id, position (chord fraction), surface: 'upper' | 'lower' | 'both', width, height, material }
     ribs: {
@@ -693,6 +703,11 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     return r ? r.limit : Infinity
   }
   const ribs = ribStations(sampler, structure, limitAt)
+  // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends
+  if (edges.le.round) {
+    const f = fitOver(roundItem(edges.le.round.diameter), section, ribs.map((r) => r.s), 'le')
+    if (f.shortfall > edges.le.shortfall) Object.assign(edges.le, { shortfall: f.shortfall, worstS: f.worstS, fits: f.fits })
+  }
   const bayAt = (s) => {
     for (let i = 1; i < ribs.length; i++) if (s <= ribs[i].s + 1e-9) return ribs[i].s - ribs[i - 1].s
     return 0
@@ -773,14 +788,31 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
       message: 'The structure would need ribs closer than 15 mm somewhere. Use stiffer or wider caps, thicker sheeting or stringers instead.',
     })
   }
-  // Catalogue edge stock too shallow for the section where it's cut
   const mmText = (v) => `${(v * 1000).toFixed(1)} mm`
+  const whereS = (s) => (Math.abs(s - sTip) < 1e-4 ? 'at the tip rib' : where(s - s0))
+  const le = edges.le
+  if (le.round && !le.fits) {
+    const t = LE_TYPES[le.round.type]
+    const name = `${mmText(le.round.diameter).replace('.0 ', ' ')} ${t.short}`
+    const fix = le.roundFits ? `a ${mmText(le.roundFits).replace('.0 ', ' ')} ${t.short.split(' ').at(-1)} (the largest that fits)` : 'balsa stock, which is carved to the section'
+    warnings.push({
+      id: 'le-round',
+      message: `The ${name} leading edge stands about ${mmText(le.shortfall)} proud of the section ${whereS(le.worstS)}: the nose is too thin there to hold it. Use ${fix}.`,
+    })
+  }
+  if (le.none && cov.type === 'open') {
+    warnings.push({
+      id: 'le-none-open',
+      message: 'With no leading edge stock the sheeting forms the nose, but this wing has no sheeting. Choose D-box or Fully sheeted, or a leading edge stock.',
+    })
+  }
+  // Catalogue edge stock too shallow for the section where it's cut
   for (const [k, name] of [
     ['le', 'leading edge'],
     ['te', 'trailing edge'],
   ]) {
     const e = edges[k]
-    if (e.fits) continue
+    if (e.fits || !e.item) continue
     const fix = e.auto.id !== e.item.id && e.autoFits ? `; try ${e.auto.code} ${KIND_LABELS[e.auto.kind]}` : '; use a bigger custom size'
     warnings.push({
       id: `${k}-stock`,

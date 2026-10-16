@@ -6,6 +6,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { defaultState } from '../src/lib/projects.js'
+import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
+import { wingGeometry } from '../src/lib/calc.js'
+import { wingSampler, projectedSampler } from '../src/lib/wing.js'
+import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
+import { buildParts } from '../src/lib/ribs.js'
 
 function memoryStorage(entries = {}) {
   const m = new Map(Object.entries(entries))
@@ -54,6 +59,39 @@ describe('app render', () => {
     expect(html).toContain('2.5° washout at the tip')
     expect(html).toContain('stalls first at')
     expect(html).toContain('Spanwise lift at the stall')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  // The structure editor's window isn't rendered on the server (it's teleported), so its
+  // parts are rendered on their own
+  it('renders the structure editor and charts for each leading edge type', async () => {
+    const { default: StructureEditor } = await import('../src/components/StructureEditor.vue')
+    const { default: LoadsChart } = await import('../src/components/LoadsChart.vue')
+    for (const [type, diameter] of [
+      ['balsa', null],
+      ['rod', 0.003],
+      ['dowel', 0.01],
+      ['none', null],
+    ]) {
+      const s = defaultState()
+      const structure = defaultStructure()
+      structure.le = { ...structure.le, type, diameter }
+      const airfoil = resolveAirfoil(s.airfoil)
+      const g = wingGeometry({ ...s.input, mode: 'panels' })
+      const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+      const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+      const a = analyseStructure({ wing: s.input, airfoil, structure, mass: s.input.mass, spanwise: perf.spanwise })
+      const { parts } = buildParts(a, a.structure)
+      const html = await renderToString(
+        createSSRApp({
+          render: () => [
+            h(StructureEditor, { structure, system: 'metric', edges: a.edges }),
+            h(LoadsChart, { analysis: a, ribs: parts.filter((p) => p.group === 'ribs'), system: 'metric', designG: 6 }),
+          ],
+        }),
+      )
+      expect(html).toContain('Leading edge')
+    }
     expect(warn).not.toHaveBeenCalled()
   })
 })

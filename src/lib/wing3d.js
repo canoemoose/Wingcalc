@@ -8,8 +8,9 @@
 // Washout rotates each section about the spar line (TE up), as in ribs.js, so the skin and
 // the ribs agree.
 
-import { skinAt, sparWidth, lineFaces, isPlainRib, gussetLayer } from './structure.js'
+import { skinAt, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
 import { gussetSides } from './ribs.js'
+import { isRound, roundFitAt } from './edgeStock.js'
 
 const RAD = Math.PI / 180
 
@@ -245,8 +246,11 @@ export function insetHeight(a, structure, s, x, which) {
   const rear = (a.sparX(s) + sparWidth(structure.spar) / 2 - sec.xl) / sec.c
   const d = 1e-4
   const slope = (surfaceHeight(a, s, x + d, which) - surfaceHeight(a, s, x - d, which)) / (2 * d)
-  const t = skinAt(structure, (x - sec.xl) / sec.c, rear) * Math.sqrt(1 + slope * slope)
-  return surfaceHeight(a, s, x, which) + (which === 'upper' ? -t : t)
+  const up = surfaceHeight(a, s, x, 'upper')
+  const lo = surfaceHeight(a, s, x, 'lower')
+  // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
+  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear) * Math.sqrt(1 + slope * slope))
+  return which === 'upper' ? up - t : lo + t
 }
 
 // Something seated in a rib notch from x0 to x1, depth deep, as the notch is cut: its floor
@@ -356,10 +360,20 @@ export function sheetSection(a, structure, s, which) {
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, structure, s, x, which)])]
 }
 
-// Leading edge stock at s: the section's own nose over its depth, cosine-spaced so it stays round.
+// Leading edge stock at s: the section's own nose over its depth, cosine-spaced so it stays
+// round; a rod or dowel as its circle, placed as the fit check places it (edgeStock.js);
+// nothing for a sheeted nose.
 export function leSection(a, structure, s) {
   const sec = a.section(s)
-  if (!sec || !(sec.c > 1e-4)) return null
+  if (!sec || !(sec.c > 1e-4) || structure.le.type === 'none') return null
+  if (isRound(structure.le)) {
+    const D = structure.le.diameter
+    if (!(D > 0)) return null
+    const r = D / 2
+    const x = sec.xl + r
+    const zc = roundFitAt(D, sec).centre + surfaceHeight(a, s, x, 'upper') - sec.surf(Math.min(1, r / sec.c)).upper
+    return Array.from({ length: 24 }, (_, i) => [x + r * Math.cos((2 * Math.PI * i) / 24), zc + r * Math.sin((2 * Math.PI * i) / 24)])
+  }
   const w = Math.min(structure.le.width, sec.c / 2)
   const xs = cosine(10).map((f) => sec.xl + f * w)
   return [...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...xs.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
@@ -443,7 +457,7 @@ export function tipBlock(a, structure) {
 function gussetTriangles(a, structure, parts) {
   const st = structure
   const g = st.gussets
-  if (!(g.le || g.te) || !(g.size > 0)) return []
+  if (!gussetEdges(st).length || !(g.size > 0)) return []
   const out = []
   const clampS = (s) => Math.min(a.tipS, Math.max(a.rootS, s))
   for (const p of parts.filter((q) => q.group === 'ribs')) {
@@ -454,7 +468,7 @@ function gussetTriangles(a, structure, parts) {
     const nrm = [Math.cos(ang), -Math.sin(ang)] // across the rib, outboard
     const P = [p.s, a.sparX(p.s)]
     const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece'
-    for (const edge of ['le', 'te'].filter((e) => g[e])) {
+    for (const edge of gussetEdges(st)) {
       const stockX = (s) => {
         const sec = a.section(clampS(s))
         return edge === 'le' ? sec.xl + st.le.width : sec.xl + sec.c - st.te.width

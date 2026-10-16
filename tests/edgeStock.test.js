@@ -6,10 +6,12 @@ import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts, bounds } from '../src/lib/ribs.js'
 import { cutListCsv } from '../src/lib/dxf.js'
-import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy } from '../src/lib/edgeStock.js'
+import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt } from '../src/lib/edgeStock.js'
+import { sectionAt as sectionIn3d, leSection } from '../src/lib/wing3d.js'
 
-function build(edit = () => {}) {
+function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
+  wingEdit(s.input)
   const st = defaultStructure()
   edit(st)
   const airfoil = resolveAirfoil(s.airfoil)
@@ -124,5 +126,125 @@ describe('edge stock', () => {
     expect(lengthsToBuy([0.6, 0.6, 0.3, 0.3])).toBe(2)
     // Longer than a length: joined from two
     expect(lengthsToBuy([1.2])).toBe(2)
+  })
+})
+
+// Two segments properly cross (touching at ends doesn't count)
+function selfIntersects(p) {
+  const o = (a, b, c) => Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+  const crosses = (a, b, c, d) => o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0
+  const n = p.length
+  for (let i = 0; i < n; i++)
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue
+      if (crosses(p[i], p[(i + 1) % n], p[j], p[(j + 1) % n])) return true
+    }
+  return false
+}
+
+describe('round and no leading edge', () => {
+  const ribs = (res) => res.parts.filter((p) => p.group === 'ribs')
+
+  it('fits a rod only if the section contains it, and finds the largest that does', () => {
+    // At most 6 mm deep, with a rounded nose
+    const section = plainSection(0.25, (xi) => Math.min(0.012, 0.15 * Math.sqrt(xi)))
+    const fit = (type, diameter) => resolveEdges({ le: { type, diameter }, te: { stock: 'custom', width: 0.015 } }, section, [0]).le
+    expect(fit('rod', 0.003).fits).toBe(true)
+    const big = fit('rod', 0.008)
+    expect(big.fits).toBe(false)
+    expect(big.shortfall).toBeGreaterThan(0.0015)
+    expect(big.roundFits).toBeLessThanOrEqual(0.006)
+    expect(fit('rod', big.roundFits).fits).toBe(true)
+    // Its centre line is where the ribs stop
+    expect(big.width).toBeCloseTo(0.004, 9)
+    // A symmetrical section holds it on the chord line
+    expect(roundFitAt(0.004, section()).centre).toBeCloseTo(0, 9)
+  })
+
+  it('notches each rib for a carbon rod and lists it by diameter', () => {
+    const res = build((st) => {
+      st.le.type = 'rod'
+      st.le.diameter = 0.003
+    })
+    expect(res.a.edges.le.round.diameter).toBe(0.003)
+    expect(res.a.edges.le.fits).toBe(true)
+    expect(res.a.structure.le.width).toBeCloseTo(0.0015, 9)
+    for (const r of ribs(res)) {
+      const b = bounds(r.outline)
+      // Ribs stop at the rod's centre line; the notch reaches back to its rear face
+      expect(b.x0).toBeGreaterThanOrEqual(0.0015 - 1e-6)
+      expect(Math.min(...r.outline.filter(([u]) => u > 0.0025 && u < 0.0035).map(([u]) => u))).toBeLessThan(0.0032)
+      expect(r.notes.some((n) => n.includes('rod'))).toBe(false)
+      expect(selfIntersects(r.outline)).toBe(false)
+    }
+    const le = res.cutList.filter((c) => c.edge === 'le')
+    expect(le[0].item).toMatch(/carbon rod, 3 mm/)
+    expect(le[0].material).toBe('carbon-rod')
+    expect(le[0].note).toMatch(/^Buy \d+ × 1000 mm length/)
+    expect(cutListCsv(res.parts, res.cutList)).toMatch(/Carbon rod \(pultruded\),3 diameter/)
+    // Weighed as a round section: about 11 g/m for 3 mm carbon
+    const rod = build((st) => {
+      st.le.type = 'rod'
+      st.le.diameter = 0.003
+    })
+    const none = build((st) => {
+      st.le.type = 'none'
+      st.covering.type = 'dbox'
+    })
+    const perM = (Math.PI / 4) * 0.003 ** 2 * 1550
+    const length = le.reduce((s, c) => s + c.length * c.qty, 0)
+    expect(rod.weight.by.strip - none.weight.by.strip).toBeCloseTo(perM * length, 4)
+    // In 3D it's a circle at the nose
+    const s = res.a.rootS
+    const ring = leSection(res.a, res.a.structure, s)
+    const xs = ring.map(([x]) => x)
+    expect(Math.min(...xs)).toBeCloseTo(res.a.section(s).xl, 6)
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(0.003, 6)
+    expect(sectionIn3d(res.a, res.a.structure, res.parts, s).pieces.some((p) => p.kind === 'le')).toBe(true)
+  })
+
+  it('warns when a dowel stands proud of the section, and names the largest that fits', () => {
+    const { a } = build(
+      (st) => {
+        st.le.type = 'dowel'
+        st.le.diameter = 0.01
+      },
+      // Thinning to 7% at the tip
+      (input) => (input.panels = input.panels.map((p) => ({ ...p, thickness: 0.07 }))),
+    )
+    expect(a.edges.le.fits).toBe(false)
+    const w = a.warnings.find((x) => x.id === 'le-round')
+    expect(w?.message).toMatch(/^The 10 mm hardwood dowel leading edge stands about [\d.]+ mm proud of the section at the tip rib/)
+    expect(w.message).toMatch(/Use a [\d.]+ mm dowel \(the largest that fits\)/)
+  })
+
+  it('runs the ribs to the nose with a sheeted nose, and has no leading edge stock', () => {
+    const res = build((st) => {
+      st.le.type = 'none'
+      st.covering.type = 'dbox'
+    })
+    expect(res.a.structure.le.width).toBe(0)
+    expect(res.cutList.some((c) => c.edge === 'le')).toBe(false)
+    // As far forward as the sheeting each side leaves room for
+    for (const r of ribs(res)) {
+      expect(bounds(r.outline).x0).toBeLessThan(0.003)
+      expect(selfIntersects(r.outline)).toBe(false)
+    }
+    expect(res.a.warnings.some((w) => w.id === 'le-none-open')).toBe(false)
+    expect(sectionIn3d(res.a, res.a.structure, res.parts, res.a.rootS).pieces.some((p) => p.kind === 'le')).toBe(false)
+    // An open wing has nothing to form the nose
+    const open = build((st) => {
+      st.le.type = 'none'
+      st.covering.type = 'open'
+    })
+    expect(open.a.warnings.some((w) => w.id === 'le-none-open')).toBe(true)
+  })
+
+  it('keeps older saves on balsa stock', () => {
+    const old = defaultState()
+    old.input.structure.le = { stock: 'L340', width: 0.0125, material: 'balsa-hard' }
+    const m = migrate(JSON.parse(JSON.stringify(old)))
+    expect(m.input.structure.le.type).toBe('balsa')
+    expect(m.input.structure.le.stock).toBe('L340')
   })
 })

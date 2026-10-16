@@ -10,7 +10,7 @@ import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS, gussetLayer } from '../lib/structure.js'
-import { LE_STOCK, TE_STOCK, KIND_LABELS } from '../lib/edgeStock.js'
+import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter } from '../lib/edgeStock.js'
 
 const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
@@ -196,10 +196,33 @@ function setStock(k, v) {
 }
 function edgeName(k) {
   const e = st.value[k]
+  if (k === 'le' && e.type === 'none') return 'none'
+  if (k === 'le' && isRound(e)) return `${mm(roundDiameter(e))} ${LE_TYPES[e.type].short}`
   const it = e.stock === 'custom' ? null : e.stock === 'auto' ? props.edges?.[k].auto : (k === 'le' ? LE_STOCK : TE_STOCK).find((x) => x.id === e.stock)
   if (it) return `${it.code} ${KIND_LABELS[it.kind]}`
   return k === 'le' ? mm(e.width) : `${e.type} ${mm(e.width)}`
 }
+
+// The leading edge's type, and a rod or dowel's size from its standard range
+const LE_TYPE_OPTIONS = Object.entries(LE_TYPES).map(([value, t]) => ({ value, label: t.label }))
+const roundOptions = computed(() => {
+  const t = LE_TYPES[st.value.le.type]
+  return (t?.sizes ?? []).map((d) => ({ value: String(d), label: mm(d) }))
+})
+// A size from the other type's range carries over only if this one sells it too
+function setLeType(v) {
+  const e = st.value.le
+  const sizes = LE_TYPES[v]?.sizes ?? []
+  const keep = sizes.some((d) => Math.abs(d - e.diameter) < 1e-9)
+  set('le', { ...e, type: v, diameter: keep ? e.diameter : null })
+}
+const roundHint = computed(() => {
+  const e = props.edges?.le
+  const t = LE_TYPES[st.value.le.type]
+  if (!e?.round || !t) return ''
+  const best = e.roundFits ? `The largest that fits this wing is ${mm(e.roundFits)}.` : "Even the smallest doesn't fit this wing's nose."
+  return `Sits in a half-round notch at the front of each rib, the sheeting or covering meeting it at its centre line. It can't be carved, so it has to fit inside the section at every rib. ${best}`
+})
 
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 const braceHint = computed(() => {
@@ -365,25 +388,41 @@ const braceHint = computed(() => {
     </InspectorSection>
 
     <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :summary="summaries.edges">
+      <SelectField :id="id('let')" :model-value="st.le.type ?? 'balsa'" label="Leading edge" :options="LE_TYPE_OPTIONS" @update:model-value="setLeType" />
+      <template v-if="(st.le.type ?? 'balsa') === 'balsa'">
+        <SelectField
+          :id="id('les')"
+          :model-value="st.le.stock"
+          label="Leading edge stock"
+          :options="LE_OPTIONS"
+          :hint="st.le.stock === 'custom' ? '' : 'Standard balsa sections (SLEC sizes, 915 mm lengths), carved to the section once glued on. The ribs are cut back by its depth.'"
+          @update:model-value="setStock('le', $event)"
+        />
+        <UnitInput
+          v-if="st.le.stock === 'custom'"
+          :id="id('lew')"
+          :model-value="st.le.width"
+          quantity="thin"
+          :system="system"
+          label="Leading edge stock, depth along the chord"
+          hint="The ribs are cut back by this much; the stock is glued on and carved to shape."
+          @update:model-value="set('le.width', $event)"
+        />
+        <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
+      </template>
       <SelectField
-        :id="id('les')"
-        :model-value="st.le.stock"
-        label="Leading edge stock"
-        :options="LE_OPTIONS"
-        :hint="st.le.stock === 'custom' ? '' : 'Standard balsa sections (SLEC sizes, 915 mm lengths), carved to the section once glued on. The ribs are cut back by its depth.'"
-        @update:model-value="setStock('le', $event)"
+        v-else-if="isRound(st.le)"
+        :id="id('led')"
+        :model-value="String(roundDiameter(st.le))"
+        label="Diameter"
+        :options="roundOptions"
+        :hint="roundHint"
+        @update:model-value="set('le.diameter', Number($event))"
       />
-      <UnitInput
-        v-if="st.le.stock === 'custom'"
-        :id="id('lew')"
-        :model-value="st.le.width"
-        quantity="thin"
-        :system="system"
-        label="Leading edge stock, depth along the chord"
-        hint="The ribs are cut back by this much; the stock is glued on and carved to shape."
-        @update:model-value="set('le.width', $event)"
-      />
-      <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
+      <p v-else class="wc-field__hint">
+        The ribs run forward to the nose and the sheeting is bent round it, so there's no separate stock. Needs a D-box
+        or fully sheeted wing.
+      </p>
       <SelectField
         :id="id('tes')"
         :model-value="st.te.stock"

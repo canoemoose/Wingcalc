@@ -15,10 +15,10 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
-import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH } from './edgeStock.js'
+import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt } from './edgeStock.js'
 
 const RAD = Math.PI / 180
 const PROFILE_POINTS = 120
@@ -241,14 +241,18 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     const su = (prof.up[i1] - prof.up[i0]) / du
     const sl = (prof.lo[i1] - prof.lo[i0]) / du
     const t = skinAt(structure, prof.xi[i], sparXiRear)
-    upIn[i] = prof.up[i] - t * Math.sqrt(1 + su * su)
-    loIn[i] = prof.lo[i] + t * Math.sqrt(1 + sl * sl)
+    // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
+    const mid = (prof.up[i] + prof.lo[i]) / 2
+    upIn[i] = Math.max(mid, prof.up[i] - t * Math.sqrt(1 + su * su))
+    loIn[i] = Math.min(mid, prof.lo[i] + t * Math.sqrt(1 + sl * sl))
   }
   const top = (u) => interp(us, upIn, u)
   const bot = (u) => interp(us, loIn, u)
 
   // Cut back for the LE and TE stock (their depth is along the streamwise chord)
-  const uA = crossing((s) => a.section(s).xl + (structure.le.width || 0), (structure.le.width || 0) * scale)
+  let uA = crossing((s) => a.section(s).xl + (structure.le.width || 0), (structure.le.width || 0) * scale)
+  // A sheeted nose: the rib runs forward until the sheeting leaves no room for it
+  if (structure.le.type === 'none') while (uA < L / 2 && top(uA) - bot(uA) < MIN_MATERIAL) uA += 0.0002
   const uB = crossing((s) => a.section(s).xl + a.section(s).c - (structure.te.width || 0), L - (structure.te.width || 0) * scale)
   if (!(uB > uA + 0.01)) return { ok: false, reason: 'short', s: rib.s }
   if (top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin at the trailing-edge cut')
@@ -339,7 +343,18 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     else if (endItem) botChain.push([u, level(endItem)], [u, bot(u)])
     else if (!inside(bottomItems, u)) botChain.push([u, bot(u)])
   }
-  const outline = clean([...topChain, ...botChain])
+  let outline = clean([...topChain, ...botChain])
+  // A rod or dowel sits in a half-round notch in the rib's front, its centre line on the cut
+  if (isRound(structure.le) && structure.le.diameter > 0) {
+    const r = structure.le.diameter / 2
+    const ru = Math.max(r, uA - crossing((s) => a.section(s).xl, 0)) // along the rib, wider where it crosses at an angle
+    const sec = a.section(rib.s)
+    const lift = interp(us, prof.up, uA) - sec.surf(Math.min(1, r / sec.c)).upper
+    const zc = roundFitAt(structure.le.diameter, sec).centre + lift
+    const notched = notchFront(outline, uA, zc, ru + 0.0001, r + 0.0001)
+    if (notched) outline = notched
+    if (!notched) notes.push('The leading-edge rod is deeper than the rib at its notch')
+  }
 
   // Engraved: where to cut each tab off, along the rib's lower edge
   const etch = tabs.map((t) => [
@@ -477,6 +492,36 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   }
 }
 
+// Cut a half-ellipse (centre uc on the rib's front face, half-axes ru along the rib and rz
+// up it) out of the front of a rib outline: drop the points inside it and walk round its
+// rear half instead, where it's inside the rib. Null if the notch would take the whole front.
+function notchFront(outline, uc, zc, ru, rz) {
+  const inEllipse = ([u, z]) => ((u - uc) / ru) ** 2 + ((z - zc) / rz) ** 2 < 1 - 1e-9
+  const n = outline.length
+  // Start the walk at a point outside the notch, so the points inside are one run
+  const start = outline.findIndex((p) => !inEllipse(p) && p[0] > uc + ru)
+  if (start < 0) return null
+  const ring = [...outline.slice(start), ...outline.slice(0, start)]
+  const first = ring.findIndex(inEllipse)
+  if (first < 0) return outline
+  let last = first
+  while (last + 1 < n && inEllipse(ring[last + 1])) last++
+  const before = ring[first - 1]
+  const after = ring[(last + 1) % n]
+  // The outline runs anticlockwise (top forward, bottom back), so the notch is walked from
+  // the bottom up: the angle from below the centre, round its rear, to above it
+  const ang = ([u, z]) => Math.atan2((z - zc) / rz, (u - uc) / ru)
+  const a0 = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, ang(before)))
+  const a1 = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, ang(after)))
+  if (!(a1 > a0)) return null
+  const arc = []
+  for (let i = 0; i <= 24; i++) {
+    const t = a0 + ((a1 - a0) * i) / 24
+    arc.push([uc + ru * Math.cos(t), zc + rz * Math.sin(t)])
+  }
+  return clean([...ring.slice(last + 1), ...ring.slice(0, first), ...arc])
+}
+
 // --- All parts -------------------------------------------------------------------------------
 
 const PLY = [0.0004, 0.0006, 0.0008, 0.001, 0.0015, 0.002, 0.0025, 0.003, 0.004, 0.005, 0.006]
@@ -555,10 +600,10 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   // Corner gussets where ribs meet the LE and TE stock
   const g = structure.gussets
   const gussetGroups = new Map()
-  if ((g.le || g.te) && g.size > 0) {
+  if (gussetEdges(structure).length && g.size > 0) {
     for (const p of parts.filter((q) => q.group === 'ribs')) {
       if (g.where === 'ends' && isPlainRib(p.kind)) continue
-      for (const edge of ['le', 'te'].filter((e) => g[e])) {
+      for (const edge of gussetEdges(structure)) {
         const angle = gussetAngle(a, p.s, edge, p.rib)
         const sides = gussetSides(p, g, r.rootJoint).map((k) => (k > 0 ? angle : 180 - angle))
         for (const ang of sides) {
@@ -886,17 +931,33 @@ function stripCutList(a, structure, parts, both) {
     } else if (sp.type === 'solid') {
       out.push({ item: `Spar, ${p.name}`, material: sp.solidMaterial, size: [sp.solidWidth, sp.solidDepth], length: sparLen, qty: sides })
     }
-    // Edge stock: a catalogue part at its own size, or custom at the depth the section needs
+    // Edge stock: a catalogue part at its own size, custom at the depth the section needs, or
+    // a rod or dowel at its diameter; nothing for a sheeted nose
     const leH = Math.max(faceHeight(p.from, structure.le.width), faceHeight(p.to, structure.le.width))
     const leItem = edges?.le.item
-    out.push({
-      item: `Leading edge${leItem ? ` (${leItem.code} ${KIND_LABELS[leItem.kind]})` : ''}, ${p.name}`,
-      edge: 'le',
-      material: structure.le.material,
-      size: [structure.le.width, edges?.le.item ? edges.le.item.height : Math.ceil(leH * 1000) / 1000],
-      length: lenAlong(p.from, p.to, edgeX('le')),
-      qty: sides,
-    })
+    if (isRound(structure.le)) {
+      const D = structure.le.diameter
+      const t = LE_TYPES[structure.le.type]
+      out.push({
+        item: `Leading edge (${t.short}, ${Math.round(D * 10000) / 10} mm), ${p.name}`,
+        edge: 'le',
+        material: t.material,
+        size: [D, D],
+        length: lenAlong(p.from, p.to, edgeX('le')),
+        qty: sides,
+        round: true,
+        stockLength: t.length,
+      })
+    } else if (structure.le.type !== 'none') {
+      out.push({
+        item: `Leading edge${leItem ? ` (${leItem.code} ${KIND_LABELS[leItem.kind]})` : ''}, ${p.name}`,
+        edge: 'le',
+        material: structure.le.material,
+        size: [structure.le.width, edges?.le.item ? edges.le.item.height : Math.ceil(leH * 1000) / 1000],
+        length: lenAlong(p.from, p.to, edgeX('le')),
+        qty: sides,
+      })
+    }
     const teQ = (s) => a.section(s).c - structure.te.width
     const teH = Math.max(faceHeight(p.from, teQ(p.from)), faceHeight(p.to, teQ(p.to)))
     out.push({
@@ -929,12 +990,14 @@ function stripCutList(a, structure, parts, both) {
     }
     out.push({ item: 'Cap strips (total, both surfaces)', material: cov.capStripMaterial, size: [cov.capStripWidth, cov.capStripThickness], length: total, qty: 1 })
   }
-  // Catalogue edge stock: how many lengths to buy, noted on each edge's first line
+  // Catalogue edge stock, rods and dowels: how many lengths to buy, noted on each edge's
+  // first line
   for (const k of ['le', 'te']) {
-    if (!edges?.[k].item) continue
     const lines = out.filter((c) => c.edge === k)
-    const n = lengthsToBuy(lines.flatMap((c) => Array(c.qty).fill(c.length)))
-    if (lines.length) lines[0].note = `Buy ${n} × ${Math.round(STOCK_LENGTH * 1000)} mm length${n === 1 ? '' : 's'}`
+    if (!lines.length || !(edges?.[k].item || lines[0].round)) continue
+    const L = lines[0].stockLength ?? STOCK_LENGTH
+    const n = lengthsToBuy(lines.flatMap((c) => Array(c.qty).fill(c.length)), L)
+    lines[0].note = `Buy ${n} × ${Math.round(L * 1000)} mm length${n === 1 ? '' : 's'}`
   }
   return out
 }
@@ -954,6 +1017,7 @@ function estimateWeight(parts, cutList) {
     const rho = (MATERIALS[c.material] ?? MATERIALS['balsa-medium']).density
     let section = c.size[0] * c.size[1]
     if (c.triangular) section /= 2
+    if (c.round) section *= Math.PI / 4
     if (c.tube) section = (Math.PI / 4) * (c.size[0] ** 2 - (c.size[0] - 2 * c.size[1]) ** 2)
     add('strip', section * c.length * c.qty * rho)
   }

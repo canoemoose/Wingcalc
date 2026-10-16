@@ -74,6 +74,22 @@ export const TE_STOCK = [
 
 export const KIND_LABELS = { flat: 'flat', symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular' }
 
+// What the leading edge is made of: balsa stock (the catalogue above, or a custom size),
+// round stock (carbon rod or hardwood dowel, by diameter) or nothing, the sheeting itself
+// forming the nose.
+export const LE_TYPES = {
+  balsa: { label: 'Balsa stock' },
+  rod: { label: 'Carbon rod', short: 'carbon rod', material: 'carbon-rod', length: 1, sizes: [1.5, 2, 3, 4, 5, 6, 8].map(mm), default: mm(3) },
+  dowel: { label: 'Hardwood dowel', short: 'hardwood dowel', material: 'hardwood', length: STOCK_LENGTH, sizes: [3, 4, 5, 6, 8, 10].map(mm), default: mm(5) },
+  none: { label: 'None, sheeted nose' },
+}
+export const isRound = (le) => le?.type === 'rod' || le?.type === 'dowel'
+// The diameter in use: as set, or the type's default size
+export function roundDiameter(le) {
+  if (Number.isFinite(le.diameter) && le.diameter > 0) return le.diameter
+  return LE_TYPES[le.type]?.default ?? 0.003
+}
+
 // Carving takes up a little; stock this much short of the section still counts as fitting
 const TOLERANCE = 0.0002
 // Auto never picks stock shallower along the chord than this (flimsier won't take knocks or
@@ -152,18 +168,59 @@ function fitAt(item, sec, edge) {
   return { shortfall, waste: Math.max(0, stockArea(item) - area) }
 }
 
+// How well a rod or dowel of diameter D fits the nose of the section at s. It sits with its
+// front at the nose and forms the nose itself; the ribs are notched for it back to its
+// centre line, where the sheeting or covering meets it. It can't be carved, so it fits if
+// its rear half (from that centre line back) is inside the section, at its best height:
+// shortfall is how far it stands proud of the surface there (0 or less fits). Its front
+// half is the new nose, a little blunter or sharper than the section's own. Returns the
+// centre height too.
+// The coordinate points are too sparse at the nose to follow its curve (straight between
+// them, the nose comes out as a wedge, which no circle fits), so ahead of 2% of the chord
+// the section is taken as rounded: its height off the nose point grows with the square
+// root of the distance back, scaled from 2%. That's slightly inside a NACA nose.
+const NOSE_REF = 0.02
+export function noseSurf(sec, xi) {
+  const f = sec.surf(xi)
+  if (!(xi < NOSE_REF) || xi <= 0) return f
+  const n = sec.surf(0)
+  const ref = sec.surf(NOSE_REF)
+  const k = Math.sqrt(xi / NOSE_REF)
+  return { upper: Math.max(f.upper, n.upper + (ref.upper - n.upper) * k), lower: Math.min(f.lower, n.lower + (ref.lower - n.lower) * k) }
+}
+
+export function roundFitAt(D, sec) {
+  const r = D / 2
+  let hiNeed = -Infinity
+  let loMax = Infinity
+  for (let i = 0; i <= SAMPLES; i++) {
+    // Closer together at the centre line, where the rod is tallest
+    const u = r + r * (1 - Math.cos((Math.PI * i) / SAMPLES / 2))
+    const h = Math.sqrt(Math.max(0, r * r - (u - r) ** 2))
+    const f = noseSurf(sec, Math.min(1, u / sec.c))
+    hiNeed = Math.max(hiNeed, f.lower + h)
+    loMax = Math.min(loMax, f.upper - h)
+  }
+  return { shortfall: hiNeed - loMax, centre: (hiNeed + loMax) / 2, waste: 0 }
+}
+
 // Worst fit over the stations, and the total waste (a stand-in for volume carved away)
-function fitOver(item, section, stations, edge) {
+// (and where the fit is worst, worstS)
+export function fitOver(item, section, stations, edge) {
   let shortfall = -Infinity
   let waste = 0
+  let worstS = stations[0] ?? 0
   for (const s of stations) {
     const sec = section(s)
     if (!sec || !(sec.c > 1e-4)) continue
-    const f = fitAt(item, sec, edge)
-    shortfall = Math.max(shortfall, f.shortfall)
+    const f = item.kind === 'round' ? roundFitAt(item.width, sec) : fitAt(item, sec, edge)
+    if (f.shortfall > shortfall) {
+      shortfall = f.shortfall
+      worstS = s
+    }
     waste += f.waste
   }
-  return { shortfall, waste, fits: shortfall <= TOLERANCE }
+  return { shortfall, waste, worstS, fits: shortfall <= TOLERANCE }
 }
 
 // Of the items deep enough along the chord, those that fit with the least waste; if none
@@ -181,8 +238,11 @@ function pick(list, section, stations, edge, min) {
 // The stock to use for each edge, and how well it fits. structure.le.stock and
 // structure.te.stock are 'auto' (picked to suit), 'custom' (width as entered, no catalogue
 // part) or a catalogue id. stations: the span positions to check (root, panel ends, tip).
+// A round leading edge (structure.le.type 'rod' or 'dowel') is checked at its diameter, and
+// one of type 'none' has no stock at all.
 // Returns { le, te }: each { width, height (null for custom), item (or null), auto,
-// autoFits, shortfall, fits }.
+// autoFits, shortfall, worstS (where the fit is worst), fits }; a round leading edge has
+// round: { type, diameter, material } and the largest size that fits (roundFits, or null).
 export function resolveEdges(structure, section, stations) {
   const out = {}
   for (const [k, list, min] of [
@@ -190,21 +250,38 @@ export function resolveEdges(structure, section, stations) {
     ['te', TE_STOCK, TE_MIN],
   ]) {
     const e = structure[k]
+    if (k === 'le' && e.type === 'none') {
+      out.le = { width: 0, height: null, item: null, auto: null, autoFits: true, shortfall: 0, worstS: stations[0], fits: true, none: true }
+      continue
+    }
+    if (k === 'le' && isRound(e)) {
+      const t = LE_TYPES[e.type]
+      const D = roundDiameter(e)
+      const f = fitOver(roundItem(D), section, stations, k)
+      const roundFits = [...t.sizes].reverse().find((d) => fitOver(roundItem(d), section, stations, k).fits) ?? null
+      // The ribs stop at the rod's centre line, where the sheeting or covering meets it
+      out.le = { width: D / 2, height: D, item: null, auto: null, autoFits: false, shortfall: f.shortfall, worstS: f.worstS, fits: f.fits, round: { type: e.type, diameter: D, material: t.material }, roundFits }
+      continue
+    }
     const auto = pick(list, section, stations, k, min)
     const item = e.stock === 'auto' ? auto : e.stock === 'custom' ? null : (list.find((x) => x.id === e.stock) ?? auto)
-    const f = item ? fitOver(item, section, stations, k) : { shortfall: 0, fits: true }
+    const f = item ? fitOver(item, section, stations, k) : { shortfall: 0, worstS: stations[0], fits: true }
     const autoFits = item === auto ? f.fits : fitOver(auto, section, stations, k).fits
-    out[k] = { width: item ? item.width : e.width || 0, height: item?.height ?? null, item, auto, autoFits, shortfall: f.shortfall, fits: f.fits }
+    out[k] = { width: item ? item.width : e.width || 0, height: item?.height ?? null, item, auto, autoFits, shortfall: f.shortfall, worstS: f.worstS, fits: f.fits }
   }
   return out
 }
 
+// A rod or dowel as a fit-check item
+export const roundItem = (D) => ({ kind: 'round', width: D, height: D })
+
 // The structure with each edge's width (and type, for a catalogue trailing edge) set from
-// the resolved stock, so everything downstream reads le.width / te.width as before.
+// the resolved stock, so everything downstream reads le.width / te.width as before. A round
+// leading edge's width is its radius (the ribs stop at its centre line), with its diameter.
 export function applyEdges(structure, edges) {
   return {
     ...structure,
-    le: { ...structure.le, width: edges.le.width, height: edges.le.height },
+    le: { ...structure.le, width: edges.le.width, height: edges.le.height, ...(edges.le.round ? { diameter: edges.le.round.diameter } : {}) },
     te: { ...structure.te, width: edges.te.width, height: edges.te.height, type: edges.te.item ? 'triangular' : structure.te.type },
   }
 }
