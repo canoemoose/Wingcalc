@@ -13,7 +13,7 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - Licence is GPL-3.0-or-later (XFOIL and WebXFOIL are GPL-2.0-or-later); keep `THIRD_PARTY_NOTICES.md` current when bundling anything new.
 - Wing geometry for panel mode lives in `src/lib/wing.js` (flat s / projected y coordinates, Bézier edges); `calc.js` delegates to it.
 - Public docs (`README.md`, `docs/user-guide.md`, `docs/methods.md`, `docs/aerofoil-data.md`) describe the app as it is: no open questions, caveats to ourselves or links to scope files. Those go in `docs/backlog.md`. Update the user guide and methods when a change alters behaviour or a formula.
-- Decisions for later rounds are in `docs/scope-v2.md` and `docs/scope-v3.md`.
+- Decisions for later rounds are in `docs/scope-v2.md` and `docs/scope-v3.md`. The road to a whole aircraft is three bodies of work: `docs/scope-v8.md` (the wing, finished), `scope-v9.md` (the rest of the plane) and `scope-v10.md` (make it fly).
 - Projects: `src/lib/projects.js` (storage injected, every access guarded). Saved state is `{ units, input, airfoil }`; anything added to `input` must also go in `defaultState()` so older saves migrate. `input.structure` and `input.exportOptions` are filled from their defaults recursively (`fillDefaults`), so new nested settings migrate too.
 - Wing at any span station: `wingSampler` in `src/lib/wing.js` (chord, LE, twist, thickness, dihedral by flat s); `projectedSampler` looks it up by projected y for the lifting line.
 - Aerodynamics: `src/lib/liftingLine.js` (Glauert series); `airfoilPerformance` in `airfoils.js` uses it for wing CLmax and stall onset in panel mode.

@@ -13,3 +13,11 @@ The app is now public on GitHub Pages. Options:
 
 Background on where the bundled and computed polars differ: `docs/scope-xfoil-wasm.md`.
 
+## Questions for Sam
+
+From Sam's feedback on the structure editor (2026-10-16). Each needs his detail before it can be fixed.
+
+1. **Manual rib spacing**: "issues filling out rib spacing in manual mode, similar to the behaviour the chord tool had". What goes wrong, and what did the chord tool do? Suspect: the rows re-sort by distance while you type, so the field being edited jumps.
+2. **Gussets "seem to have random issues"**: which ribs, and what looks wrong? A saved project file that shows it would be ideal.
+3. **Ribs clash with the TE in the rib diagrams**: which trailing-edge stock is set, and is it every rib or only towards the tip? Suspect: the TE notch doesn't follow the rib's actual depth or washout.
+
