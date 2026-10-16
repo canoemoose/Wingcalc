@@ -8,6 +8,7 @@ import ParamInput from './ParamInput.vue'
 import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
+import EdgeFit from './EdgeFit.vue'
 import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS, gussetLayer } from '../lib/structure.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter } from '../lib/edgeStock.js'
@@ -419,7 +420,8 @@ const braceHint = computed(() => {
         :hint="roundHint"
         @update:model-value="set('le.diameter', Number($event))"
       />
-      <p v-else class="wc-field__hint">
+      <EdgeFit v-if="edges?.le.drawing && !edges.le.fits" :drawing="edges.le.drawing" name="Leading edge" :round="!!edges.le.round" :system="system" />
+      <p v-if="st.le.type === 'none'" class="wc-field__hint">
         The ribs run forward to the nose and the sheeting is bent round it, so there's no separate stock. Needs a D-box
         or fully sheeted wing.
       </p>
@@ -451,6 +453,7 @@ const braceHint = computed(() => {
         />
       </template>
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />
+      <EdgeFit v-if="edges?.te.drawing && !edges.te.fits" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
     <InspectorSection title="Stringers and turbulator spars" fold-key="structure:stringers" :summary="summaries.stringers">

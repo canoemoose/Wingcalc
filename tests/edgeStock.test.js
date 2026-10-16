@@ -73,16 +73,37 @@ describe('edge stock', () => {
     expect(b.x1).toBeCloseTo(0.25 - 0.025, 6)
   })
 
-  it('warns when the chosen stock is too small to carve to the section, and suggests the auto pick', () => {
+  it('warns when the chosen stock is too small to carve to the section, says where, and suggests the auto pick', () => {
     const { a } = build((st) => {
       st.te.stock = 'L421'
       st.le.stock = 'L320'
     })
     const te = a.warnings.find((w) => w.id === 'te-stock')
     const le = a.warnings.find((w) => w.id === 'le-stock')
-    expect(te?.message).toMatch(/^L421 triangular trailing edge is too small/)
-    expect(te.message).toContain(`try ${a.edges.te.auto.code}`)
-    expect(le?.message).toMatch(/^L320 flat leading edge is too small/)
+    expect(te?.message).toMatch(/^The trailing edge stock \(L421 triangular\) is too small to carve the wing's trailing edge from at the (root|tip) rib: it falls about [\d.]+ mm short of the section/)
+    expect(te.message).toContain(`Use ${a.edges.te.auto.code} triangular (what Auto picks)`)
+    expect(le?.message).toMatch(/^The leading edge stock \(L320 flat\) is too small to carve the wing's nose from/)
+    expect(le.message).not.toMatch(/carve to the section|TE|LE/)
+  })
+
+  it('draws the fit where it is worst, red where the stock falls short', () => {
+    const bad = build((st) => {
+      st.le.stock = 'L320'
+    }).a.edges.le
+    expect(bad.drawing.fits).toBe(false)
+    expect(bad.drawing.short.length).toBeGreaterThan(0)
+    expect(bad.drawing.where).toMatch(/rib/)
+    // The red area is the section outside the stock: as thick as the shortfall, give or take
+    // how it's split between the top and the bottom
+    const thick = Math.max(...bad.drawing.short.map((p) => Math.max(...p.map(([, z]) => z)) - Math.min(...p.map(([, z]) => z))))
+    expect(thick).toBeGreaterThan(bad.shortfall / 3)
+    expect(thick).toBeLessThan(bad.shortfall * 1.5)
+    const good = build().a.edges
+    expect(good.le.drawing.short.length).toBe(0)
+    expect(good.te.drawing.short.length).toBe(0)
+    // Trailing edge drawn forward of the trailing edge, as negative x
+    expect(good.te.drawing.x0).toBeLessThan(0)
+    expect(good.te.drawing.x1).toBe(0)
   })
 
   it('names the part in the cut list and says how many lengths to buy', () => {
@@ -216,6 +237,8 @@ describe('round and no leading edge', () => {
     const w = a.warnings.find((x) => x.id === 'le-round')
     expect(w?.message).toMatch(/^The 10 mm hardwood dowel leading edge stands about [\d.]+ mm proud of the section at the tip rib/)
     expect(w.message).toMatch(/Use a [\d.]+ mm dowel \(the largest that fits\)/)
+    // And drawn: the dowel standing proud, in red
+    expect(a.edges.le.drawing.short.length).toBeGreaterThan(0)
   })
 
   it('runs the ribs to the nose with a sheeted nose, and has no leading edge stock', () => {

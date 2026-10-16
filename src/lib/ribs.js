@@ -255,7 +255,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   if (structure.le.type === 'none') while (uA < L / 2 && top(uA) - bot(uA) < MIN_MATERIAL) uA += 0.0002
   const uB = crossing((s) => a.section(s).xl + a.section(s).c - (structure.te.width || 0), L - (structure.te.width || 0) * scale)
   if (!(uB > uA + 0.01)) return { ok: false, reason: 'short', s: rib.s }
-  if (top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin at the trailing-edge cut')
+  if (top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin where it meets the trailing edge stock')
 
   // Notches from the top (upper) and bottom (lower): { u0, u1, depth }
   const upper = []

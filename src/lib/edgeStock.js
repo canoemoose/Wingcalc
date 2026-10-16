@@ -156,6 +156,7 @@ function fitAt(item, sec, edge) {
   }
   // At each tilt, the reference line must be at least hiNeed and at most loMax
   let shortfall = Infinity
+  let best = null
   for (const k of TILTS) {
     let hiNeed = -Infinity
     let loMax = Infinity
@@ -163,9 +164,12 @@ function fitAt(item, sec, edge) {
       hiNeed = Math.max(hiNeed, p.upper - k * p.u - p.t)
       loMax = Math.min(loMax, p.lower - k * p.u - p.b)
     }
-    shortfall = Math.min(shortfall, hiNeed - loMax)
+    if (hiNeed - loMax < shortfall) {
+      shortfall = hiNeed - loMax
+      best = { k, ref: (hiNeed + loMax) / 2 }
+    }
   }
-  return { shortfall, waste: Math.max(0, stockArea(item) - area) }
+  return { shortfall, waste: Math.max(0, stockArea(item) - area), pts, best }
 }
 
 // How well a rod or dowel of diameter D fits the nose of the section at s. It sits with its
@@ -233,6 +237,64 @@ function pick(list, section, stations, edge, min) {
   const fitting = scored.filter((x) => x.fits)
   if (fitting.length) return fitting.reduce((a, b) => (b.waste < a.waste ? b : a)).item
   return scored.reduce((a, b) => (b.shortfall < a.shortfall ? b : a)).item
+}
+
+// The fit at one station, for drawing: the section over the stock's depth and a little
+// more, the stock as sold at its best height and tilt (a rod or dowel as its circle), and
+// where they disagree: for carved stock, the section outside the stock (wood it would need
+// and hasn't got); for round stock, the rod outside the section (where it stands proud).
+// x runs aft from the nose for the leading edge, forward from the trailing edge as
+// negative values, so the drawing reads like the wing; z is height, both in metres.
+// Returns { edge, x0, x1, upper, lower, stock, short: [polygon], worst: [x, z] }.
+export function fitDrawing(item, sec, edge) {
+  const sign = edge === 'le' ? 1 : -1
+  const W = Math.min(item.width, sec.c)
+  const reach = Math.min(sec.c, W * 1.6)
+  const surf = (u) => (item.kind === 'round' ? noseSurf : (q, xi) => q.surf(xi))(sec, Math.min(1, Math.max(0, edge === 'le' ? u / sec.c : 1 - u / sec.c)))
+  const N = 48
+  const us = Array.from({ length: N + 1 }, (_, i) => reach * (1 - Math.cos((Math.PI * i) / N / 2)))
+  const upper = us.map((u) => [sign * u, surf(u).upper])
+  const lower = us.map((u) => [sign * u, surf(u).lower])
+  const short = []
+  let worst = null
+  let most = 0
+  // Runs where the outer shape (a) is above the inner one (b): polygons between them
+  const runs = (rows) => {
+    let cur = []
+    const flush = () => {
+      if (cur.length > 1) short.push([...cur.map((r) => [r.x, r.a]), ...[...cur].reverse().map((r) => [r.x, r.b])])
+      cur = []
+    }
+    for (const r of rows) {
+      if (r.a > r.b + 1e-6) {
+        cur.push(r)
+        if (r.a - r.b > most) {
+          most = r.a - r.b
+          worst = [r.x, (r.a + r.b) / 2]
+        }
+      } else flush()
+    }
+    flush()
+  }
+  let stock
+  if (item.kind === 'round') {
+    const r = W / 2
+    const { centre } = roundFitAt(W, sec)
+    stock = Array.from({ length: 48 }, (_, i) => [r + r * Math.cos((2 * Math.PI * i) / 48), centre + r * Math.sin((2 * Math.PI * i) / 48)])
+    const rear = us.filter((u) => u >= r && u <= W)
+    const h = (u) => Math.sqrt(Math.max(0, r * r - (u - r) ** 2))
+    runs(rear.map((u) => ({ x: u, a: centre + h(u), b: surf(u).upper })))
+    runs(rear.map((u) => ({ x: u, a: surf(u).lower, b: centre - h(u) })))
+  } else {
+    const f = fitAt(item, sec, edge)
+    const { k, ref } = f.best
+    const top = f.pts.map((p) => [sign * p.u, ref + k * p.u + p.t])
+    const bot = f.pts.map((p) => [sign * p.u, ref + k * p.u + p.b])
+    stock = [...top, ...[...bot].reverse()]
+    runs(f.pts.map((p) => ({ x: sign * p.u, a: p.upper, b: ref + k * p.u + p.t })))
+    runs(f.pts.map((p) => ({ x: sign * p.u, a: ref + k * p.u + p.b, b: p.lower })))
+  }
+  return { edge, x0: Math.min(0, sign * reach), x1: Math.max(0, sign * reach), upper, lower, stock, short, worst }
 }
 
 // The stock to use for each edge, and how well it fits. structure.le.stock and

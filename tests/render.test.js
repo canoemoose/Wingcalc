@@ -67,15 +67,18 @@ describe('app render', () => {
   it('renders the structure editor and charts for each leading edge type', async () => {
     const { default: StructureEditor } = await import('../src/components/StructureEditor.vue')
     const { default: LoadsChart } = await import('../src/components/LoadsChart.vue')
-    for (const [type, diameter] of [
+    let fitDrawn = 0
+    let misfits = 0
+    for (const [type, diameter, stock = 'auto'] of [
       ['balsa', null],
+      ['balsa', null, 'L320'],
       ['rod', 0.003],
-      ['dowel', 0.01],
+      ['rod', 0.008],
       ['none', null],
     ]) {
       const s = defaultState()
       const structure = defaultStructure()
-      structure.le = { ...structure.le, type, diameter }
+      structure.le = { ...structure.le, type, diameter, stock }
       const airfoil = resolveAirfoil(s.airfoil)
       const g = wingGeometry({ ...s.input, mode: 'panels' })
       const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
@@ -91,7 +94,12 @@ describe('app render', () => {
         }),
       )
       expect(html).toContain('Leading edge')
+      if (html.includes('wc-edgefit')) fitDrawn++
+      if (!a.edges.le.fits) misfits++
     }
+    // The fit is drawn for those that don't fit (L320 doesn't)
+    expect(misfits).toBeGreaterThan(0)
+    expect(fitDrawn).toBe(misfits)
     expect(warn).not.toHaveBeenCalled()
   })
 })

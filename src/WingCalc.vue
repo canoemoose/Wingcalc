@@ -22,7 +22,7 @@ import Structure3D from './components/Structure3D.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
-import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS } from './lib/structure.js'
+import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit } from './lib/wing3d.js'
 import { planThumb, isoThumb } from './lib/thumbnails.js'
@@ -534,7 +534,10 @@ const structureWarnings = computed(() => {
     )
   }
   const thinTe = r.parts.filter((p) => p.notes.some((n) => n.startsWith('Very thin')))
-  if (thinTe.length) out.push(`${thinTe.map((p) => p.name).join(', ')}: very thin at the trailing edge cut. Use deeper TE stock or thinner skins.`)
+  if (thinTe.length)
+    out.push(
+      `${thinTe.map((p) => p.name).join(', ')}: the rib is very thin where it meets the trailing edge stock (under ${thin(MIN_MATERIAL)}), so it's fragile there. Use deeper trailing edge stock, so the ribs stop further forward, or thinner skins.`,
+    )
   return out
 })
 watch(

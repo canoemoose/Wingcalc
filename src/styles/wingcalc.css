@@ -1842,6 +1842,31 @@
   fill: color-mix(in srgb, var(--wc-sharp) 9%, transparent);
 }
 
+.wc-edgefit {
+  margin: 4px 0 10px;
+}
+.wc-edgefit svg {
+  max-height: 140px;
+}
+.wc-edgefit__stock {
+  fill: color-mix(in srgb, var(--wc-moderate) 22%, transparent);
+  stroke: var(--wc-moderate);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.wc-edgefit__section {
+  fill: none;
+  stroke: var(--wc-accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.wc-edgefit__short {
+  fill: color-mix(in srgb, var(--wc-sharp) 45%, transparent);
+  stroke: var(--wc-sharp);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
 .wc-part__head {
   display: flex;
   flex-wrap: wrap;

@@ -25,7 +25,7 @@ import { wingSampler } from './wing.js'
 import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
-import { resolveEdges, applyEdges, fitOver, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
+import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -806,18 +806,29 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
       message: 'With no leading edge stock the sheeting forms the nose, but this wing has no sheeting. Choose D-box or Fully sheeted, or a leading edge stock.',
     })
   }
-  // Catalogue edge stock too shallow for the section where it's cut
-  for (const [k, name] of [
-    ['le', 'leading edge'],
-    ['te', 'trailing edge'],
+  // Catalogue edge stock too small to carve the section from, where it's worst and what to do
+  for (const [k, name, part] of [
+    ['le', 'leading edge', "the wing's nose"],
+    ['te', 'trailing edge', "the wing's trailing edge"],
   ]) {
     const e = edges[k]
     if (e.fits || !e.item) continue
-    const fix = e.auto.id !== e.item.id && e.autoFits ? `; try ${e.auto.code} ${KIND_LABELS[e.auto.kind]}` : '; use a bigger custom size'
+    const it = e.item
+    const fix =
+      e.auto.id !== it.id && e.autoFits
+        ? `Use ${e.auto.code} ${KIND_LABELS[e.auto.kind]}${structure[k].stock === 'auto' ? '' : ' (what Auto picks)'}, or a bigger custom size.`
+        : "None of the standard sizes is big enough there: use a custom size at least that much bigger."
     warnings.push({
       id: `${k}-stock`,
-      message: `${e.item.code} ${KIND_LABELS[e.item.kind]} ${name} is too small to carve to the section: about ${mmText(e.shortfall)} short${fix}.`,
+      message: `The ${name} stock (${it.code} ${KIND_LABELS[it.kind]}) is too small to carve ${part} from ${whereS(e.worstS)}: it falls about ${mmText(e.shortfall)} short of the section, so the carved edge would sit below the wing's surface there. ${fix}`,
     })
+  }
+  // Each fit drawn where it's worst, for the editor (edge stock, rods and dowels)
+  for (const k of ['le', 'te']) {
+    const e = edges[k]
+    const item = e.round ? roundItem(e.round.diameter) : e.item
+    const sec = item && section(e.worstS)
+    if (sec && sec.c > 1e-4) e.drawing = { ...fitDrawing(item, sec, k), where: whereS(e.worstS), shortfall: e.shortfall, fits: e.fits }
   }
   return {
     wing,
