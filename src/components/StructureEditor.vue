@@ -10,7 +10,7 @@ import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
 import { format, defaultUnit } from '../lib/units.js'
-import { MATERIALS, gussetLayer } from '../lib/structure.js'
+import { MATERIALS, gussetLayer, FINISHES, finishOf } from '../lib/structure.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter } from '../lib/edgeStock.js'
 
 const props = defineProps({
@@ -25,6 +25,8 @@ const props = defineProps({
   edges: { type: Object, default: null },
   // Room for the corner gussets at each edge (wing3d.js gussetFit), to offer only what fits
   gussetFit: { type: Object, default: null },
+  // What the covering weighs on this wing, kg (ribs.js estimateWeight), for its hint
+  coveringMass: { type: Number, default: null },
   idPrefix: { type: String, default: 'wcs' },
 })
 const structure = defineModel('structure', { type: Object, required: true })
@@ -58,10 +60,24 @@ const SPAR_TYPES = [
   { value: 'solid', label: 'Solid' },
 ]
 const COVERINGS = [
-  { value: 'open', label: 'Open', title: 'Ribs only, film covered' },
+  { value: 'open', label: 'Open', title: 'Ribs only, covered over the open bays' },
   { value: 'dbox', label: 'D-box', title: 'Sheeted from the leading edge back to the spar' },
   { value: 'sheeted', label: 'Fully sheeted' },
 ]
+const FINISH_OPTIONS = Object.entries(FINISHES).map(([value, f]) => ({ value, label: f.label, title: `For example ${f.examples}` }))
+// What the strength check and the weight assume about the covering, in a sentence or two
+const finishHint = computed(() => {
+  const cov = st.value.covering
+  const f = finishOf(cov)
+  const g = (kgm2) => `${Math.round(kgm2 * 1000)} g/m²`
+  const total = Number.isFinite(props.coveringMass) ? ` About ${format(props.coveringMass, 'mass', defaultUnit(props.system, 'mass'))} on this wing, both surfaces.` : ''
+  if (f.laminate) {
+    if (cov.type === 'open') return `Goes over sheeting only, and there's none here, so it's weighed as lightweight film.${total}`
+    return `Over the sheeting, ${g(f.mass)}${cov.type === 'dbox' ? ', with lightweight film over the open bays behind the spar' : ''}.${total} The check counts it as a ${(f.laminate.t * 1000).toFixed(2)} mm skin at ${f.laminate.E / 1e9} GPa on the sheeting: it shares the bending and stiffens the sheet panels between ribs.`
+  }
+  return `About ${g(f.mass)} with its adhesive or dope.${total} Counted as weight only: the check gives the covering no strength, which errs on the safe side.`
+})
+
 const SPACINGS = [
   { value: 'suggested', label: 'From loads', title: 'As close as the structure needs, no wider than the maximum' },
   { value: 'uniform', label: 'Even' },
@@ -141,10 +157,11 @@ const summaries = computed(() => {
       : sp.type === 'solid'
         ? `Solid ${size(sp.solidWidth, sp.solidDepth)} ${mat(sp.solidMaterial)}`
         : `${sp.type === 'box' ? 'Box' : 'Caps and web'}, ${size(sp.capWidth, sp.capThickness)} ${mat(sp.capMaterial)}`
-  const covering =
+  const covering = `${
     cov.type === 'open'
       ? `Open${cov.capStrips ? ', cap strips' : ''}`
       : `${cov.type === 'dbox' ? 'D-box' : 'Fully sheeted'}, ${mm(cov.sheetThickness)} ${mat(cov.sheetMaterial)}`
+  }, ${finishOf(cov).short}`
   const spacing = r.spacing === 'manual' ? `manual, ${(r.manual ?? []).length} ribs` : SPACING_SUMS[r.spacing]
   const gussets = !(g.le || g.te)
     ? 'None'
@@ -345,6 +362,14 @@ const braceHint = computed(() => {
 
     <InspectorSection title="Covering" fold-key="structure:covering" :summary="summaries.covering">
       <SegmentedField :model-value="st.covering.type" label="Structure" :options="COVERINGS" @update:model-value="set('covering.type', $event)" />
+      <SelectField
+        :id="id('finish')"
+        :model-value="st.covering.finish ?? 'film'"
+        label="Covered with"
+        :options="FINISH_OPTIONS"
+        :hint="finishHint"
+        @update:model-value="set('covering.finish', $event)"
+      />
       <template v-if="st.covering.type !== 'open'">
         <UnitInput
           :id="id('sheett')"

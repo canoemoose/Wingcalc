@@ -149,6 +149,18 @@ Implementation: `src/lib/structure.js`. A first-order sizing check, and the app 
 - **Rib spacing from loads**: the buckling checks (spar cap or sheeting between ribs, and the shear web) give the largest spacing allowed at each station. Each interval between hard points (root, fuselage side, panel breaks, tip, your hard points) gets the fewest bays that keep every bay within that limit along its whole length, never wider than the covering maximum. They're spaced out from the root taking the largest bay allowed each time, then evened out so there's no stub of a bay at the end. Rib spacing from loads never leaves a negative spacing margin.
 - **Materials** are typical values along the grain, on the conservative side.
 
+**Covering.** The finish over the ribs and sheeting is an explicit choice. Its weight is its mass per area times the area covered: both surfaces measured along the section from the root rib to the tip rib, plus both faces of a rounded tip's block taken as its plan area. The figures are at the heavy end of what makers and builders publish, including adhesive or dope:
+
+| Covering | g/m² | Basis |
+|---|---|---|
+| Heat-shrink film, lightweight (Oralight, Solarfilm Lite) | 45 | listed 30 to 45 g/m² |
+| Heat-shrink film (Oracover, Solarfilm) | 90 | listed 70 to 90 g/m² |
+| Fabric film (Solartex, Oratex) | 130 | listed 95 to 130 g/m² |
+| Tissue and dope | 45 | lightweight tissue about 12 to 20 g/m², plus three coats of dope |
+| Glass cloth and epoxy over sheeting | 70 | 25 g/m² cloth, about as much epoxy, plus filler |
+
+Films, fabric and tissue are counted as weight only: no strength or stiffness, on the safe side. Glass cloth and epoxy is laid over the sheeting only (the open bays behind a D-box take lightweight film); it is modelled as a 0.05 mm laminate of modulus 10 GPa spanwise (a plain weave at a wet lay-up's fibre fraction, about a third fibre by volume, half of it running spanwise; conservative) on the outside of the sheeting, top and bottom. It enters the bending section with the sheeting, which lowers the stress in the spar and sheeting, and it stiffens each sheet panel against buckling between ribs: the panel buckles at the sheet stress a plain sheet of modulus E′ = E (1 + β) / (1 + η) would, where β is the bending stiffness the laminate adds about the pair's neutral axis and η the axial stiffness it adds, each as a fraction of the sheet's own (it stiffens the panel but also takes a share of its load). The laminate's own compressive stress, about three times the sheeting's for the same strain, stays far below its strength, so it isn't checked. Its benefit in torsion, which is where glass over a D-box matters most, isn't credited, since torsion isn't checked.
+
 **Not covered**: torsion, flutter and divergence, glue joints, the wing joiner of a two-piece wing (the root bending moment is shown for sizing it), and local loads at fittings.
 
 ## Edge stock
@@ -173,7 +185,7 @@ Implementation: `src/lib/ribs.js`. Each rib is the wing cut along the rib's line
 - **lightening holes**: the largest circles that fit ahead of and behind the spar, leaving the margin you set around each and clear of notches;
 - the rib's name (R1 from the root outward), engraved in the roomiest clear stretch (ahead of the spar if there's room, else behind it), placed before the lightening holes so they keep clear of it.
 
-Ribs at dihedral breaks note their cant, half the change in dihedral. The same module makes the corner gussets (grouped by angle; each must fit between the inset upper and lower surfaces over its whole triangle: one thickness for top or bottom, two for both), dihedral braces (sized from the bending moment at the break; the break line is engraved), shear webs (one per bay, two for a box spar), approximate developed sheeting templates per panel and surface, and a plan template for a rounded tip's block. It also writes a cut list of strip stock (caps, leading and trailing edges, rods or dowels, stringers, cap strips, tube), and estimates the structure's weight from every part's area or length and density, plus 10% for glue, without the covering.
+Ribs at dihedral breaks note their cant, half the change in dihedral. The same module makes the corner gussets (grouped by angle; each must fit between the inset upper and lower surfaces over its whole triangle: one thickness for top or bottom, two for both), dihedral braces (sized from the bending moment at the break; the break line is engraved), shear webs (one per bay, two for a box spar), approximate developed sheeting templates per panel and surface, and a plan template for a rounded tip's block. It also writes a cut list of strip stock (caps, leading and trailing edges, rods or dowels, stringers, cap strips, tube), and estimates the wing's weight from every part's area or length and density, plus 10% for glue, plus the covering (see Covering).
 
 The 3D view (`src/lib/wing3d.js`) is built from the same geometry as the cut parts, and the tests check every joint where a rib meets the spar, caps, webs, stringers or edge stock.
 

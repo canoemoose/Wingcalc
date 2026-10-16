@@ -16,6 +16,8 @@
 //    just enough and negative is not.
 //  - Rib spacing: the largest spacing at which the upper spar cap (open structure) or the
 //    compressed sheeting (sheeted) won't buckle between ribs, capped by the covering limit.
+//  - Covering (the finish over everything): weight only, except glass cloth and epoxy over
+//    sheeting, which shares the bending and stiffens the sheet panels against buckling.
 //
 // Not covered: torsion, flutter, divergence, glue joints, the wing joiner itself, and
 // local crushing at fittings. Material values are typical, not guaranteed: balsa varies two
@@ -58,6 +60,42 @@ export const isPlainRib = (kind) => kind === 'normal' || kind === 'manual'
 // How a corner gusset sits at the LE or TE: 'top', 'bottom' or 'both'
 export const gussetLayer = (gussets, edge) => (edge === 'te' ? (gussets.teLayer ?? gussets.layer) : gussets.layer) ?? 'top'
 
+// What the wing is covered with, over the ribs and any sheeting. mass is per unit area
+// covered, in kg/m², at the heavy end of published figures with adhesive or dope (see
+// docs/methods.md). Only glass cloth and epoxy counts in the strength check: a laminate
+// of thickness t and modulus E (spanwise, a plain weave at a wet lay-up's fibre fraction)
+// over the sheeting. It's laid over sheeting only, so any open bays (behind a D-box) take
+// lightweight film.
+export const FINISHES = {
+  'film-light': { label: 'Heat-shrink film, lightweight', short: 'lightweight film', mass: 0.045, examples: 'Oralight, Solarfilm Lite' },
+  film: { label: 'Heat-shrink film', short: 'film', mass: 0.09, examples: 'Oracover, Solarfilm' },
+  fabric: { label: 'Fabric film', short: 'fabric film', mass: 0.13, examples: 'Solartex, Oratex' },
+  tissue: { label: 'Tissue and dope', short: 'tissue and dope', mass: 0.045, examples: 'lightweight tissue, three coats of dope' },
+  glass: { label: 'Glass cloth and epoxy over sheeting', short: 'glass and epoxy', mass: 0.07, examples: '25 g/m² cloth, about as much epoxy, and filler', laminate: { t: 0.00005, E: 10e9 }, sheetedOnly: true },
+}
+export const finishOf = (cov) => FINISHES[cov?.finish] ?? FINISHES.film
+// The finish over open bays and over sheeting: glass only goes on sheeting
+export function finishes(cov) {
+  const f = finishOf(cov)
+  return { sheeted: f, open: f.sheetedOnly ? FINISHES['film-light'] : f }
+}
+
+// A sheet panel of thickness t and modulus E with a laminate (t, E) bonded on its outer
+// face: the modulus a plain sheet of the same thickness would need to buckle at the same
+// stress in the sheet. The laminate adds bending stiffness (about the pair's neutral axis)
+// but also takes its share of the load, so E' = E (1 + β) / (1 + η), β the added bending
+// stiffness and η the added axial stiffness, each as a fraction of the sheet's own.
+export function laminatedSheetE(E, t, lam) {
+  if (!lam || !(lam.t > 0) || !(t > 0)) return E
+  const zg = t / 2 + lam.t / 2
+  const EA = E * t + lam.E * lam.t
+  const zbar = (lam.E * lam.t * zg) / EA
+  const D = E * ((t ** 3) / 12 + t * zbar ** 2) + lam.E * ((lam.t ** 3) / 12 + lam.t * (zg - zbar) ** 2)
+  const beta = D / ((E * t ** 3) / 12) - 1
+  const eta = (lam.E * lam.t) / (E * t)
+  return (E * (1 + beta)) / (1 + eta)
+}
+
 // The edges that get corner gussets: the leading edge only against balsa stock (there's
 // nothing square to glue to on a rod, or with a sheeted nose)
 export const gussetEdges = (structure) =>
@@ -96,6 +134,7 @@ export function defaultStructure() {
       capStripWidth: 0.006,
       capStripThickness: 0.0015,
       capStripMaterial: 'balsa-medium',
+      finish: 'film', // FINISHES: what covers the ribs and sheeting
     },
     // type: 'balsa' (stock) | 'rod' (carbon) | 'dowel' (hardwood) | 'none' (the sheeting forms the nose)
     // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
@@ -534,6 +573,17 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
       els.push({ part: 'sheet', surface: 'upper', x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t })
       els.push({ part: 'sheet', surface: 'lower', x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower })
     }
+    // Glass and epoxy laid over the sheeting, outside it
+    const lam = finishOf(cov).laminate
+    if (lam?.t > 0) {
+      for (let i = 0; i < strips; i++) {
+        const xm = leXi + dx * (i + 0.5)
+        const f = sec.surf(xm)
+        const A = lam.t * dx * sec.c
+        els.push({ part: 'laminate', surface: 'upper', x: xm, E: lam.E, A, z: f.upper + lam.t / 2, I0: 0, top: f.upper + lam.t, bottom: f.upper })
+        els.push({ part: 'laminate', surface: 'lower', x: xm, E: lam.E, A, z: f.lower - lam.t / 2, I0: 0, top: f.lower, bottom: f.lower - lam.t })
+      }
+    }
   }
   for (const st of structure.stringers ?? []) {
     if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
@@ -629,6 +679,8 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
   structure = applyEdges(structure, edges)
   const cov = structure.covering
   const sheet = material(cov.sheetMaterial)
+  // The sheeting's modulus for buckling between ribs, stiffened by any laminate over it
+  const sheetE = laminatedSheetE(sheet.E, cov.sheetThickness, finishOf(cov).laminate)
   const ms = (allow, actual) => (actual > 0 ? allow / (actual * sf) - 1 : Infinity)
 
   const stations = []
@@ -689,7 +741,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
           const inPanel = strips.filter((e) => e.surface === surface && e.x >= x0 && e.x <= x1)
           if (!inPanel.length) continue
           const avg = inPanel.reduce((acc, e) => acc + comp(e.E, e.z), 0) / inPanel.length
-          row.limit = Math.min(row.limit, sheetSpacing(sheet.E, cov.sheetThickness, (x1 - x0) * sec.c, avg * sf))
+          row.limit = Math.min(row.limit, sheetSpacing(sheetE, cov.sheetThickness, (x1 - x0) * sec.c, avg * sf))
         }
       }
     }
@@ -798,6 +850,12 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     warnings.push({
       id: 'le-round',
       message: `The ${name} leading edge stands about ${mmText(le.shortfall)} proud of the section ${whereS(le.worstS)}: the nose is too thin there to hold it. Use ${fix}.`,
+    })
+  }
+  if (finishOf(cov).sheetedOnly && cov.type === 'open') {
+    warnings.push({
+      id: 'finish-open',
+      message: "Glass cloth and epoxy goes over sheeting, and this wing has none, so it's weighed as lightweight film. Choose a film, fabric film or tissue, or sheet the wing.",
     })
   }
   if (le.none && cov.type === 'open') {

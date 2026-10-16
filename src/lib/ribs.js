@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt } from './edgeStock.js'
@@ -806,8 +806,9 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   }
 
   const cutList = stripCutList(a, structure, parts, both)
-  const weight = estimateWeight(parts, cutList)
-  return { parts, skipped, cutList, weight, boards }
+  const covered = coveredArea(a, structure)
+  const weight = estimateWeight(parts, cutList, covered, structure, both ? 2 : 1)
+  return { parts, skipped, cutList, weight, covered, boards }
 }
 
 // The sides of a rib that get corner gussets: +1 outboard, -1 inboard. Never outboard of the
@@ -1002,8 +1003,65 @@ function stripCutList(a, structure, parts, both) {
   return out
 }
 
-// Rough weight of the structure (no covering, glue allowance 10%), kg, by group.
-function estimateWeight(parts, cutList) {
+// The area the covering goes over on one half wing, both surfaces, m²: { sheeted, open },
+// sheeted being over sheeting (a D-box's nose back to the spar's rear face, or all of a
+// fully sheeted wing), open the rest. The surface is measured along the section from root
+// rib to tip rib, plus both faces of a rounded tip's block (as its plan area, a little
+// under).
+export function coveredArea(a, structure, n = 40) {
+  const cov = structure.covering
+  const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
+  // Length of one surface between chord fractions q0 and q1
+  const arc = (sec, q0, q1, which) => {
+    let L = 0
+    let prev = null
+    for (let i = 0; i <= 40; i++) {
+      const q = q0 + ((q1 - q0) * i) / 40
+      const f = sec.surf(q)
+      const p = [q * sec.c, which === 'upper' ? f.upper : f.lower]
+      if (prev) L += Math.hypot(p[0] - prev[0], p[1] - prev[1])
+      prev = p
+    }
+    return L
+  }
+  const row = (s) => {
+    const sec = a.section(s)
+    if (!sec || !(sec.c > 1e-4)) return { sheeted: 0, open: 0 }
+    const back = cov.type === 'sheeted' ? 1 : cov.type === 'dbox' ? Math.min(1, Math.max(0, (sparRear(s) - sec.xl) / sec.c)) : 0
+    let sheeted = 0
+    let open = 0
+    for (const w of ['upper', 'lower']) {
+      sheeted += back > 0 ? arc(sec, 0, back, w) : 0
+      open += back < 1 ? arc(sec, back, 1, w) : 0
+    }
+    return { sheeted, open }
+  }
+  let sheeted = 0
+  let open = 0
+  let prev = null
+  for (let i = 0; i <= n; i++) {
+    const s = a.rootS + ((a.tipS - a.rootS) * i) / n
+    const r = row(s)
+    if (prev) {
+      const ds = (a.tipS - a.rootS) / n
+      sheeted += ((r.sheeted + prev.sheeted) / 2) * ds
+      open += ((r.open + prev.open) / 2) * ds
+    }
+    prev = r
+  }
+  const tip = flatPanels(a.wing).tip
+  if (tip) {
+    const area = 2 * Math.abs(polygonArea(tip.polygon))
+    if (cov.type === 'sheeted') sheeted += area
+    else open += area
+  }
+  return { sheeted, open }
+}
+
+// Rough weight of the structure, kg, by group: every part and strip from its size and
+// density, plus 10% for glue, and the covering over both surfaces (covered from
+// coveredArea, for one half wing; halves: how many are being made).
+function estimateWeight(parts, cutList, covered, structure, halves) {
   const by = {}
   const add = (k, v) => (by[k] = (by[k] ?? 0) + v)
   for (const p of parts) {
@@ -1021,6 +1079,8 @@ function estimateWeight(parts, cutList) {
     if (c.tube) section = (Math.PI / 4) * (c.size[0] ** 2 - (c.size[0] - 2 * c.size[1]) ** 2)
     add('strip', section * c.length * c.qty * rho)
   }
-  const total = Object.values(by).reduce((s, v) => s + v, 0) * 1.1
-  return { total, by }
+  const bare = Object.values(by).reduce((s, v) => s + v, 0) * 1.1
+  const f = finishes(structure.covering)
+  by.covering = covered ? (covered.sheeted * f.sheeted.mass + covered.open * f.open.mass) * halves : 0
+  return { total: bare + by.covering, bare, covering: by.covering, by }
 }

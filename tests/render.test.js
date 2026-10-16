@@ -69,16 +69,18 @@ describe('app render', () => {
     const { default: LoadsChart } = await import('../src/components/LoadsChart.vue')
     let fitDrawn = 0
     let misfits = 0
-    for (const [type, diameter, stock = 'auto'] of [
-      ['balsa', null],
-      ['balsa', null, 'L320'],
-      ['rod', 0.003],
-      ['rod', 0.008],
-      ['none', null],
+    // Each leading edge type, and each covering's hint (glass over sheeting and over an open wing)
+    for (const [type, diameter, stock, finish, covering = 'dbox'] of [
+      ['balsa', null, 'auto', 'film'],
+      ['balsa', null, 'L320', 'glass'],
+      ['rod', 0.003, 'auto', 'tissue'],
+      ['rod', 0.008, 'auto', 'glass', 'open'],
+      ['none', null, 'auto', 'fabric'],
     ]) {
       const s = defaultState()
       const structure = defaultStructure()
       structure.le = { ...structure.le, type, diameter, stock }
+      structure.covering = { ...structure.covering, finish, type: covering }
       const airfoil = resolveAirfoil(s.airfoil)
       const g = wingGeometry({ ...s.input, mode: 'panels' })
       const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
@@ -88,7 +90,7 @@ describe('app render', () => {
       const html = await renderToString(
         createSSRApp({
           render: () => [
-            h(StructureEditor, { structure, system: 'metric', edges: a.edges }),
+            h(StructureEditor, { structure, system: 'metric', edges: a.edges, coveringMass: 0.05 }),
             h(LoadsChart, { analysis: a, ribs: parts.filter((p) => p.group === 'ribs'), system: 'metric', designG: 6 }),
           ],
         }),

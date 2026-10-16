@@ -22,7 +22,7 @@ import Structure3D from './components/Structure3D.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
-import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL } from './lib/structure.js'
+import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit } from './lib/wing3d.js'
 import { planThumb, isoThumb } from './lib/thumbnails.js'
@@ -488,7 +488,7 @@ const sparSummary = computed(() => {
   if (sp.type === 'solid') return `${thin(sp.solidWidth)} × ${thin(sp.solidDepth)} ${mat(sp.solidMaterial)}`
   return `${sp.type === 'box' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} web${sp.type === 'box' ? 's' : ''}`
 })
-const COVERING_LABELS = { open: 'Open, film covered', dbox: 'D-box', sheeted: 'Fully sheeted' }
+const COVERING_LABELS = { open: 'Open', dbox: 'D-box', sheeted: 'Fully sheeted' }
 const ribSummary = computed(() => {
   const r = structureResult.value?.a.ribs
   if (!r?.length) return '–'
@@ -896,7 +896,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               </div>
               <div>
                 <dt>Covering</dt>
-                <dd>{{ COVERING_LABELS[input.structure.covering.type] }}</dd>
+                <dd>{{ COVERING_LABELS[input.structure.covering.type] }}, {{ finishOf(input.structure.covering).short }}</dd>
               </div>
               <div>
                 <dt>Ribs</dt>
@@ -913,10 +913,13 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 <dd>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</dd>
               </div>
               <div>
-                <dt>Structure weight (estimate)</dt>
+                <dt>Wing weight (estimate)</dt>
                 <dd>
                   {{ format(structureResult.weight.total, 'mass', u('mass')) }}
-                  <span class="wc-muted">{{ Math.round((structureResult.weight.total / input.mass) * 100) }}% of all-up weight</span>
+                  <span class="wc-muted"
+                    >{{ Math.round((structureResult.weight.total / input.mass) * 100) }}% of all-up weight, covering
+                    {{ format(structureResult.weight.covering, 'mass', u('mass')) }}</span
+                  >
                 </dd>
               </div>
             </dl>
@@ -1014,7 +1017,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <span>Lowest margin</span>{{ worstMargin.text }} <em>{{ worstMargin.label.toLowerCase() }}</em>
           </span>
           <span class="wc-stat"><span>Root bending</span>{{ structureResult.a.rootMoment.toFixed(1) }} N·m</span>
-          <span class="wc-stat"><span>Structure</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
+          <span class="wc-stat"><span>Wing weight</span>{{ format(structureResult.weight.total, 'mass', u('mass')) }}</span>
         </template>
         <template #actions>
           <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
@@ -1031,6 +1034,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :rib-distances="ribDistances"
             :edges="structureResult?.a.edges"
             :gusset-fit="gussetRoom"
+            :covering-mass="structureResult?.weight.covering"
           />
           <ul v-if="structureWarnings.length" class="wc-warnings">
             <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
