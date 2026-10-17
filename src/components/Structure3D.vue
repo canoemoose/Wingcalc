@@ -37,16 +37,20 @@ const emit = defineEmits(['select'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-const show = ref({ skin: true, core: true, sheeting: true, ribs: true, surfaces: true, joints: true, spar: true, edges: true, tip: true, stringers: true, servos: true, brakes: true, outlines: true, mirror: false })
+// The covering (film, tissue, cloth) is never drawn: a skin that thin over thicker parts
+// renders badly, and the structure is what the view is for. Sheeting is structure, so it is.
+const show = ref({ core: true, sheeting: true, capStrips: true, ribs: true, surfaces: true, hinges: true, gussets: true, braces: true, spar: true, edges: true, tip: true, stringers: true, servos: true, brakes: true, outlines: true, mirror: false })
 const LAYERS = [
-  { id: 'skin', label: 'Covering' },
   { id: 'core', label: 'Foam core' },
-  { id: 'sheeting', label: 'Sheeting and cap strips' },
+  { id: 'sheeting', label: 'Sheeting' },
+  { id: 'capStrips', label: 'Cap strips' },
   { id: 'ribs', label: 'Ribs' },
   { id: 'surfaces', label: 'Control surfaces' },
+  { id: 'hinges', label: 'Hinge spars' },
   { id: 'servos', label: 'Servo bays' },
   { id: 'brakes', label: 'Air brakes' },
-  { id: 'joints', label: 'Gussets and braces' },
+  { id: 'gussets', label: 'Gussets' },
+  { id: 'braces', label: 'Dihedral braces' },
   { id: 'spar', label: 'Spar and webs' },
   { id: 'edges', label: 'Leading/Trailing edges' },
   { id: 'tip', label: 'Tip block' },
@@ -97,37 +101,10 @@ function onZoomFocus(e) {
 const foam = computed(() => props.structure.construction === 'foam')
 // A foam wing's sheeting is its skins
 const layerLabel = (l) => (l.id === 'sheeting' && foam.value ? 'Skins' : l.label)
-const hasStringers = computed(() => (props.structure.stringers ?? []).length > 0)
-const hasSheeting = computed(() => {
-  const c = props.structure.covering
-  return c.type !== 'open' || c.capStrips
-})
-const hasJoints = computed(() => props.parts.some((p) => p.group === 'gussets' || p.group === 'braces'))
-const hasTip = computed(() => props.parts.some((p) => p.group === 'tip'))
-// A foam wing's surfaces have no ribs of their own, only their core and hinge spar
-const hasSurfaces = computed(() => props.parts.some((p) => p.group === 'surfaces') || (foam.value && (props.analysis.surfaces ?? []).some((x) => x.ok)))
-const hasServos = computed(() => props.parts.some((p) => p.group === 'servos'))
-const hasBrakes = computed(() => props.parts.some((p) => p.group === 'brakes'))
-const shown = (l) =>
-  l.id === 'core'
-    ? foam.value
-    : l.id === 'ribs'
-      ? !foam.value
-      : l.id === 'stringers'
-    ? hasStringers.value
-    : l.id === 'sheeting'
-      ? hasSheeting.value
-      : l.id === 'joints'
-        ? hasJoints.value
-        : l.id === 'tip'
-          ? hasTip.value
-          : l.id === 'surfaces'
-            ? hasSurfaces.value
-            : l.id === 'servos'
-              ? hasServos.value
-              : l.id === 'brakes'
-                ? hasBrakes.value
-                : true
+// Only the layers this wing has: a group with something in it once the model is built (a foam
+// wing has no ribs or gussets, an open one no sheeting, and so on)
+const present = ref({})
+const shown = (l) => l.id === 'outlines' || l.id === 'mirror' || !!present.value[l.id]
 
 // Section
 const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s))
@@ -267,9 +244,8 @@ const COLOURS = {
 }
 // Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
 // hidden to see the fixed part's hinge spar
-const GROUPS = ['skin', 'core', 'sheeting', 'ribs', 'surfaces', 'servos', 'brakes', 'joints', 'spar', 'edges', 'tip', 'stringers']
+const GROUPS = ['core', 'sheeting', 'capStrips', 'ribs', 'surfaces', 'hinges', 'servos', 'brakes', 'gussets', 'braces', 'spar', 'edges', 'tip', 'stringers']
 const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
-const FILM = 0.0003 // m: how far the covering stands off the surface
 
 function cssColour(name, fallback) {
   const v = wrapEl.value ? getComputedStyle(wrapEl.value).getPropertyValue(name).trim() : ''
@@ -405,33 +381,6 @@ function build() {
   // Ribs and webs share faces with the caps, stringers and edge stock that pass through or
   // butt against them; pushing them a hair back in depth stops the shared faces flickering.
   const behind = (c) => Object.assign(wood(c), { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
-  const skinMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(cssColour('--wc-accent', '#1f6feb')),
-    transparent: true,
-    opacity: 0.35,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    roughness: 0.4,
-    // The covering lies on the sheeting's outer surface. Pull it a hair towards the camera so
-    // it's always drawn over the sheeting (an even tint) instead of flickering through it.
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2,
-  })
-  const skin = meshFrom(model.skin, skinMat, { creased: false })
-  // Real film lies on top of the structure: stand the covering 0.3 mm proud of the surface so
-  // parts built on that surface (sheeting, edge stock, the tip block) never poke through it
-  // where their own points fall differently on a curve
-  {
-    const pos = skin.geometry.attributes.position
-    const nor = skin.geometry.attributes.normal
-    for (let i = 0; i < pos.count; i++) {
-      pos.setXYZ(i, pos.getX(i) + nor.getX(i) * FILM, pos.getY(i) + nor.getY(i) * FILM, pos.getZ(i) + nor.getZ(i) * FILM)
-    }
-    pos.needsUpdate = true
-  }
-  skin.renderOrder = 2
-  groups.skin.add(skin)
   const tube = props.structure.spar.type === 'tube'
   for (const s of model.solids) {
     const colour = s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
@@ -444,14 +393,18 @@ function build() {
         ? groups.servos
         : s.kind === 'brakeBox' || s.kind === 'blade'
         ? groups.brakes
-        : s.kind === 'spar' || s.kind === 'web' || s.kind === 'hinge'
+        : s.kind === 'hinge'
+        ? groups.hinges
+        : s.kind === 'spar' || s.kind === 'web'
         ? groups.spar
         : s.kind === 'stringer'
           ? groups.stringers
           : s.kind === 'sheet'
             ? groups.sheeting
-            : s.kind === 'gusset' || s.kind === 'brace'
-              ? groups.joints
+            : s.kind === 'gusset'
+              ? groups.gussets
+              : s.kind === 'brace'
+              ? groups.braces
               : s.kind === 'tip'
                 ? groups.tip
                 : groups.edges
@@ -471,7 +424,7 @@ function build() {
     const shape = new THREE.Shape(c.outline.map(([u, z]) => new THREE.Vector2(u, z)))
     const geo = new THREE.ExtrudeGeometry(shape, { depth: c.thickness, bevelEnabled: false, curveSegments: 1 })
     geo.applyMatrix4(new THREE.Matrix4().fromArray(c.matrix))
-    ;(c.surface ? groups.surfaces : groups.sheeting).add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
+    ;(c.surface ? groups.surfaces : groups.capStrips).add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
   }
   mirror = root.clone()
   mirror.scale.x = -1
@@ -480,6 +433,7 @@ function build() {
   for (const m of [...ribsOther.children]) if (m.userData.centre) ribsOther.remove(m)
   scene.add(root)
   scene.add(mirror)
+  present.value = Object.fromEntries(GROUPS.map((id) => [id, groups[id].children.length > 0]))
   applyVisibility()
   highlight()
   updateSection()
