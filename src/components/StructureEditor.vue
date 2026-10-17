@@ -26,6 +26,9 @@ const props = defineProps({
   braceNeeds: { type: Array, default: () => [] },
   // Where the ribs are now (distances from the root rib), to start manual spacing from
   ribDistances: { type: Array, default: () => [] },
+  // Every rib as the plan names it, root outward ({ name, d, kind, label, manualId }), so the
+  // manual spacing list shows them all under the same names
+  ribRows: { type: Array, default: () => [] },
   // The edge stock the analysis resolved (structure.js analyseStructure().edges), for Auto
   edges: { type: Object, default: null },
   // Room for the corner gussets at each edge (wing3d.js gussetFit), to offer only what fits
@@ -170,6 +173,21 @@ function stableRows() {
   return { rows, focusin, focusout }
 }
 const manualList = stableRows()
+// The manual list: every rib by its plan name, the fixed ones (root, panel ends, tip, hard
+// points, surface ends) shown but not editable, then any row not placed yet (no distance, or
+// merged into a fixed rib)
+const RIB_KINDS = { root: 'Root rib', break: 'Panel end', tip: 'Tip rib', hard: 'Hard point', surface: 'Control surface end' }
+const manualRows = computed(() => {
+  const placed = new Set()
+  const rows = props.ribRows.map((r) => {
+    if (r.manualId != null) placed.add(r.manualId)
+    return { id: r.manualId != null ? `m${r.manualId}` : `f${r.name}`, d: r.d, name: r.name, manualId: r.manualId, what: r.manualId != null ? '' : r.label || RIB_KINDS[r.kind] || '' }
+  })
+  for (const m of st.value.ribs.manual ?? []) {
+    if (!placed.has(m.id)) rows.push({ id: `m${m.id}`, d: m.d, name: 'New rib', manualId: m.id, what: '', unplaced: true })
+  }
+  return rows
+})
 const hardList = stableRows()
 
 // What each section holds, one line, shown on its heading while it's closed
@@ -776,17 +794,25 @@ const braceHint = computed(() => {
           Distances from the root rib. The root, panel ends, tip and hard points always get a rib. You can also drag ribs
           in the plan, double-click it to add one, and press Delete to remove the selected one.
         </p>
-        <div v-for="(m, k) in manualList.rows(st.ribs.manual)" :key="m.id" class="wc-structure-editor__row" @focusin="manualList.focusin" @focusout="manualList.focusout">
-          <UnitInput
-            :id="id(`man${m.id}`)"
-            :model-value="m.d"
-            quantity="length"
-            :system="system"
-            :label="`Rib ${k + 1}`"
-            @update:model-value="updateIn('ribs.manual', m.id, 'd', $event)"
-          />
-          <button type="button" class="wc-stations__remove" :aria-label="`Remove rib ${k + 1}`" @click="removeFrom('ribs.manual', m.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
-        </div>
+        <template v-for="m in manualList.rows(manualRows)" :key="m.id">
+          <div v-if="m.manualId != null" class="wc-structure-editor__row" @focusin="manualList.focusin" @focusout="manualList.focusout">
+            <UnitInput
+              :id="id(`man${m.manualId}`)"
+              :model-value="m.d"
+              quantity="length"
+              :system="system"
+              :label="m.name"
+              :hint="m.unplaced && Number.isFinite(m.d) ? 'Not placed: off the wing, or too close to another rib' : ''"
+              @update:model-value="updateIn('ribs.manual', m.manualId, 'd', $event)"
+            />
+            <button type="button" class="wc-stations__remove" :aria-label="`Remove ${m.name}`" @click="removeFrom('ribs.manual', m.manualId)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
+          </div>
+          <div v-else class="wc-structure-editor__fixed">
+            <span class="wc-field__label">{{ m.name }}</span>
+            <span>{{ lengthText(m.d) }}</span>
+            <span class="wc-muted">{{ m.what }}</span>
+          </div>
+        </template>
         <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.manual', { d: null })">Add rib</button>
       </template>
 

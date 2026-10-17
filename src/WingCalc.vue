@@ -670,6 +670,12 @@ const ribDistances = computed(() => {
   const a = structureResult.value?.a
   return a ? a.ribs.filter((r) => r.kind === 'normal').map((r) => r.s - a.rootS) : []
 })
+// Every rib as the plan names it (R1 root outward), for the manual spacing list: its distance
+// from the root rib, what it is, and for a manual rib the id of its row
+const ribRows = computed(() => {
+  const a = structureResult.value?.a
+  return a ? a.ribs.map((rb, i) => ({ name: `R${i + 1}`, d: rb.s - a.rootS, kind: rb.kind, label: rb.label ?? null, manualId: rb.kind === 'manual' ? rb.id : null })) : []
+})
 const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.group === 'braces').map((p) => p.need) ?? [])
 const projectFileBase = computed(() => fileName(project.name).replace(/\.wingcalc\.json$/, ''))
 
@@ -1309,6 +1315,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :auto-spar="autoSpar"
             :brace-needs="braceNeeds"
             :rib-distances="ribDistances"
+            :rib-rows="ribRows"
             :edges="structureResult?.a.edges"
             :gusset-fit="gussetRoom"
             :covering-mass="structureResult?.weight.covering"

@@ -3262,3 +3262,13 @@
 .wc-structure-editor__hardmore {
   grid-column: 1 / -1;
 }
+
+/* A fixed rib in the manual spacing list: its name, distance and what it is, not editable */
+.wc-structure-editor__fixed {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0 8px;
+  align-items: baseline;
+  padding: 3px 0 6px;
+  font-size: 0.85rem;
+}
