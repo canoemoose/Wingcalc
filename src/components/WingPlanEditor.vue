@@ -8,6 +8,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations, wingSampler } from '../lib/wing.js'
 import { resolveSurfaces, surfaceOutline, addSurface } from '../lib/controlSurfaces.js'
+import { dropBay } from '../lib/servos.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import { MEASURE } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
@@ -408,7 +409,7 @@ function newSurface() {
 function deleteSurface() {
   if (selectedSurface.value === null || !controls.value) return
   emit('commit')
-  controls.value = { ...controls.value, surfaces: controls.value.surfaces.filter((x) => x.id !== selectedSurface.value) }
+  controls.value = dropBay({ ...controls.value, surfaces: controls.value.surfaces.filter((x) => x.id !== selectedSurface.value) }, selectedSurface.value)
   selectedSurface.value = null
 }
 

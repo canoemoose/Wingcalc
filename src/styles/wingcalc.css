@@ -1837,6 +1837,22 @@
   stroke: var(--wc-moderate);
   stroke-width: 1;
 }
+.wc-sp__hatch {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+}
+.wc-sp__servo {
+  fill: color-mix(in srgb, var(--wc-text) 30%, transparent);
+  stroke: var(--wc-text);
+  stroke-width: 1;
+}
+.wc-sp__lead {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
 .wc-sp__weak--spacing {
   fill: color-mix(in srgb, var(--wc-moderate) 18%, transparent);
 }

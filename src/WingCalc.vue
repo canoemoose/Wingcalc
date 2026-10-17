@@ -514,7 +514,9 @@ const surfaceSummary = computed(() => {
   const built = list.filter((r) => r.ok).map((r) => r.name)
   const crow = crowState(input.controls)
   const crowText = crow.available ? (crow.enabled ? 'crow on' : 'crow available') : 'no crow'
-  return `${built.length ? built.join(', ') : 'none built'}, Mylar-tab hinges; ${crowText}`
+  const bays = (structureResult.value?.a.bays ?? []).filter((b) => b.ok).length
+  const bayText = bays ? `${bays} servo bay${bays === 1 ? '' : 's'} per side` : 'no servo bays'
+  return `${built.length ? built.join(', ') : 'none built'}, Mylar-tab hinges; ${bayText}; ${crowText}`
 })
 const worstMargin = computed(() => {
   const w = structureResult.value?.a.summary.worst
@@ -672,6 +674,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-model:selected="selectedSurface"
           :wing="planWing"
           :selected-panel="selectedPanel"
+          :mass="input.mass"
           :system="system"
         />
         <UnitInput
@@ -949,7 +952,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                   {{ format(structureResult.weight.total, 'mass', u('mass')) }}
                   <span class="wc-muted"
                     >{{ Math.round((structureResult.weight.total / input.mass) * 100) }}% of all-up weight, covering
-                    {{ format(structureResult.weight.covering, 'mass', u('mass')) }}</span
+                    {{ format(structureResult.weight.covering, 'mass', u('mass')) }}<template v-if="structureResult.weight.servos > 0">, servos {{ format(structureResult.weight.servos, 'mass', u('mass')) }}</template></span
                   >
                 </dd>
               </div>
@@ -1177,6 +1180,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:selected="selectedSurface"
             :wing="planWing"
             :selected-panel="selectedPanel"
+            :mass="input.mass"
             :system="system"
             id-prefix="wcx"
           />

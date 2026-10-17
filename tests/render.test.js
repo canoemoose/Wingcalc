@@ -72,10 +72,12 @@ describe('app render', () => {
         { id: 3, role: 'flap', panel: 1, from: 0.25, to: 0.32, hingeIn: 0.75, hingeOut: 0.75, up: 5, down: 45, gap: 0.001 },
       ],
       crow: { enabled: true, aileronUp: 25, flapDown: 45 },
+      // The aileron's servo bay is a mini servo off to one side; the flap's is the automatic one
+      bays: [{ surface: 1, class: 'mini', at: 0.5 }],
     }
     const html = await render(s)
     expect(html).toContain('Control surfaces')
-    expect(html).toContain('F1, A1, Mylar-tab hinges; crow on')
+    expect(html).toContain('F1, A1, Mylar-tab hinges; 2 servo bays per side; crow on')
     expect(html).toContain("Flap F2 isn&#39;t built")
     expect(html).toContain('wc-plan__surface')
     expect(html).toContain('wc-plan__hinge')
@@ -105,7 +107,14 @@ describe('app render', () => {
     expect(parts2).toContain('wc-sp__hinge')
     expect(parts2).toContain('Aileron A1 rib')
     expect(parts2).toContain('Crow braking')
+    // The servo bays: settings in the editor, drawn on the structure plan, in the weight
+    expect(parts2).toContain('A bay for this surface')
+    expect(parts2).toContain('Mini (the 17 g class)')
+    expect(parts2).toContain('wc-sp__servo')
+    expect(parts2).toContain('wc-sp__lead')
+    expect(parts.some((p) => p.group === 'servos')).toBe(true)
     expect(parts2).toContain('overlaps another surface')
+    expect(html).toContain('servos ')
     // Without separate flaps, crow isn't offered
     const flaperons = { ...s.input.controls, surfaces: [{ ...s.input.controls.surfaces[0], role: 'flaperon' }] }
     const alone = await renderToString(createSSRApp({ render: () => h(ControlSurfaceEditor, { controls: flaperons, wing: s.input, system: 'metric' }) }))

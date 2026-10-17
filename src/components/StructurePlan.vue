@@ -84,8 +84,27 @@ const geom = computed(() => {
       outline: band(sf.moving[0], sf.moving[1], f.apex, te),
     })
   }
+  // Servo bays: the hatch opening, the servo's case, and its lead's route in to the root
+  const pts = (list) => list.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+  const servos = (an.bays ?? [])
+    .filter((b) => b.ok)
+    .map((b) => {
+      const box = (x0, x1, s0, s1) => pts([[s0, x0], [s1, x0], [s1, x1], [s0, x1]])
+      const lead = Array.from({ length: 13 }, (_, i) => {
+        const s = s0 + ((b.sA - s0) * i) / 12
+        return [s, an.sparX(s) + halfW + b.lead.offset + b.lead.diameter / 2]
+      })
+      return {
+        id: b.id,
+        label: b.label,
+        hatch: box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1),
+        body: box(b.case.x0, b.case.x1, b.s - b.servo.width / 2, b.s + b.servo.width / 2),
+        lead: pts(lead),
+      }
+    })
   return {
     hinges,
+    servos,
     le: line((s) => sec(s).xl + st.le.width),
     te: line((s) => sec(s).xl + sec(s).c - st.te.width),
     spar: band.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' '),
@@ -483,6 +502,11 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
             <polygon :points="h.fixed" class="wc-sp__hinge" />
             <polygon :points="h.moving" class="wc-sp__hinge" />
           </template>
+          <template v-for="b in geom.servos" :key="'b' + b.id">
+            <polyline :points="b.lead" class="wc-sp__lead" />
+            <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: hatch in the lower surface</title></polygon>
+            <polygon :points="b.body" class="wc-sp__servo" />
+          </template>
         </g>
         <g
           v-for="(r, i) in ribLines"
@@ -534,6 +558,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       One side, flat as built, leading edge at the top. Spar in accent colour<template v-if="geom.sheet">,
         sheeted area hatched</template
       ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
+      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root</template
       ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to

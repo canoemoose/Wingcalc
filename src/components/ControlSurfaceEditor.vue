@@ -2,7 +2,8 @@
 // Numeric entry for the wing's control surfaces (ailerons, flaps, flaperons) and crow. Each
 // surface is a foldable section, sharing the selection with the wing plan editor: opening one
 // selects it, and selecting one in the plan opens it. Every change replaces the whole controls
-// object, so undo/redo and autosave see it.
+// object, so undo/redo and autosave see it. Each surface also carries its servo bay's settings
+// (servos.js): on or off, the class, and where along the span.
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
@@ -11,6 +12,7 @@ import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import { wingSampler } from '../lib/wing.js'
 import { ROLES, resolveSurfaces, addSurface, crowState, MIN_SURFACE } from '../lib/controlSurfaces.js'
+import { SERVOS, SERVO_CLASSES, bayOf, setBay, dropBay, defaultServoClass } from '../lib/servos.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -19,6 +21,8 @@ const props = defineProps({
   wing: { type: Object, required: true },
   // The panel selected in the plan, where Add puts a new surface
   selectedPanel: { type: Number, default: null },
+  // The all-up mass, kg: which servo class a bay takes unless one is chosen
+  mass: { type: Number, default: 0 },
   idPrefix: { type: String, default: 'wc' },
 })
 const controls = defineModel('controls', { type: Object, required: true })
@@ -55,8 +59,23 @@ function setPanel(s, value) {
   update(s.id, { panel: pid, to, from: Math.min(s.from, Math.max(0, to - MIN_SURFACE)) })
 }
 function remove(sid) {
-  controls.value = { ...controls.value, surfaces: controls.value.surfaces.filter((x) => x.id !== sid) }
+  controls.value = dropBay({ ...controls.value, surfaces: controls.value.surfaces.filter((x) => x.id !== sid) }, sid)
   if (selected.value === sid) selected.value = null
+}
+
+// Servo bays
+const bayFor = (s) => bayOf(controls.value, s.id)
+const classOf = (s) => bayFor(s).class ?? defaultServoClass(props.mass)
+const setBayFor = (s, patch) => (controls.value = setBay(controls.value, s.id, patch))
+const mm = (v) => `${Math.round(v * 10000) / 10}`
+const servoOptions = computed(() => [
+  { value: '', label: `Automatic (${SERVOS[defaultServoClass(props.mass)].label.toLowerCase()}, for this weight)` },
+  ...SERVO_CLASSES.map((k) => ({ value: k, label: `${SERVOS[k].label} (${SERVOS[k].size})` })),
+])
+function servoText(s) {
+  const v = SERVOS[classOf(s)]
+  const mu = defaultUnit(props.system, 'mass')
+  return `${v.label}: ${format(v.mass, 'mass', mu)}, case ${mm(v.length)} × ${mm(v.width)} × ${mm(v.height)} mm (${mm(v.lugSpan)} mm across the lugs), about ${v.torque} N·m (${(v.torque * 10.2).toFixed(1)} kgf·cm) of torque. Its weight counts in the wing and relieves the spar in bending.`
 }
 // On the panel selected in the plan, or the last one
 const addTo = computed(() => (Number.isInteger(props.selectedPanel) && props.selectedPanel < props.wing.panels.length ? props.selectedPanel : props.wing.panels.length - 1))
@@ -82,7 +101,8 @@ function summary(r, s) {
   const i = panelIndex(s.panel)
   const where = i >= 0 ? `panel ${i + 1}, ${len(s.from)} to ${len(s.to)}` : 'no panel'
   const hinge = Math.round(s.hingeIn * 100) === Math.round(s.hingeOut * 100) ? `${Math.round(s.hingeIn * 100)}%` : `${Math.round(s.hingeIn * 100)} to ${Math.round(s.hingeOut * 100)}%`
-  return `${where}, hinge at ${hinge}, ${s.up}° up, ${s.down}° down${r.ok ? '' : ', not used'}`
+  const bay = bayFor(s).enabled ? `${SERVOS[classOf(s)].label.toLowerCase()} servo` : 'no servo bay'
+  return `${where}, hinge at ${hinge}, ${s.up}° up, ${s.down}° down, ${bay}${r.ok ? '' : ', not used'}`
 }
 const sectionSummary = computed(() => {
   const n = controls.value.surfaces.length
@@ -148,6 +168,29 @@ const crowResult = computed(() => {
           @update:model-value="update(s.id, { down: $event })"
         />
         <UnitInput :id="id(`${s.id}-gap`)" :model-value="s.gap" quantity="thin" :system="system" label="Hinge gap" @update:model-value="update(s.id, { gap: $event ?? 0 })" />
+        <div class="wc-structure-editor__sub">
+          <span class="wc-field__label">Servo bay</span>
+          <label class="wc-check wc-structure-editor__check">
+            <input type="checkbox" :checked="bayFor(s).enabled" @change="setBayFor(s, { enabled: $event.target.checked })" />
+            A bay for this surface's servo
+          </label>
+          <template v-if="bayFor(s).enabled">
+            <SelectField :id="id(`${s.id}-servo`)" :model-value="bayFor(s).class ?? ''" label="Servo" :options="servoOptions" @update:model-value="setBayFor(s, { class: $event || null })" />
+            <UnitInput
+              :id="id(`${s.id}-bay`)"
+              :model-value="bayFor(s).at"
+              quantity="length"
+              :system="system"
+              label="Bay centre"
+              placeholder="Middle of the surface"
+              @update:model-value="setBayFor(s, { at: $event })"
+            />
+            <p class="wc-field__hint">
+              Between two ribs, each a hard point, ahead of the hinge. Measured from the panel's inner end like the surface's own ends; leave it empty for
+              the middle of the surface. {{ servoText(s) }}
+            </p>
+          </template>
+        </div>
       </InspectorSection>
       <p v-if="!shown.length" class="wc-field__hint">
         None. Add one to the selected panel here or from the plan's bar along the top: the first is an aileron, later ones flaps.

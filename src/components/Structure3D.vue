@@ -34,12 +34,13 @@ const emit = defineEmits(['select'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-const show = ref({ skin: true, sheeting: true, ribs: true, surfaces: true, joints: true, spar: true, edges: true, tip: true, stringers: true, outlines: true, mirror: false })
+const show = ref({ skin: true, sheeting: true, ribs: true, surfaces: true, joints: true, spar: true, edges: true, tip: true, stringers: true, servos: true, outlines: true, mirror: false })
 const LAYERS = [
   { id: 'skin', label: 'Covering' },
   { id: 'sheeting', label: 'Sheeting and cap strips' },
   { id: 'ribs', label: 'Ribs' },
   { id: 'surfaces', label: 'Control surfaces' },
+  { id: 'servos', label: 'Servo bays' },
   { id: 'joints', label: 'Gussets and braces' },
   { id: 'spar', label: 'Spar and webs' },
   { id: 'edges', label: 'Leading/Trailing edges' },
@@ -75,6 +76,7 @@ const hasSheeting = computed(() => {
 const hasJoints = computed(() => props.parts.some((p) => p.group === 'gussets' || p.group === 'braces'))
 const hasTip = computed(() => props.parts.some((p) => p.group === 'tip'))
 const hasSurfaces = computed(() => props.parts.some((p) => p.group === 'surfaces'))
+const hasServos = computed(() => props.parts.some((p) => p.group === 'servos'))
 const shown = (l) =>
   l.id === 'stringers'
     ? hasStringers.value
@@ -86,7 +88,9 @@ const shown = (l) =>
           ? hasTip.value
           : l.id === 'surfaces'
             ? hasSurfaces.value
-            : true
+            : l.id === 'servos'
+              ? hasServos.value
+              : true
 
 // Section
 const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s))
@@ -180,11 +184,13 @@ const COLOURS = {
   brace: 0xa8794a,
   hinge: 0xc49a5e,
   hingeMoving: 0xd1a868,
+  servo: 0x3a3f45,
+  plate: 0xa8794a,
   teMoving: 0xe3c48f,
 }
 // Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
 // hidden to see the fixed part's hinge spar
-const GROUPS = ['skin', 'sheeting', 'ribs', 'surfaces', 'joints', 'spar', 'edges', 'tip', 'stringers']
+const GROUPS = ['skin', 'sheeting', 'ribs', 'surfaces', 'servos', 'joints', 'spar', 'edges', 'tip', 'stringers']
 const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
 const FILM = 0.0003 // m: how far the covering stands off the surface
 
@@ -350,6 +356,8 @@ function build() {
     const group =
       s.kind === 'hingeMoving' || s.kind === 'teMoving'
         ? groups.surfaces
+        : s.kind === 'servo' || s.kind === 'plate'
+        ? groups.servos
         : s.kind === 'spar' || s.kind === 'web' || s.kind === 'hinge'
         ? groups.spar
         : s.kind === 'stringer'
