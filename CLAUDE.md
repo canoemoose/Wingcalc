@@ -25,6 +25,12 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - Logo: `src/lib/logo.js` draws the mark, a sailplane from above in white on the blue tile (`iconSvg`), used for the favicon, the app icons and the header. `npm run build-icons` writes `public/` (favicon.svg/.ico, apple-touch-icon, manifest icons) and the README logo (`docs/images/logo-light.png`, `logo-dark.png`, the wordmark set from the bundled font); the files are committed. The wordmark is IBM Plex Sans, bundled.
 - No native browser dialogues (`alert`, `confirm`, `prompt`). Ask with `ask({ title, message, confirm, danger })` in WingCalc, which shows `ConfirmDialog.vue` and resolves true to go ahead; report outcomes in the project bar's status line.
 - Unit quantities include `thin` (lengths shown to 0.1 mm, for material sizes) and `percent` (a fraction shown as %).
+- Inputs commit on Enter or blur, never per keystroke (`UnitInput.vue`); inspector sections are an accordion (one open per parent element, `InspectorSection.vue`).
+- Warnings sit beside the settings that fix them: main-page ones under their input (`warn` as a message), structure ones in the editor section mapped by id in `src/lib/warnings.js`. Give new structure warnings an id that maps there.
+- Control surfaces: where a surface is (extent, depth, throws, crow) is the wing editor's (`ControlSurfaceEditor.vue`, handles in `WingPlanEditor.vue`); its hinge gap and servo bay are the structure editor's (`SurfaceStructure.vue`). A surface hinged at the TE stock's face is the stock itself (`stock` in `surfaceLayouts`).
+- Servos: generic classes and Hitec models in `src/lib/servos.js`; a bay's servo goes through `installedServo(id, mounting)`. Trays sit between the wing's own ribs where they fit (`fitBaysToRibs`).
+- D-box sheeting per surface and sheeted hard points: `sheetExtent` and `hardPatches` in `structure.js`; use them rather than testing `covering.type` for where sheeting runs.
+- The drawn section's trailing edge is always closed (`closeTrailingEdge` / `syncTrailingEdge` in `sectionSpline.js`).
 
 ## Testing
 

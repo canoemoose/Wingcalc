@@ -13,6 +13,17 @@ The app is now public on GitHub Pages. Options:
 
 Background on where the bundled and computed polars differ: `docs/scope-xfoil-wasm.md`.
 
+## Design booklet
+
+Requested in the 17 October feedback: a complete downloadable design booklet for a wing, with its equations typeset LaTeX-style. Spec to follow from Matt and Sam; nothing built yet.
+
+## From the 17 October feedback round
+
+- The Hitec servo figures come from Hitec's product pages and retailers, with the case dimensions mapped as length × width × height in the order printed (not labelled on the pages) and the lug spans estimated (Hitec publishes none). Check against a drawing before relying on a tight fit.
+- The covering weights for Doculam, and for glass and carbon cloth with epoxy, are estimates (film thickness plus adhesive; cloth weight times a hand-laid wet-out). Oracover's figure is a retailer's. Weigh some samples.
+- Cap strips are still listed full length where a sheeted hard point covers part of a rib.
+- Air brakes' servo bays are still set in the wing editor, with the brake; control surfaces' moved to the structure editor.
+
 ## Questions for Sam
 
 From Sam's feedback on the structure editor (2026-10-16). Each needs his detail before it can be fixed.
