@@ -284,6 +284,11 @@
   display: flex;
   gap: 6px;
 }
+.wc-field__warn {
+  font-size: 0.8rem;
+  color: var(--wc-warn);
+  margin-top: 3px;
+}
 .wc-field__hint {
   font-size: 0.8rem;
   color: var(--wc-muted);
@@ -2690,6 +2695,27 @@
 }
 .wc-fold__head:hover .wc-fold__title {
   color: var(--wc-text);
+}
+.wc-fold__title + .wc-fold__warn {
+  margin-left: auto;
+}
+.wc-fold__warn {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  color: var(--wc-warn);
+  background: var(--wc-warn-bg);
+  border: 1px solid var(--wc-warn);
+}
+.wc-fold__warnings {
+  margin-top: 0;
 }
 .wc-fold__sum {
   margin-left: auto;

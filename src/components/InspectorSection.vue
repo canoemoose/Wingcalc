@@ -33,6 +33,9 @@ const props = defineProps({
   open: { type: Boolean, default: false }, // the default before anything is remembered
   // Opens the section whenever this becomes true (e.g. its panel was selected elsewhere)
   openWhen: { type: Boolean, default: false },
+  // Warnings about this section's settings ({ id, message }): listed at the top of its body,
+  // and counted on its heading so a closed section still shows it needs attention
+  warnings: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['toggle'])
 
@@ -125,7 +128,15 @@ function toggled(e) {
     <summary class="wc-fold__head">
       <span class="wc-fold__title">{{ title }}</span>
       <span v-if="!isOpen && summary" class="wc-fold__sum">{{ summary }}</span>
+      <span v-if="warnings.length" class="wc-fold__warn" :title="`${warnings.length} warning${warnings.length > 1 ? 's' : ''}`">
+        {{ warnings.length }}
+      </span>
     </summary>
-    <div class="wc-fold__body"><slot /></div>
+    <div class="wc-fold__body">
+      <ul v-if="warnings.length" class="wc-warnings wc-fold__warnings">
+        <li v-for="w in warnings" :key="w.id">{{ w.message }}</li>
+      </ul>
+      <slot />
+    </div>
   </details>
 </template>

@@ -12,7 +12,8 @@ const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   label: { type: String, required: true },
   id: { type: String, required: true },
-  warn: { type: Boolean, default: false },
+  // True to mark the box, or the warning itself, shown under the box
+  warn: { type: [Boolean, String], default: false },
   hint: { type: String, default: '' },
   // Compact: label kept for screen readers only, for use in tables.
   compact: { type: Boolean, default: false },
@@ -116,6 +117,7 @@ function onBlur() {
     <p v-if="preview" class="wc-field__calc" :class="{ 'wc-field__calc--bad': !preview.ok }" aria-live="polite">
       {{ preview.text }}
     </p>
+    <p v-if="typeof warn === 'string' && warn" class="wc-field__warn">{{ warn }}</p>
     <p v-if="hint" class="wc-field__hint">{{ hint }}</p>
   </div>
 </template>

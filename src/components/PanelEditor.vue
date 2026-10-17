@@ -13,7 +13,8 @@ import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
-  warnFields: { type: Array, default: () => [] },
+  // Input warnings (calc.js validate: { field, message }), each shown under the box it's about
+  warnings: { type: Array, default: () => [] },
   // Prefix for element ids, so two editors (page and expanded view) can coexist.
   idPrefix: { type: String, default: 'wc' },
   // The aerofoil's own thickness (fraction of chord), shown where a panel keeps it.
@@ -148,6 +149,7 @@ const REASONS = {
   chord: "Negative chord, so it's ignored",
   duplicate: "Same place as another station, so it's ignored",
 }
+const warnMsg = (field) => props.warnings.find((w) => w.field === field)?.message ?? ''
 const ignoredReasons = (p) => new Map(checkStations(p).ignored.map((x) => [x.id, x.reason]))
 
 // Enter moves to the next box in the stations table, like Tab (Shift+Enter goes back).
@@ -404,7 +406,7 @@ function title(i) {
         quantity="length"
         :system="system"
         :label="i === panels.length - 1 ? 'Tip chord' : 'Chord at outer end'"
-        :warn="warnFields.includes(`panel-${i}`)"
+        :warn="warnMsg(`panel-${i}`)"
         @update:model-value="update(i, 'tipChord', $event)"
       />
       <UnitInput
@@ -423,7 +425,7 @@ function title(i) {
         quantity="length"
         :system="system"
         label="Rise at outer end"
-        :warn="warnFields.includes(`panel-${i}-rise`)"
+        :warn="warnMsg(`panel-${i}-rise`)"
         :hint="
           (i === 0 ? 'Height of the outer end above the inner end, with the wing level. Negative for anhedral. ' : '') +
           angleHint(p)

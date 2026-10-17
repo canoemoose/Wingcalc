@@ -4,11 +4,11 @@ How to use the app. For how the numbers are worked out, see [Methods](methods.md
 
 ## Entering values
 
-Every input and output works in metric or imperial. The units menu at the top right sets the system and, within it, the unit for lengths (mm or m; in or ft), weights (g or kg; oz or lb) and speeds (km/h or m/s); areas and wing loading follow the length and weight units. The units are kept with the project. Numeric boxes accept sums (`700 - 20`, `(120 + 80) / 2`) and numbers with their own units (`24in + 50mm` in a millimetre box); commas are thousands separators. An unfinished sum leaves the last good value in place, and the result shows under the box while you type.
+Every input and output works in metric or imperial. The units menu at the top right sets the system and, within it, the unit for lengths (mm or m; in or ft), weights (g or kg; oz or lb) and speeds (km/h or m/s); areas and wing loading follow the length and weight units. The units are kept with the project. Numeric boxes accept sums (`700 - 20`, `(120 + 80) / 2`) and numbers with their own units (`24in + 50mm` in a millimetre box); commas are thousands separators. A value is taken when you press Enter or leave the box, not while you type; Escape puts back the last value. An unfinished sum leaves the last good value in place, and the result shows under the box while you type. A warning about a value (an unusual weight, span or aspect ratio, a panel's chord or rise) shows under its box.
 
 The wing is entered as fuselage width, root chord, then one or more panels per side, each with its own length, outer chord, sweep and dihedral, and straight edges, Bézier curves or chords dimensioned at stations, plus an optional rounded wingtip. For a quick check, mean chord or area can be entered instead.
 
-The inputs column, the panel fields and the structure settings are foldable sections: click a heading to open or close it, and a closed section shows its key values on its heading line. Which sections are open is remembered in this browser, not in the project.
+The inputs column, the panel fields and the structure settings are foldable sections: click a heading to open or close it, and a closed section shows its key values on its heading line. One section in a column is open at a time: opening one closes the others. Which section is open is remembered in this browser, not in the project.
 
 ## Projects
 
@@ -110,7 +110,7 @@ The drawn section then appears in the aerofoil picker in place of the custom par
 
 In "Chords & panels" mode a **Structure and ribs** card sums up the structure: small drawings of the plan and the wing in 3D, then the spar, covering, rib count and spacing, the lowest margin of safety at the design load, the root bending moment and an estimate of the wing's weight, structure and covering, with the covering's share.
 
-**Open structure editor** fills the window: settings on the left, and on the right, cards for the plan with every rib, a 3D view, the loads along the span and a preview of any part. The expand arrows on the Plan and 3D cards grow that card to most of the window's height, and back. **Export…** at the right of the top strip opens the export options.
+**Open structure editor** fills the window: settings on the left (each warning at the top of the section whose settings fix it, with a count on the section's heading; warnings about servo bays and air brakes, which are set in the wing editor, are listed under the settings), and on the right, cards for the plan with every rib, a 3D view, the loads along the span and a preview of any part. The expand arrows on the Plan and 3D cards grow that card to most of the window's height, and back. **Export…** at the right of the top strip opens the export options.
 
 ### What you set
 

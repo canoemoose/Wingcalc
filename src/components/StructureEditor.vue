@@ -33,6 +33,8 @@ const props = defineProps({
   // What the covering weighs on this wing, kg (ribs.js estimateWeight), for its hint
   coveringMass: { type: Number, default: null },
   idPrefix: { type: String, default: 'wcs' },
+  // Warnings to show in each section, by section (warnings.js bySection): { spar: [{ id, message }], ... }
+  warnings: { type: Object, default: () => ({}) },
 })
 const structure = defineModel('structure', { type: Object, required: true })
 
@@ -47,6 +49,7 @@ function set(path, value) {
   structure.value = copy(structure.value, 0)
 }
 const st = computed(() => structure.value)
+const warnIn = (k) => props.warnings[k] ?? []
 const id = (k) => `${props.idPrefix}-${k}`
 
 // Short names fit the inspector's value column; the full description is the option's tooltip
@@ -292,7 +295,7 @@ const braceHint = computed(() => {
 
 <template>
   <div class="wc-structure-editor wc-inspector">
-    <InspectorSection title="Construction" fold-key="structure:construction" :summary="summaries.construction" open>
+    <InspectorSection title="Construction" fold-key="structure:construction" :warnings="warnIn('construction')" :summary="summaries.construction" open>
       <SegmentedField :model-value="st.construction ?? 'built-up'" label="Built as" :options="CONSTRUCTIONS" @update:model-value="set('construction', $event)" />
       <p class="wc-field__hint">
         {{
@@ -304,7 +307,7 @@ const braceHint = computed(() => {
     </InspectorSection>
 
     <template v-if="foam">
-      <InspectorSection title="Foam core and skins" fold-key="structure:foamcore" :summary="summaries.core">
+      <InspectorSection title="Foam core and skins" fold-key="structure:foamcore" :warnings="warnIn('foamcore')" :summary="summaries.core">
         <SelectField
           :id="id('fcore')"
           :model-value="fm.core"
@@ -367,7 +370,7 @@ const braceHint = computed(() => {
         />
       </InspectorSection>
 
-      <InspectorSection title="Spar caps" fold-key="structure:foamcaps" :summary="summaries.caps">
+      <InspectorSection title="Spar caps" fold-key="structure:foamcaps" :warnings="warnIn('foamcaps')" :summary="summaries.caps">
         <UnitInput
           :id="id('fsparpos')"
           :model-value="st.spar.position"
@@ -395,7 +398,7 @@ const braceHint = computed(() => {
         <p class="wc-field__hint">{{ webHint }}</p>
       </InspectorSection>
 
-      <InspectorSection title="Finish" fold-key="structure:finish" :summary="summaries.finish">
+      <InspectorSection title="Finish" fold-key="structure:finish" :warnings="warnIn('finish')" :summary="summaries.finish">
         <SelectField
           :id="id('ffinish')"
           :model-value="st.covering.finish ?? 'film'"
@@ -407,7 +410,7 @@ const braceHint = computed(() => {
       </InspectorSection>
     </template>
 
-    <InspectorSection title="Design loads" fold-key="structure:loads" :summary="summaries.loads">
+    <InspectorSection title="Design loads" fold-key="structure:loads" :warnings="warnIn('loads')" :summary="summaries.loads">
       <ParamInput
         :id="id('g')"
         :model-value="st.loads.designG"
@@ -443,7 +446,7 @@ const braceHint = computed(() => {
       />
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Spar" fold-key="structure:spar" :summary="summaries.spar">
+    <InspectorSection v-if="!foam" title="Spar" fold-key="structure:spar" :warnings="warnIn('spar')" :summary="summaries.spar">
       <SegmentedField :model-value="st.spar.type" label="Type" :options="SPAR_TYPES" @update:model-value="set('spar.type', $event)" />
       <UnitInput
         :id="id('sparpos')"
@@ -513,7 +516,7 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Covering" fold-key="structure:covering" :summary="summaries.covering">
+    <InspectorSection v-if="!foam" title="Covering" fold-key="structure:covering" :warnings="warnIn('covering')" :summary="summaries.covering">
       <SegmentedField :model-value="st.covering.type" label="Structure" :options="COVERINGS" @update:model-value="set('covering.type', $event)" />
       <SelectField
         :id="id('finish')"
@@ -566,7 +569,7 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :summary="summaries.edges">
+    <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :warnings="warnIn('edges')" :summary="summaries.edges">
       <SelectField :id="id('let')" :model-value="st.le.type ?? 'balsa'" label="Leading edge" :options="LE_TYPE_OPTIONS" @update:model-value="setLeType" />
       <template v-if="(st.le.type ?? 'balsa') === 'balsa'">
         <EdgeStockPicker
@@ -646,7 +649,7 @@ const braceHint = computed(() => {
       <EdgeFit v-if="edges?.te.drawing" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Stringers and turbulator spars" fold-key="structure:stringers" :summary="summaries.stringers">
+    <InspectorSection v-if="!foam" title="Stringers and turbulator spars" fold-key="structure:stringers" :warnings="warnIn('stringers')" :summary="summaries.stringers">
       <div v-for="(s, k) in st.stringers" :key="s.id" class="wc-structure-editor__item">
         <div class="wc-structure-editor__itemhead">
           <span>Stringer {{ k + 1 }}</span>
@@ -689,7 +692,7 @@ const braceHint = computed(() => {
       </button>
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Ribs" fold-key="structure:ribs" :summary="summaries.ribs">
+    <InspectorSection v-if="!foam" title="Ribs" fold-key="structure:ribs" :warnings="warnIn('ribs')" :summary="summaries.ribs">
       <UnitInput :id="id('ribt')" :model-value="st.ribs.thickness" quantity="thin" :system="system" label="Rib thickness" @update:model-value="set('ribs.thickness', $event)" />
       <SelectField :id="id('ribm')" :model-value="st.ribs.material" label="Rib material" :options="WOOD" @update:model-value="set('ribs.material', $event)" />
       <SegmentedField
@@ -824,7 +827,7 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Corner gussets" fold-key="structure:gussets" :summary="summaries.gussets">
+    <InspectorSection v-if="!foam" title="Corner gussets" fold-key="structure:gussets" :warnings="warnIn('gussets')" :summary="summaries.gussets">
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.gussets.le" @change="set('gussets.le', $event.target.checked)" /> Where ribs meet the leading edge
       </label>
@@ -870,7 +873,7 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection title="Control surface hinges" fold-key="structure:hinges" :summary="summaries.hinges">
+    <InspectorSection title="Control surface hinges" fold-key="structure:hinges" :warnings="warnIn('hinges')" :summary="summaries.hinges">
       <p v-if="foam" class="wc-field__hint">
         For the ailerons and flaps set in the wing editor. The core is cut and skinned whole, then each surface is sawn off
         along its hinge line, and both cut faces are capped with a hinge spar: the surface's bevelled to a point at the
@@ -901,7 +904,7 @@ const braceHint = computed(() => {
       <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones this far in from the surface's ends.</p>
     </InspectorSection>
 
-    <InspectorSection title="Dihedral braces" fold-key="structure:braces" :summary="summaries.braces">
+    <InspectorSection title="Dihedral braces" fold-key="structure:braces" :warnings="warnIn('braces')" :summary="summaries.braces">
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.braces.enabled" @change="set('braces.enabled', $event.target.checked)" />
         Brace plates on the spar at each dihedral break

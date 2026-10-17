@@ -47,6 +47,7 @@ import {
 } from './lib/calc.js'
 import { resolveAirfoil, performanceWithXfoil, loadCatalogue } from './lib/airfoils.js'
 import { drawnFromParams, isDrawnSection } from './lib/sectionSpline.js'
+import { bySection } from './lib/warnings.js'
 import { XFOIL_SETTINGS, coordsKey, settingsKey, flapKey, quantiseRe } from './lib/xfoil.js'
 import { flightConfigurations, configurationPerformance } from './lib/flaps.js'
 import {
@@ -509,8 +510,11 @@ const warnings = computed(() =>
     panels: input.geometryMode === 'panels' ? input.panels : null,
   }),
 )
-const warnFor = (field) => warnings.value.some((w) => w.field === field)
-const warnFields = computed(() => warnings.value.map((w) => w.field))
+// Each warning is shown under the box it's about; the rest (and station warnings, which the
+// panel editor already shows on the station) are listed at the foot of the column
+const warnFor = (field) => warnings.value.find((w) => w.field === field)?.message ?? ''
+const PLACED = /^(mass|span|area|panel-\d+(-rise)?|station-.*)$/
+const otherWarnings = computed(() => warnings.value.filter((w) => !PLACED.test(w.field)))
 
 // Marker position on the cube-loading scale (0..16+ oz/ft³ mapped to 0..100%).
 const SCALE_MAX = 20
@@ -711,7 +715,7 @@ const gussetRoom = computed(() => {
 const structureWarnings = computed(() => {
   const r = structureResult.value
   if (!r) return []
-  const out = [...r.a.warnings.map((w) => w.message)]
+  const out = [...r.a.warnings]
   const g = input.structure.gussets
   for (const edge of ['le', 'te']) {
     const fit = gussetRoom.value?.[edge]
@@ -719,26 +723,32 @@ const structureWarnings = computed(() => {
     const thin = (v) => format(v, 'thin', u('thin'))
     const where = edge === 'le' ? 'leading' : 'trailing'
     const need = (gussetLayer(g, edge) === 'both' ? 2 : 1) * g.thickness
-    out.push(
-      `The ${where}-edge gussets at ${fit.short.join(', ')} don't fit: they need ${thin(need)} of depth, and there's only ${thin(fit.room)}${
+    out.push({
+      id: `gussets-${edge}`,
+      message: `The ${where}-edge gussets at ${fit.short.join(', ')} don't fit: they need ${thin(need)} of depth, and there's only ${thin(fit.room)}${
         fit.fits.top && !fit.fits.both ? '. Put them on the top or the bottom only' : '. Use thinner gussets or shorter legs'
       }.`,
-    )
+    })
   }
   for (const sk of r.skipped) {
-    out.push(
-      sk.reason === 'outside'
-        ? `${sk.name} is too close to a panel end to run square to the spar, so it's left out.`
-        : `${sk.name} is too short once the leading and trailing edge stock is taken off, so it's left out.`,
-    )
+    out.push({
+      id: 'ribs-skipped',
+      message:
+        sk.reason === 'outside'
+          ? `${sk.name} is too close to a panel end to run square to the spar, so it's left out.`
+          : `${sk.name} is too short once the leading and trailing edge stock is taken off, so it's left out.`,
+    })
   }
   const thinTe = r.parts.filter((p) => p.notes.some((n) => n.startsWith('Very thin')))
   if (thinTe.length)
-    out.push(
-      `${thinTe.map((p) => p.name).join(', ')}: the rib is very thin where it meets the trailing edge stock (under ${thin(MIN_MATERIAL)}), so it's fragile there. Use deeper trailing edge stock, so the ribs stop further forward, or thinner skins.`,
-    )
+    out.push({
+      id: 'thin-te',
+      message: `${thinTe.map((p) => p.name).join(', ')}: the rib is very thin where it meets the trailing edge stock (under ${thin(MIN_MATERIAL)}), so it's fragile there. Use deeper trailing edge stock, so the ribs stop further forward, or thinner skins.`,
+    })
   return out
 })
+// Structure warnings beside the editor settings that fix them; the rest under the editor
+const placedWarnings = computed(() => bySection(structureWarnings.value, input.structure.construction === 'foam'))
 // The part shown in the preview: the first rib, or a foam wing's first template
 const firstParts = computed(() => (ribParts.value.length ? ribParts.value : (structureResult.value?.parts.filter((p) => p.group === 'templates') ?? [])))
 watch(
@@ -847,7 +857,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-model:tip="input.tip"
           v-model:selected="selectedPanel"
           :system="system"
-          :warn-fields="warnFields"
+          :warnings="warnings"
           :base-thickness="baseThickness"
         />
         <ControlSurfaceEditor
@@ -915,8 +925,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </p>
         </InspectorSection>
 
-        <ul v-if="warnings.length" class="wc-warnings">
-          <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
+        <ul v-if="otherWarnings.length" class="wc-warnings">
+          <li v-for="w in otherWarnings" :key="w.field">{{ w.message }}</li>
         </ul>
       </section>
 
@@ -1168,7 +1178,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               </div>
             </dl>
             <ul v-if="structureWarnings.length" class="wc-warnings">
-              <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
+              <li v-for="(w, i) in structureWarnings" :key="i">{{ w.message }}</li>
             </ul>
             <p class="wc-disclaimer">
               A first-order sizing check (Stage A): bending and shear at the design load, not torsion, flutter or joints.
@@ -1283,9 +1293,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :edges="structureResult?.a.edges"
             :gusset-fit="gussetRoom"
             :covering-mass="structureResult?.weight.covering"
+            :warnings="placedWarnings.sections"
           />
-          <ul v-if="structureWarnings.length" class="wc-warnings">
-            <li v-for="(w, i) in structureWarnings" :key="i">{{ w }}</li>
+          <ul v-if="placedWarnings.rest.length" class="wc-warnings">
+            <li v-for="(w, i) in placedWarnings.rest" :key="i">{{ w.message }}</li>
           </ul>
         </template>
         <template #main>
@@ -1423,7 +1434,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:tip="input.tip"
             v-model:selected="selectedPanel"
             :system="system"
-            :warn-fields="warnFields"
+            :warnings="warnings"
             :base-thickness="baseThickness"
             id-prefix="wcx"
           />
@@ -1445,8 +1456,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :system="system"
             id-prefix="wcx"
           />
-          <ul v-if="warnings.length" class="wc-warnings">
-            <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
+          <ul v-if="otherWarnings.length" class="wc-warnings">
+            <li v-for="w in otherWarnings" :key="w.field">{{ w.message }}</li>
           </ul>
         </template>
         <template #main>
