@@ -419,7 +419,13 @@ describe('hot-wire templates', () => {
     expect(model.solids.filter((x) => x.kind === 'core')).toHaveLength(3)
     expect(model.solids.filter((x) => x.kind === 'coreMoving')).toHaveLength(1)
     expect(model.ribs).toHaveLength(0)
-    expect(sectionAt(a, st, parts, 0.2).pieces.some((p) => p.kind === 'core')).toBe(true)
+    const cut = sectionAt(a, st, parts, 0.2).pieces
+    expect(cut.some((p) => p.kind === 'core')).toBe(true)
+    // The spar is the two caps under the skins; with no shear web turned on there's no web, not
+    // even a sliver of no thickness (which the section once drew as a line through the core)
+    expect(cut.filter((p) => p.kind === 'spar')).toHaveLength(2)
+    expect(cut.some((p) => p.kind === 'web')).toBe(false)
+    expect(model.solids.some((x) => x.kind === 'web')).toBe(false)
   })
 
   it('makes routing templates for the servo and air brake pockets', () => {

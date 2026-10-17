@@ -321,7 +321,8 @@ export function sparBoxes(a, structure, s) {
 // box closes. Fitted between the ribs, as the W parts are cut.
 export function webBoxes(a, structure, s) {
   const sp = structure.spar
-  if (sp.type !== 'caps' && sp.type !== 'box') return []
+  // No web at all (a foam wing without one): nothing, not a sliver of no thickness
+  if ((sp.type !== 'caps' && sp.type !== 'box') || !(sp.webThickness > 0)) return []
   const [up, lo] = sparBoxes(a, structure, s)
   const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
   const [innerFront, innerRear] = lineFaces(a.sparX, Math.max(0, sparWidth(sp) - 2 * sp.webThickness))
