@@ -306,8 +306,39 @@ function disposeGroup(g) {
   g?.traverse((o) => {
     o.geometry?.dispose()
     if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose())
-    else o.material?.dispose()
+    else {
+      o.material?.map?.dispose()
+      o.material?.dispose()
+    }
   })
+}
+
+// A rib's name as a flat label that always faces the camera (a sprite). Drawn at 2x so it
+// stays sharp when zoomed in.
+function makeRibLabel(text, clip) {
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 128
+  const g = c.getContext('2d')
+  g.fillStyle = cssColour('--wc-surface', '#f6f7f9')
+  g.strokeStyle = cssColour('--wc-border', '#d9dde3')
+  g.lineWidth = 8
+  g.beginPath()
+  g.roundRect(4, 4, 248, 120, 24)
+  g.fill()
+  g.stroke()
+  g.fillStyle = cssColour('--wc-text', '#1b1f24')
+  g.font = '600 72px system-ui, sans-serif'
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillText(text, 128, 66)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
+  // Cut away with the wing, so a label on the outboard side of the cut doesn't show
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, clippingPlanes: [clip] }))
+  sprite.scale.set(0.16, 0.08, 1)
+  return sprite
 }
 
 // Smooth shading across gentle curves, sharp at corners (the end faces, a box's edges), so
@@ -575,6 +606,12 @@ function updateSection() {
     if (sec.outline.length) {
       const accent = new THREE.Color(cssColour('--wc-accent', '#1f6feb'))
       cut.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(sec.outline.map(toWorld)), new THREE.LineBasicMaterial({ color: accent })))
+    }
+    // Each rib is named at its leading edge, where it sits on the wing
+    for (const rib of ribs.value) {
+      const label = makeRibLabel(rib.name, clip)
+      label.position.set(...worldPoint(a, rib.s, 0, 0))
+      cut.add(label)
     }
     scene.add(cut)
   }
