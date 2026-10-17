@@ -995,20 +995,13 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   const g = structure.gussets
   const gussetGroups = new Map()
   if (gussetEdges(structure).length && g.size > 0) {
-    for (const p of parts.filter((q) => q.group === 'ribs')) {
-      if (g.where === 'ends' && isPlainRib(p.kind)) continue
-      for (const edge of gussetEdges(structure)) {
-        // A rib cut at a hinge doesn't reach the trailing edge
-        if (edge === 'te' && p.split) continue
-        const angle = gussetAngle(a, p.s, edge, p.rib)
-        const sides = gussetSides(p, g, r.rootJoint).map((k) => (k > 0 ? angle : 180 - angle))
-        for (const ang of sides) {
-          const key = `${edge}:${Math.round(ang * 2) / 2}`
-          const cur = gussetGroups.get(key) ?? { edge, angle: Math.round(ang * 2) / 2, count: 0 }
-          cur.count += p.qty * (gussetLayer(g, edge) === 'both' ? 2 : 1)
-          gussetGroups.set(key, cur)
-        }
-      }
+    for (const { part: p, edge, side } of gussetsAt(a, structure, parts)) {
+      const angle = gussetAngle(a, p.s, edge, p.rib)
+      const ang = side > 0 ? angle : 180 - angle
+      const key = `${edge}:${Math.round(ang * 2) / 2}`
+      const cur = gussetGroups.get(key) ?? { edge, angle: Math.round(ang * 2) / 2, count: 0 }
+      cur.count += p.qty * (gussetLayer(g, edge) === 'both' ? 2 : 1)
+      gussetGroups.set(key, cur)
     }
     let k = 1
     for (const grp of [...gussetGroups.values()].sort((p, q) => p.edge.localeCompare(q.edge) || p.angle - q.angle)) {
@@ -1226,6 +1219,42 @@ export function gussetSides(part, gussets, rootJoint) {
   const plugRoot = part.kind === 'root' && rootJoint === 'two-piece'
   if (gussets.sides === 'one') return [tip ? -1 : 1]
   return [1, -1].filter((k) => !(tip && k === 1) && !(plugRoot && k === -1))
+}
+
+// Every corner gusset there is room for: [{ part, edge, side }] for the ribs among parts (side +1
+// outboard, -1 inboard; see gussetSides). Left out: plain ribs when only the ends get them, the
+// trailing edge of a rib cut at a hinge, a trailing-edge gusset on the side of a rib that faces
+// a control surface (it would bridge the hinge gap to the moving part), and any gusset that
+// wouldn't fit before the next rib on that side, with the next rib's own facing gusset (a servo
+// bay's or air brake's pair of ribs, close together).
+export function gussetsAt(a, structure, parts) {
+  const g = structure.gussets
+  const edges = gussetEdges(structure)
+  if (!edges.length || !(g.size > 0)) return []
+  const ribs = parts.filter((q) => q.group === 'ribs').sort((p, q) => p.s - q.s)
+  const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
+  const gets = (p, edge) => !(g.where === 'ends' && isPlainRib(p.kind)) && !(edge === 'te' && p.split)
+  const facesSurface = (p, side) => {
+    const q = p.s + side * ((p.thickness || 0) / 2 + g.size / 2)
+    return surfaces.some((sf) => q > sf.s0 - 1e-6 && q < sf.s1 + 1e-6)
+  }
+  const out = []
+  ribs.forEach((p, i) => {
+    for (const edge of edges) {
+      if (!gets(p, edge)) continue
+      for (const side of gussetSides(p, g, structure.ribs.rootJoint)) {
+        if (edge === 'te' && facesSurface(p, side)) continue
+        const n = ribs[i + side]
+        if (n) {
+          const gap = Math.abs(n.s - p.s) - ((p.thickness || 0) + (n.thickness || 0)) / 2
+          const facing = gets(n, edge) && gussetSides(n, g, structure.ribs.rootJoint).includes(-side) && !(edge === 'te' && facesSurface(n, -side))
+          if (gap < g.size * (facing ? 2 : 1) + 0.001) continue
+        }
+        out.push({ part: p, edge, side })
+      }
+    }
+  })
+  return out
 }
 
 // Which panel a rib belongs to for its board: the inner panel at a break.

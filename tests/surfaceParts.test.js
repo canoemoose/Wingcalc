@@ -11,7 +11,7 @@ import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '.
 import { wing3d, sectionAt } from '../src/lib/wing3d.js'
 import { planThumb, isoThumb } from '../src/lib/thumbnails.js'
 import { bevelAngle, newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
-import { gussetSides } from '../src/lib/ribs.js'
+import { gussetsAt } from '../src/lib/ribs.js'
 
 // Two segments properly cross (touching at ends doesn't count)
 function crosses(a, b, c, d) {
@@ -180,8 +180,29 @@ describe('built-up control surfaces', () => {
   it('puts no trailing-edge gussets on ribs cut at a hinge', () => {
     const res = build({ edit: (st) => Object.assign(st.gussets, { te: true, where: 'all', layer: 'top', teLayer: 'top' }) })
     const te = res.parts.filter((p) => p.group === 'gussets' && p.notes[0].startsWith('Trailing')).reduce((n, p) => n + p.qty, 0)
-    const whole = res.parts.filter((p) => p.group === 'ribs' && !p.split)
-    expect(te).toBe(whole.reduce((n, p) => n + p.qty * gussetSides(p, res.st.gussets, res.st.ribs.rootJoint).length, 0))
+    const placed = gussetsAt(res.a, res.st, res.parts).filter((x) => x.edge === 'te')
+    expect(te).toBe(placed.reduce((n, x) => n + x.part.qty, 0))
+    // none on a rib cut at a hinge
+    expect(placed.some((x) => x.part.split)).toBe(false)
+    // and none bridging the hinge gap: each surface's end ribs have theirs on the wing side only
+    for (const sf of res.a.surfaces.filter((x) => x.ok)) {
+      for (const x of placed) {
+        const q = x.part.s + x.side * (x.part.thickness / 2 + res.st.gussets.size / 2)
+        expect(q > sf.s0 && q < sf.s1, `${x.part.name} ${x.side}`).toBe(false)
+      }
+    }
+    // The wing side of the surfaces' end ribs, and the ribs clear of the surfaces, still have theirs
+    expect(placed.length).toBeGreaterThan(0)
+  })
+
+  it('keeps gussets clear of the next rib', () => {
+    const res = build({ edit: (st) => Object.assign(st.gussets, { le: true, te: true, where: 'all' }) })
+    const ribs = res.parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s)
+    for (const x of gussetsAt(res.a, res.st, res.parts)) {
+      const i = ribs.indexOf(x.part)
+      const n = ribs[i + x.side]
+      if (n) expect(Math.abs(n.s - x.part.s) - (n.thickness + x.part.thickness) / 2, x.part.name).toBeGreaterThan(res.st.gussets.size)
+    }
   })
 
   it('exports the surfaces’ parts and hinges to the DXF, labelled, and draws them on the plan', () => {

@@ -12,8 +12,8 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan } from './structure.js'
-import { gussetSides } from './ribs.js'
+import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan } from './structure.js'
+import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
 
@@ -600,44 +600,40 @@ function gussetTriangles(a, structure, parts) {
   if (!gussetEdges(st).length || !(g.size > 0)) return []
   const out = []
   const clampS = (s) => Math.min(a.tipS, Math.max(a.rootS, s))
-  for (const p of parts.filter((q) => q.group === 'ribs')) {
-    if (g.where === 'ends' && isPlainRib(p.kind)) continue
+  // Where there's room for one (ribs.js gussetsAt), the centre rib's inboard ones left to the
+  // mirrored half
+  for (const { part: p, edge, side } of gussetsAt(a, st, parts)) {
     const r = p.rib
     const ang = (r.angle * Math.PI) / 180
     const d = [Math.sin(ang), Math.cos(ang)] // along the rib, aft, in plan (s, x)
     const nrm = [Math.cos(ang), -Math.sin(ang)] // across the rib, outboard
     const P = [p.s, a.sparX(p.s)]
     const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece'
-    for (const edge of gussetEdges(st)) {
-      // A rib cut at a hinge doesn't reach the trailing edge
-      if (edge === 'te' && p.split) continue
-      const stockX = (s) => {
-        const sec = a.section(clampS(s))
-        return edge === 'le' ? sec.xl + st.le.width : sec.xl + sec.c - st.te.width
-      }
-      for (const side of gussetSides(p, g, st.ribs.rootJoint).filter((k) => !(centre && k < 0))) {
-        const at = (u) => [P[0] + d[0] * (u - r.sparU) + (nrm[0] * side * p.thickness) / 2, P[1] + d[1] * (u - r.sparU) + (nrm[1] * side * p.thickness) / 2]
-        // The corner: where this face of the rib meets the stock
-        const guess = edge === 'le' ? r.uA : r.uB
-        let lo = guess - 0.02
-        let hi = guess + 0.02
-        const f = (u) => at(u)[1] - stockX(at(u)[0])
-        if (Math.sign(f(lo)) !== Math.sign(f(hi))) {
-          for (let i = 0; i < 50; i++) {
-            const m = (lo + hi) / 2
-            if (Math.sign(f(m)) === Math.sign(f(lo))) lo = m
-            else hi = m
-          }
-        }
-        const C = at((lo + hi) / 2)
-        const A = [C[0] + d[0] * (edge === 'le' ? g.size : -g.size), C[1] + d[1] * (edge === 'le' ? g.size : -g.size)]
-        const h = 1e-4
-        const slope = (stockX(C[0] + h) - stockX(C[0] - h)) / (2 * h)
-        const e = [1 / Math.hypot(1, slope), slope / Math.hypot(1, slope)]
-        const B = [C[0] + e[0] * side * g.size, C[1] + e[1] * side * g.size]
-        out.push({ rib: p.id, name: p.name, edge, side, tri: [C, A, B] })
+    if (centre && side < 0) continue
+    const stockX = (s) => {
+      const sec = a.section(clampS(s))
+      return edge === 'le' ? sec.xl + st.le.width : sec.xl + sec.c - st.te.width
+    }
+    const at = (u) => [P[0] + d[0] * (u - r.sparU) + (nrm[0] * side * p.thickness) / 2, P[1] + d[1] * (u - r.sparU) + (nrm[1] * side * p.thickness) / 2]
+    // The corner: where this face of the rib meets the stock
+    const guess = edge === 'le' ? r.uA : r.uB
+    let lo = guess - 0.02
+    let hi = guess + 0.02
+    const f = (u) => at(u)[1] - stockX(at(u)[0])
+    if (Math.sign(f(lo)) !== Math.sign(f(hi))) {
+      for (let i = 0; i < 50; i++) {
+        const m = (lo + hi) / 2
+        if (Math.sign(f(m)) === Math.sign(f(lo))) lo = m
+        else hi = m
       }
     }
+    const C = at((lo + hi) / 2)
+    const A = [C[0] + d[0] * (edge === 'le' ? g.size : -g.size), C[1] + d[1] * (edge === 'le' ? g.size : -g.size)]
+    const h = 1e-4
+    const slope = (stockX(C[0] + h) - stockX(C[0] - h)) / (2 * h)
+    const e = [1 / Math.hypot(1, slope), slope / Math.hypot(1, slope)]
+    const B = [C[0] + e[0] * side * g.size, C[1] + e[1] * side * g.size]
+    out.push({ rib: p.id, name: p.name, edge, side, tri: [C, A, B] })
   }
   return out
 }
