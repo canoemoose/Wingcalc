@@ -5,7 +5,7 @@
 // stringers, ribs and gussets (which are kept, for switching back). Every change replaces the
 // whole structure object, so undo/redo and autosave see it.
 import { TRASH } from '../lib/icons.js'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
 import SelectField from './SelectField.vue'
@@ -145,6 +145,32 @@ function setSpacing(mode) {
   } else set('ribs.spacing', mode)
 }
 const byDistance = (list) => [...(list ?? [])].sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity))
+// A list sorted by distance, held in the order it had while a field in it has focus: a row that
+// moved as its value was committed would jump under the pointer and lose the focus. It sorts
+// again once the focus leaves the list.
+function stableRows() {
+  const editing = ref(false)
+  let order = []
+  const rows = (list) => {
+    if (!editing.value) {
+      const sorted = byDistance(list)
+      order = sorted.map((m) => m.id)
+      return sorted
+    }
+    const byId = new Map((list ?? []).map((m) => [m.id, m]))
+    const kept = order.map((k) => byId.get(k)).filter(Boolean)
+    const rows = [...kept, ...(list ?? []).filter((m) => !order.includes(m.id))]
+    order = rows.map((m) => m.id)
+    return rows
+  }
+  const focusin = () => (editing.value = true)
+  const focusout = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) editing.value = false
+  }
+  return { rows, focusin, focusout }
+}
+const manualList = stableRows()
+const hardList = stableRows()
 
 // What each section holds, one line, shown on its heading while it's closed
 // Sizes without trailing zeros, the unit once: "6 × 3 mm", "1.5 mm"
@@ -750,7 +776,7 @@ const braceHint = computed(() => {
           Distances from the root rib. The root, panel ends, tip and hard points always get a rib. You can also drag ribs
           in the plan, double-click it to add one, and press Delete to remove the selected one.
         </p>
-        <div v-for="(m, k) in byDistance(st.ribs.manual)" :key="m.id" class="wc-structure-editor__row">
+        <div v-for="(m, k) in manualList.rows(st.ribs.manual)" :key="m.id" class="wc-structure-editor__row" @focusin="manualList.focusin" @focusout="manualList.focusout">
           <UnitInput
             :id="id(`man${m.id}`)"
             :model-value="m.d"
@@ -770,7 +796,7 @@ const braceHint = computed(() => {
           Ribs that must be at a set distance from the root rib: servo bays, aileron ends, undercarriage. Give one a second
           distance to put a rib there too, and sheet between them on the top, the bottom or both, over part of the chord.
         </p>
-        <div v-for="h in byDistance(st.ribs.hardPoints)" :key="h.id" class="wc-structure-editor__row">
+        <div v-for="h in hardList.rows(st.ribs.hardPoints)" :key="h.id" class="wc-structure-editor__row" @focusin="hardList.focusin" @focusout="hardList.focusout">
           <UnitInput
             :id="id(`hp${h.id}d`)"
             :model-value="h.d"

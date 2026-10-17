@@ -28,7 +28,7 @@ import Structure3D from './components/Structure3D.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
-import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf } from './lib/structure.js'
+import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf, fillManualRibs } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit } from './lib/wing3d.js'
 import { planThumb, isoThumb } from './lib/thumbnails.js'
@@ -301,6 +301,20 @@ watch(selectedSurface, (v) => v !== null && (selectedBrake.value = null))
 watch(selectedBrake, (v) => v !== null && (selectedSurface.value = null))
 // The wing the control surface editor places surfaces on
 const planWing = computed(() => ({ fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }))
+// Manual rib spacing places ribs only where the list says, so a panel added (or split off) while
+// it's on gets evenly spaced ribs of its own, as rows in the list to adjust
+watch(
+  () => input.panels.map((p) => p.id),
+  (ids, before) => {
+    if (input.structure.ribs.spacing !== 'manual' || !before) return
+    const fresh = ids.map((pid, i) => (before.includes(pid) ? -1 : i)).filter((i) => i >= 0)
+    if (!fresh.length) return
+    const sampler = wingSampler(planWing.value)
+    if (!sampler) return
+    const manual = fillManualRibs(sampler, input.structure, fresh)
+    if (manual !== input.structure.ribs.manual) input.structure = { ...input.structure, ribs: { ...input.structure.ribs, manual } }
+  },
+)
 
 // The expanded wing editor renders beside the calculator (see WingWorkspace), once mounted.
 const rootEl = ref(null)

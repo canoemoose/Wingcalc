@@ -370,6 +370,29 @@ function bayFrom(s, limit, end) {
 // out from the inner end taking the largest bay allowed each time, then scale the limit down
 // (by bisection) until that number of bays lands exactly on the outer end, so the spacing
 // still grows where it may but there's no stub of a bay at the end.
+// Manual spacing: ribs for panels that have none. Each of the given panels (indices into
+// sampler.ends; all of them if null) with no manual rib between its ends gets ribs evenly spaced
+// at the pitch, as Even spacing would put them there. Returns the manual list with them added,
+// each { id, d } with d in metres from the root rib (to 0.5 mm), or the list as it was.
+export function fillManualRibs(sampler, structure, panels = null) {
+  const r = structure.ribs
+  const list = r.manual ?? []
+  const s0 = rootRibS(sampler, structure)
+  const pitch = Math.max(MIN_SPACING, r.pitch || 0.075)
+  let id = list.reduce((m, x) => Math.max(m, x.id ?? 0), 0)
+  const out = [...list]
+  sampler.ends.forEach((e, i) => {
+    if (panels && !panels.includes(i)) return
+    const a = Math.max(s0, e.inner.s)
+    const b = e.outer.s
+    if (!(b - a > 2 * MIN_SPACING)) return
+    if (list.some((m) => Number.isFinite(m.d) && s0 + m.d > a + 1e-4 && s0 + m.d < b - 1e-4)) return
+    const n = Math.max(1, Math.ceil((b - a) / pitch - 1e-9))
+    for (let k = 1; k < n; k++) out.push({ id: ++id, d: Math.round((a + ((b - a) * k) / n - s0) * 2000) / 2000 })
+  })
+  return out.length === list.length ? list : out
+}
+
 export function spacedRibs(points, limit) {
   const out = [points[0]]
   for (let i = 1; i < points.length; i++) {

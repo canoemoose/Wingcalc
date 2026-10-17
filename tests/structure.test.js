@@ -243,3 +243,23 @@ describe('structure analysis', () => {
     expect(run().warnings.some((x) => x.id.startsWith('short-'))).toBe(false)
   })
 })
+
+describe('manual rib spacing on a panel added later', () => {
+  it('gives a panel with no manual ribs evenly spaced ones of its own, and leaves the rest alone', async () => {
+    const { fillManualRibs } = await import('../src/lib/structure.js')
+    const { wingSampler, normalisePanels } = await import('../src/lib/wing.js')
+    const wing = { fuselageWidth: 0, rootChord: 0.25, panels: normalisePanels([{ id: 1, length: 0.4, tipChord: 0.22, dihedral: 0 }, { id: 2, length: 0.3, tipChord: 0.15, dihedral: 5 }]) }
+    const sampler = wingSampler(wing)
+    const st = defaultStructure()
+    st.ribs.spacing = 'manual'
+    st.ribs.pitch = 0.075
+    st.ribs.manual = [{ id: 1, d: 0.1 }, { id: 2, d: 0.2 }]
+    const filled = fillManualRibs(sampler, st)
+    const added = filled.slice(2)
+    // Panel 2 runs from 400 to 700 mm: 300 mm at 75 mm pitch is four bays, three ribs between
+    expect(added.map((m) => Math.round(m.d * 1000))).toEqual([475, 550, 625])
+    expect(new Set(filled.map((m) => m.id)).size).toBe(filled.length)
+    // Panel 1 already has ribs, so asking for it alone changes nothing
+    expect(fillManualRibs(sampler, st, [0])).toBe(st.ribs.manual)
+  })
+})
