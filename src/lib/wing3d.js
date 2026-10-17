@@ -379,6 +379,41 @@ export function leSection(a, structure, s) {
   return [...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...xs.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
 }
 
+// A control surface's fixed hinge spar at s: between the inset surfaces, from its front face
+// to its rear face (a box that follows the section). sf from structure.js surfaceLayouts.
+export function hingeSparSection(a, structure, sf, s) {
+  const x0 = sf.faces.fixedFront(s)
+  const x1 = sf.faces.fixedRear(s)
+  const up = (x) => insetHeight(a, structure, s, x, 'upper')
+  const lo = (x) => insetHeight(a, structure, s, x, 'lower')
+  return [
+    [x0, lo(x0)],
+    [x1, lo(x1)],
+    [x1, up(x1)],
+    [x0, up(x0)],
+  ]
+}
+
+// The moving surface's hinge spar at s: its front bevelled to a point at the centre line (the
+// top face at sf.bevel.top from square, the bottom at sf.bevel.bottom), its rear face square,
+// between the inset surfaces.
+export function movingSparSection(a, structure, sf, s) {
+  const xa = sf.faces.apex(s)
+  const xr = sf.faces.movingRear(s)
+  const up = (x) => insetHeight(a, structure, s, x, 'upper')
+  const lo = (x) => insetHeight(a, structure, s, x, 'lower')
+  const mid = (up(xa) + lo(xa)) / 2
+  // Where each bevel meets its surface, no further back than the rear face
+  const meet = (deg, which) => {
+    const k = Math.tan(deg * RAD)
+    const h = which === 'upper' ? up : lo
+    let x = xa
+    for (let i = 0; i < 4; i++) x = Math.min(xr - 1e-5, xa + k * Math.abs(h(x) - mid))
+    return [x, h(x)]
+  }
+  return [[xa, mid], meet(sf.bevel.bottom, 'lower'), [xr, lo(xr)], [xr, up(xr)], meet(sf.bevel.top, 'upper')]
+}
+
 // Trailing edge stock at s: the section's own tail over its depth.
 export function teSection(a, structure, s, k = 8) {
   const sec = a.section(s)
@@ -419,6 +454,11 @@ export function sectionAt(a, structure, parts, s) {
   for (const str of st.stringers ?? []) {
     if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
     for (const w of ['upper', 'lower']) if (str.surface === 'both' || str.surface === w) add('stringer', stringerBox(a, st, str, s, w))
+  }
+  // Control surfaces' hinge spars, where the cut crosses them
+  for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
+    if (s >= sf.fixed[0] && s <= sf.fixed[1]) add('hinge', hingeSparSection(a, st, sf, s))
+    if (s >= sf.moving[0] && s <= sf.moving[1]) add('hingeMoving', movingSparSection(a, st, sf, s))
   }
   const sec = a.section(s)
   const xs = cosine(40)
@@ -469,6 +509,8 @@ function gussetTriangles(a, structure, parts) {
     const P = [p.s, a.sparX(p.s)]
     const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece'
     for (const edge of gussetEdges(st)) {
+      // A rib cut at a hinge doesn't reach the trailing edge
+      if (edge === 'te' && p.split) continue
       const stockX = (s) => {
         const sec = a.section(clampS(s))
         return edge === 'le' ? sec.xl + st.le.width : sec.xl + sec.c - st.te.width
@@ -643,7 +685,22 @@ export function wing3d(a, structure, parts) {
     for (const which of ['upper', 'lower']) add('sheet', sweep(a, s0, s1, (s) => sheetSection(a, st, s, which), 40, { extend: ends, caps: 'strip' }))
   }
   add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }))
-  add('te', sweep(a, s0, s1, (s) => teSection(a, st, s), 40, { extend: ends }))
+  // The trailing edge: the wing's, broken where each control surface's own runs, between the
+  // surface's end ribs' outer faces
+  const surfaces = (a.surfaces ?? []).filter((x) => x.ok).sort((p, q) => p.s0 - q.s0)
+  let from = s0
+  let fromExt = ends[0]
+  for (const sf of surfaces) {
+    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }))
+    from = sf.s1
+    fromExt = halfRib
+    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => teSection(a, st, s), 20))
+    // The hinge spars: the fixed side's between the end ribs' faces, the moving side's across
+    // the moving surface
+    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12))
+    add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12))
+  }
+  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }))
 
   // Stringers, seated in their rib notches
   for (const str of st.stringers ?? []) {
@@ -659,12 +716,13 @@ export function wing3d(a, structure, parts) {
   const ribs = []
   const capStrips = []
   const strips = cov.capStrips && cov.type !== 'sheeted' && cov.capStripThickness > 0 && cov.capStripWidth > 0
-  for (const p of parts.filter((q) => q.group === 'ribs')) {
+  for (const p of parts.filter((q) => q.group === 'ribs' || q.group === 'surfaces')) {
     const r = p.rib
     const t = p.thickness
     const place = ribPlacement(a, p)
     const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece' // shared by both halves
-    ribs.push({ id: p.id, name: p.name, kind: p.kind, outline: p.outline, holes: p.holes, thickness: t, matrix: place(t), centre })
+    // surface: one of a control surface's own ribs, drawn with it
+    ribs.push({ id: p.id, name: p.name, kind: p.kind, outline: p.outline, holes: p.holes, thickness: t, matrix: place(t), centre, surface: p.group === 'surfaces' })
     if (strips && r.surfaces) {
       const { us, up, lo, upIn, loIn } = r.surfaces
       const at = (arr, u) => {
@@ -689,7 +747,7 @@ export function wing3d(a, structure, parts) {
         const root = p.kind === 'root' && st.ribs.rootJoint === 'two-piece'
         const width = centre ? cw / 2 : cw
         const reach = tip ? t / 2 : root ? -t / 2 + cw : cw / 2
-        capStrips.push({ id: `${p.id}-cs`, outline, holes: [], thickness: width, matrix: place(width, reach) })
+        capStrips.push({ id: `${p.id}-cs`, outline, holes: [], thickness: width, matrix: place(width, reach), surface: p.group === 'surfaces' })
       }
     }
   }

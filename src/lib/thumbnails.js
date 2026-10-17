@@ -23,7 +23,7 @@ function framed(lines) {
 
 // The plan: outline, edge stock, spar and ribs, leading edge at the top. In millimetres, so
 // stroke widths are best set non-scaling. Returns { box, lines: [{ kind, d }] } or null.
-const PLAN_LAYERS = { OUTLINE: 'outline', STOCK: 'stock', SPAR: 'spar', RIBS: 'rib' }
+const PLAN_LAYERS = { OUTLINE: 'outline', STOCK: 'stock', SPAR: 'spar', RIBS: 'rib', HINGE: 'stock' }
 export function planThumb(a, structure, parts) {
   const ents = planEntities(a, structure, parts, { handedness: 'right' })
   const lines = ents
@@ -54,7 +54,8 @@ function camera(dir = HOME_VIEW) {
 export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
   const view = camera()
   const lines = []
-  const ribs = parts.filter((q) => q.group === 'ribs')
+  // The wing's ribs and the control surfaces' own, which carry them on behind a hinge
+  const ribs = parts.filter((q) => q.group === 'ribs' || q.group === 'surfaces')
   for (const p of ribs) {
     const m = ribPlacement(a, p)(p.thickness)
     const at = ([u, z]) => view(applyMatrix(m, [u, z, p.thickness / 2]))

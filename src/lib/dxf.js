@@ -18,7 +18,7 @@ import { bounds, polygonArea } from './ribs.js'
 
 export function defaultExportOptions() {
   return {
-    parts: { ribs: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true },
+    parts: { ribs: true, surfaces: true, hinges: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true },
     machine: 'laser', // 'laser' | 'router'
     kerf: 0.00015, // m
     toolDiameter: 0.003175, // m
@@ -37,7 +37,7 @@ export function defaultExportOptions() {
 }
 
 const MM = 1000
-const GROUP_TITLES = { ribs: 'Ribs', gussets: 'Gussets', braces: 'Dihedral braces', webs: 'Shear webs', sheeting: 'Sheeting', tip: 'Tip block' }
+const GROUP_TITLES = { ribs: 'Ribs', surfaces: 'Control surface ribs', hinges: 'Hinge tabs', gussets: 'Gussets', braces: 'Dihedral braces', webs: 'Shear webs', sheeting: 'Sheeting', tip: 'Tip block' }
 
 // --- Contour operations -------------------------------------------------------------------------
 
@@ -262,7 +262,8 @@ function shiftEnt(e, dx, dy) {
   return { ...e, pts: e.pts.map(([x, y]) => [x + dx, y + dy]) }
 }
 
-const fmtT = (t) => `${(t * MM).toFixed(1).replace(/\.0$/, '')} mm`
+// To a hundredth of a millimetre, for hinge film; trailing zeros dropped
+const fmtT = (t) => `${Number((t * MM).toFixed(2))} mm`
 const materialLabel = (id) => MATERIALS[id]?.label ?? id
 
 // Lay the parts out in rows, grouped by material and thickness (one sheet of stock each).
@@ -478,9 +479,9 @@ export function hatchLines(poly, step) {
 }
 
 // A full-size plan to build over: wing outline, LE and TE stock, spar, stringers and every rib
-// at its thickness, with rib names. Right half by default; 'left' mirrors it, 'pair' draws
-// both halves about the centreline. Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT,
-// HATCH (the sheeted area).
+// at its thickness, with rib names, and each control surface's hinge spars, ends and tabs.
+// Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
+// Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE.
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
   const add = (layer, pts, closed = false) => raw.push({ type: 'poly', layer, pts, closed })
@@ -533,10 +534,27 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   // Sheeting (D-box or fully sheeted), hatched: R12 has no hatch entity, so plain lines
   const sheet = sheetOutline(a, structure)
   if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('HATCH', seg)
-  // Ribs, at their thickness, between the stock
+  // Control surfaces: both hinge spars' faces, the moving surface's ends (the gap clear of the
+  // end ribs), and each tab as its rectangle centred on the hinge line
+  for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
+    const along = (from, to, fx) => Array.from({ length: 9 }, (_, i) => from + ((to - from) * i) / 8).map((s) => [s, fx(s)])
+    const f = sf.faces
+    for (const fx of [f.fixedFront, f.fixedRear]) add('HINGE', along(sf.fixed[0], sf.fixed[1], fx))
+    for (const fx of [f.apex, f.movingRear]) add('HINGE', along(sf.moving[0], sf.moving[1], fx))
+    for (const s of sf.moving) add('HINGE', [[s, f.apex(s)], [s, sec(s).xl + sec(s).c]])
+    const h = structure.hinges
+    for (const s of sf.tabs) {
+      const x = sf.hingeX(s)
+      const hw = h.tabWidth / 2
+      const hl = h.tabLength / 2
+      add('HINGE', [[s - hw, x - hl], [s + hw, x - hl], [s + hw, x + hl], [s - hw, x + hl]], true)
+    }
+  }
+  // Ribs, at their thickness, between the stock (or the hinge spars), the control surfaces'
+  // own with them
   const t = structure.ribs.thickness
   const texts = []
-  for (const p of parts.filter((q) => q.group === 'ribs')) {
+  for (const p of parts.filter((q) => q.group === 'ribs' || q.group === 'surfaces')) {
     const r = p.rib
     const ang = (r.angle * Math.PI) / 180
     const d = [Math.sin(ang), Math.cos(ang)] // (ds, dx), aft
@@ -544,8 +562,14 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     const P = [p.s, a.sparX(p.s)]
     const at = (u, side) => [P[0] + d[0] * (u - r.sparU) + (nrm[0] * side * t) / 2, P[1] + d[1] * (u - r.sparU) + (nrm[1] * side * t) / 2]
     add('RIBS', [at(r.uA, -1), at(r.uB, -1), at(r.uB, 1), at(r.uA, 1)], true)
-    const front = at(r.uA, 0)
-    texts.push({ s: front[0], x: front[1] - structure.le.width - 0.008, text: p.name })
+    // Names ahead of the leading edge, or for a control surface's ribs behind the trailing edge
+    if (p.group === 'surfaces') {
+      const back = at(r.uB, 0)
+      texts.push({ s: back[0], x: back[1] + structure.te.width + 0.012, text: p.name })
+    } else {
+      const front = at(r.uA, 0)
+      texts.push({ s: front[0], x: front[1] - structure.le.width - 0.008, text: p.name })
+    }
   }
   // To millimetres, drawing y up = leading edge at the top
   const sides = handedness === 'pair' ? [1, -1] : handedness === 'left' ? [-1] : [1]
@@ -563,7 +587,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
 
 export function planDxf(a, structure, parts, opts, baseName = 'wing') {
   const ents = planEntities(a, structure, parts, { handedness: opts.handedness })
-  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8, HATCH: 9 }
+  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8, HATCH: 9, HINGE: 6 }
   return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf(ents, { extraLayers, format: opts.format }) }
 }
 
@@ -576,7 +600,7 @@ export function cutListCsv(parts, cutList) {
   const rows = [['Item', 'Quantity', 'Material', 'Size (mm)', 'Length (mm)', 'Notes']]
   for (const p of parts) {
     const b = bounds(p.outline)
-    rows.push([p.name, p.qty, materialLabel(p.material), `${mm(p.thickness)} thick, ${mm(b.w)} x ${mm(b.h)}`, '', p.notes.join('; ')])
+    rows.push([p.name, p.qty, materialLabel(p.material), `${Number((p.thickness * MM).toFixed(2))} thick, ${mm(b.w)} x ${mm(b.h)}`, '', p.notes.join('; ')])
   }
   for (const c of cutList) {
     rows.push([c.item, c.qty, materialLabel(c.material), c.tube ? `${mm(c.size[0])} OD, ${mm(c.size[1])} wall` : c.round ? `${mm(c.size[0])} diameter` : `${mm(c.size[0])} x ${mm(c.size[1])}`, mm(c.length), [c.triangular && 'Triangular section', c.note].filter(Boolean).join('; ')])

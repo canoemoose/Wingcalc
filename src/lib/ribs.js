@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt } from './edgeStock.js'
@@ -193,7 +193,10 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 
 // Build one rib: outline with notches and tabs, holes, engraved lines and label.
 // rib: { s, kind, label } from the analysis; board: panel datum height (for jig tabs) or null.
-export function buildRib(a, structure, rib, { board = null } = {}) {
+// split: across a control surface, { surface, side }: 'fixed' is the part ahead of the hinge,
+// stopping at the fixed hinge spar's front face; 'moving' the moving surface's part, from its
+// hinge spar's rear face to the trailing edge stock (surface from structure.js surfaceLayouts).
+export function buildRib(a, structure, rib, { board = null, split = null } = {}) {
   const r = structure.ribs
   const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
   const prof = cutProfile(a, rib.s, { perpendicular })
@@ -253,16 +256,25 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   let uA = crossing((s) => a.section(s).xl + (structure.le.width || 0), (structure.le.width || 0) * scale)
   // A sheeted nose: the rib runs forward until the sheeting leaves no room for it
   if (structure.le.type === 'none') while (uA < L / 2 && top(uA) - bot(uA) < MIN_MATERIAL) uA += 0.0002
-  const uB = crossing((s) => a.section(s).xl + a.section(s).c - (structure.te.width || 0), L - (structure.te.width || 0) * scale)
-  if (!(uB > uA + 0.01)) return { ok: false, reason: 'short', s: rib.s }
-  if (top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin where it meets the trailing edge stock')
+  let uB = crossing((s) => a.section(s).xl + a.section(s).c - (structure.te.width || 0), L - (structure.te.width || 0) * scale)
+  // Either side of a control surface's hinge
+  const guessAt = (fx) => uSpar + (fx(rib.s) - xs0) / cs
+  const fixedSide = split?.side === 'fixed'
+  const movingSide = split?.side === 'moving'
+  if (fixedSide) uB = crossing(split.surface.faces.fixedFront, guessAt(split.surface.faces.fixedFront))
+  if (movingSide) uA = crossing(split.surface.faces.movingRear, guessAt(split.surface.faces.movingRear))
+  if (!(uB > uA + (movingSide ? 0.005 : 0.01))) return { ok: false, reason: 'short', s: rib.s }
+  if (!fixedSide && top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin where it meets the trailing edge stock')
 
   // Notches from the top (upper) and bottom (lower): { u0, u1, depth }
   const upper = []
   const lower = []
   const holes = []
   const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS)
-  if (sp.type === 'caps' || sp.type === 'box') {
+  // The moving surface's part is behind the main spar: nothing of it to notch
+  if (movingSide) {
+    // no spar notches
+  } else if (sp.type === 'caps' || sp.type === 'box') {
     upper.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
     lower.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
   } else if (sp.type === 'solid') {
@@ -279,7 +291,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     const r = sp.tubeDiameter / 2 + 0.0001
     holes.push(circle(0, 0, 1).map(([x, y]) => [(uSpar0 + uSpar1) / 2 + x * (halfSpar + 0.0001), mid + y * r]))
   }
-  if (sparHere.type !== 'none' && sparHere.fits === false) notes.push("The spar doesn't fit at this rib")
+  if (!movingSide && sparHere.type !== 'none' && sparHere.fits === false) notes.push("The spar doesn't fit at this rib")
   for (const st of structure.stringers ?? []) {
     if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
     const u = prof.uAt(st.position)
@@ -345,7 +357,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   }
   let outline = clean([...topChain, ...botChain])
   // A rod or dowel sits in a half-round notch in the rib's front, its centre line on the cut
-  if (isRound(structure.le) && structure.le.diameter > 0) {
+  if (!movingSide && isRound(structure.le) && structure.le.diameter > 0) {
     const r = structure.le.diameter / 2
     const ru = Math.max(r, uA - crossing((s) => a.section(s).xl, 0)) // along the rib, wider where it crosses at an angle
     const sec = a.section(rib.s)
@@ -387,8 +399,8 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
   const edge = 0.0015
   let best = null
   for (const [from, to, pref] of [
-    [uA + edge, uSpar0 - edge, 1.1],
-    [uSpar1 + edge, uB - edge, 1],
+    [uA + edge, Math.min(uB, uSpar0) - edge, 1.1],
+    [Math.max(uA, uSpar1) + edge, uB - edge, 1],
   ]) {
     for (let u0 = from; u0 < to; u0 += 0.001) {
       // The tallest label (up to 5 mm) whose box fits clear from here
@@ -423,8 +435,8 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     const m = r.lighteningMargin || 0.004
     const stretches = []
     for (const [from, to] of [
-      [uA + m, uSpar0 - m],
-      [uSpar1 + m, uB - m],
+      [uA + m, Math.min(uB, uSpar0) - m],
+      [Math.max(uA, uSpar1) + m, uB - m],
     ]) {
       if (labelBox && labelBox[1] + m > from && labelBox[0] - m < to) {
         stretches.push([from, labelBox[0] - m], [labelBox[1] + m, to])
@@ -463,7 +475,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
 
   // Height between the cap notch floors: what a shear web here has to fill
   const capGap =
-    sp.type === 'caps' || sp.type === 'box'
+    !movingSide && (sp.type === 'caps' || sp.type === 'box')
       ? Math.min(top(uSpar0), top(uSpar1)) - sp.capThickness - (Math.max(bot(uSpar0), bot(uSpar1)) + sp.capThickness)
       : null
 
@@ -471,6 +483,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     ok: true,
     s: rib.s,
     kind: rib.kind,
+    side: split?.side ?? null,
     perpendicular,
     angle: prof.angle,
     panel: prof.panel,
@@ -480,7 +493,7 @@ export function buildRib(a, structure, rib, { board = null } = {}) {
     capGap,
     // The rib's outer and inset surfaces, for drawing cap strips on it
     surfaces: { us, up: prof.up, lo: prof.lo, upIn, loIn },
-    capStripFrom: structure.covering.type === 'dbox' ? uSpar1 : uA,
+    capStripFrom: structure.covering.type === 'dbox' && !movingSide ? uSpar1 : uA,
     uA,
     uB,
     outline,
@@ -562,9 +575,12 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const skipped = []
   const ribMat = material(r.material)
   const breaks = dihedralAt(a)
+  const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
   for (const rb of ribs) {
     const board = r.jigTabs ? boards.get(panelKey(a, rb.s)) : null
-    const b = buildRib(a, structure, rb, { board })
+    // A rib across a control surface stops at its hinge spar; the moving part comes below
+    const across = surfaceAt(surfaces, rb.s)
+    const b = buildRib(a, structure, rb, { board, split: across ? { surface: across, side: 'fixed' } : null })
     if (!b.ok) {
       skipped.push({ name: rb.name, s: rb.s, reason: b.reason })
       continue
@@ -577,6 +593,8 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       notes.push(`Cant ${Math.abs(cant).toFixed(1)}° from square to the board (half the ${Math.abs(brk.outer - brk.inner).toFixed(1)}° dihedral change)`)
     }
     if (b.perpendicular && Math.abs(b.angle) > 0.5) notes.push(`Square to the spar, ${Math.abs(b.angle).toFixed(1)}° off streamwise`)
+    if (across) notes.push(`Stops at the hinge spar of ${across.label}; its part behind the hinge is cut separately`)
+    else if (rb.kind === 'hard' && surfaces.some((x) => Math.abs(x.s0 - rb.s) < 1e-6 || Math.abs(x.s1 - rb.s) < 1e-6)) notes.push('Full rib at the end of a control surface')
     parts.push({
       id: rb.name,
       name: rb.name,
@@ -587,6 +605,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       s: rb.s,
       kind: rb.kind,
       sourceId: rb.id ?? null, // the manual rib or hard point it comes from, if any
+      split: !!across, // ends at a control surface's hinge spar
       outline: b.outline,
       holes: b.holes,
       etch: b.etch,
@@ -597,6 +616,63 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
     })
   }
 
+  // Each control surface's own ribs: one at each end (a gap clear of the wing's end ribs) and
+  // the part behind the hinge of every wing rib between
+  const h = structure.hinges
+  for (const sf of surfaces) {
+    const t = r.thickness || 0
+    const inner = ribs.filter((rb) => rb.s > sf.endRibs[0] + t + 1e-6 && rb.s < sf.endRibs[1] - t - 1e-6)
+    const list = [{ s: sf.endRibs[0], kind: 'surface' }, ...inner, { s: sf.endRibs[1], kind: 'surface' }]
+    list.forEach((rb, k) => {
+      const name = `${sf.name}-${k + 1}`
+      const board = r.jigTabs ? boards.get(panelKey(a, rb.s)) : null
+      const b = buildRib(a, structure, { ...rb, name }, { board, split: { surface: sf, side: 'moving' } })
+      if (!b.ok) {
+        skipped.push({ name, s: rb.s, reason: b.reason })
+        return
+      }
+      const end = rb.kind === 'surface'
+      parts.push({
+        id: name,
+        name,
+        group: 'surfaces',
+        material: r.material,
+        thickness: r.thickness,
+        qty: both ? 2 : 1,
+        s: rb.s,
+        kind: end ? 'surface' : rb.kind,
+        surface: sf.id,
+        sourceId: null,
+        outline: b.outline,
+        holes: b.holes,
+        etch: b.etch,
+        label: { ...b.label, text: name },
+        notes: [`${sf.label}: ${end ? `end rib, ${k ? 'outer' : 'inner'}` : `behind the hinge, in line with ${rb.name}`}, from its hinge spar to the trailing edge`, ...b.notes],
+        cant: 0,
+        rib: b,
+      })
+    })
+  }
+  // The Mylar tabs, one size for every hinge
+  const tabCount = surfaces.reduce((n, sf) => n + sf.tabs.length, 0)
+  if (tabCount && h.tabWidth > 0 && h.tabLength > 0) {
+    parts.push({
+      id: 'H1',
+      name: 'H1',
+      group: 'hinges',
+      material: 'mylar',
+      thickness: h.tabThickness || 0.0002,
+      qty: tabCount * (both ? 2 : 1),
+      outline: rect(0, 0, h.tabLength, h.tabWidth),
+      holes: [],
+      etch: [],
+      label: null,
+      notes: [
+        `Mylar hinge tab: ${surfaces.map((sf) => `${sf.tabs.length} on ${sf.name}`).join(', ')}${both ? ', each side' : ''}. Slot ${Math.round(Math.max(...surfaces.map((sf) => sf.slot)) * 2000) / 2} mm deep into each hinge spar at its centre line`,
+      ],
+    })
+  }
+
   // Corner gussets where ribs meet the LE and TE stock
   const g = structure.gussets
   const gussetGroups = new Map()
@@ -604,6 +680,8 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
     for (const p of parts.filter((q) => q.group === 'ribs')) {
       if (g.where === 'ends' && isPlainRib(p.kind)) continue
       for (const edge of gussetEdges(structure)) {
+        // A rib cut at a hinge doesn't reach the trailing edge
+        if (edge === 'te' && p.split) continue
         const angle = gussetAngle(a, p.s, edge, p.rib)
         const sides = gussetSides(p, g, r.rootJoint).map((k) => (k > 0 ? angle : 180 - angle))
         for (const ang of sides) {
@@ -898,7 +976,8 @@ function normalise(pts) {
 function stripCutList(a, structure, parts, both) {
   const out = []
   const sides = both ? 2 : 1
-  const ribs = parts.filter((p) => p.group === 'ribs')
+  // Every rib that gets cap strips: the wing's, and the control surfaces' own
+  const ribs = parts.filter((p) => p.group === 'ribs' || p.group === 'surfaces')
   const span = a.tipS - a.rootS
   const panelSpans = []
   const half = a.sampler.half
@@ -975,6 +1054,32 @@ function stripCutList(a, structure, parts, both) {
       const n = st.surface === 'both' ? 2 : 1
       out.push({ item: `Stringer at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, size: [st.width, st.height], length: p.to - p.from, qty: n * sides })
     }
+  }
+  // Each control surface's two hinge spars: the fixed side's square, the moving side's
+  // bevelled to a point at the centre line (top face for the down throw, bottom for up),
+  // both slotted for the tabs. Depth: the deepest the section gets along them, to sand down.
+  const h = structure.hinges
+  const deg = (v) => `${Math.ceil(v - 1e-6)}°`
+  for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
+    const k = Math.sqrt(1 + sf.slope * sf.slope)
+    const up = (v) => Math.ceil(v * 2000 - 1e-6) / 2000
+    const slots = `${sf.tabs.length} tab slot${sf.tabs.length === 1 ? '' : 's'}, ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line`
+    out.push({
+      item: `Hinge spar, fixed side, ${sf.label}`,
+      material: h.material,
+      size: [h.fixedWidth, up(sf.depth.fixed)],
+      length: (sf.fixed[1] - sf.fixed[0]) * k,
+      qty: sides,
+      note: `Between the end ribs, ribs butting its front face; ${slots}`,
+    })
+    out.push({
+      item: `Hinge spar, moving side, ${sf.label}`,
+      material: h.material,
+      size: [h.movingWidth, up(sf.depth.moving)],
+      length: (sf.moving[1] - sf.moving[0]) * k,
+      qty: sides,
+      note: `Bevel the front to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+    })
   }
   if (sp.type === 'tube') {
     const L = Number.isFinite(sp.tubeLength) ? Math.min(sp.tubeLength, span) : span
