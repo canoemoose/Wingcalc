@@ -279,4 +279,75 @@ describe('app render', () => {
     expect(fitDrawn).toBe(misfits)
     expect(warn).not.toHaveBeenCalled()
   })
+
+  // The section editor's drawing is teleported with the other editors, so it is rendered on its own: a drawn
+  // section started from a named seed, and one started from parameters
+  it('renders the section editor drawing with its seed outline and markers', async () => {
+    const { default: SectionEditor } = await import('../src/components/SectionEditor.vue')
+    const { naca4Points, drawnFromParams } = await import('../src/lib/sectionSpline.js')
+    const seeded = naca4Points('2412')
+    const html = await renderToString(
+      createSSRApp({ render: () => h(SectionEditor, { pts: seeded, seed: 'NACA 2412', 'onUpdate:pts': () => {} }) }),
+    )
+    expect(html).toContain('wc-sec__outline')
+    expect(html).toContain('wc-sec__seed')
+    expect(html).toContain('wc-sec__camber')
+    expect(html).toContain('Camber and markers')
+    expect(html).not.toContain('wc-sec__caption')
+    const fromParams = drawnFromParams({ thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.5 })
+    const html2 = await renderToString(
+      createSSRApp({ render: () => h(SectionEditor, { pts: fromParams, seed: null, 'onUpdate:pts': () => {} }) }),
+    )
+    expect(html2).toContain('wc-sec__outline')
+    expect(html2).not.toContain('wc-sec__seed')
+    expect(warn).not.toHaveBeenCalled()
+  })
+  // The side panel (readouts, selected point, curvature check, the XFOIL placeholder) and the command bar's labels
+  it('renders the section side panel and the command bar', async () => {
+    const { default: SectionEditor } = await import('../src/components/SectionEditor.vue')
+    const { default: SectionSide } = await import('../src/components/SectionSide.vue')
+    const { naca4Points } = await import('../src/lib/sectionSpline.js')
+    const seeded = naca4Points('2412')
+    const bar = await renderToString(
+      createSSRApp({ render: () => h(SectionEditor, { pts: seeded, seed: 'NACA 2412', ask: async () => true, 'onUpdate:pts': () => {} }) }),
+    )
+    expect(bar).toContain('Smooth all')
+    expect(bar).toContain('Smooth surface')
+    expect(bar).toContain('Normalise')
+    expect(bar).toContain('Reset')
+    const side = await renderToString(
+      createSSRApp({ render: () => h(SectionSide, { pts: seeded, selection: { points: [3], segments: [] } }) }),
+    )
+    expect(side).toContain('Readouts')
+    expect(side).toContain('Nose radius, measured')
+    expect(side).toContain('Upper point 4')
+    expect(side).toContain('Curvature check')
+    expect(side).toContain('XFOIL preview')
+    expect(side).toContain('Solving')
+    const dragging = await renderToString(
+      createSSRApp({ render: () => h(SectionSide, { pts: seeded, dragging: true }) }),
+    )
+    expect(dragging).toContain('Updates when you let go.')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  // A drawn section in use replaces the custom parameters in the aerofoil picker
+  it('shows a drawn section in use in the aerofoil picker, in place of the parameters', async () => {
+    const { default: AirfoilPicker } = await import('../src/components/AirfoilPicker.vue')
+    const { naca4Points } = await import('../src/lib/sectionSpline.js')
+    const base = { ...defaultState().airfoil, source: 'custom' }
+    const drawn = { ...base, custom: { ...base.custom, drawn: { pts: naca4Points('2412'), seed: 'NACA 2412' } } }
+    const html = await renderToString(
+      createSSRApp({ render: () => h(AirfoilPicker, { modelValue: drawn, 'onUpdate:modelValue': () => {} }) }),
+    )
+    expect(html).toContain('Drawn section in use')
+    expect(html).toContain('Back to parameters')
+    expect(html).not.toContain('wc-thickness')
+    const plain = await renderToString(
+      createSSRApp({ render: () => h(AirfoilPicker, { modelValue: base, 'onUpdate:modelValue': () => {} }) }),
+    )
+    expect(plain).toContain('wc-thickness')
+    expect(plain).not.toContain('Drawn section in use')
+    expect(warn).not.toHaveBeenCalled()
+  })
 })

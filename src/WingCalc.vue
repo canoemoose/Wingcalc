@@ -14,6 +14,8 @@ import UnitsMenu from './components/UnitsMenu.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import UndoRedo from './components/UndoRedo.vue'
 import WingWorkspace from './components/WingWorkspace.vue'
+import SectionEditor from './components/SectionEditor.vue'
+import SectionSide from './components/SectionSide.vue'
 import InspectorSection from './components/InspectorSection.vue'
 import { useHistory } from './composables/useHistory.js'
 import { usePolarSolver } from './composables/usePolarSolver.js'
@@ -44,7 +46,8 @@ import {
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
 import { resolveAirfoil, performanceWithXfoil, loadCatalogue } from './lib/airfoils.js'
-import { XFOIL_SETTINGS, coordsKey, settingsKey, flapKey } from './lib/xfoil.js'
+import { drawnFromParams, isDrawnSection } from './lib/sectionSpline.js'
+import { XFOIL_SETTINGS, coordsKey, settingsKey, flapKey, quantiseRe } from './lib/xfoil.js'
 import { flightConfigurations, configurationPerformance } from './lib/flaps.js'
 import {
   defaultState,
@@ -315,16 +318,41 @@ const history = useHistory(
     dimensions: input.dimensions,
     controls: input.controls,
     structure: input.structure,
+    airfoil: airfoilSel.value,
   }),
-  (v) => Object.assign(input, v),
+  ({ airfoil, ...inputs }) => {
+    Object.assign(input, inputs)
+    if (airfoil) airfoilSel.value = airfoil
+  },
 )
+// The section editor's own history: its draft, undone and redone with Ctrl+Z while it is open
+const sectionOpen = ref(false)
+const draft = ref([])
+const draftSeed = ref(null)
+let draftStart = ''
+// The history holds the seed too, so undoing a seed reset puts the seed name back
+const sectionHistory = useHistory(
+  () => ({ pts: draft.value, seed: draftSeed.value }),
+  (v) => {
+    draft.value = v.pts
+    draftSeed.value = v.seed
+  },
+)
+const sectionEditorEl = ref(null)
+const sectionSel = ref({ points: [], segments: [] })
+// The outline as it was when the editor opened (drawn faintly in the XFOIL preview), and the preview's polar jobs
+const sectionStart = ref(null)
+const sectionJobs = shallowRef([])
+const sectionDragging = ref(false)
+const sectionHighlight = ref(-1)
 // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) anywhere, except in a text field, which keeps its own undo
 function onHistoryKey(e) {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented) return
   if (e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return
   const k = e.key.toLowerCase()
-  if (k === 'z') e.shiftKey ? history.redo() : history.undo()
-  else if (k === 'y') history.redo()
+  const h = sectionOpen.value ? sectionHistory : history
+  if (k === 'z') e.shiftKey ? h.redo() : h.undo()
+  else if (k === 'y') h.redo()
   else return
   e.preventDefault()
 }
@@ -397,6 +425,8 @@ const xfoil = computed(() => {
   if (!base) return { perf: null, need: null, status: null }
   return performanceWithXfoil(airfoil.value, wingArgs.value, (re) => solver.lookup(`${base}@${re}`))
 })
+// The Reynolds number the wing is solved at on the main page: the section preview uses the same
+const previewRe = computed(() => quantiseRe(xfoil.value.perf?.polar?.re ?? xfoil.value.perf?.reynolds ?? 200000))
 
 // Flight configurations: clean, flaps down for landing, crow. The clean wing is the headline
 // (and what the structure is checked for); the others are shown when chosen.
@@ -418,7 +448,7 @@ watch(configurations, (list) => {
 })
 
 // Polars wanted, most wanted first: the clean wing's, then the chosen configuration's, then the rest
-const polarJobs = computed(() => {
+const wingJobs = computed(() => {
   const base = polarKeyBase.value
   if (!base) return []
   const coords = () => airfoil.value.coords.map(([x, y]) => [x, y])
@@ -433,6 +463,8 @@ const polarJobs = computed(() => {
   }
   return jobs
 })
+// The section editor's preview polars go first while it is open
+const polarJobs = computed(() => [...(sectionOpen.value ? sectionJobs.value : []), ...wingJobs.value])
 watch(
   () => polarJobs.value.map((j) => j.key).join(' '),
   () => solver.want(polarJobs.value),
@@ -516,11 +548,77 @@ const structureResult = computed(() => {
 const structureOpen = ref(false)
 const exportOpen = ref(false)
 // Only one full-window editor at a time
-watch(workspaceOpen, (v) => v && (structureOpen.value = false))
-watch(structureOpen, (v) => {
-  if (v) workspaceOpen.value = false
-  else exportOpen.value = false
+watch(workspaceOpen, (v) => {
+  if (v) {
+    structureOpen.value = false
+    sectionOpen.value = false
+  }
 })
+watch(structureOpen, (v) => {
+  if (v) {
+    workspaceOpen.value = false
+    sectionOpen.value = false
+  } else exportOpen.value = false
+})
+watch(sectionOpen, (v) => {
+  if (v) {
+    workspaceOpen.value = false
+    structureOpen.value = false
+  }
+})
+
+// Opens the drawing from the aerofoil's drawn section, or from its parameters
+function openSection() {
+  const c = airfoilSel.value.custom
+  const drawn = isDrawnSection(c.drawn) ? c.drawn : null
+  draft.value = drawn ? JSON.parse(JSON.stringify(drawn.pts)) : drawnFromParams(c)
+  draftSeed.value = drawn?.seed ?? null
+  draftStart = sectionKey()
+  sectionStart.value = JSON.parse(JSON.stringify(draft.value))
+  sectionHistory.reset()
+  sectionOpen.value = true
+}
+// Closing without using the section discards the draft, after asking if it has changes
+async function closeSection() {
+  if (sectionKey() !== draftStart) {
+    const yes = await ask({ title: 'Discard section changes?', message: "The drawn section hasn't been used, so these changes will be lost.", confirm: 'Discard', danger: true })
+    if (!yes) return
+  }
+  sectionOpen.value = false
+}
+// Writes the draft to the aerofoil as one window-level history step
+function useSection() {
+  const c = airfoilSel.value.custom
+  airfoilSel.value = { ...airfoilSel.value, custom: { ...c, drawn: { pts: JSON.parse(JSON.stringify(draft.value)), seed: draftSeed.value } } }
+  history.commit()
+  sectionOpen.value = false
+  say('Drawn section applied')
+}
+function onSectionOpen(v) {
+  if (!v) closeSection()
+}
+function sectionKey() {
+  return JSON.stringify({ pts: draft.value, seed: draftSeed.value })
+}
+// The side panel's typed edits and the warnings' selection and zoom go through the same paths as the drawing
+function applySectionEdit({ pts }) {
+  draft.value = pts
+  sectionHistory.commit()
+}
+function focusSection(sel) {
+  sectionEditorEl.value?.focusOn(sel)
+}
+function runSectionAction(act) {
+  sectionEditorEl.value?.run(act)
+}
+// Takes the drawn section out of use, after asking: the aerofoil goes back to its parameters
+async function dropDrawnSection() {
+  const yes = await ask({ title: 'Go back to the parameters?', message: 'The drawn section is removed, and the aerofoil uses its parameters again. Undo brings it back.', confirm: 'Back to parameters', danger: true })
+  if (!yes) return
+  airfoilSel.value = { ...airfoilSel.value, custom: { ...airfoilSel.value.custom, drawn: null } }
+  history.commit()
+  say('Back to the parameters')
+}
 const selectedPart = ref(null)
 // The plan or 3D card grown to fill most of the window, for now; one at a time
 const expandedCard = ref(null)
@@ -811,7 +909,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
         </InspectorSection>
 
         <InspectorSection title="Aerofoil" fold-key="page:aerofoil" :summary="airfoil?.name ?? ''" open>
-        <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" />
+        <AirfoilPicker v-model="airfoilSel" :uiuc="uiuc" @open-section-editor="openSection" @drop-drawn="dropDrawnSection" />
         <p v-if="catalogueError" class="wc-field__hint wc-text-warn">
           The full aerofoil catalogue couldn't be loaded; only sections with polar data are listed.
         </p>
@@ -1260,6 +1358,44 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               <PartPreview :parts="structureResult.parts" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
             </article>
           </div>
+        </template>
+      </WingWorkspace>
+    </Teleport>
+
+    <Teleport v-if="workspaceTarget" :to="workspaceTarget">
+      <WingWorkspace :open="sectionOpen" :theme="themeMode" title="Section editor" quiet-done hide-done @update:open="onSectionOpen">
+        <template #actions>
+          <UndoRedo :can-undo="sectionHistory.canUndo.value" :can-redo="sectionHistory.canRedo.value" @undo="sectionHistory.undo" @redo="sectionHistory.redo" />
+          <button type="button" class="wc-button" @click="closeSection">Cancel</button>
+          <button type="button" class="wc-button wc-button--primary" @click="useSection">Use section</button>
+        </template>
+        <template #side>
+          <SectionSide
+            :pts="draft"
+            :start="sectionStart"
+            :re="previewRe"
+            :lookup="solver.lookup"
+            :selection="sectionSel"
+            :dragging="sectionDragging"
+            @jobs="sectionJobs = $event"
+            @edit="applySectionEdit"
+            @select="focusSection"
+            @action="runSectionAction"
+            @hover="sectionHighlight = $event"
+          />
+        </template>
+        <template #main>
+          <SectionEditor
+            ref="sectionEditorEl"
+            v-model:pts="draft"
+            :seed="draftSeed"
+            :ask="ask"
+            :highlight="sectionHighlight"
+            @update:seed="draftSeed = $event"
+            @update:selection="sectionSel = $event"
+            @dragging="sectionDragging = $event"
+            @commit="sectionHistory.commit"
+          />
         </template>
       </WingWorkspace>
     </Teleport>

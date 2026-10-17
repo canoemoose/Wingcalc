@@ -14,6 +14,7 @@ import { stallSpeed, reynolds, WING_CLMAX_FACTOR, NU_SEA_LEVEL } from './calc.js
 import { leastSquares } from './fit.js'
 import { quantiseRe, polarSegments, COMPARE_THRESHOLDS } from './xfoil.js'
 import { liftingLine, firstStall, clDistribution, progressiveStall } from './liftingLine.js'
+import { isDrawnSection, sectionCoords, analyseSection } from './sectionSpline.js'
 
 export const LIBRARY = data
 export const FAMILIES = {
@@ -214,6 +215,19 @@ const paramsFrom = (s) => ({
 export function resolveAirfoil(selection, uiuc = null) {
   if (selection.source === 'custom') {
     const c = selection.custom
+    if (isDrawnSection(c.drawn)) {
+      // A drawn section: measured from its outline, so the params are what the section really is
+      const a = analyseSection(c.drawn.pts)
+      const valid = !a.cross && Number.isFinite(a.tmax) && a.tmax > 0.005 && a.leR > 0
+      return {
+        kind: 'custom',
+        name: 'Drawn section',
+        drawn: true,
+        coords: sectionCoords(c.drawn.pts),
+        valid,
+        params: { thickness: a.tmax, thicknessPos: a.xt, camber: a.cmax, camberPos: a.xc, leRadius: a.leR },
+      }
+    }
     const params = {
       thickness: c.thicknessPct / 100,
       thicknessPos: c.thicknessPosPct / 100,

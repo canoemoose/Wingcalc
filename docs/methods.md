@@ -133,6 +133,10 @@ Checked against the polar method across all 78 polar-backed sections at all five
 
 The custom section is drawn from the NACA modified four-digit thickness form, with the leading-edge radius set directly instead of via the integer LE index, plus the standard NACA four-digit mean line. Library sections are drawn from their real coordinates in the same view.
 
+### Drawn sections
+
+A drawn section (the section editor, see the [user guide](user-guide.md#section-editor)) is two surfaces, each y(x) as a spline in t = sqrt(x) through its control points. The square root spaces the points finely at the nose, and the surface's slope there is set to dy/dt = ±sqrt(2r) for a nose radius r, so the leading-edge radius of the outline is exactly the one set (the circle of radius r matches the parabola y² ≈ 2rx near the nose). Straight segments are joined to their neighbours with equal slope (G1). A point that is moved, or a segment that is bent, pulls the points beside it; a point smoothed by **Smooth** moves towards the cubic through its two neighbours on each side, in sqrt(x), and **Keep max thickness** optionally restores the maximum thickness afterwards. Changing the nose radius scales the forebody by sqrt(r_new / r_old), the scaling fading out by the point of maximum thickness or 30% chord, whichever comes first, so the rest of the section stays where it is. The section's coordinates for XFOIL are sampled from these surfaces on a cosine spacing (`sectionCoords` in `src/lib/sectionSpline.js`).
+
 ## Structure: loads and margins
 
 Implementation: `src/lib/structure.js`. A first-order sizing check, and the app says so.

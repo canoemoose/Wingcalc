@@ -7,6 +7,7 @@ import { defaultStructure } from './structure.js'
 import { defaultExportOptions } from './dxf.js'
 import { normaliseUnits } from './units.js'
 import { defaultControls } from './controlSurfaces.js'
+import { isDrawnSection } from './sectionSpline.js'
 
 export const FORMAT_VERSION = 1
 const PROJECTS_KEY = 'wingcalc.projects.v1'
@@ -36,7 +37,8 @@ export function defaultState() {
       source: 'naca',
       id: 'naca2412-il',
       lastLibraryId: 'naca2412-il',
-      custom: { thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 },
+      // drawn: a section drawn in the section editor, { pts, seed }, or null to use the parametric values above
+      custom: { thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59, drawn: null },
     },
   }
 }
@@ -74,6 +76,9 @@ export function migrate(state) {
   input.exportOptions = fillDefaults(d.input.exportOptions, s.input?.exportOptions)
   const airfoil = { ...d.airfoil, ...(s.airfoil ?? {}) }
   airfoil.custom = { ...d.airfoil.custom, ...(s.airfoil?.custom ?? {}) }
+  // A drawn section that isn't a usable point list is dropped; older saves have none
+  const dr = airfoil.custom.drawn
+  airfoil.custom.drawn = isDrawnSection(dr) ? { pts: dr.pts, seed: typeof dr.seed === 'string' ? dr.seed : null } : null
   // Typed Clmax values (custom sections, catalogue overrides) were dropped; ignore them in older saves.
   delete airfoil.clMaxOverride
   delete airfoil.custom.clMax

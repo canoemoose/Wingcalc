@@ -2790,3 +2790,306 @@
   background: none;
   margin: -2px 0 4px;
 }
+
+/* ---- section editor drawing (the drawn aerofoil outline) ---- */
+.wc-sec {
+  position: relative;
+  flex: 1;
+  min-height: 360px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  background: var(--wc-bg);
+  outline: none;
+}
+.wc-sec:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--wc-accent);
+}
+.wc-sec__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.wc-sec__minor {
+  stroke: var(--wc-border);
+  stroke-width: 1;
+  opacity: 0.4;
+}
+.wc-sec__major {
+  stroke: var(--wc-border);
+  stroke-width: 1;
+  opacity: 0.95;
+}
+.wc-sec__chord {
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 6 4;
+  opacity: 0.8;
+  fill: none;
+}
+.wc-sec__fill {
+  fill: color-mix(in srgb, var(--wc-accent) 9%, transparent);
+  stroke: none;
+}
+.wc-sec__outline {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+}
+.wc-sec__seed {
+  fill: none;
+  stroke: var(--wc-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 2 4;
+  opacity: 0.8;
+}
+.wc-sec__camber {
+  fill: none;
+  stroke: var(--wc-series-2);
+  stroke-width: 1.25;
+  stroke-dasharray: 5 3;
+}
+.wc-sec__mark-t {
+  stroke: var(--wc-series-3);
+  stroke-width: 2;
+}
+.wc-sec__mark-c {
+  stroke: var(--wc-series-2);
+  stroke-width: 2;
+  fill: var(--wc-bg);
+}
+.wc-sec__le {
+  fill: none;
+  stroke: var(--wc-series-2);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.wc-sec__infl-seg {
+  fill: none;
+  stroke: var(--wc-warn);
+  stroke-width: 7;
+  opacity: 0.32;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.wc-sec__infl {
+  fill: none;
+  stroke: var(--wc-warn);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.wc-sec__straight {
+  stroke: var(--wc-accent);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.wc-sec__ruler {
+  font-size: 10px;
+  fill: var(--wc-muted);
+}
+.wc-sec__comb {
+  stroke: var(--wc-series-4);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.wc-sec__comb-env {
+  fill: none;
+  stroke: var(--wc-series-4);
+  stroke-width: 1;
+}
+.wc-sec__label {
+  font-size: 11px;
+  fill: var(--wc-muted);
+}
+.wc-sec__label--t {
+  fill: var(--wc-series-3);
+  font-weight: 600;
+}
+.wc-sec__label--c {
+  fill: var(--wc-series-2);
+  font-weight: 600;
+}
+.wc-sec__pt {
+  fill: var(--wc-bg);
+  stroke: var(--wc-accent);
+  stroke-width: 2;
+}
+.wc-sec__pt--sel {
+  fill: var(--wc-accent);
+  stroke: var(--wc-text);
+}
+.wc-sec__pt--le {
+  stroke: var(--wc-series-2);
+}
+.wc-sec__seg--sel {
+  fill: none;
+  stroke: var(--wc-accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.wc-sec__rad {
+  fill: var(--wc-bg);
+  stroke: var(--wc-series-2);
+  stroke-width: 1.5;
+}
+.wc-sec__box {
+  fill: color-mix(in srgb, var(--wc-accent) 10%, transparent);
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+.wc-sec__svg--panning {
+  cursor: grabbing;
+}
+.wc-sec__view[aria-pressed='true'] {
+  color: var(--wc-accent);
+  border-color: color-mix(in srgb, var(--wc-accent) 60%, var(--wc-border));
+  background: color-mix(in srgb, var(--wc-accent) 10%, var(--wc-bg));
+}
+.wc-sec__caption {
+  position: absolute;
+  left: 8px;
+  top: 44px;
+  z-index: 2;
+  max-width: min(420px, calc(100% - 16px));
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--wc-muted);
+  background: color-mix(in srgb, var(--wc-bg) 88%, transparent);
+  pointer-events: none;
+}
+.wc-sec__caption--notice {
+  top: auto;
+  bottom: 56px;
+}
+.wc-sec-side {
+  display: grid;
+  gap: 8px;
+}
+
+/* Section editor: popovers under the command bar, the highlighted curvature warning, the side panel */
+.wc-pop {
+  position: absolute;
+  z-index: 5;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(300px, calc(100% - 24px));
+  padding: 10px;
+  border: 1px solid var(--wc-border);
+  border-radius: 8px;
+  background: var(--wc-bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+}
+.wc-pop__title {
+  margin: 0 0 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.wc-pop__list {
+  display: grid;
+  gap: 4px;
+}
+.wc-pop__item {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  width: 100%;
+  text-align: left;
+}
+.wc-pop__item small {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--wc-muted);
+}
+.wc-pop__item:disabled {
+  opacity: 0.5;
+}
+.wc-pop__row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.wc-pop__note {
+  font-size: 0.8rem;
+  margin: 8px 0 0;
+}
+.wc-sec__infl--hi {
+  stroke-width: 3;
+}
+.wc-sec__infl-seg--hi {
+  opacity: 0.6;
+}
+.wc-side__title {
+  margin: 14px 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.wc-side__title:first-child {
+  margin-top: 0;
+}
+.wc-side__readouts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.wc-side__readouts dt {
+  color: var(--wc-muted);
+}
+.wc-side__readouts dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wc-side__check {
+  /* Reserved height, so the panel does not jump as the warnings change */
+  min-height: 6em;
+}
+.wc-side__warn {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--wc-warn);
+  background: var(--wc-warn-bg);
+  border: 1px solid var(--wc-warn);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.wc-side__warn:hover,
+.wc-side__warn:focus-visible {
+  outline: 2px solid var(--wc-warn);
+  outline-offset: 1px;
+}
+.wc-side__xf {
+  font-size: 0.85rem;
+}
+.wc-sec-side__stale {
+  opacity: 0.45;
+}
+.wc-side__warnings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wc-side__warn--static {
+  cursor: default;
+  margin: 0 0 4px;
+}

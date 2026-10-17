@@ -8,30 +8,101 @@
   - Same anatomy as the wing plan editor: drawing stage with the command bar on the selection (or
     on the drawing when nothing is selected), view toggles top left, Snap - + Fit bottom right,
     inspector panel beside it (below at phone width). No tool rail, no modes.
-  - Points sit ON the curve (one closed Catmull-Rom spline, TE upper -> LE -> TE lower), so a
-    point is where you see it and the nose stays smooth through the LE. The LE is locked at the
-    origin; the trailing-edge points move freely. "Normalise" rotates and scales so the chord
-    runs LE -> TE midpoint at unit length (readouts are always taken on that normalised chord).
-  - Double-click the curve adds a point (as double-click adds a rib). Add point on a selection
-    splits the gap after it. Delete, Mirror to other surface, Smooth act on the selection.
-  - Nothing selected: Start from (seeds), Normalise, Fit to thickness.
+  - Points sit ON the curve (see Revision 3 for the spline), so a point is where you see it.
+    "Normalise" rotates and scales so the chord runs LE -> TE midpoint at unit length (readouts are
+    always taken on that normalised chord).
+  - Leading edge: the LE point is locked at the origin. A diamond handle sits where the dashed
+    reference circle crosses the chord (2 x radius from the LE); drag it along the chord, type a
+    radius in the inspector ("Leading edge"), or use the arrow keys with the LE selected. Radius is
+    stored relative to the chord. The outline itself has exactly that radius at the LE (Revision 3).
+  - Straight segments: click the curve between two points (or select a point) and use Make
+    straight / Make curved in the command bar. A straight segment carries a small tick at its
+    middle; the curve on each side leaves it tangent (G1) at both ends, and stays tangent while you
+    drag either end or the neighbours. Segments touching the nose cannot be straightened.
+  - Double-click the curve adds a point. Add point on a selection splits that gap. Delete, Mirror to
+    other surface and Smooth act on the selection.
+  - Nothing selected: Reset (back to the start of this edit, or back to a seed; each asks first
+    with an in-page dialogue and is undoable), Normalise, Fit to thickness.
   - Drag is live; Shift constrains to the dominant axis; Snap rounds to 0.5 % x / 0.25 % y
     (Alt places freely); arrow keys nudge (Shift larger). Ctrl+Z / Ctrl+Y undo and redo.
-  - View toggles: curvature comb, camber line and markers, the seed outline (a faint reference
-    of what you started from), and a vertical exaggeration (1x / 3x), because sections are thin.
-  - Inspector: readouts (thickness, camber, LE radius, TE thickness and angle), selected point
-    fields, a curvature check (surfaces crossing, inflection count) and an XFOIL preview that
-    would refresh a second or two after you stop dragging. The preview curve here is FAKE.
+  - View toggles: curvature comb, camber line and markers, the seed outline, and a vertical
+    exaggeration (1x / 3x). Decision: keep 3x for now. The grid is in true units (horizontal lines
+    every 2.5 % chord, so at 3x they are three times further apart), the rulers read true % chord,
+    and a note at the bottom right says which exaggeration is on.
+  - Curvature comb: Matt first read it as a pressure plot, so it has a caption on the stage while
+    it is on, a tooltip, thin amber teeth with a thin envelope line (no filled area, not blue or
+    red like a Cp plot). Tooth length is curvature, not pressure.
+  - Inspector: readouts (thickness, camber, TE thickness and angle), the leading-edge radius field,
+    selected point or segment, a curvature check and an XFOIL preview that would refresh a second
+    or two after you stop dragging. The preview curve here is FAKE.
+  - Decision: the XFOIL preview stays in the side panel (not an overlay on the stage).
+  - Decision: 9 points per surface as a start; points can be added and removed, so it is only a
+    starting density (a surface needs at least four).
+
+  Revision 2 (after Matt's first look)
+  - Smooth is now proper fairing, not "pull towards the chord". Each point moves towards the cubic
+    through its two neighbours on each side (4-point, fitted against sqrt(x) along the whole
+    TE -> LE -> TE run so it behaves through the nose). Repeated presses converge on a fair curve,
+    not a flat or a dent. Never moves the LE or the trailing-edge points; points at either end of a
+    straight segment are left alone so the line and its tangency stay put.
+  - Multi-select: Shift/Ctrl-click adds or removes points; dragging the background draws a box
+    (Revision 3). Ctrl+A selects every free point. Drag one selected point and they all move; arrow keys nudge them all; Delete removes them
+    (a surface keeps at least four). The inspector shows the count and the common actions.
+  - Smooth fairs every selected point together (a few simultaneous passes). With nothing selected
+    the command bar offers Smooth all and Smooth surface... (both, upper or lower). "Keep max
+    thickness" is ticked by default: after fairing, thickness is rescaled about the camber line so
+    the maximum thickness comes back to what it was (fairing otherwise shrinks the section).
+  - Nose radius now carries the forebody with it. The distance of each point from the camber line is
+    scaled by sqrt(r_new / r_old) at the nose, fading smoothly to 1 at the max-thickness position
+    or 30 % chord, whichever is further forward. The trailing edge and aft points stay put. It is
+    computed from the shape when the drag (or typing, or key nudge) started, so it is reversible
+    while you move.
+  - Segment drag (try-able): drag a curved segment to bend it (its two end points move with weights
+    set by where you grabbed, so the grabbed spot follows the cursor); drag a straight segment to
+    move it (Revision 3). A segment touching the nose moves only its free end. A click without a
+    drag still just selects. Notes-only switch: in the script, SEG_DRAG.enabled = false goes back
+    to select-only.
+
+  Revision 3 (after Matt's second look)
+  - Mouse: a plain left drag on the background always draws a selection box and replaces the
+    selection (Shift or Ctrl-drag adds to it); a plain click on the background clears it. Middle or
+    right drag pans, wherever it starts (the context menu is suppressed on the stage). The wheel zooms.
+  - Straight segments move freely: both end points translate by the whole drag vector and the curves
+    either side stay tangent to the line. Shift keeps only the part along the line or only the part
+    across it, whichever is closer to the drag direction as it looks on screen.
+  - Nose rebuilt. Cause of the "indentations next to the nose circle that Smooth cannot remove"
+    (confirmed by scripted checks on the previous version): the nose was a fixed circle arc joined
+    to a Bezier spline at a fixed tangent point, and the piece from that join to the first free
+    point was forced to match the circle's steep tangent. If the first free point sat further back
+    or lower than the circle's path, that piece overshot into an S-bend (curvature went from about
+    +62 at the circle to +137 and then -164 within the segment), and Smooth could not touch it because
+    the join is constrained and excluded from fairing. Even the unmodified NACA seeds showed
+    curvature sign flips within the first 10 % chord, from the curvature jumps of the piecewise Bezier.
+    Now each surface is y as a spline in t = sqrt(x) (chord frame, LE at the origin), upper and
+    lower separately. In that space a round nose is just a finite slope: dy/dt = +-sqrt(2 r) at t = 0
+    makes the radius exactly r (camber does not change it), so there is no circle in the outline,
+    no join and no kink. Each run of curved segments is a C2 cubic in t (so the curvature is
+    continuous), clamped at the LE and at any straight segment, natural at the trailing edge. A
+    straight segment is a true line in x, y and gives its neighbours the line's slope, so G1 holds.
+    Fairing already worked in sqrt(x), so it now works right up to the nose. The dashed circle is a
+    reference only. The nose segment is an ordinary one (points can be added in it); it still cannot
+    be straightened. Points cannot be dragged past their neighbours along the chord (they stop
+    just short), because each surface has to stay a function of sqrt(x).
+  - Radius handle and forebody-follows-radius work as before (the readout "Leading edge radius" is
+    measured on the drawn outline, not read back from the stored value).
+  - Inflections: when a surface wobbles (two or more inflections, the warning in the curvature check),
+    each inflection is marked on the drawing with a ring in the warning colour and the segment it
+    falls in is tinted, with or without the curvature comb. In the side panel there is one line per
+    inflection: click it to select the points either side and pan and zoom to it; hover it to
+    emphasise its marker.
+  - A small test hook, window.__sectionEditor, was used for scripted checks and has been removed.
 
   Open questions for Matt
-  1. Points on the curve (this mock) or B-spline control points with a hull? Control points give
-     smoother, more "designed" shapes but points sit off the surface; interpolation is easier to
-     reason about for editing a known section.
-  2. Should the LE be fully locked, or allow a draggable LE radius handle instead of free points?
-  3. Is the exaggeration toggle worth keeping, or should the stage just always be at 1x with zoom?
-  4. Does the XFOIL preview belong in the inspector, or as an overlay on the stage?
-  5. Keep the seed outline, and should "Use section" warn when the shape has crossings?
-  6. Number of points: 9 per surface here. More makes drags fiddly, fewer limits the shape.
+  1. Points on the curve (this mock) or Bezier handles / B-spline control points with a hull?
+     Handles give smoother, more "designed" shapes but things sit off the surface; interpolation is
+     easier to reason about for editing a known section. Waiting on Matt's reply.
+  2. Curved segment drag: bend the curve, as here, or insert a point where you grab and drag that?
+     (Straight segments are settled: they move freely.)
 -->
 <html lang="en-GB">
 <head>
@@ -109,7 +180,7 @@ body.light { background: #fff; }
 .wc-sec__canvas { position: relative; border: 1px solid var(--wc-border); border-radius: 6px; background: var(--wc-bg); overflow: hidden;
   height: clamp(380px, 68vh, 720px); }
 .wc-sec__canvas:focus-visible { outline: 2px solid var(--wc-accent); outline-offset: 1px; }
-.wc-sec__svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: grab; }
+.wc-sec__svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: default; }
 .wc-sec__svg--panning { cursor: grabbing; }
 .wc-sec__svg text { font-family: var(--wc-font); }
 
@@ -145,7 +216,18 @@ body.light { background: #fff; }
 .wc-pop__row .wc-input { width: 90px; }
 .wc-stage__hint { position: absolute; left: 10px; bottom: 10px; z-index: 2; font-size: 0.78rem; color: var(--wc-muted); pointer-events: none;
   font-variant-numeric: tabular-nums; max-width: calc(100% - 230px); }
-@media (max-width: 560px) { .wc-cmd { top: auto; bottom: 44px; } .wc-stage__hint { display: none; } }
+.wc-stage__legend { position: absolute; left: 10px; bottom: 46px; z-index: 2; max-width: min(450px, calc(100% - 20px)); display: flex; gap: 8px; align-items: flex-start;
+  font-size: 0.8rem; background: color-mix(in srgb, var(--wc-bg) 90%, transparent); border: 1px solid var(--wc-border); border-radius: 6px; padding: 6px 9px; pointer-events: none; }
+.wc-stage__legend[hidden] { display: none; }
+.wc-stage__legend svg { flex: none; width: 34px; height: 22px; }
+@media (max-width: 560px) { .wc-cmd { top: auto; bottom: 44px; } .wc-stage__hint { display: none; } .wc-stage__legend { bottom: auto; top: 84px; } }
+.wc-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0,0,0,0.38); padding: 16px; }
+.wc-modal[hidden] { display: none; }
+.wc-modal__box { background: var(--wc-bg); color: var(--wc-text); border: 1px solid var(--wc-border); border-radius: 10px; box-shadow: 0 10px 34px rgba(0,0,0,0.3); padding: 16px; width: min(380px, 100%); }
+.wc-modal__box h3 { font-size: 1.05rem; margin: 0 0 6px; }
+.wc-modal__box p { color: var(--wc-muted); font-size: 0.9rem; margin: 0 0 14px; }
+.wc-modal__row { display: flex; justify-content: flex-end; gap: 8px; }
+.wc-button--danger { background: var(--wc-sharp); color: #fff; border-color: color-mix(in srgb, var(--wc-sharp) 75%, #000); }
 
 /* ---- drawing ---- */
 .wc-sec__minor { stroke: var(--wc-border); stroke-width: 1; opacity: 0.4; }
@@ -157,9 +239,20 @@ body.light { background: #fff; }
 .wc-sec__camber { fill: none; stroke: var(--wc-series-2); stroke-width: 1.25; stroke-dasharray: 5 3; }
 .wc-sec__mark-t { stroke: var(--wc-series-3); stroke-width: 2; }
 .wc-sec__mark-c { stroke: var(--wc-series-2); stroke-width: 2; fill: var(--wc-bg); }
-.wc-sec__le { fill: none; stroke: var(--wc-muted); stroke-width: 1; stroke-dasharray: 3 3; }
-.wc-sec__comb { stroke: var(--wc-series-4); stroke-width: 1; opacity: 0.75; }
-.wc-sec__comb-env { fill: none; stroke: var(--wc-series-4); stroke-width: 1.25; }
+.wc-sec__le { fill: none; stroke: var(--wc-series-2); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: 0.8; pointer-events: none; }
+.wc-sec__infl-seg { fill: none; stroke: var(--wc-warn); stroke-width: 7; opacity: 0.32; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.wc-sec__infl-seg--hot { stroke-width: 10; opacity: 0.55; }
+.wc-sec__infl { fill: none; stroke: var(--wc-warn); stroke-width: 2; pointer-events: none; }
+.wc-sec__infl--hot { stroke-width: 3.5; fill: color-mix(in srgb, var(--wc-warn) 25%, transparent); }
+.wc-sec__rad { fill: var(--wc-bg); stroke: var(--wc-series-2); stroke-width: 2; }
+.wc-sec__rad--sel { fill: var(--wc-series-2); }
+.wc-sec__hit--rad { cursor: ew-resize; }
+.wc-sec__seghit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; pointer-events: stroke; }
+.wc-sec__seg-sel { fill: none; stroke: var(--wc-accent); stroke-width: 6; opacity: 0.3; stroke-linecap: round; pointer-events: none; }
+.wc-sec__straight { stroke: var(--wc-accent); stroke-width: 2; pointer-events: none; }
+.wc-sec__ruler { font-size: 10px; fill: var(--wc-muted); }
+.wc-sec__comb { stroke: var(--wc-series-4); stroke-width: 1; opacity: 0.6; }
+.wc-sec__comb-env { fill: none; stroke: var(--wc-series-4); stroke-width: 1; }
 .wc-sec__label { font-size: 11px; fill: var(--wc-muted); }
 .wc-sec__label--t { fill: var(--wc-series-3); font-weight: 600; }
 .wc-sec__label--c { fill: var(--wc-series-2); font-weight: 600; }
@@ -172,6 +265,10 @@ body.light { background: #fff; }
 .wc-sec__hit { fill: transparent; cursor: grab; }
 .wc-sec__hit--lock { cursor: not-allowed; }
 .wc-sec__guide { stroke: var(--wc-accent); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
+.wc-sec__box { fill: color-mix(in srgb, var(--wc-accent) 10%, transparent); stroke: var(--wc-accent); stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
+.wc-cmd__check { display: inline-flex; align-items: center; gap: 5px; font-size: 0.85rem; height: 28px; padding: 0 8px; cursor: pointer; color: var(--wc-muted); white-space: nowrap; }
+.wc-cmd__check input { margin: 0; }
+.wc-btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 
 /* ---- inspector ---- */
 .wc-panel { background: var(--wc-surface); border: 1px solid var(--wc-border); border-radius: var(--wc-radius); padding: 14px; }
@@ -190,6 +287,9 @@ body.light { background: #fff; }
 .wc-warnings li { font-size: 0.85rem; border-radius: 6px; padding: 6px 10px; border: 1px solid var(--wc-border); background: var(--wc-bg); }
 .wc-warnings li.warn { color: var(--wc-warn); background: var(--wc-warn-bg); border-color: var(--wc-warn); }
 .wc-warnings li.ok::before { content: '\2713  '; color: var(--wc-gentle); font-weight: 700; }
+.wc-warnings li.warn.wc-warn--link { padding: 0; }
+.wc-warnbtn { display: block; width: 100%; font: inherit; color: inherit; background: transparent; border: 0; text-align: left; padding: 6px 10px; cursor: pointer; border-radius: 6px; }
+.wc-warn--link:hover, .wc-warn--link:focus-within { background: color-mix(in srgb, var(--wc-warn) 14%, var(--wc-warn-bg)); }
 .wc-xf { background: var(--wc-bg); border: 1px solid var(--wc-border); border-radius: 6px; padding: 8px; }
 .wc-xf svg { display: block; width: 100%; height: auto; }
 .wc-xf svg text { font-family: var(--wc-font); font-size: 10px; fill: var(--wc-muted); }
@@ -235,22 +335,26 @@ body.light { background: #fff; }
 
   <div class="wc-editor">
     <div class="wc-sec__canvas" id="stage" tabindex="0"
-         aria-label="Section editor. Arrow keys nudge the selected point; Delete removes it; F fits; plus and minus zoom.">
+         aria-label="Section editor. Drag the background to box-select points; right or middle drag pans; the wheel zooms. Arrow keys nudge the selected point; Delete removes it; F fits; plus and minus zoom.">
       <svg class="wc-sec__svg" id="svg" role="img" aria-label="Aerofoil section"></svg>
 
       <div class="wc-stage__corner wc-stage__corner--tl" role="group" aria-label="View options">
-        <button class="wc-button wc-stage__btn wc-stage__snap" id="tComb" aria-pressed="false" title="Show the curvature comb: teeth point away from the centre of curvature, longer where the surface bends harder">Curvature</button>
+        <button class="wc-button wc-stage__btn wc-stage__snap" id="tComb" aria-pressed="false" title="Curvature comb: tooth length shows how sharply the surface bends (this is not pressure). A smooth comb means a fair curve; a dip or a flip means a wobble.">Curvature comb</button>
         <button class="wc-button wc-stage__btn wc-stage__snap" id="tCamber" aria-pressed="true" title="Camber line, max thickness and max camber markers, leading-edge circle">Camber and markers</button>
         <button class="wc-button wc-stage__btn wc-stage__snap" id="tSeed" aria-pressed="true" title="Faint outline of the section you started from">Seed outline</button>
-        <span class="wc-stage__seg" role="group" aria-label="Vertical exaggeration" title="Vertical exaggeration. Sections are thin, so 3x makes small changes easier to see.">
+        <span class="wc-stage__seg" role="group" aria-label="Vertical exaggeration" title="Vertical exaggeration. Sections are thin, so 3x makes small changes easier to see. The grid and rulers stay in true % chord.">
           <button id="ve1" aria-pressed="true">1×</button><button id="ve3" aria-pressed="false">3×</button>
         </span>
       </div>
 
+      <div class="wc-stage__legend" id="combNote" hidden role="note">
+        <svg viewBox="0 0 34 22" aria-hidden="true"><path d="M2 18 Q17 -2 32 18" fill="none" stroke="var(--wc-text)" stroke-width="1.5"/><g stroke="var(--wc-series-4)" stroke-width="1"><path d="M6 14 L4 8M10 10.5 L8.5 3.5M14 8.5 L13.5 1.5M19 8.5 L19.5 1.5M24 10.5 L25.5 3.5M28 14 L30 8"/></g><path d="M4 8 L8.5 3.5 L13.5 1.5 L19.5 1.5 L25.5 3.5 L30 8" fill="none" stroke="var(--wc-series-4)" stroke-width="1"/></svg>
+        <span><b>Curvature comb</b> (not pressure): tooth length shows how sharply the surface bends. A smooth comb means a fair curve; a dip or a flip means a wobble.</span>
+      </div>
       <div class="wc-cmd" id="cmd" role="toolbar" aria-label="Section actions"></div>
       <div class="wc-pop" id="pop" hidden></div>
 
-      <div class="wc-stage__hint" id="hint">Drag a point. Double-click the curve to add one. Shift constrains, Alt places freely.</div>
+      <div class="wc-stage__hint" id="hint" title="Drag the background to draw a selection box (Shift or Ctrl adds to the selection). Right or middle drag pans. The wheel zooms.">Drag a point. Double-click the curve to add one. Drag the background to box-select; right-drag pans.</div>
 
       <div class="wc-stage__corner wc-stage__corner--br" role="group" aria-label="View" style="left:auto;right:8px;top:auto">
         <button class="wc-button wc-stage__btn wc-stage__snap" id="snap" aria-pressed="true" title="Snap to the grid (0.5 % x, 0.25 % y). Hold Alt to place freely.">
@@ -266,6 +370,10 @@ body.light { background: #fff; }
       <dl class="wc-readouts" id="readouts"></dl>
       <ul class="wc-warnings" id="chordWarn"></ul>
 
+      <h3 class="wc-panel__title">Leading edge</h3>
+      <label class="wc-field"><span>Radius (% chord)</span><input class="wc-input" id="ler" type="number" step="0.05" min="0.2" max="6"></label>
+      <p class="wc-field__hint">Drag the diamond along the chord, or type a value. The dashed circle is a reference for the radius; the drawn outline itself has exactly this radius at the leading edge, which stays at the origin.</p>
+
       <h3 class="wc-panel__title">Selected point</h3>
       <div id="pointBox"></div>
 
@@ -280,6 +388,13 @@ body.light { background: #fff; }
       </div>
       <p class="wc-muted" style="font-size:.8rem;margin-top:6px">The real thing would run XFOIL in the background a second or two after you stop dragging and show the Cl-alpha curve here. This curve is made up from the thickness and camber.</p>
     </aside>
+  </div>
+
+  <div class="wc-modal" id="modal" hidden>
+    <div class="wc-modal__box" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+      <h3 id="mTitle"></h3><p id="mMsg"></p>
+      <div class="wc-modal__row"><button class="wc-button" id="mNo">Cancel</button><button class="wc-button wc-button--primary" id="mYes">OK</button></div>
+    </div>
   </div>
 </div>
 
@@ -305,7 +420,7 @@ function naca4(code) {
     up.push({ x: x - y * Math.sin(th), y: c + y * Math.cos(th) });
     lo.push({ x: x + y * Math.sin(th), y: c - y * Math.cos(th) });
   }
-  return [...up, { x: 0, y: 0, le: true }, ...lo.reverse()];
+  return [...up, { x: 0, y: 0, le: true, r: 1.1019 * t * t }, ...lo.reverse()];
 }
 const SEEDS = [
   { code: '2412', name: 'NACA 2412', note: 'Cambered, 12 % thick. The classic trainer section.' },
@@ -315,25 +430,89 @@ const SEEDS = [
 
 /* ------------------------------ geometry ------------------------------ */
 const leIndex = (pts) => pts.findIndex((p) => p.le);
-// Centripetal Catmull-Rom through the points, as dense samples
-function sample(pts) {
-  const n = pts.length, D = [];
-  const P = (i) => (i < 0 ? { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y }
-    : i >= n ? { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y } : pts[i]);
-  for (let i = 0; i < n - 1; i++) {
-    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
-    const d = (a, b) => Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1e-6) ** 0.5;
-    const t0 = 0, t1 = t0 + d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3);
-    for (let k = 0; k < PER; k++) {
-      const t = t1 + ((t2 - t1) * k) / PER;
-      const lerp = (a, b, ta, tb) => ({ x: a.x + ((b.x - a.x) * (t - ta)) / (tb - ta), y: a.y + ((b.y - a.y) * (t - ta)) / (tb - ta) });
-      const a1 = lerp(p0, p1, t0, t1), a2 = lerp(p1, p2, t1, t2), a3 = lerp(p2, p3, t2, t3);
-      const b1 = lerp(a1, a2, t0, t2), b2 = lerp(a2, a3, t1, t3);
-      D.push(lerp(b1, b2, t1, t2));
-    }
+const NOSE_MIN = 0.002, NOSE_MAX = 0.06;
+// Chord frame: LE, unit vector to the TE midpoint, its length
+function chordFrame(pts) {
+  const le = pts[leIndex(pts)], a = pts[0], b = pts[pts.length - 1];
+  const mx = (a.x + b.x) / 2 - le.x, my = (a.y + b.y) / 2 - le.y, L = Math.hypot(mx, my) || 1;
+  return { le, ux: mx / L, uy: my / L, L };
+}
+// Outline construction. Each surface is y as a smooth spline in t = sqrt(x), measured in the chord frame (LE at the
+// origin, x along the chord, both in chord lengths). In sqrt(x) space a round nose is simply a finite slope: with
+// x = t^2 and y = a t + ..., the radius of curvature at the LE is a^2 / 2, so the end condition dy/dt = +-sqrt(2 r) at
+// t = 0 makes the nose radius exact (camber does not change it). There is no circle and no join: the nose is the first
+// segment like any other. Each run of curved segments is a C2 cubic in t (so the curvature is continuous), clamped at
+// the LE and at any straight segment, and natural at the trailing edge. A straight segment is a true line in x, y; at
+// its ends the neighbouring curve is given the line's slope (dy/dt = 2 t dy/dx), so the join is tangent.
+const noseSlope = (le) => Math.sqrt(2 * Math.max(1e-6, le.r || 0.01));
+const frameOf = (pts) => { const cf = chordFrame(pts); return { ...cf, vx: -cf.uy, vy: cf.ux }; };
+const toC = (F, p) => { const ex = p.x - F.le.x, ey = p.y - F.le.y; return { x: (ex * F.ux + ey * F.uy) / F.L, y: (-ex * F.uy + ey * F.ux) / F.L }; };
+const fromC = (F, x, y) => ({ x: F.le.x + F.L * (x * F.ux + y * F.vx), y: F.le.y + F.L * (x * F.uy + y * F.vy) });
+// Slopes dy/dt at the knots of one run of curved segments (n + 1 knots). Clamped on the left, clamped on the right
+// when mR is given, otherwise natural (zero second derivative) at the trailing edge.
+function solveRun(t, y, mL, mR) {
+  const n = t.length - 1, h = [], d = [];
+  for (let j = 0; j < n; j++) { h.push(t[j + 1] - t[j]); d.push((y[j + 1] - y[j]) / h[j]); }
+  const A = new Array(n + 1).fill(0), B = A.slice(), C = A.slice(), R = A.slice();
+  B[0] = 1; R[0] = mL;
+  for (let i = 1; i < n; i++) { A[i] = h[i]; B[i] = 2 * (h[i - 1] + h[i]); C[i] = h[i - 1]; R[i] = 3 * (h[i] * d[i - 1] + h[i - 1] * d[i]); }
+  if (mR != null) { B[n] = 1; R[n] = mR; } else { A[n] = 1; B[n] = 2; R[n] = 3 * d[n - 1]; }
+  for (let i = 1; i <= n; i++) { const w = A[i] / B[i - 1]; B[i] -= w * C[i - 1]; R[i] -= w * R[i - 1]; }
+  const m = new Array(n + 1); m[n] = R[n] / B[n];
+  for (let i = n - 1; i >= 0; i--) m[i] = (R[i] - C[i] * m[i + 1]) / B[i];
+  return m;
+}
+// One surface, knots running outward from the LE (dir -1 = upper, points l, l-1 ... 0; +1 = lower, points l ... n-1)
+function surfaceSpline(F, pts, l, dir, mLE) {
+  const idx = []; for (let i = l; i >= 0 && i < pts.length; i += dir) idx.push(i);
+  const K = idx.map((i, k) => { if (k === 0) return { i, x: 0, y: 0, t: 0 }; const c = toC(F, pts[i]); return { i, x: Math.max(c.x, 0), y: c.y, t: 0 }; });
+  for (let k = 1; k < K.length; k++) { K[k].t = Math.max(Math.sqrt(K[k].x), K[k - 1].t + 1e-4); K[k].x = K[k].t * K[k].t; }
+  const ns = K.length - 1, straight = [], fixed = new Array(K.length).fill(null), m = new Array(K.length).fill(0);
+  fixed[0] = mLE;
+  for (let j = 0; j < ns; j++) {
+    const st = j > 0 && !!pts[Math.min(K[j].i, K[j + 1].i)].straight; straight.push(st);
+    if (st) { const dxk = K[j + 1].x - K[j].x, k = Math.abs(dxk) < 1e-9 ? 1e3 : (K[j + 1].y - K[j].y) / dxk; fixed[j] = 2 * K[j].t * k; fixed[j + 1] = 2 * K[j + 1].t * k; }
   }
-  D.push({ x: pts[n - 1].x, y: pts[n - 1].y });
+  for (let j = 0; j < ns;) {
+    if (straight[j]) { j++; continue; }
+    let e = j; while (e < ns && !straight[e]) e++;
+    const sol = solveRun(K.slice(j, e + 1).map((q) => q.t), K.slice(j, e + 1).map((q) => q.y), fixed[j], e < ns ? fixed[e] : null);
+    sol.forEach((v, q) => { m[j + q] = v; });
+    j = e;
+  }
+  return { K, m, straight };
+}
+// A point at fraction u along the segment from knot kA to knot kB (either order), in the chord frame
+function splineAt(S, kA, kB, u) {
+  const a = S.K[kA], b = S.K[kB];
+  if (S.straight[Math.min(kA, kB)]) return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u };
+  const h = b.t - a.t, u2 = u * u, u3 = u2 * u, t = a.t + h * u;
+  const y = (2 * u3 - 3 * u2 + 1) * a.y + h * (u3 - 2 * u2 + u) * S.m[kA] + (-2 * u3 + 3 * u2) * b.y + h * (u3 - u2) * S.m[kB];
+  return { x: t * t, y };
+}
+// Samples, upper TE -> LE -> lower TE: PER samples per user segment.
+// D.at[i] = index of user point i; D.segs = one entry per user segment; D.range[i] = [from, to] of user segment i.
+function sample(pts) {
+  const l = leIndex(pts), n = pts.length, F = frameOf(pts), a = noseSlope(pts[l]);
+  const U = surfaceSpline(F, pts, l, -1, a), Lo = surfaceSpline(F, pts, l, +1, -a), D = [];
+  D.at = new Array(n).fill(0); D.segs = []; D.range = [];
+  for (let ui = 0; ui < n - 1; ui++) {
+    const S = ui < l ? U : Lo, kA = ui < l ? l - ui : ui - l, kB = ui < l ? l - ui - 1 : ui - l + 1, from = D.length;
+    D.at[ui] = from;
+    for (let k = 0; k < PER; k++) { const q = splineAt(S, kA, kB, k / PER); D.push(fromC(F, q.x, q.y)); }
+    D.segs.push({ ui, nose: !!(pts[ui].le || pts[ui + 1].le), from, to: from + PER, straight: S.straight[Math.min(kA, kB)] });
+    D.range[ui] = [from, from + PER];
+  }
+  const lastK = Lo.K[Lo.K.length - 1]; D.push(fromC(F, lastK.x, lastK.y)); D.at[n - 1] = D.length - 1;
   return D;
+}
+// Nose radius measured on the outline: the circle through the LE and one point just behind it on each surface (in chord lengths)
+function noseRadiusOf(pts) {
+  const l = leIndex(pts), F = frameOf(pts), a = noseSlope(pts[l]);
+  const U = surfaceSpline(F, pts, l, -1, a), Lo = surfaceSpline(F, pts, l, +1, -a);
+  const at = (S) => splineAt(S, 1, 0, 1 - Math.min(2e-4, S.K[1].t / 2) / S.K[1].t);
+  const p = at(U), q = at(Lo), cr = Math.abs(p.x * q.y - p.y * q.x);
+  return cr < 1e-20 ? pts[l].r || 0.01 : (Math.hypot(p.x, p.y) * Math.hypot(q.x, q.y) * Math.hypot(p.x - q.x, p.y - q.y)) / (2 * cr);
 }
 function curvature(a, b, c) {
   const ab = Math.hypot(b.x - a.x, b.y - a.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a.x, c.y - a.y);
@@ -355,7 +534,7 @@ function yAt(poly, x) {
   return null;
 }
 function analyse(pts) {
-  const N = normalised(pts), D = sample(N.pts), li = leIndex(N.pts) * PER;
+  const N = normalised(pts), D = sample(N.pts), li = D.at[leIndex(N.pts)];
   const up = D.slice(0, li + 1).reverse(), lo = D.slice(li);
   let tmax = -1, xt = 0, cmax = 0, xc = 0, cross = false;
   for (let x = 0.002; x <= 0.998; x += 0.002) {
@@ -366,34 +545,60 @@ function analyse(pts) {
     if (Math.abs(c) > Math.abs(cmax)) { cmax = c; xc = x; }
     if (t < -1e-4) cross = true;
   }
-  const hx = 0.005, hu = yAt(up, hx), hl = yAt(lo, hx), hh = hu != null && hl != null ? (hu - hl) / 2 : 0, leR = (hh * hh) / (2 * hx);
+  const leR = noseRadiusOf(pts);   // measured on the drawn outline, not read back from the stored value
   const teT = D[0].y - D[D.length - 1].y;
   const v1 = { x: D[3].x - D[0].x, y: D[3].y - D[0].y }, v2 = { x: D[D.length - 4].x - D[D.length - 1].x, y: D[D.length - 4].y - D[D.length - 1].y };
   const teA = (Math.acos(Math.max(-1, Math.min(1, (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y))))) * 180) / Math.PI;
-  const infl = (arr) => {
-    let last = 0, n = 0;
-    for (const k of arr) { if (Math.abs(k) < 0.5) continue; const s = Math.sign(k); if (last && s !== last) n++; last = s; }
-    return n;
-  };
   const ks = D.map((_, i) => (i === 0 || i === D.length - 1 ? 0 : curvature(D[i - 1], D[i], D[i + 1])));
-  // skip the nose (curvature there is huge and one-signed) and the last 3 % of chord
-  const upK = ks.slice(0, li).filter((_, i) => D[i].x < 0.97), loK = ks.slice(li + 1).filter((_, i) => D[li + 1 + i].x < 0.97);
-  return { N, tmax, xt, cmax, xc, leR, teT, teA, cross, inflU: infl(upK), inflL: infl(loK.reverse()) };
+  // Inflections: sign changes of the curvature (ignoring near-flat stretches and the last 3 % of chord), each with its
+  // position as a fractional sample index, the user segment it falls in and the two points either side of it
+  const inflections = (lo, hi, surf) => {
+    const out = []; let last = 0, lastI = 0;
+    for (let i = lo; i <= hi; i++) {
+      if (D[i].x >= 0.97 || Math.abs(ks[i]) < 0.5) continue;
+      const s = Math.sign(ks[i]);
+      if (last && s !== last) {
+        const idx = lastI + (ks[lastI] / (ks[lastI] - ks[i])) * (i - lastI), g = D.segs.find((q) => idx >= q.from && idx < q.to) || D.segs[D.segs.length - 1];
+        const i0 = Math.min(Math.floor(idx), D.length - 2), fr = idx - i0;
+        out.push({ surf, idx, ui: g.ui, pa: g.ui, pb: g.ui + 1, x: D[i0].x + (D[i0 + 1].x - D[i0].x) * fr });
+      }
+      last = s; lastI = i;
+    }
+    return out;
+  };
+  const iu = inflections(0, li - 1, 'Upper'), il = inflections(li + 1, D.length - 1, 'Lower');
+  [iu, il].forEach((arr) => arr.forEach((e, k) => { e.k = k; e.of = arr.length; e.warn = arr.length >= 2; }));
+  return { N, tmax, xt, cmax, xc, leR, teT, teA, cross, inflU: iu.length, inflL: il.length, infls: [...iu, ...il] };
 }
 
 /* ------------------------------ state and history ------------------------------ */
 let pts = naca4('2412'), refPts = naca4('2412'), seedName = 'NACA 2412';
-let sel = -1, snapOn = true, showComb = false, showCamber = true, showSeed = true, ve = 1;
+let sel = -1, selSeg = -1, snapOn = true, showComb = false, showCamber = true, showSeed = true, ve = 1;
+// Selection: `sel` is the primary point (-1 none); `multi` holds the whole set when two or more are selected
+let multi = new Set(), keepThick = true, boxRect = null, radBase = null;
+const SEG_DRAG = { enabled: true };               // notes-only switch: false = clicking a segment only selects it
+const selIdx = () => (multi.size > 1 ? [...multi].sort((a, b) => a - b) : sel >= 0 ? [sel] : []);
+function setSel(i) { sel = i; multi = new Set(); }
+function setMulti(set, primary) {
+  if (set.size === 0) setSel(-1);
+  else if (set.size === 1) setSel([...set][0]);
+  else { multi = new Set(set); sel = set.has(primary) ? primary : Math.max(...set); }
+}
+function toggleSel(i) { const cur = new Set(selIdx()); if (cur.has(i)) cur.delete(i); else cur.add(i); setMulti(cur, i); }
 const hist = []; let hi = -1;
 const snapshot = () => JSON.stringify({ pts, refPts, seedName, name: $('name').value });
 function commit(msg) {
+  radBase = null;
   hist.length = hi + 1; hist.push(snapshot()); hi = hist.length - 1; if (hist.length > 100) { hist.shift(); hi--; }
   setStatus(msg); changed();
 }
 function restore(i) {
   const s = JSON.parse(hist[i]); pts = s.pts; refPts = s.refPts; seedName = s.seedName; $('name').value = s.name;
-  if (sel >= pts.length) sel = -1; changed();
+  radBase = null; multi = new Set();
+  if (sel >= pts.length) sel = -1; if (selSeg >= pts.length - 1) selSeg = -1; changed();
 }
+const startSnap = { pts: JSON.stringify(pts), ref: JSON.stringify(refPts), seedName, name: 'Custom 2412' };
+const unchangedFromStart = () => JSON.stringify(pts) === startSnap.pts && $('name').value === startSnap.name;
 function undo() { if (hi > 0) { restore(--hi); setStatus('Undid the last change'); } }
 function redo() { if (hi < hist.length - 1) { restore(++hi); setStatus('Redid the change'); } }
 function setStatus(t) { $('status').textContent = t; }
@@ -422,20 +627,33 @@ function render() { if (document.hidden) { draw(); return; } if (!raf) raf = req
 function path(D, close) { return 'M' + D.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join('L') + (close ? 'Z' : ''); }
 function draw() {
   raf = 0;
-  const D = sample(pts), li = leIndex(pts) * PER, A = analyse(pts);
+  const D = sample(pts), l = leIndex(pts), A = analyse(pts);
   let o = '';
-  // grid: major every 10 % chord, minor 5 %; y every 2.5 % / 10 %
+  // grid in true units: major every 10 % chord, minor 5 %; y minor 2.5 %, major 10 %. At 3x the y lines are 3x further apart.
   const x0 = dx(0), x1 = dx(W), yA = dy(H), yB = dy(0);
   for (let g = Math.ceil(x0 / 0.05); g <= x1 / 0.05; g++) { const x = g * 0.05; o += `<line class="${g % 2 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="${sx(x)}" x2="${sx(x)}" y1="0" y2="${H}"/>`; }
   for (let g = Math.ceil(yA / 0.025); g <= yB / 0.025; g++) { const y = g * 0.025; o += `<line class="${g % 4 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="0" x2="${W}" y1="${sy(y)}" y2="${sy(y)}"/>`; }
+  // rulers: true % chord, whatever the exaggeration
+  for (let g = Math.ceil(yA / 0.05); g <= yB / 0.05; g++) {
+    const y = g * 0.05, py = sy(y); if (py < 44 || py > H - 44) continue;
+    o += `<text class="wc-sec__ruler" x="5" y="${py - 3}">${y < -1e-9 ? '−' : y > 1e-9 ? '+' : ''}${Math.abs(y * 100).toFixed(0)} %</text>`;
+  }
+  for (let g = Math.ceil(x0 / 0.1); g <= x1 / 0.1; g++) {
+    const x = g * 0.1, px = sx(x); if (px < 30 || px > W - 30) continue;
+    o += `<text class="wc-sec__ruler" x="${px + 3}" y="${H - 32}">${(x * 100).toFixed(0)} %</text>`;
+  }
+  o += `<text class="wc-sec__ruler" x="${W - 8}" y="${H - 44}" text-anchor="end">Vertical ${ve}×${ve > 1 ? ' (grid 2.5 % chord, rulers true)' : ''}</text>`;
   // chord line, LE to TE midpoint
-  const le = pts[leIndex(pts)], te = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: (pts[0].y + pts[pts.length - 1].y) / 2 };
+  const cf = chordFrame(pts), le = cf.le, te = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: (pts[0].y + pts[pts.length - 1].y) / 2 };
   o += `<line class="wc-sec__chord" x1="${sx(le.x)}" y1="${sy(le.y)}" x2="${sx(te.x)}" y2="${sy(te.y)}"/>`;
   if (showSeed) o += `<path class="wc-sec__seed" d="${path(sample(refPts), true)}"/>`;
   o += `<path class="wc-sec__fill" d="${path(D, true)}"/>`;
+  // nose circle: a dashed reference only, not part of the outline (a circle in model space, so it is scaled with the exaggeration)
+  const R = le.r * cf.L, nc = { x: le.x + cf.ux * R, y: le.y + cf.uy * R };
+  o += `<g transform="translate(${sx(nc.x).toFixed(2)},${sy(nc.y).toFixed(2)}) scale(1,${ve})"><circle class="wc-sec__le" r="${(R * S).toFixed(2)}"/></g>`;
   if (showCamber) {
     // camber line, mapped back from the normalised frame
-    const N = A.N, nd = sample(N.pts), nli = li, up = nd.slice(0, nli + 1).reverse(), lo = nd.slice(nli);
+    const N = A.N, nd = sample(N.pts), nli = nd.at[l], up = nd.slice(0, nli + 1).reverse(), lo = nd.slice(nli);
     const ang = (N.angle * Math.PI) / 180, c = Math.cos(ang), s = Math.sin(ang), L = N.chord;
     const back = (x, y) => ({ x: le.x + (x * c - y * s) * L, y: le.y + (x * s + y * c) * L });
     let cam = [];
@@ -453,13 +671,9 @@ function draw() {
       o += `<circle class="wc-sec__mark-c" cx="${sx(cp.x)}" cy="${sy(cp.y)}" r="4.5"/>`;
       o += `<text class="wc-sec__label wc-sec__label--c" x="${sx(cp.x) - 4}" y="${sy(cp.y) + (A.cmax >= 0 ? 20 : -12)}" text-anchor="middle">camber ${f(A.cmax)} % at ${f(A.xc, 0)} %</text>`;
     }
-    // leading-edge circle, centred on the camber line at x = r
-    if (A.leR > 0) {
-      const yc = (yAt(up, A.leR) + yAt(lo, A.leR)) / 2, cc = back(A.leR, isFinite(yc) ? yc : 0);
-      o += `<circle class="wc-sec__le" cx="${sx(cc.x)}" cy="${sy(cc.y)}" r="${A.leR * S * L}" transform="rotate(0)"/>`;
-    }
   }
   if (showComb) {
+    // Curvature comb: thin teeth along the surface normal, length = curvature (not pressure), plus an envelope line
     const sc = D.map((p) => ({ x: sx(p.x), y: sy(p.y) }));
     let env = [];
     for (let i = 1; i < D.length - 1; i++) {
@@ -470,90 +684,286 @@ function draw() {
       const len = Math.sign(k) * Math.min(80, 26 * Math.asinh(Math.abs(k) / 3));
       const ex = sc[i].x + nx * len, ey = sc[i].y + ny * len;
       env.push(`${ex.toFixed(1)},${ey.toFixed(1)}`);
-      if (i % 2 === 0) o += `<line class="wc-sec__comb" x1="${sc[i].x.toFixed(1)}" y1="${sc[i].y.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}"/>`;
+      if (i % 3 === 0) o += `<line class="wc-sec__comb" x1="${sc[i].x.toFixed(1)}" y1="${sc[i].y.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}"/>`;
     }
     o += `<polyline class="wc-sec__comb-env" points="${env.join(' ')}"/>`;
   }
-  o += `<path class="wc-sec__outline" d="${path(D, false)}"/>`;
-  // points
-  pts.forEach((p, i) => {
-    const lock = !!p.le, cls = 'wc-sec__pt' + (lock ? ' wc-sec__pt--lock' : '') + (i === sel ? ' wc-sec__pt--sel' : '');
-    o += `<g data-i="${i}"><circle class="wc-sec__hit${lock ? ' wc-sec__hit--lock' : ''}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="13"/>`
-      + `<circle class="${cls}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="${i === sel ? 6.5 : 5}" pointer-events="none"/></g>`;
+  if (selSeg >= 0 && D.range[selSeg]) { const [a, b] = D.range[selSeg]; o += `<path class="wc-sec__seg-sel" d="${path(D.slice(a, b + 1), false)}"/>`; }
+  // inflection warnings: the segment holding each inflection is tinted, and a ring marks the inflection itself
+  const hot = hoverInfl >= 0 && A.infls[hoverInfl] ? hoverInfl : -1;
+  let rings = '';
+  A.infls.forEach((e, k) => {
+    if (!e.warn || !D.range[e.ui]) return;
+    const [a, b] = D.range[e.ui], i0 = Math.min(Math.floor(e.idx), D.length - 2), fr = e.idx - i0;
+    const px = sx(D[i0].x + (D[i0 + 1].x - D[i0].x) * fr), py = sy(D[i0].y + (D[i0 + 1].y - D[i0].y) * fr);
+    o += `<path class="wc-sec__infl-seg${k === hot ? ' wc-sec__infl-seg--hot' : ''}" d="${path(D.slice(a, b + 1), false)}"/>`;
+    rings += `<circle class="wc-sec__infl${k === hot ? ' wc-sec__infl--hot' : ''}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${k === hot ? 11 : 8}"/>`;
   });
-  if (sel >= 0) {
+  o += `<path class="wc-sec__outline" d="${path(D, false)}"/>` + rings;
+  // straight-segment markers: a small tick across the line at its middle
+  D.segs.forEach((g) => {
+    if (!g.straight) return;
+    const m = D[Math.floor((g.from + g.to) / 2)], a = D[g.from], b = D[g.to], tx = sx(b.x) - sx(a.x), ty = sy(b.y) - sy(a.y), tl = Math.hypot(tx, ty) || 1, nx = -ty / tl * 5, ny = tx / tl * 5;
+    o += `<line class="wc-sec__straight" x1="${(sx(m.x) - nx).toFixed(1)}" y1="${(sy(m.y) - ny).toFixed(1)}" x2="${(sx(m.x) + nx).toFixed(1)}" y2="${(sy(m.y) + ny).toFixed(1)}"/>`;
+  });
+  // segment hit areas (click selects the segment)
+  D.range.forEach((r, i) => { if (r) o += `<path class="wc-sec__seghit" data-seg="${i}" d="${path(D.slice(r[0], r[1] + 1), false)}"/>`; });
+  // points
+  const selNow = new Set(selIdx());
+  pts.forEach((p, i) => {
+    const lock = !!p.le, on = selNow.has(i), cls = 'wc-sec__pt' + (lock ? ' wc-sec__pt--lock' : '') + (on ? ' wc-sec__pt--sel' : '');
+    o += `<g data-i="${i}"><circle class="wc-sec__hit${lock ? ' wc-sec__hit--lock' : ''}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="${lock ? 7 : 13}"/>`
+      + `<circle class="${cls}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="${on ? 6.5 : 5}" pointer-events="none"/></g>`;
+  });
+  if (boxRect) o += `<rect class="wc-sec__box" x="${Math.min(boxRect.x0, boxRect.x1)}" y="${Math.min(boxRect.y0, boxRect.y1)}" width="${Math.abs(boxRect.x1 - boxRect.x0)}" height="${Math.abs(boxRect.y1 - boxRect.y0)}"/>`;
+  // radius handle: where the reference circle crosses the chord, 2 x radius from the LE
+  const hp = { x: sx(le.x + cf.ux * 2 * R), y: sy(le.y + cf.uy * 2 * R) };
+  o += `<g data-rad="1"><circle class="wc-sec__hit wc-sec__hit--rad" cx="${hp.x}" cy="${hp.y}" r="10"/>`
+    + `<path class="wc-sec__rad${sel === l ? ' wc-sec__rad--sel' : ''}" d="M${hp.x - 6},${hp.y}L${hp.x},${hp.y - 6}L${hp.x + 6},${hp.y}L${hp.x},${hp.y + 6}Z" pointer-events="none"/></g>`;
+  if (sel === l || (drag && drag.kind === 'rad')) o += `<text class="wc-sec__label wc-sec__label--c" x="${hp.x + 10}" y="${hp.y - 10}">nose radius ${f(le.r, 2)} %</text>`;
+  if (sel >= 0 && sel !== l && multi.size < 2) {
     const p = pts[sel];
-    o += `<text class="wc-sec__label wc-sec__label--pt" x="${sx(p.x) + 11}" y="${sy(p.y) + (sel > leIndex(pts) ? 18 : -10)}">${f(p.x)}, ${f(p.y, 2)}</text>`;
+    o += `<text class="wc-sec__label wc-sec__label--pt" x="${sx(p.x) + 11}" y="${sy(p.y) + (sel > l ? 18 : -10)}">${f(p.x)}, ${f(p.y, 2)}</text>`;
   }
   if (guide) o += guide;
   svg.innerHTML = o;
   updateInspector(A);
 }
-let guide = '';
+let guide = '', hoverInfl = -1, lastInfls = [];
 
 /* ------------------------------ command bar ------------------------------ */
-const ICON = {
-  add: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>',
-};
 function surfaceOf(i) { const l = leIndex(pts); return i < l ? 'Upper' : i > l ? 'Lower' : 'Leading edge'; }
+const segTouchesNose = (i) => !!(pts[i].le || pts[i + 1].le);
+const ptName = (i) => (i === leIndex(pts) ? 'the leading edge' : 'point ' + (i < leIndex(pts) ? i + 1 : i - leIndex(pts)));
 function renderCmd() {
-  const lock = sel >= 0 && pts[sel].le;
-  const endpoint = sel === 0 || sel === pts.length - 1;
-  const l = leIndex(pts);
-  const count = sel < l ? l : pts.length - 1 - l;
+  const l = leIndex(pts), n = pts.length;
   let h;
-  if (sel < 0) {
+  if (selSeg >= 0) {
+    const nose = segTouchesNose(selSeg), st = !!pts[selSeg].straight;
+    h = `<span class="wc-cmd__label">${selSeg < l ? 'Upper' : 'Lower'} segment</span>
+      <button class="wc-cmd__btn" data-act="straight" data-seg="${selSeg}" data-v="${st ? 0 : 1}" ${nose ? 'disabled' : ''} title="${nose ? 'The nose end of the outline is set by the radius, so this segment cannot be straightened' : st ? 'Let this segment curve again' : 'Make this segment a straight line; the curves on each side stay tangent to it'}">${st ? 'Make curved' : 'Make straight'}</button>
+      <span class="wc-cmd__sep"></span>
+      <button class="wc-cmd__btn" data-act="addseg" title="Add a point on this segment">Add point</button>
+      <button class="wc-cmd__btn" data-act="mirror" title="Make the other surface a mirror image of this one about the chord">Mirror to other surface</button>`;
+  } else if (sel < 0) {
     h = `<span class="wc-cmd__label">Section</span>
-      <button class="wc-cmd__btn" data-act="seeds" title="Replace the shape with a built-in section">Start from…</button>
+      <button class="wc-cmd__btn" data-act="reset" title="Go back to the start of this edit, or to a built-in section. Undo brings the shape back.">Reset…</button>
       <span class="wc-cmd__sep"></span>
       <button class="wc-cmd__btn" data-act="normalise" title="Rotate and scale so the chord runs from the leading edge to the trailing-edge midpoint at unit length">Normalise</button>
-      <button class="wc-cmd__btn" data-act="thick" title="Scale the thickness about the camber line to a target">Fit to thickness…</button>`;
+      <button class="wc-cmd__btn" data-act="thick" title="Scale the thickness about the camber line to a target">Fit to thickness…</button>
+      <span class="wc-cmd__sep"></span>
+      <button class="wc-cmd__btn" data-act="smoothall" title="Fair every free point on both surfaces so the curvature varies smoothly. Press again for more.">Smooth all</button>
+      <button class="wc-cmd__btn" data-act="smoothpop" title="Fair the upper surface, the lower surface or both">Smooth surface…</button>
+      ${keepCheck()}`;
+  } else if (multi.size > 1) {
+    const idx = selIdx(), nu = idx.filter((i) => i < l).length, nl = idx.length - nu, one = nu === 0 || nl === 0;
+    const bad = l - nu < 4 || n - 1 - l - nl < 4;
+    h = `<span class="wc-cmd__label">${idx.length} points</span>
+      <button class="wc-cmd__btn" data-act="smooth" title="Fair the selected points together so the curvature varies smoothly. Press again for more.">Smooth</button>
+      ${keepCheck()}
+      <span class="wc-cmd__sep"></span>
+      <button class="wc-cmd__btn wc-cmd__btn--danger" data-act="del" ${bad ? 'disabled' : ''} title="${bad ? 'A surface needs at least four points' : 'Delete the selected points (Delete)'}">Delete points</button>
+      <button class="wc-cmd__btn" data-act="mirror" ${one ? '' : 'disabled'} title="${one ? 'Make the other surface a mirror image of this one about the chord' : 'Select points on one surface to mirror it'}">Mirror to other surface</button>`;
   } else {
+    const lock = !!pts[sel].le, endpoint = sel === 0 || sel === n - 1, count = sel < l ? l : n - 1 - l;
+    // segments either side of a point: "nose" side is towards the LE, "tail" side towards the TE
+    const noseSeg = sel < l ? sel : sel - 1, tailSeg = sel < l ? sel - 1 : sel;
+    const sbtn = (seg, where) => {
+      if (lock || seg < 0 || seg > n - 2) return '';
+      const bad = segTouchesNose(seg), st = !!pts[seg].straight;
+      return `<button class="wc-cmd__btn" data-act="straight" data-seg="${seg}" data-v="${st ? 0 : 1}" ${bad ? 'disabled' : ''} title="${bad ? 'The nose end of the outline is set by the radius, so this segment cannot be straightened' : st ? 'Let the segment towards the ' + where + ' curve again' : 'Make the segment towards the ' + where + ' a straight line; the curves on each side stay tangent to it'}">${st ? 'Make curved' : 'Make straight'} to ${where}</button>`;
+    };
     h = `<span class="wc-cmd__label">${surfaceOf(sel)}${lock ? '' : ' point ' + (sel < l ? sel + 1 : sel - l)}</span>
       <button class="wc-cmd__btn" data-act="add" ${lock ? 'disabled' : ''} title="Add a point on the curve after this one">Add point</button>
       <button class="wc-cmd__btn wc-cmd__btn--danger" data-act="del" ${lock || count <= 4 ? 'disabled' : ''} title="${count <= 4 ? 'A surface needs at least four points' : 'Delete this point (Delete)'}">Delete point</button>
       <span class="wc-cmd__sep"></span>
+      ${sbtn(noseSeg, 'nose')}${sbtn(tailSeg, 'tail')}${lock ? '' : '<span class="wc-cmd__sep"></span>'}
       <button class="wc-cmd__btn" data-act="mirror" title="Make the other surface a mirror image of this one about the chord">Mirror to other surface</button>
-      <button class="wc-cmd__btn" data-act="smooth" ${lock || endpoint ? 'disabled' : ''} title="Pull this point towards the line between its neighbours">Smooth</button>`;
+      <button class="wc-cmd__btn" data-act="smooth" ${lock || endpoint ? 'disabled' : ''} title="Fair this point: move it towards the curve through its neighbours so the curvature varies smoothly. Press again for more.">Smooth</button>
+      ${lock || endpoint ? '' : keepCheck()}`;
   }
   cmd.innerHTML = h;
 }
+const keepCheck = () => `<label class="wc-cmd__check" title="Fairing shrinks the section a little. Tick this to rescale the thickness afterwards so the maximum thickness stays what it was."><input type="checkbox" data-keep ${keepThick ? 'checked' : ''}>Keep max thickness</label>`;
 
 /* ------------------------------ actions ------------------------------ */
+// A new point on user segment ui takes the segment's straight flag, so a split straight line stays straight
+function addOn(ui, msg) {
+  const D = sample(pts), g = D.segs.find((s) => s.ui === ui); if (!g) return;
+  const m = D[Math.floor((g.from + g.to) / 2)];
+  pts.splice(ui + 1, 0, { x: m.x, y: m.y, ...(pts[ui].straight ? { straight: true } : {}) }); setSel(ui + 1); selSeg = -1; commit(msg);
+}
+// Keep each surface's points in order along the chord, outward from the LE, with a small gap. Only the given points are
+// moved (along the chord) and they are processed from the nose outward, so the surface stays a function of sqrt(x).
+const ORDER_GAP = 0.0005;
+function fixOrder(idxs) {
+  const F = frameOf(pts), l = leIndex(pts), n = pts.length, cx = (i) => (i === l ? 0 : toC(F, pts[i]).x);
+  const todo = [...new Set(idxs)].filter((i) => i !== l).sort((a, b) => Math.abs(a - l) - Math.abs(b - l));
+  for (const i of todo) {
+    const dir = i < l ? 1 : -1, inner = i + dir, outer = i - dir, x = cx(i);
+    let lo = cx(inner) + ORDER_GAP, hi = outer >= 0 && outer < n ? cx(outer) - ORDER_GAP : Infinity;
+    if (hi < lo) hi = lo;
+    const nx = Math.min(hi, Math.max(lo, x));
+    if (nx !== x) { pts[i].x += (nx - x) * F.L * F.ux; pts[i].y += (nx - x) * F.L * F.uy; }
+  }
+}
+
+/* Fairing. Work in the normalised chord frame (LE at the origin, TE midpoint at (1, 0)). Along the whole
+   TE -> LE -> TE run the parameter is s = +sqrt(x) on the upper surface and -sqrt(x) on the lower, so the
+   section is a smooth function y(s) straight through the nose. Each free point's target is the Lagrange
+   cubic through its two neighbours on each side (fewer near the ends), evaluated at its own s. */
+const FAIR_ITERS = 4, FAIR_RELAX = 0.5, FAIR_STEP_MAX = 0.01;
+function fairTarget(Q, i, l) {
+  const sp = (j) => (j <= l ? 1 : -1) * Math.sqrt(Math.max(0, Q[j].x));
+  const nb = [i - 2, i - 1, i + 1, i + 2].filter((j) => j >= 0 && j < Q.length);
+  if (nb.length < 2) return null;
+  const s0 = sp(i), s = nb.map(sp);
+  // two neighbours almost on top of each other make the cubic wildly unstable: leave such a point alone
+  for (let a = 0; a < nb.length; a++) { if (Math.abs(s[a] - s0) < 0.01) return null; for (let b = a + 1; b < nb.length; b++) if (Math.abs(s[a] - s[b]) < 0.01) return null; }
+  let y = 0;
+  for (let a = 0; a < nb.length; a++) {
+    let w = 1; for (let b = 0; b < nb.length; b++) if (b !== a) w *= (s0 - s[b]) / (s[a] - s[b]);
+    y += w * Q[nb[a]].y;
+  }
+  return y;
+}
+// Points that fairing will not move: the LE, the trailing-edge points, and both ends of a straight segment
+function fairable(i) {
+  const l = leIndex(pts);
+  return i !== l && i !== 0 && i !== pts.length - 1 && !pts[i].straight && !(pts[i - 1] && pts[i - 1].straight);
+}
+// Rescale distance from the camber line, for the faired points only (so a surface you did not smooth stays as it
+// was), until the max thickness is back at `target`. One surface alone has to supply the whole change, so its factor doubles.
+function restoreThickness(Q, target, only) {
+  const l = leIndex(Q), both = [...only].some((i) => i < l) && [...only].some((i) => i > l);
+  for (let it = 0; it < 12; it++) {
+    let k = target / analyse(Q).tmax; if (!isFinite(k) || Math.abs(k - 1) < 2e-5) break;
+    if (!both) k = 1 + (k - 1) * 2;
+    k = Math.max(0.8, Math.min(1.25, k));
+    const D = sample(Q), li = D.at[l], up = D.slice(0, li + 1).reverse(), lo = D.slice(li);
+    Q = Q.map((p, i) => {
+      if (!only.has(i)) return p;
+      const x = Math.min(Math.max(p.x, 0.0005), 0.9995), yu = yAt(up, x), yl = yAt(lo, x);
+      if (yu == null || yl == null) return p;
+      const cam = (yu + yl) / 2; return { ...p, y: cam + (p.y - cam) * k };
+    });
+  }
+  return Q;
+}
+// Map normalised-frame points back into the drawing's own frame; untouched points keep their identity
+function fromFrame(Q, nm, base) {
+  const ang = (nm.angle * Math.PI) / 180, c = Math.cos(ang), s = Math.sin(ang), L = nm.chord, le = base[leIndex(base)];
+  return base.map((p, i) => (Q[i].y === nm.pts[i].y && Q[i].x === nm.pts[i].x ? p : { ...p, x: le.x + (Q[i].x * c - Q[i].y * s) * L, y: le.y + (Q[i].x * s + Q[i].y * c) * L }));
+}
+// Returns the faired point list (does not touch the state)
+function fairShape(idxs, keep = keepThick) {
+  const l = leIndex(pts), nm = normalised(pts), tBefore = analyse(pts).tmax, todo = idxs.filter(fairable);
+  let Q = nm.pts.map((p) => ({ ...p }));
+  for (let it = 0; it < FAIR_ITERS; it++) {
+    const tg = todo.map((i) => fairTarget(Q, i, l));
+    todo.forEach((i, k) => { if (tg[k] == null) return; const d = Math.max(-FAIR_STEP_MAX, Math.min(FAIR_STEP_MAX, (tg[k] - Q[i].y) * FAIR_RELAX)); Q[i] = { ...Q[i], y: Q[i].y + d }; });
+  }
+  if (keep && todo.length) Q = restoreThickness(Q, tBefore, new Set(todo));
+  return fromFrame(Q, nm, pts);
+}
+function fairAndCommit(idxs, what) {
+  if (!idxs.some(fairable)) { setStatus('Nothing to smooth: the leading edge, trailing edge and straight-segment ends stay where they are'); return; }
+  pts = fairShape(idxs); commit(`Smoothed ${what}`);
+}
+
+/* Nose radius. Thickness near the LE goes as sqrt(2 r x), so each point's distance from the camber line is
+   scaled by sqrt(rNew / rOld) at the nose, fading smoothly to 1 at min(max-thickness position, 30 %). TE and
+   aft points do not move. Always computed from `base` (the shape when the interaction began). */
+function applyRadius(base, rNew) {
+  const l = leIndex(base), rOld = base[l].r || 0.01, nm = normalised(base), Q = nm.pts, xf = Math.max(0.05, Math.min(analyse(base).xt, 0.3));
+  const D = sample(Q), li = D.at[l], up = D.slice(0, li + 1).reverse(), lo = D.slice(li), g = Math.sqrt(rNew / rOld);
+  const out = Q.map((p, i) => {
+    if (i === l) return { ...p, r: rNew };
+    const u = Math.min(1, p.x / xf); if (u >= 1) return p;
+    const w = 1 - u * u * (3 - 2 * u), x = Math.min(Math.max(p.x, 0.0005), 0.9995), yu = yAt(up, x), yl = yAt(lo, x);
+    if (yu == null || yl == null) return p;
+    const cam = (yu + yl) / 2; return { ...p, y: cam + (p.y - cam) * (1 + (g - 1) * w) };
+  });
+  const res = fromFrame(out, nm, base); res[l] = { ...base[l], r: rNew }; return res;
+}
+const clone = (o) => JSON.parse(JSON.stringify(o));
+function setRadius(r) { r = Math.min(NOSE_MAX, Math.max(NOSE_MIN, r)); if (!radBase) radBase = clone(pts); pts = applyRadius(radBase, r); }
+
 const act = {
-  add() {
-    const l = leIndex(pts); let i = sel; if (i === pts.length - 1) i--; if (i === l) i = l + 0;
-    const D = sample(pts), m = D[i * PER + PER / 2];
-    pts.splice(i + 1, 0, { x: m.x, y: m.y }); sel = i + 1; commit('Added a point');
+  add() { let i = sel; if (i === pts.length - 1) i--; addOn(i, 'Added a point'); },
+  addseg() { addOn(selSeg, 'Added a point'); },
+  del() {
+    const l = leIndex(pts), idx = selIdx().filter((i) => !pts[i].le); if (!idx.length) return;
+    const nu = idx.filter((i) => i < l).length, nl = idx.length - nu;
+    if (l - nu < 4 || pts.length - 1 - l - nl < 4) { setStatus('A surface needs at least four points'); return; }
+    const rm = new Set(idx); pts = pts.filter((_, i) => !rm.has(i)); setSel(-1); selSeg = -1; commit(idx.length > 1 ? `Deleted ${idx.length} points` : 'Deleted the point');
   },
-  del() { pts.splice(sel, 1); sel = -1; commit('Deleted the point'); },
+  smoothall() { fairAndCommit(pts.map((_, i) => i), 'the whole section'); },
+  smoothpop() { openPop('smooth'); },
+  straight(d) {
+    const i = +d.seg, v = d.v === '1'; if (segTouchesNose(i)) return;
+    if (v) pts[i].straight = true; else delete pts[i].straight;
+    commit(v ? 'Made the segment straight' : 'Made the segment curved');
+  },
   mirror() {
-    const N = normalised(pts).pts, l = leIndex(N), fromUpper = sel < l;
+    const N = normalised(pts).pts, l = leIndex(N), fromUpper = (selSeg >= 0 ? selSeg : sel) < l;
     const up = N.slice(0, l), lo = N.slice(l + 1);
-    const mir = (arr) => arr.slice().reverse().map((p) => ({ ...p, x: p.x, y: -p.y }));
-    pts = fromUpper ? [...up, { x: 0, y: 0, le: true }, ...mir(up)] : [...mir(lo), { x: 0, y: 0, le: true }, ...lo];
-    commit(`Mirrored the ${fromUpper ? 'upper' : 'lower'} surface to the ${fromUpper ? 'lower' : 'upper'}`);
+    // reversing an array moves each straight flag to the other end of its segment
+    const mir = (arr) => arr.slice().reverse().map((p, k) => { const q = { ...p, y: -p.y }, src = arr[arr.length - 2 - k]; if (src && src.straight) q.straight = true; else delete q.straight; return q; });
+    const nose = { x: 0, y: 0, le: true, r: N[l].r };
+    pts = fromUpper ? [...up, nose, ...mir(up)] : [...mir(lo), nose, ...lo];
+    selSeg = -1; commit(`Mirrored the ${fromUpper ? 'upper' : 'lower'} surface to the ${fromUpper ? 'lower' : 'upper'}`);
   },
-  smooth() {
-    const p = pts[sel], a = pts[sel - 1], b = pts[sel + 1];
-    const t = (p.x - a.x) / ((b.x - a.x) || 1), target = a.y + (b.y - a.y) * t;
-    p.y += (target - p.y) * 0.6; commit('Smoothed the point');
-  },
+  smooth() { const idx = selIdx(); fairAndCommit(idx, idx.length > 1 ? `${idx.length} points` : 'the point'); },
   normalise() { pts = normalised(pts).pts; commit('Normalised to a unit chord'); fit(); },
-  seeds() { openPop('seeds'); },
+  reset() { openPop('reset'); },
   thick() { openPop('thick'); },
 };
-cmd.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b && !b.disabled) act[b.dataset.act](); });
+cmd.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b && !b.disabled) act[b.dataset.act](b.dataset); });
+
+/* in-page confirmation, as ask() in WingCalc: resolves true to go ahead */
+let askResolve = null;
+function ask({ title, message, confirm = 'OK', danger = false }) {
+  return new Promise((res) => {
+    $('mTitle').textContent = title; $('mMsg').textContent = message;
+    const y = $('mYes'); y.textContent = confirm; y.className = 'wc-button ' + (danger ? 'wc-button--danger' : 'wc-button--primary');
+    askResolve = res; $('modal').hidden = false; y.focus();
+  });
+}
+function answer(v) { if (!askResolve) return; const r = askResolve; askResolve = null; $('modal').hidden = true; r(v); stage.focus({ preventScroll: true }); }
+$('mYes').onclick = () => answer(true); $('mNo').onclick = () => answer(false);
+$('modal').addEventListener('pointerdown', (e) => { if (e.target === $('modal')) answer(false); });
+window.addEventListener('keydown', (e) => { if (askResolve && e.key === 'Escape') { e.preventDefault(); answer(false); } }, true);
+
+function applySeed(sd) { pts = naca4(sd.code); refPts = naca4(sd.code); seedName = sd.name; setSel(-1); selSeg = -1; commit('Reset to ' + sd.name); fit(); }
+function resetToStart() {
+  pts = JSON.parse(startSnap.pts); refPts = JSON.parse(startSnap.ref); seedName = startSnap.seedName; $('name').value = startSnap.name; setSel(-1); selSeg = -1;
+  commit('Reset to the start of this edit'); fit();
+}
 
 /* popovers */
 let popOpen = '';
-function openPop(kind) {
-  if (popOpen === kind) { closePop(); return; }
+function openPop(kind) { if (popOpen === kind) { closePop(); return; } renderPop(kind); }
+function renderPop(kind) {
   popOpen = kind;
-  if (kind === 'seeds') {
-    pop.innerHTML = `<div class="wc-pop__title">Start from</div><div class="wc-pop__list">` + SEEDS.map((s) =>
+  if (kind === 'reset') {
+    const same = unchangedFromStart();
+    pop.innerHTML = `<div class="wc-pop__title">Reset</div><div class="wc-pop__list">
+      <button class="wc-button wc-pop__item" data-reset="start" ${same ? 'disabled' : ''}>Back to the start of this edit<small>${same ? 'Nothing has changed since you opened the editor' : 'The shape as it was when you opened the editor'}</small></button>
+      <button class="wc-button wc-pop__item" data-reset="seeds">Back to a seed…<small>Replace the shape with a built-in section</small></button></div>
+      <p class="wc-muted" style="font-size:.8rem;margin-top:8px">You are asked first, and Undo brings the shape back.</p>`;
+  } else if (kind === 'seeds') {
+    pop.innerHTML = `<div class="wc-pop__title">Back to a seed</div><div class="wc-pop__list">` + SEEDS.map((s) =>
       `<button class="wc-button wc-pop__item" data-seed="${s.code}">${s.name}<small>${s.note}</small></button>`).join('') +
-      `</div><p class="wc-muted" style="font-size:.8rem;margin-top:8px">Replaces the current shape. Undo brings it back.</p>`;
+      `</div><div class="wc-pop__row" style="margin-top:8px"><button class="wc-button" data-reset="menu">Back</button></div>`;
+  } else if (kind === 'smooth') {
+    const l = leIndex(pts);
+    pop.innerHTML = `<div class="wc-pop__title">Smooth surface</div><div class="wc-pop__list">
+      <button class="wc-button wc-pop__item" data-smooth="both">Both surfaces<small>Fair every free point on the upper and lower surface</small></button>
+      <button class="wc-button wc-pop__item" data-smooth="upper">Upper surface only<small>The lower surface stays as it is</small></button>
+      <button class="wc-button wc-pop__item" data-smooth="lower">Lower surface only<small>The upper surface stays as it is</small></button></div>
+      <label class="wc-cmd__check" style="margin-top:6px;padding:0"><input type="checkbox" data-keep ${keepThick ? 'checked' : ''}>Keep max thickness</label>
+      <p class="wc-muted" style="font-size:.8rem;margin-top:6px">Each press fairs a little more. The leading edge, trailing edge and straight-segment ends do not move.</p>`;
   } else {
     const A = analyse(pts);
     pop.innerHTML = `<div class="wc-pop__title">Fit to thickness</div><div class="wc-pop__row">
@@ -561,47 +971,129 @@ function openPop(kind) {
       <div class="wc-pop__row" style="margin-top:8px;justify-content:flex-end"><button class="wc-button" data-pop="cancel">Cancel</button><button class="wc-button wc-button--primary" data-pop="apply">Apply</button></div>`;
   }
   pop.hidden = false;
-  const first = pop.querySelector('input,button'); if (first) first.focus();
+  const first = pop.querySelector('input,button:not(:disabled)'); if (first) first.focus();
 }
 function closePop() { popOpen = ''; pop.hidden = true; pop.innerHTML = ''; }
 pop.addEventListener('click', (e) => {
-  const s = e.target.closest('[data-seed]'), b = e.target.closest('[data-pop]');
-  if (s) { const sd = SEEDS.find((x) => x.code === s.dataset.seed); pts = naca4(sd.code); refPts = naca4(sd.code); seedName = sd.name; sel = -1; closePop(); commit('Started from ' + sd.name); fit(); }
-  else if (b && b.dataset.pop === 'cancel') closePop();
+  const s = e.target.closest('[data-seed]'), b = e.target.closest('[data-pop]'), r = e.target.closest('[data-reset]'), sm = e.target.closest('[data-smooth]');
+  if (sm) {
+    const l = leIndex(pts), w = sm.dataset.smooth;
+    closePop(); fairAndCommit(pts.map((_, i) => i).filter((i) => w === 'both' || (w === 'upper' ? i < l : i > l)), w === 'both' ? 'both surfaces' : `the ${w} surface`);
+  } else if (r && !r.disabled) {
+    if (r.dataset.reset === 'seeds') renderPop('seeds');
+    else if (r.dataset.reset === 'menu') renderPop('reset');
+    else { closePop(); ask({ title: 'Back to the start of this edit?', message: 'Every change since you opened the editor is replaced. Undo brings them back.', confirm: 'Reset' }).then((ok) => { if (ok) resetToStart(); }); }
+  } else if (s) {
+    const sd = SEEDS.find((x) => x.code === s.dataset.seed); closePop();
+    ask({ title: `Reset to ${sd.name}?`, message: 'The current shape is replaced with this section. Undo brings it back.', confirm: 'Reset' }).then((ok) => { if (ok) applySeed(sd); });
+  } else if (b && b.dataset.pop === 'cancel') closePop();
   else if (b && b.dataset.pop === 'apply') {
     const target = parseFloat($('tgt').value) / 100; if (!(target > 0.01)) return;
-    const A = analyse(pts), k = target / A.tmax, N = normalised(pts).pts, D = sample(N), li = leIndex(N) * PER;
+    const A = analyse(pts), k = target / A.tmax, N = normalised(pts).pts, D = sample(N), li = D.at[leIndex(N)];
     const up = D.slice(0, li + 1).reverse(), lo = D.slice(li);
     pts = N.map((p) => {
-      if (p.le) return p; const yu = yAt(up, Math.min(Math.max(p.x, 0.0005), 0.9995)), yl = yAt(lo, Math.min(Math.max(p.x, 0.0005), 0.9995));
+      if (p.le) return { ...p, r: p.r * k * k };
+      const yu = yAt(up, Math.min(Math.max(p.x, 0.0005), 0.9995)), yl = yAt(lo, Math.min(Math.max(p.x, 0.0005), 0.9995));
       const cam = yu != null && yl != null ? (yu + yl) / 2 : 0; return { ...p, y: cam + (p.y - cam) * k };
     });
+    pts[leIndex(pts)].r = Math.min(NOSE_MAX, Math.max(NOSE_MIN, pts[leIndex(pts)].r));
     closePop(); commit(`Scaled the thickness to ${(target * 100).toFixed(1)} %`);
   }
 });
-document.addEventListener('pointerdown', (e) => { if (popOpen && !pop.contains(e.target) && !e.target.closest('[data-act="seeds"],[data-act="thick"]')) closePop(); });
+document.addEventListener('pointerdown', (e) => { if (popOpen && !pop.contains(e.target) && !e.target.closest('[data-act="reset"],[data-act="thick"],[data-act="smoothpop"]')) closePop(); });
 
 /* ------------------------------ pointer interaction ------------------------------ */
 let drag = null;
 const local = (e) => { const r = svg.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+const capture = (e) => { try { svg.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already-released pointer: carry on */ } };
+stage.addEventListener('contextmenu', (e) => e.preventDefault());
+svg.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });   // no middle-click autoscroll
 svg.addEventListener('pointerdown', (e) => {
   stage.focus({ preventScroll: true });
-  const g = e.target.closest('[data-i]'), p = local(e);
-  svg.setPointerCapture(e.pointerId);
-  if (g) {
-    const i = +g.dataset.i; sel = i; changed();
-    if (pts[i].le) { setStatus('The leading edge is locked at the origin'); drag = null; return; }
-    drag = { kind: 'pt', i, start: p, orig: { ...pts[i] }, moved: false, axis: null };
-  } else drag = { kind: 'pan', start: p, ox, oy, moved: false };
+  // Right or middle button pans, wherever it starts. The left button never pans: on the background it draws a box.
+  if (e.button === 1 || e.button === 2) {
+    e.preventDefault(); capture(e); closePop();
+    drag = { kind: 'pan', start: local(e), ox, oy, moved: false }; return;
+  }
+  if (e.button !== 0) return;
+  const g = e.target.closest('[data-i]'), rad = e.target.closest('[data-rad]'), sg = e.target.closest('[data-seg]'), p = local(e);
+  capture(e);
+  const addKey = e.shiftKey || e.ctrlKey || e.metaKey;
+  if (rad) { setSel(leIndex(pts)); selSeg = -1; changed(); radBase = clone(pts); drag = { kind: 'rad', start: p, moved: false }; }
+  else if (g) {
+    const i = +g.dataset.i;
+    if (addKey) {
+      selSeg = -1; drag = null;
+      if (pts[i].le) setStatus('The leading edge cannot be part of a multi-selection');
+      else { if (pts[leIndex(pts)] && sel === leIndex(pts) && multi.size < 2) setSel(-1); toggleSel(i); }
+      changed(); return;
+    }
+    const inGroup = multi.size > 1 && multi.has(i);
+    if (inGroup) sel = i; else setSel(i);
+    selSeg = -1; changed();
+    if (pts[i].le) { setStatus('The leading edge is locked at the origin. Drag the diamond to change the nose radius'); drag = null; return; }
+    const group = inGroup ? selIdx().filter((j) => !pts[j].le) : [i];
+    drag = { kind: 'pt', i, group, origs: group.map((j) => ({ x: pts[j].x, y: pts[j].y })), start: p, orig: { ...pts[i] }, moved: false, axis: null, wasGroup: inGroup };
+  } else if (sg) {
+    setSel(-1); selSeg = +sg.dataset.seg; closePop(); changed(); drag = SEG_DRAG.enabled ? startSegDrag(selSeg, p) : null;
+  }
+  else drag = { kind: 'box', start: p, moved: false, add: addKey, base: addKey ? new Set(selIdx().filter((j) => !pts[j].le)) : new Set() };
 });
+// Dragging a segment. Curved: bend it (end points move with weights set by where it was grabbed). Straight: move it
+// parallel to itself. A segment touching the nose moves only its free end (the LE is locked).
+function startSegDrag(ui, p) {
+  const D = sample(pts), r = D.range[ui]; if (!r) return null;
+  let k = r[0], bd = Infinity;
+  for (let j = r[0]; j <= r[1]; j++) { const d = Math.hypot(sx(D[j].x) - p.x, sy(D[j].y) - p.y); if (d < bd) { bd = d; k = j; } }
+  const a0 = { x: pts[ui].x, y: pts[ui].y }, b0 = { x: pts[ui + 1].x, y: pts[ui + 1].y }, el = Math.hypot(b0.x - a0.x, b0.y - a0.y) || 1;
+  return { kind: 'seg', ui, start: p, moved: false, k, t: (k - r[0]) / (r[1] - r[0]), g0: { x: D[k].x, y: D[k].y }, a0, b0,
+    straight: !!pts[ui].straight, nose: segTouchesNose(ui), axis: null,
+    e: { x: (b0.x - a0.x) / el, y: (b0.y - a0.y) / el }, n: { x: -(b0.y - a0.y) / el, y: (b0.x - a0.x) / el } };
+}
+// (mx, my) is the drag vector in model units. A straight segment translates by all of it (the curves either side stay
+// tangent because their end slopes follow the line); Shift keeps only the part along the normal or along the line.
+function applySegDrag(d, mx, my) {
+  const a = pts[d.ui], b = pts[d.ui + 1];
+  const set = (q, o, v) => { q.x = o.x + v.x; q.y = o.y + v.y; };
+  if (d.nose) { if (a.le) set(b, d.b0, { x: mx, y: my }); else set(a, d.a0, { x: mx, y: my }); return; }
+  if (d.straight) { set(a, d.a0, { x: mx, y: my }); set(b, d.b0, { x: mx, y: my }); return; }
+  const den = (1 - d.t) ** 2 + d.t ** 2, w0 = (1 - d.t) / den, w1 = d.t / den, want = { x: d.g0.x + mx, y: d.g0.y + my };
+  let tot = { x: mx, y: my };
+  for (let it = 0; it < 3; it++) {
+    set(a, d.a0, { x: w0 * tot.x, y: w0 * tot.y }); set(b, d.b0, { x: w1 * tot.x, y: w1 * tot.y });
+    if (it === 2) break;
+    const cur = sample(pts)[d.k]; tot = { x: tot.x + want.x - cur.x, y: tot.y + want.y - cur.y };
+  }
+}
 svg.addEventListener('pointermove', (e) => {
   const p = local(e);
-  $('hint').textContent = `x ${f(dx(p.x))} %   y ${f(dy(p.y), 2)} %   ·   Shift constrains, Alt places freely, double-click the curve to add a point`;
+  $('hint').textContent = selSeg >= 0 ? `x ${f(dx(p.x))} %   y ${f(dy(p.y), 2)} %   ·   ${SEG_HINT}`
+    : `x ${f(dx(p.x))} %   y ${f(dy(p.y), 2)} %   ·   Drag the background to box-select (Shift or Ctrl adds), right-drag pans, Alt places freely`;
   if (!drag) return;
   const mx = p.x - drag.start.x, my = p.y - drag.start.y;
   if (!drag.moved && Math.hypot(mx, my) < 3) return;
   drag.moved = true;
   if (drag.kind === 'pan') { ox = drag.ox + mx; oy = drag.oy + my; svg.classList.add('wc-sec__svg--panning'); render(); return; }
+  if (drag.kind === 'box') { boxRect = { x0: drag.start.x, y0: drag.start.y, x1: p.x, y1: p.y }; render(); return; }
+  if (drag.kind === 'seg') {
+    let vx = mx / S, vy = -my / (S * ve);
+    if (drag.straight && !drag.nose) {
+      if (e.shiftKey) {
+        // pick whichever of the two directions is closer to the drag as it looks on screen, then keep only that part
+        if (!drag.axis && Math.hypot(mx, my) > 6) {
+          const sc = (v) => { const h = Math.hypot(v.x * S, v.y * S * ve) || 1; return { x: (v.x * S) / h, y: (-v.y * S * ve) / h }; }, nn = sc(drag.n), ee = sc(drag.e), h = Math.hypot(mx, my);
+          drag.axis = Math.abs(mx * nn.x + my * nn.y) / h >= Math.abs(mx * ee.x + my * ee.y) / h ? 'n' : 'e';
+        }
+        if (drag.axis) { const u = drag.axis === 'n' ? drag.n : drag.e, s = vx * u.x + vy * u.y; vx = u.x * s; vy = u.y * s; }
+      } else drag.axis = null;
+    }
+    applySegDrag(drag, vx, vy); fixOrder([drag.ui, drag.ui + 1]); scheduleXf(); render(); return;
+  }
+  if (drag.kind === 'rad') {
+    const cf = chordFrame(pts), proj = ((dx(p.x) - cf.le.x) * cf.ux + (dy(p.y) - cf.le.y) * cf.uy) / cf.L / 2;
+    let r = proj; if (snapOn && !e.altKey) r = Math.round(r / 0.0005) * 0.0005;
+    setRadius(r); scheduleXf(); render(); return;
+  }
   let x = drag.orig.x + mx / S, y = drag.orig.y - my / (S * ve);
   guide = '';
   if (e.shiftKey) {
@@ -610,57 +1102,92 @@ svg.addEventListener('pointermove', (e) => {
     if (drag.axis === 'y') { x = drag.orig.x; guide = `<line class="wc-sec__guide" y1="0" y2="${H}" x1="${sx(x)}" x2="${sx(x)}"/>`; }
   } else drag.axis = null;
   if (snapOn && !e.altKey) { x = Math.round(x / SNAP_X) * SNAP_X; y = Math.round(y / SNAP_Y) * SNAP_Y; }
-  pts[drag.i].x = x; pts[drag.i].y = y; scheduleXf(); render();
+  const ddx = x - drag.orig.x, ddy = y - drag.orig.y;
+  drag.group.forEach((j, k) => { pts[j].x = drag.origs[k].x + ddx; pts[j].y = drag.origs[k].y + ddy; });
+  fixOrder(drag.group); scheduleXf(); render();
 });
+const SEG_HINT = 'Segment: drag a curved one to bend it, a straight one to move it (Shift: along or across it only)';
 function endDrag(e) {
   if (!drag) return;
-  const d = drag; drag = null; guide = ''; svg.classList.remove('wc-sec__svg--panning');
-  if (d.kind === 'pt' && d.moved) commit(`Moved ${surfaceOf(d.i).toLowerCase()} point to ${f(pts[d.i].x)}, ${f(pts[d.i].y, 2)}`);
-  else if (d.kind === 'pan' && !d.moved) { sel = -1; closePop(); changed(); }
+  const d = drag; drag = null; guide = ''; boxRect = null; svg.classList.remove('wc-sec__svg--panning');
+  if (d.kind === 'pt' && d.moved) commit(d.group.length > 1 ? `Moved ${d.group.length} points` : `Moved ${surfaceOf(d.i).toLowerCase()} point to ${f(pts[d.i].x)}, ${f(pts[d.i].y, 2)}`);
+  else if (d.kind === 'pt' && d.wasGroup) { setSel(d.i); changed(); }
+  else if (d.kind === 'rad' && d.moved) commit(`Set the leading-edge radius to ${f(pts[leIndex(pts)].r, 2)} %`);
+  else if (d.kind === 'seg' && d.moved) commit(d.nose ? 'Moved the free end of the nose segment' : d.straight ? 'Moved the straight segment' : 'Bent the segment');
+  else if (d.kind === 'box') {
+    if (d.moved) {
+      const r = svg.getBoundingClientRect(), x0 = Math.min(d.start.x, e.clientX - r.left), x1 = Math.max(d.start.x, e.clientX - r.left), y0 = Math.min(d.start.y, e.clientY - r.top), y1 = Math.max(d.start.y, e.clientY - r.top);
+      const set = new Set(d.base); pts.forEach((p, i) => { if (!p.le && sx(p.x) >= x0 && sx(p.x) <= x1 && sy(p.y) >= y0 && sy(p.y) <= y1) set.add(i); });
+      selSeg = -1; setMulti(set, -1); setStatus(set.size ? `${set.size} point${set.size > 1 ? 's' : ''} selected` : 'No points in the box'); changed();
+    } else if (!d.add) { setSel(-1); selSeg = -1; closePop(); changed(); }   // a plain click on the background clears the selection
+    else render();
+  }
   else render();
 }
 svg.addEventListener('pointerup', endDrag); svg.addEventListener('pointercancel', endDrag);
 svg.addEventListener('dblclick', (e) => {
-  if (e.target.closest('[data-i]')) return;
+  if (e.target.closest('[data-i],[data-rad]')) return;
   const p = local(e), D = sample(pts); let best = -1, bd = 18;
   D.forEach((q, i) => { const d = Math.hypot(sx(q.x) - p.x, sy(q.y) - p.y); if (d < bd) { bd = d; best = i; } });
   if (best < 0) return;
-  const seg = Math.min(pts.length - 2, Math.floor(best / PER)); let q = D[best];
-  if (best % PER === 0) q = D[best + Math.floor(PER / 2)]; // landed on an existing point: split the gap instead
-  pts.splice(seg + 1, 0, { x: q.x, y: q.y }); sel = seg + 1; commit('Added a point on the curve');
+  const g = D.segs.find((s) => best >= s.from && best < s.to) || D.segs[D.segs.length - 1];
+  let q = D[best];
+  if (best === g.from || best === g.to) q = D[Math.floor((g.from + g.to) / 2)]; // landed on an existing point: split the gap instead
+  pts.splice(g.ui + 1, 0, { x: q.x, y: q.y, ...(pts[g.ui].straight ? { straight: true } : {}) }); setSel(g.ui + 1); selSeg = -1; commit('Added a point on the curve');
 });
 svg.addEventListener('wheel', (e) => { e.preventDefault(); const p = local(e); zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y); }, { passive: false });
 stage.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   const k = e.key;
   if (k === 'f' || k === 'F') fit(); else if (k === '+' || k === '=') zoom(1.25); else if (k === '-' || k === '−') zoom(0.8);
-  else if (k === 'Escape') { sel = -1; closePop(); changed(); }
-  else if ((k === 'Delete' || k === 'Backspace') && sel >= 0 && !pts[sel].le) { const l = leIndex(pts); if ((sel < l ? l : pts.length - 1 - l) > 4) act.del(); }
+  else if (k === 'Escape') { setSel(-1); selSeg = -1; closePop(); changed(); }
+  else if ((e.ctrlKey || e.metaKey) && (k === 'a' || k === 'A')) { e.preventDefault(); selSeg = -1; setMulti(new Set(pts.map((_, i) => i).filter((i) => !pts[i].le)), -1); changed(); }
+  else if ((k === 'Delete' || k === 'Backspace') && selIdx().some((i) => !pts[i].le)) act.del();
+  else if (k.startsWith('Arrow') && sel >= 0 && pts[sel].le && multi.size < 2) {
+    e.preventDefault(); const st = e.shiftKey ? 0.002 : 0.0005, r = pts[sel];
+    setRadius(r.r + (k === 'ArrowRight' || k === 'ArrowUp' ? st : k === 'ArrowLeft' || k === 'ArrowDown' ? -st : 0));
+    clearTimeout(nudgeT); nudgeT = setTimeout(() => commit('Nudged the leading-edge radius'), 400); scheduleXf(); render();
+  }
   else if (k.startsWith('Arrow') && sel >= 0 && !pts[sel].le) {
-    e.preventDefault(); const st = e.shiftKey ? 0.005 : 0.001;
-    if (k === 'ArrowLeft') pts[sel].x -= st; if (k === 'ArrowRight') pts[sel].x += st;
-    if (k === 'ArrowUp') pts[sel].y += st; if (k === 'ArrowDown') pts[sel].y -= st;
-    clearTimeout(nudgeT); nudgeT = setTimeout(() => commit('Nudged the point'), 400); scheduleXf(); render();
+    e.preventDefault(); const st = e.shiftKey ? 0.005 : 0.001, idx = selIdx().filter((i) => !pts[i].le);
+    for (const i of idx) {
+      if (k === 'ArrowLeft') pts[i].x -= st; if (k === 'ArrowRight') pts[i].x += st;
+      if (k === 'ArrowUp') pts[i].y += st; if (k === 'ArrowDown') pts[i].y -= st;
+    }
+    fixOrder(idx);
+    clearTimeout(nudgeT); nudgeT = setTimeout(() => commit(idx.length > 1 ? `Nudged ${idx.length} points` : 'Nudged the point'), 400); scheduleXf(); render();
   }
 });
 let nudgeT = 0;
 window.addEventListener('keydown', (e) => {
+  if (askResolve) return;
   if (e.target.tagName === 'INPUT' && e.target.type !== 'number') return;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
   else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
 });
 
 /* ------------------------------ buttons ------------------------------ */
+$('pointBox').addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b && !b.disabled) act[b.dataset.act](b.dataset); });
+document.addEventListener('change', (e) => {
+  if (!e.target.matches || !e.target.matches('[data-keep]')) return;
+  keepThick = e.target.checked; document.querySelectorAll('[data-keep]').forEach((c) => { c.checked = keepThick; });
+});
 $('undo').onclick = undo; $('redo').onclick = redo;
 $('zin').onclick = () => zoom(1.25); $('zout').onclick = () => zoom(0.8); $('fit').onclick = fit;
 $('snap').onclick = () => { snapOn = !snapOn; $('snap').setAttribute('aria-pressed', snapOn); };
 const tog = (id, set) => { $(id).onclick = () => { const v = $(id).getAttribute('aria-pressed') !== 'true'; $(id).setAttribute('aria-pressed', v); set(v); render(); }; };
-tog('tComb', (v) => (showComb = v)); tog('tCamber', (v) => (showCamber = v)); tog('tSeed', (v) => (showSeed = v));
-const setVe = (v) => { const y = dy(oy - 0); ve = v; $('ve1').setAttribute('aria-pressed', v === 1); $('ve3').setAttribute('aria-pressed', v === 3); fit(); };
+tog('tComb', (v) => { showComb = v; $('combNote').hidden = !v; }); tog('tCamber', (v) => (showCamber = v)); tog('tSeed', (v) => (showSeed = v));
+const setVe = (v) => { ve = v; $('ve1').setAttribute('aria-pressed', v === 1); $('ve3').setAttribute('aria-pressed', v === 3); fit(); };
 $('ve1').onclick = () => setVe(1); $('ve3').onclick = () => setVe(3);
 $('cancel').onclick = () => setStatus('Mock-up: Cancel would discard the edits and close the editor');
 $('use').onclick = () => setStatus('Mock-up: Use section would save the drawn section with the project and close');
 $('name').addEventListener('change', () => commit('Renamed the section'));
+$('ler').addEventListener('input', () => { const v = parseFloat($('ler').value) / 100; if (!(v >= NOSE_MIN && v <= NOSE_MAX)) return; setRadius(v); scheduleXf(); render(); });
+$('ler').addEventListener('change', () => {
+  const v = parseFloat($('ler').value) / 100; if (isNaN(v)) { $('ler').value = (pts[leIndex(pts)].r * 100).toFixed(2); return; }
+  setRadius(v); $('ler').value = (pts[leIndex(pts)].r * 100).toFixed(2);
+  commit(`Set the leading-edge radius to ${f(pts[leIndex(pts)].r, 2)} %`);
+});
 document.querySelectorAll('[data-theme-btn]').forEach((b) => b.addEventListener('click', () => {
   const t = b.dataset.themeBtn; $('app').dataset.theme = t; document.body.className = t;
   document.querySelectorAll('[data-theme-btn]').forEach((x) => x.classList.toggle('wc-toggle__btn--active', x === b));
@@ -673,7 +1200,7 @@ function updateInspector(A) {
   $('readouts').innerHTML = `
     <dt>Thickness</dt><dd>${f(A.tmax)} % <small>at ${f(A.xt)} %</small></dd>
     <dt>Camber</dt><dd>${f(A.cmax)} % <small>at ${f(A.xc)} %</small></dd>
-    <dt>Leading-edge radius</dt><dd>${f(A.leR, 2)} %</dd>
+    <dt>Leading-edge radius</dt><dd id="roLer">${f(A.leR, 2)} %</dd>
     <dt>Trailing-edge thickness</dt><dd>${f(A.teT, 2)} %</dd>
     <dt>Trailing-edge angle</dt><dd>${A.teA.toFixed(1)}°</dd>
     <dt>Points</dt><dd>${pts.length - 1} <small>from ${seedName}</small></dd>`;
@@ -681,8 +1208,30 @@ function updateInspector(A) {
   $('chordWarn').innerHTML = off ? `<li class="warn">The chord is ${nm.chord.toFixed(3)} long at ${nm.angle.toFixed(1)}°. Readouts use the normalised chord. Use Normalise to fix the drawing.</li>` : '';
   // point box
   const pb = $('pointBox');
+  { const el = $('ler'); if (document.activeElement !== el) el.value = (pts[leIndex(pts)].r * 100).toFixed(2); }
+  if (selSeg >= 0) {
+    pb.dataset.key = '';
+    const nose = segTouchesNose(selSeg), st = !!pts[selSeg].straight;
+    pb.innerHTML = `<div class="wc-field"><span>Segment</span><b>${selSeg < leIndex(pts) ? 'Upper' : 'Lower'}</b></div>
+      <div class="wc-field"><span>Between</span><b style="text-align:right">${ptName(selSeg)} and ${ptName(selSeg + 1)}</b></div>
+      <div class="wc-field"><span>Shape</span><b>${nose ? 'Nose (curved)' : st ? 'Straight' : 'Curved'}</b></div>
+      <p class="wc-field__hint">${nose ? 'The nose end of the outline is set by the radius, so this segment cannot be straightened.' : st ? 'The curves either side leave this line tangent, so the join stays smooth. Make curved undoes it.' : 'Make straight turns it into a line; the curves either side stay tangent to it.'}</p>
+      <p class="wc-field__hint" style="margin-top:4px"><b>Drag it:</b> ${nose ? 'a segment at the nose moves its free end only (the leading edge is locked).' : st ? 'a straight segment moves as a unit, following the cursor in any direction; the curves either side stay tangent. Hold Shift to move it only along or only across the line, whichever is nearer your drag.' : 'a curved segment bends, the grabbed spot following the cursor. Its two end points move, more the nearer you grab to them.'} A click without dragging just selects it.</p>`;
+    return finishInspector(A);
+  }
+  if (multi.size > 1) {
+    const idx = selIdx(), l = leIndex(pts), nu = idx.filter((i) => i < l).length, nl = idx.length - nu;
+    pb.dataset.key = '';
+    pb.innerHTML = `<div class="wc-field"><span>Selected</span><b style="text-align:right">${idx.length} points</b></div>
+      <div class="wc-field"><span>Surfaces</span><b style="text-align:right">${nu ? nu + ' upper' : ''}${nu && nl ? ', ' : ''}${nl ? nl + ' lower' : ''}</b></div>
+      <div class="wc-btnrow"><button class="wc-button" data-act="smooth" title="Fair the selected points together. Press again for more.">Smooth</button>
+        <button class="wc-button" data-act="del" ${l - nu < 4 || pts.length - 1 - l - nl < 4 ? 'disabled' : ''}>Delete points</button></div>
+      <label class="wc-cmd__check" style="padding:0"><input type="checkbox" data-keep ${keepThick ? 'checked' : ''}>Keep max thickness</label>
+      <p class="wc-field__hint" style="margin-top:6px">Drag one selected point and they all move; arrow keys nudge them all (Shift: larger). Shift or Ctrl-click adds or removes a point, dragging the background draws a box (Shift or Ctrl adds to the selection), Esc clears.</p>`;
+    return finishInspector(A);
+  }
   if (sel < 0) {
-    pb.innerHTML = `<p class="wc-muted" style="font-size:.9rem">Click a point to edit it. Double-click the curve to add one.</p>`;
+    pb.innerHTML = `<p class="wc-muted" style="font-size:.9rem">Click a point or the curve between points to select it. Shift or Ctrl-click adds more points; drag the background to draw a selection box. Right or middle drag pans, the wheel zooms. Double-click the curve to add a point.</p>`;
   } else {
     const p = pts[sel], lock = !!p.le, key = sel + '|' + lock;
     if (pb.dataset.key !== key) {
@@ -690,10 +1239,10 @@ function updateInspector(A) {
       pb.innerHTML = `<div class="wc-field"><span>Surface</span><b>${surfaceOf(sel)}${sel === 0 || sel === pts.length - 1 ? ' (trailing edge)' : ''}</b></div>
         <label class="wc-field"><span>Position x (% chord)</span><input class="wc-input" id="px" type="number" step="0.1" ${lock ? 'disabled' : ''}></label>
         <label class="wc-field"><span>Height y (% chord)</span><input class="wc-input" id="py" type="number" step="0.05" ${lock ? 'disabled' : ''}></label>
-        ${lock ? '<p class="wc-field__hint">The leading edge is the origin of the chord, so it stays put.</p>' : '<p class="wc-field__hint">Arrow keys nudge by 0.1 % (Shift: 0.5 %).</p>'}`;
+        ${lock ? '<p class="wc-field__hint">The leading edge is the origin of the chord, so it stays put. Change the nose radius in the Leading edge section.</p>' : '<p class="wc-field__hint">Arrow keys nudge by 0.1 % (Shift: 0.5 %).</p>'}`;
       for (const id of ['px', 'py']) {
         const el = pb.querySelector('#' + id); if (!el) continue;
-        el.addEventListener('input', () => { const v = parseFloat(el.value) / 100; if (isNaN(v)) return; pts[sel][id === 'px' ? 'x' : 'y'] = v; scheduleXf(); render(); });
+        el.addEventListener('input', () => { const v = parseFloat(el.value) / 100; if (isNaN(v)) return; pts[sel][id === 'px' ? 'x' : 'y'] = v; fixOrder([sel]); scheduleXf(); render(); });
         el.addEventListener('change', () => commit('Edited the point'));
       }
       pb.dataset.dirty = '';
@@ -701,11 +1250,40 @@ function updateInspector(A) {
     for (const [id, v] of [['px', p.x], ['py', p.y]]) { const el = pb.querySelector('#' + id); if (el && document.activeElement !== el) el.value = (v * 100).toFixed(id === 'px' ? 1 : 2); }
   }
   if (sel < 0) pb.dataset.key = '';
+  finishInspector(A);
+}
+let curvHtml = '';
+// Select the points either side of inflection k and pan/zoom so it fills a good part of the stage
+function showInfl(k) {
+  const e = lastInfls[k]; if (!e) return;
+  const l = leIndex(pts), D = sample(pts), i0 = Math.min(Math.floor(e.idx), D.length - 2), fr = e.idx - i0;
+  const ip = { x: D[i0].x + (D[i0 + 1].x - D[i0].x) * fr, y: D[i0].y + (D[i0 + 1].y - D[i0].y) * fr };
+  closePop(); selSeg = -1; setMulti(new Set([e.pa, e.pb].filter((i) => i !== l)), e.pb);
+  const ps = [ip, pts[e.pa], pts[e.pb]], x0 = Math.min(...ps.map((q) => q.x)), x1 = Math.max(...ps.map((q) => q.x)), y0 = Math.min(...ps.map((q) => q.y)), y1 = Math.max(...ps.map((q) => q.y));
+  const bw = Math.max(x1 - x0, 0.06), bh = Math.max(y1 - y0, 0.02), top = 90, bot = 50;   // keep clear of the command bar and the corner controls
+  S = Math.max(60, Math.min((W - 120) / bw, (H - top - bot - 40) / (bh * ve), 5000));
+  ox = W / 2 - ((x0 + x1) / 2) * S; oy = top + (H - top - bot) / 2 + ((y0 + y1) / 2) * S * ve;
+  setStatus(`Showing the ${e.surf.toLowerCase()} surface inflection at ${f(e.x, 1)} % chord`); changed();
+}
+$('curvCheck').addEventListener('click', (e) => { const b = e.target.closest('[data-infl]'); if (b) showInfl(+b.dataset.infl); });
+const setHover = (k) => { if (hoverInfl !== k) { hoverInfl = k; render(); } };
+$('curvCheck').addEventListener('mouseover', (e) => { const b = e.target.closest('[data-infl]'); setHover(b ? +b.dataset.infl : -1); });
+$('curvCheck').addEventListener('mouseleave', () => setHover(-1));
+$('curvCheck').addEventListener('focusin', (e) => { const b = e.target.closest('[data-infl]'); if (b) setHover(+b.dataset.infl); });
+$('curvCheck').addEventListener('focusout', () => setHover(-1));
+function finishInspector(A) {
   // curvature check
-  const row = (n, side) => (n <= 1 ? `<li class="ok">${side} surface: smooth${n ? ' (one inflection, normal for camber)' : ''}</li>`
-    : `<li class="warn">${side} surface: ${n} inflections. It wobbles, which XFOIL will show as bumps in the pressure.</li>`);
-  $('curvCheck').innerHTML = (A.cross ? '<li class="warn">The surfaces cross. Check the points near the trailing edge.</li>' : '<li class="ok">Surfaces do not cross</li>') + row(A.inflU, 'Upper') + row(A.inflL, 'Lower')
+  // A surface with two or more inflections wobbles: one line per inflection, each clickable (selects the points either
+  // side and brings it into view) and each emphasised on the drawing while hovered.
+  lastInfls = A.infls;
+  const row = (n, side) => {
+    if (n <= 1) return `<li class="ok">${side} surface: smooth${n ? ' (one inflection, normal for camber)' : ''}</li>`;
+    return A.infls.map((e, k) => (e.surf !== side ? '' : `<li class="warn wc-warn--link" data-infl="${k}"><button type="button" class="wc-warnbtn" data-infl="${k}" title="Select the points either side of this inflection and show it. A wobble like this shows up as bumps in the XFOIL pressure.">${side} surface wobbles: inflection ${e.k + 1} of ${e.of}, at ${f(e.x, 1)} % chord, between ${ptName(e.pa)} and ${ptName(e.pb)}. Click to show it.</button></li>`)).join('');
+  };
+  const html = (A.cross ? '<li class="warn">The surfaces cross. Check the points near the trailing edge.</li>' : '<li class="ok">Surfaces do not cross</li>') + row(A.inflU, 'Upper') + row(A.inflL, 'Lower')
     + (A.leR < 0.004 ? '<li class="warn">Sharp nose: leading-edge radius under 0.4 %. Expect an early stall.</li>' : '');
+  if (html !== curvHtml) { curvHtml = html; $('curvCheck').innerHTML = html; }   // only rewrite when it changes, so a hover is not interrupted
+  if (hoverInfl >= lastInfls.length) hoverInfl = -1;
   drawXf(A, xfState === 'fresh' ? xfA : xfA || A);
 }
 

@@ -11,6 +11,11 @@ const props = defineProps({
   uiuc: { type: Object, default: null }, // the loaded UIUC catalogue, or null while loading
 })
 
+const emit = defineEmits(['open-section-editor', 'drop-drawn'])
+
+// A drawn section replaces the parameters until it is taken out of use (WingCalc asks first)
+const drawnInUse = computed(() => !!model.value.custom?.drawn)
+
 const PAGE = 120
 
 const query = ref('')
@@ -219,6 +224,14 @@ const total = computed(() => all.value.length.toLocaleString('en-GB'))
       </div>
     </template>
 
+    <div v-else-if="drawnInUse" class="wc-custom">
+      <p><strong>Drawn section in use</strong></p>
+      <p class="wc-muted">The parameters don't apply while a drawn section is in use.</p>
+      <div class="wc-field__control">
+        <button type="button" class="wc-button" @click="emit('open-section-editor')">Edit…</button>
+        <button type="button" class="wc-button" @click="emit('drop-drawn')">Back to parameters</button>
+      </div>
+    </div>
     <div v-else class="wc-custom">
       <ParamInput
         id="wc-thickness"
@@ -274,6 +287,7 @@ const total = computed(() => all.value.length.toLocaleString('en-GB'))
       <button v-if="lastLibrary" type="button" class="wc-button" @click="copyFromLibrary">
         Copy values from {{ lastLibrary.name }}
       </button>
+      <button type="button" class="wc-button" title="Draw the outline point by point" @click="emit('open-section-editor')">Advanced…</button>
     </div>
   </div>
 </template>

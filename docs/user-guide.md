@@ -85,6 +85,27 @@ Aerofoils are chosen from a catalogue of the whole UIUC Airfoil Coordinates Data
 
 Results appear in two stages: instantly from the bundled polars or an estimate, then a second or two later from an XFOIL polar computed in the browser at the stall's own Reynolds number. The lift curve is drawn with the peak and the stall band marked, so the stall rating can be checked by eye. See [Methods](methods.md#polars-computed-in-the-browser-xfoil).
 
+### Section editor
+
+On a custom section, **Advanced** opens the section editor: the upper and lower surfaces drawn full-window, as smooth curves through control points. It starts from the section as the thickness and camber fields describe it, or from the drawn section already in use, so you can start from any section. Undo and Redo are in the header.
+
+- **Drag** a point to move it. Hold **Shift** while dragging to lock the move to one axis. **Shift-click** adds a point to the selection.
+- **Box select**: drag on empty space to select several points, then drag them together or use the command bar (Smooth, Mirror, Delete).
+- **Right or middle drag** pans. The **−** and **+** buttons (bottom right, or the keys) zoom, and **F** fits the drawing.
+- **Double-click** on a segment adds a point there.
+- **Segments** between points are straight or curved. Select one and use **Make straight** or **Make curved**; **Bend** pulls a curved segment, and dragging a straight one moves it. The nose end is set by the radius, so the segment there can't be made straight.
+- **Nose radius**: the diamond along the chord sets the leading-edge radius, and the side panel takes a typed value. The outline has exactly that radius at the nose.
+- **Smooth** fairs the selected points (or, from the menu, the upper surface, the lower surface or both) so the curvature varies smoothly. Press again for more. **Keep max thickness** rescales the thickness afterwards, since fairing shrinks the section a little.
+- **Reset** (the menu in the command bar) goes back to the start of this edit, or to a built-in section. Undo brings the shape back.
+- **1×** and **3×** show the drawing at true proportion or with the thickness stretched three times, to see small bumps.
+- **Comb** draws the curvature as a comb along the outline: each tooth is proportional to the curvature, on the side it bends toward. A smooth outline has a comb that varies gently.
+- **Camber and markers** shows the mean line and the thickness and camber positions.
+- **Curvature check** (side panel): a surface whose curvature reverses twice is listed with where it is, and a warning says if the two surfaces cross over. Click the warning to select the points either side.
+- **XFOIL preview** (side panel): about a second after an edit settles (never during a drag), the outline is solved by XFOIL at the Reynolds number the wing uses, and its lift curve is drawn with Clmax and the stall angle. The section as it was when you opened the editor is drawn faintly for comparison. "Solving" means the result is still coming; "Out of date" means you are still dragging. If XFOIL can't converge on the shape, the preview says so. It runs in the background and doesn't hold up the editor.
+- **Use section** writes the drawn section to the aerofoil, and **Cancel** (or Escape) closes the editor, asking first if there are changes not yet used.
+
+The drawn section then appears in the aerofoil picker in place of the custom parameters, with **Edit** to reopen the editor and **Back to parameters** to return to the thickness and camber fields. The drawn section is saved with the project.
+
 ## Structure editor
 
 In "Chords & panels" mode a **Structure and ribs** card sums up the structure: small drawings of the plan and the wing in 3D, then the spar, covering, rib count and spacing, the lowest margin of safety at the design load, the root bending moment and an estimate of the wing's weight, structure and covering, with the covering's share.
