@@ -88,6 +88,11 @@ const geom = computed(() => {
       fixed: band(sf.fixed[0], sf.fixed[1], f.fixedFront, f.fixedRear),
       moving: band(sf.moving[0], sf.moving[1], f.apex, f.movingRear),
       outline: band(sf.moving[0], sf.moving[1], f.apex, te),
+      // The Mylar tabs, each a rectangle centred on the hinge line
+      tabs: (sf.tabs ?? []).map((s) => {
+        const x = sf.hingeX(s), hw = st.hinges.tabWidth / 2, hl = st.hinges.tabLength / 2
+        return [[s - hw, x - hl], [s + hw, x - hl], [s + hw, x + hl], [s - hw, x + hl]].map(([p, q]) => `${p.toFixed(5)},${q.toFixed(5)}`).join(' ')
+      }),
     })
   }
   // Servo bays: the hatch opening, the servo's case, and its lead's route in to the root
@@ -539,6 +544,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
             <polygon :points="h.outline" class="wc-sp__surface" />
             <polygon :points="h.fixed" class="wc-sp__hinge" />
             <polygon :points="h.moving" class="wc-sp__hinge" />
+            <polygon v-for="(t, k) in h.tabs" :key="k" :points="t" class="wc-sp__tab" />
           </template>
           <template v-for="r in geom.brakes" :key="'ab' + r.id">
             <polygon :points="r.box" class="wc-sp__brake"><title>{{ r.label }}: {{ r.type === 'blade' ? 'box between its ribs' : 'frame under the top surface' }}</title></polygon>

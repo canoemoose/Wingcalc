@@ -692,6 +692,33 @@ export function gussetPrisms(a, structure, parts) {
   return out
 }
 
+// The Mylar hinge tabs as thin flat plates, each tabWidth along the hinge by tabLength across
+// it, centred on the hinge line at its centre line (midway between the skins), half into each
+// hinge spar.
+export function hingeTabPlates(a, structure) {
+  const h = structure.hinges
+  const t = h?.tabThickness || 0.0002
+  if (!(h?.tabWidth > 0) || !(h?.tabLength > 0)) return []
+  const out = []
+  for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
+    for (const s of sf.tabs ?? []) {
+      const x = sf.hingeX(s)
+      const mid = (insetHeight(a, structure, s, x, 'upper', false) + insetHeight(a, structure, s, x, 'lower', false)) / 2
+      const hw = h.tabWidth / 2
+      const hl = h.tabLength / 2
+      const corners = [
+        [s - hw, x - hl],
+        [s + hw, x - hl],
+        [s + hw, x + hl],
+        [s - hw, x + hl],
+      ]
+      const ring = (hh) => corners.map(([cs, cx]) => worldPoint(a, Math.min(a.tipS, Math.max(a.rootS, cs)), cx, hh))
+      out.push({ kind: 'tab', surface: sf.id, ...loft([ring(mid - t / 2), ring(mid + t / 2)], { closed: true, caps: 'fan' }) })
+    }
+  }
+  return out
+}
+
 // Dihedral braces as flat plates on the spar's front and rear faces, shaped to the break as
 // exported. In this half only: a centre brace's other arm comes with the mirrored half.
 export function bracePlates(a, structure, parts) {
@@ -929,7 +956,7 @@ export function wing3d(a, structure, parts) {
       hi[k] = Math.max(hi[k], sk.positions[i + k])
     }
   }
-  solids.push(...gussetPrisms(a, st, parts), ...bracePlates(a, st, parts))
+  solids.push(...gussetPrisms(a, st, parts), ...bracePlates(a, st, parts), ...hingeTabPlates(a, st))
   const tip = tipBlock(a, st)
   if (tip) solids.push({ kind: 'tip', ...tip })
   return { skin: sk, solids, ribs, capStrips, bounds: { min: lo, max: hi } }

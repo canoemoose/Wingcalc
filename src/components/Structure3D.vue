@@ -239,6 +239,7 @@ const COLOURS = {
   blade: 0x7f8c97,
   plate: 0xa8794a,
   teMoving: 0xe3c48f,
+  tab: 0x8fa3ad,
   core: 0xe9e5d8,
   coreMoving: 0xe9e5d8,
 }
@@ -393,7 +394,7 @@ function build() {
         ? groups.servos
         : s.kind === 'brakeBox' || s.kind === 'blade'
         ? groups.brakes
-        : s.kind === 'hinge'
+        : s.kind === 'hinge' || s.kind === 'tab'
         ? groups.hinges
         : s.kind === 'spar' || s.kind === 'web'
         ? groups.spar

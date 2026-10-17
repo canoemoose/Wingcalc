@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { addSurface, defaultControls } from '../src/lib/controlSurfaces.js'
-import { stockSurfaceSection, sectionAt } from '../src/lib/wing3d.js'
+import { stockSurfaceSection, sectionAt, wing3d } from '../src/lib/wing3d.js'
 import { buildParts } from '../src/lib/ribs.js'
 
 // The default wing, a custom trailing edge 15 mm deep, and an aileron cut from that stock
@@ -48,5 +48,15 @@ describe('a surface cut from the trailing edge stock, in 3D', () => {
     const cut = sectionAt(a, st, parts, (sf.moving[0] + sf.moving[1]) / 2)
     const pieces = cut.pieces ?? cut
     expect(pieces.some((p) => p.kind === 'teMoving')).toBe(true)
+  })
+
+  it('has every Mylar hinge tab, centred on the hinge line', () => {
+    const { a, st } = build()
+    const { parts } = buildParts(a, st)
+    const tabs = wing3d(a, st, parts).solids.filter((x) => x.kind === 'tab')
+    const want = a.surfaces.filter((x) => x.ok).reduce((n, sf) => n + sf.tabs.length, 0)
+    expect(want).toBeGreaterThan(0)
+    expect(tabs).toHaveLength(want)
+    for (const t of tabs) expect(t.positions.every(Number.isFinite)).toBe(true)
   })
 })

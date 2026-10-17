@@ -1877,6 +1877,12 @@
   stroke: var(--wc-moderate);
   stroke-width: 1;
 }
+/* A Mylar hinge tab, over the hinge spars */
+.wc-sp__tab {
+  fill: color-mix(in srgb, var(--wc-text) 18%, transparent);
+  stroke: var(--wc-text);
+  stroke-width: 0.6;
+}
 .wc-sp__hatch {
   fill: none;
   stroke: var(--wc-text);
