@@ -353,7 +353,9 @@ function meshFrom(data, material, { creased = true } = {}) {
 }
 
 function build() {
-  if (!THREE) return
+  // Not before the scene exists: three.js may already be loaded (by an earlier view) when a prop
+  // changes while this one is still mounting
+  if (!THREE || !scene) return
   const model = wing3d(props.analysis, props.structure, props.parts)
   if (root) {
     scene.remove(root)
