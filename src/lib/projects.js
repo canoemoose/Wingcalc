@@ -64,6 +64,7 @@ export function migrate(state) {
   // Control surfaces: none on a wing saved before them
   input.controls = fillDefaults(d.input.controls, s.input?.controls)
   if (!Array.isArray(input.controls.surfaces)) input.controls.surfaces = []
+  if (!Array.isArray(input.controls.bays)) input.controls.bays = []
   // Edge stock saved before the catalogue keeps its own width, rather than an auto pick
   for (const k of ['le', 'te']) {
     const saved = s.input?.structure?.[k]

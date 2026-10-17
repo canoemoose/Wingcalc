@@ -27,10 +27,11 @@ export const ROLES = {
   flaperon: { label: 'Flaperon', code: 'FA', up: 20, down: 30 },
 }
 
-// Saved with the wing: the surfaces, and crow (both surfaces' deflections when it's on).
+// Saved with the wing: the surfaces, crow (both surfaces' deflections when it's on) and the
+// servo bays' settings (servos.js: each surface has a bay unless removed here).
 // Crow's settings are kept even while the wing can't use it, so they come back.
 export function defaultControls() {
-  return { surfaces: [], crow: { enabled: false, aileronUp: 25, flapDown: 45 } }
+  return { surfaces: [], crow: { enabled: false, aileronUp: 25, flapDown: 45 }, bays: [] }
 }
 
 const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1
