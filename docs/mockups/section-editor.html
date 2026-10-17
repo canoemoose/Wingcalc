@@ -1,0 +1,752 @@
+<!doctype html>
+<!--
+  MOCK-UP: Wingcalc "Advanced" section editor (docs/scope-v8.md, step 10).
+  Self-contained: open the file in a browser. No XFOIL, nothing saved. The tokens and component
+  styles are copied from src/styles/wingcalc.css so it looks like the app.
+
+  Design choices
+  - Same anatomy as the wing plan editor: drawing stage with the command bar on the selection (or
+    on the drawing when nothing is selected), view toggles top left, Snap - + Fit bottom right,
+    inspector panel beside it (below at phone width). No tool rail, no modes.
+  - Points sit ON the curve (one closed Catmull-Rom spline, TE upper -> LE -> TE lower), so a
+    point is where you see it and the nose stays smooth through the LE. The LE is locked at the
+    origin; the trailing-edge points move freely. "Normalise" rotates and scales so the chord
+    runs LE -> TE midpoint at unit length (readouts are always taken on that normalised chord).
+  - Double-click the curve adds a point (as double-click adds a rib). Add point on a selection
+    splits the gap after it. Delete, Mirror to other surface, Smooth act on the selection.
+  - Nothing selected: Start from (seeds), Normalise, Fit to thickness.
+  - Drag is live; Shift constrains to the dominant axis; Snap rounds to 0.5 % x / 0.25 % y
+    (Alt places freely); arrow keys nudge (Shift larger). Ctrl+Z / Ctrl+Y undo and redo.
+  - View toggles: curvature comb, camber line and markers, the seed outline (a faint reference
+    of what you started from), and a vertical exaggeration (1x / 3x), because sections are thin.
+  - Inspector: readouts (thickness, camber, LE radius, TE thickness and angle), selected point
+    fields, a curvature check (surfaces crossing, inflection count) and an XFOIL preview that
+    would refresh a second or two after you stop dragging. The preview curve here is FAKE.
+
+  Open questions for Matt
+  1. Points on the curve (this mock) or B-spline control points with a hull? Control points give
+     smoother, more "designed" shapes but points sit off the surface; interpolation is easier to
+     reason about for editing a known section.
+  2. Should the LE be fully locked, or allow a draggable LE radius handle instead of free points?
+  3. Is the exaggeration toggle worth keeping, or should the stage just always be at 1x with zoom?
+  4. Does the XFOIL preview belong in the inspector, or as an overlay on the stage?
+  5. Keep the seed outline, and should "Use section" warn when the shape has crossings?
+  6. Number of points: 9 per surface here. More makes drags fiddly, fewer limits the shape.
+-->
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Section editor mock-up</title>
+<style>
+/* ---- tokens, copied from wingcalc.css ---- */
+.wingcalc {
+  --wc-bg: #ffffff; --wc-surface: #f6f7f9; --wc-border: #d9dde3; --wc-text: #1b1f24; --wc-muted: #5d6673;
+  --wc-accent: #1f6feb; --wc-accent-text: #ffffff; --wc-warn: #a15c00; --wc-warn-bg: #fff4e0;
+  --wc-gentle: #1a7f37; --wc-sharp: #c62828;
+  --wc-series-1: #2a78d6; --wc-series-2: #eb6834; --wc-series-3: #1baf7a; --wc-series-4: #eda100; --wc-series-5: #e87ba4;
+  --wc-radius: 8px; --wc-control-h: 34px;
+  --wc-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: light; box-sizing: border-box; color: var(--wc-text); background: var(--wc-bg);
+  font-family: var(--wc-font); font-size: 15px; line-height: 1.45; text-align: left;
+  container-type: inline-size;
+}
+.wingcalc[data-theme='dark'] {
+  color-scheme: dark; --wc-bg: #16191d; --wc-surface: #1f2328; --wc-border: #353b43; --wc-text: #e6e9ed; --wc-muted: #9aa4b1;
+  --wc-accent: #4c8dff; --wc-warn: #f0b45a; --wc-warn-bg: #3a2c12; --wc-gentle: #4cc46a; --wc-sharp: #ff6b6b;
+  --wc-series-1: #3987e5; --wc-series-2: #d95926; --wc-series-3: #199e70; --wc-series-4: #c98500; --wc-series-5: #d55181;
+}
+@media (prefers-color-scheme: dark) {
+  .wingcalc[data-theme='auto'] {
+    color-scheme: dark; --wc-bg: #16191d; --wc-surface: #1f2328; --wc-border: #353b43; --wc-text: #e6e9ed; --wc-muted: #9aa4b1;
+    --wc-accent: #4c8dff; --wc-warn: #f0b45a; --wc-warn-bg: #3a2c12; --wc-gentle: #4cc46a; --wc-sharp: #ff6b6b;
+    --wc-series-1: #3987e5; --wc-series-2: #d95926; --wc-series-3: #199e70; --wc-series-4: #c98500; --wc-series-5: #d55181;
+  }
+}
+html, body { margin: 0; background: var(--page-bg, #fff); }
+body { background: #fff; }
+@media (prefers-color-scheme: dark) { body.auto { background: #16191d; } }
+body.dark { background: #16191d; }
+body.light { background: #fff; }
+.wingcalc *, .wingcalc *::before, .wingcalc *::after { box-sizing: border-box; }
+.wingcalc { min-height: 100vh; padding: 16px; }
+.wingcalc h2, .wingcalc h3, .wingcalc p, .wingcalc dl, .wingcalc dd { margin: 0; }
+.wingcalc button:focus-visible, .wingcalc input:focus-visible { outline: 2px solid var(--wc-accent); outline-offset: 1px; }
+.wc-muted { color: var(--wc-muted); }
+
+/* ---- controls ---- */
+.wc-button { font: inherit; font-size: 0.875rem; color: var(--wc-text); background: var(--wc-bg); border: 1px solid var(--wc-border);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.wc-button:hover:not(:disabled) { border-color: var(--wc-accent); }
+.wc-button:disabled { opacity: 0.45; cursor: default; }
+.wc-button--primary { background: var(--wc-accent); color: var(--wc-accent-text); border-color: color-mix(in srgb, var(--wc-accent) 75%, #000); }
+.wc-button--primary:hover:not(:disabled) { border-color: color-mix(in srgb, var(--wc-accent) 55%, #000); }
+.wc-button--icon { display: inline-flex; align-items: center; justify-content: center; width: var(--wc-control-h); height: var(--wc-control-h); padding: 0; }
+.wc-button svg, .wc-cmd__btn svg, .wc-stage__snap svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.wc-input { font: inherit; color: var(--wc-text); background: var(--wc-bg); border: 1px solid var(--wc-border); border-radius: 6px; height: 34px; padding: 0 8px; min-width: 0; }
+.wc-input:disabled { background: var(--wc-surface); color: var(--wc-muted); }
+.wc-toggle { display: inline-flex; border: 1px solid var(--wc-border); border-radius: var(--wc-radius); overflow: hidden; background: var(--wc-surface); }
+.wc-toggle__btn { font: inherit; font-size: 0.9rem; color: var(--wc-text); background: transparent; border: 0; border-right: 1px solid var(--wc-border);
+  padding: 0 12px; height: calc(var(--wc-control-h) - 2px); cursor: pointer; white-space: nowrap; }
+.wc-toggle__btn:last-child { border-right: 0; }
+.wc-toggle__btn--active { background: var(--wc-accent); color: var(--wc-accent-text); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); }
+
+/* ---- header ---- */
+.wc-header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+.wc-header__title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.wc-logo { flex: none; width: 40px; height: 40px; }
+.wc-title { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 1.4rem; letter-spacing: -0.02em; line-height: 1.1; font-weight: 600; }
+.wc-title span { font-weight: 400; color: color-mix(in srgb, var(--wc-text) 62%, transparent); }
+.wc-subtitle { font-size: 0.85rem; min-height: 1.2em; }
+.wc-header__name { display: flex; align-items: center; gap: 8px; }
+.wc-header__name .wc-input { width: 220px; max-width: 100%; }
+.wc-header__prefs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.wc-sep { width: 1px; height: 22px; background: var(--wc-border); margin: 0 2px; }
+
+/* ---- layout ---- */
+.wc-editor { display: grid; grid-template-columns: 1fr; gap: 14px; }
+@container (min-width: 820px) { .wc-editor { grid-template-columns: minmax(0, 1fr) 330px; align-items: start; } }
+.wc-sec__canvas { position: relative; border: 1px solid var(--wc-border); border-radius: 6px; background: var(--wc-bg); overflow: hidden;
+  height: clamp(380px, 68vh, 720px); }
+.wc-sec__canvas:focus-visible { outline: 2px solid var(--wc-accent); outline-offset: 1px; }
+.wc-sec__svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; cursor: grab; }
+.wc-sec__svg--panning { cursor: grabbing; }
+.wc-sec__svg text { font-family: var(--wc-font); }
+
+/* stage corners and command bar, as wingcalc.css */
+.wc-stage__corner { position: absolute; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.wc-stage__corner--tl { left: 8px; top: 8px; right: 8px; }
+.wc-stage__corner--br { right: 8px; bottom: 8px; }
+.wc-stage__btn { min-width: 30px; height: 28px; padding: 0 9px; background: var(--wc-bg); }
+.wc-stage__snap { display: inline-flex; align-items: center; gap: 5px; color: var(--wc-muted); }
+.wc-stage__snap[aria-pressed='true'] { color: var(--wc-accent); border-color: color-mix(in srgb, var(--wc-accent) 60%, var(--wc-border));
+  background: color-mix(in srgb, var(--wc-accent) 10%, var(--wc-bg)); }
+.wc-stage__seg { display: inline-flex; height: 28px; border: 1px solid var(--wc-border); border-radius: 6px; overflow: hidden; background: var(--wc-bg); }
+.wc-stage__seg button { font: inherit; font-size: 0.875rem; color: var(--wc-muted); background: transparent; border: 0; padding: 0 9px; cursor: pointer; }
+.wc-stage__seg button + button { border-left: 1px solid var(--wc-border); }
+.wc-stage__seg button[aria-pressed='true'] { color: var(--wc-accent); background: color-mix(in srgb, var(--wc-accent) 10%, var(--wc-bg)); }
+.wc-cmd { position: absolute; z-index: 4; top: 46px; left: 8px; right: 8px; width: fit-content; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 2px; padding: 3px; background: var(--wc-bg); border: 1px solid var(--wc-border); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.wc-cmd__label { font-size: 0.8rem; font-weight: 600; color: var(--wc-muted); padding: 0 8px 0 6px; }
+.wc-cmd__btn { font: inherit; font-size: 0.85rem; min-width: 30px; height: 28px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--wc-text); cursor: pointer; white-space: nowrap; }
+.wc-cmd__btn:hover:not(:disabled) { background: color-mix(in srgb, var(--wc-text) 7%, transparent); }
+.wc-cmd__btn:disabled { opacity: 0.4; cursor: default; }
+.wc-cmd__btn--danger:hover:not(:disabled) { color: var(--wc-sharp); }
+.wc-cmd__sep { width: 1px; align-self: stretch; margin: 4px 3px; background: var(--wc-border); }
+.wc-pop { position: absolute; z-index: 6; top: 84px; left: 50%; transform: translateX(-50%); width: min(300px, calc(100% - 16px));
+  background: var(--wc-bg); border: 1px solid var(--wc-border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.2); padding: 10px; }
+.wc-pop[hidden] { display: none; }
+.wc-pop__title { font-size: 0.8rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; color: var(--wc-muted); margin-bottom: 8px; }
+.wc-pop__list { display: grid; gap: 6px; }
+.wc-pop__item { text-align: left; display: grid; gap: 1px; }
+.wc-pop__item small { color: var(--wc-muted); font-size: 0.78rem; }
+.wc-pop__row { display: flex; gap: 8px; align-items: center; }
+.wc-pop__row .wc-input { width: 90px; }
+.wc-stage__hint { position: absolute; left: 10px; bottom: 10px; z-index: 2; font-size: 0.78rem; color: var(--wc-muted); pointer-events: none;
+  font-variant-numeric: tabular-nums; max-width: calc(100% - 230px); }
+@media (max-width: 560px) { .wc-cmd { top: auto; bottom: 44px; } .wc-stage__hint { display: none; } }
+
+/* ---- drawing ---- */
+.wc-sec__minor { stroke: var(--wc-border); stroke-width: 1; opacity: 0.4; }
+.wc-sec__major { stroke: var(--wc-border); stroke-width: 1; opacity: 0.95; }
+.wc-sec__chord { stroke: var(--wc-muted); stroke-width: 1; stroke-dasharray: 6 4; opacity: 0.8; fill: none; }
+.wc-sec__fill { fill: color-mix(in srgb, var(--wc-accent) 9%, transparent); stroke: none; }
+.wc-sec__outline { fill: none; stroke: var(--wc-text); stroke-width: 1.75; stroke-linejoin: round; }
+.wc-sec__seed { fill: none; stroke: var(--wc-muted); stroke-width: 1.25; stroke-dasharray: 2 4; opacity: 0.8; }
+.wc-sec__camber { fill: none; stroke: var(--wc-series-2); stroke-width: 1.25; stroke-dasharray: 5 3; }
+.wc-sec__mark-t { stroke: var(--wc-series-3); stroke-width: 2; }
+.wc-sec__mark-c { stroke: var(--wc-series-2); stroke-width: 2; fill: var(--wc-bg); }
+.wc-sec__le { fill: none; stroke: var(--wc-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.wc-sec__comb { stroke: var(--wc-series-4); stroke-width: 1; opacity: 0.75; }
+.wc-sec__comb-env { fill: none; stroke: var(--wc-series-4); stroke-width: 1.25; }
+.wc-sec__label { font-size: 11px; fill: var(--wc-muted); }
+.wc-sec__label--t { fill: var(--wc-series-3); font-weight: 600; }
+.wc-sec__label--c { fill: var(--wc-series-2); font-weight: 600; }
+.wc-sec__label--pt { fill: var(--wc-accent); font-weight: 600; }
+.wc-sec__pt { fill: var(--wc-bg); stroke: var(--wc-accent); stroke-width: 2; cursor: grab; }
+.wc-sec__pt:hover { stroke-width: 3; }
+.wc-sec__pt--te { stroke-dasharray: none; }
+.wc-sec__pt--lock { stroke: var(--wc-muted); cursor: not-allowed; }
+.wc-sec__pt--sel { fill: var(--wc-accent); stroke: color-mix(in srgb, var(--wc-accent) 75%, #000); }
+.wc-sec__hit { fill: transparent; cursor: grab; }
+.wc-sec__hit--lock { cursor: not-allowed; }
+.wc-sec__guide { stroke: var(--wc-accent); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.7; }
+
+/* ---- inspector ---- */
+.wc-panel { background: var(--wc-surface); border: 1px solid var(--wc-border); border-radius: var(--wc-radius); padding: 14px; }
+.wc-panel__title { font-size: 0.8rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; color: var(--wc-muted); margin: 16px 0 8px;
+  display: flex; align-items: center; gap: 8px; }
+.wc-panel__title:first-child { margin-top: 0; }
+.wc-chip { font-size: 0.7rem; font-weight: 600; text-transform: none; letter-spacing: 0; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--wc-warn); color: var(--wc-warn); background: var(--wc-warn-bg); }
+.wc-readouts { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; font-size: 0.9rem; }
+.wc-readouts dt { color: var(--wc-muted); }
+.wc-readouts dd { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.wc-readouts dd small { color: var(--wc-muted); font-weight: 400; }
+.wc-field { display: grid; grid-template-columns: minmax(0, 1fr) 130px; align-items: center; column-gap: 10px; margin-bottom: 6px; font-size: 0.9rem; }
+.wc-field .wc-input { width: 100%; }
+.wc-field__hint { grid-column: 1 / -1; font-size: 0.8rem; color: var(--wc-muted); }
+.wc-warnings { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.wc-warnings li { font-size: 0.85rem; border-radius: 6px; padding: 6px 10px; border: 1px solid var(--wc-border); background: var(--wc-bg); }
+.wc-warnings li.warn { color: var(--wc-warn); background: var(--wc-warn-bg); border-color: var(--wc-warn); }
+.wc-warnings li.ok::before { content: '\2713  '; color: var(--wc-gentle); font-weight: 700; }
+.wc-xf { background: var(--wc-bg); border: 1px solid var(--wc-border); border-radius: 6px; padding: 8px; }
+.wc-xf svg { display: block; width: 100%; height: auto; }
+.wc-xf svg text { font-family: var(--wc-font); font-size: 10px; fill: var(--wc-muted); }
+.wc-xf__curve { fill: none; stroke: var(--wc-series-1); stroke-width: 2; transition: opacity 0.2s; }
+.wc-xf--stale .wc-xf__curve { opacity: 0.35; stroke-dasharray: 4 3; }
+.wc-xf__status { font-size: 0.8rem; color: var(--wc-muted); margin-top: 6px; display: flex; gap: 6px; align-items: center; }
+.wc-xf__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wc-gentle); flex: none; }
+.wc-xf--stale .wc-xf__dot { background: var(--wc-muted); }
+.wc-xf--busy .wc-xf__dot { background: var(--wc-series-4); animation: wcpulse 0.8s infinite alternate; }
+@keyframes wcpulse { from { opacity: 0.3; } to { opacity: 1; } }
+.wc-xf__nums { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.wc-xf__nums b { font-weight: 600; }
+</style>
+</head>
+<body class="auto">
+<div class="wingcalc" id="app" data-theme="auto">
+
+  <header class="wc-header">
+    <div class="wc-header__title">
+      <svg class="wc-logo" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="9" fill="#1f6feb"/><path d="M20 7l1.6 9 14 5v3l-14-2-.8 7 4 3v2l-4.8-1.2L15.2 34v-2l4-3-.8-7-14 2v-3l14-5L20 7z" fill="#fff" transform="rotate(0)"/></svg>
+      <div>
+        <h2 class="wc-title">Section editor</h2>
+        <div class="wc-subtitle wc-muted" id="status">Mock-up: nothing is saved and the XFOIL preview is fake.</div>
+      </div>
+    </div>
+    <div class="wc-header__name">
+      <label class="wc-muted" for="name" style="font-size:.85rem">Name</label>
+      <input class="wc-input" id="name" value="Custom 2412" maxlength="40">
+    </div>
+    <div class="wc-header__prefs">
+      <div class="wc-toggle" role="group" aria-label="Theme">
+        <button class="wc-toggle__btn wc-toggle__btn--active" data-theme-btn="auto">Auto</button>
+        <button class="wc-toggle__btn" data-theme-btn="light">Light</button>
+        <button class="wc-toggle__btn" data-theme-btn="dark">Dark</button>
+      </div>
+      <span class="wc-sep"></span>
+      <button class="wc-button wc-button--icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 14l-4-4l4-4"/><path d="M5 10h9a5 5 0 0 1 0 10h-3"/></svg></button>
+      <button class="wc-button wc-button--icon" id="redo" title="Redo (Ctrl+Y)" aria-label="Redo"><svg viewBox="0 0 24 24"><path d="M15 14l4-4l-4-4"/><path d="M19 10h-9a5 5 0 0 0 0 10h3"/></svg></button>
+      <button class="wc-button" id="cancel">Cancel</button>
+      <button class="wc-button wc-button--primary" id="use">Use section</button>
+    </div>
+  </header>
+
+  <div class="wc-editor">
+    <div class="wc-sec__canvas" id="stage" tabindex="0"
+         aria-label="Section editor. Arrow keys nudge the selected point; Delete removes it; F fits; plus and minus zoom.">
+      <svg class="wc-sec__svg" id="svg" role="img" aria-label="Aerofoil section"></svg>
+
+      <div class="wc-stage__corner wc-stage__corner--tl" role="group" aria-label="View options">
+        <button class="wc-button wc-stage__btn wc-stage__snap" id="tComb" aria-pressed="false" title="Show the curvature comb: teeth point away from the centre of curvature, longer where the surface bends harder">Curvature</button>
+        <button class="wc-button wc-stage__btn wc-stage__snap" id="tCamber" aria-pressed="true" title="Camber line, max thickness and max camber markers, leading-edge circle">Camber and markers</button>
+        <button class="wc-button wc-stage__btn wc-stage__snap" id="tSeed" aria-pressed="true" title="Faint outline of the section you started from">Seed outline</button>
+        <span class="wc-stage__seg" role="group" aria-label="Vertical exaggeration" title="Vertical exaggeration. Sections are thin, so 3x makes small changes easier to see.">
+          <button id="ve1" aria-pressed="true">1×</button><button id="ve3" aria-pressed="false">3×</button>
+        </span>
+      </div>
+
+      <div class="wc-cmd" id="cmd" role="toolbar" aria-label="Section actions"></div>
+      <div class="wc-pop" id="pop" hidden></div>
+
+      <div class="wc-stage__hint" id="hint">Drag a point. Double-click the curve to add one. Shift constrains, Alt places freely.</div>
+
+      <div class="wc-stage__corner wc-stage__corner--br" role="group" aria-label="View" style="left:auto;right:8px;top:auto">
+        <button class="wc-button wc-stage__btn wc-stage__snap" id="snap" aria-pressed="true" title="Snap to the grid (0.5 % x, 0.25 % y). Hold Alt to place freely.">
+          <svg viewBox="0 0 24 24"><path d="M4 9h16"/><path d="M4 15h16"/><path d="M9 4v16"/><path d="M15 4v16"/></svg>Snap</button>
+        <button class="wc-button wc-stage__btn" id="zout" aria-label="Zoom out" title="Zoom out (−)">−</button>
+        <button class="wc-button wc-stage__btn" id="zin" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button class="wc-button wc-stage__btn" id="fit" title="Fit the section to the view (F)">Fit</button>
+      </div>
+    </div>
+
+    <aside class="wc-panel" id="inspector" aria-label="Inspector">
+      <h3 class="wc-panel__title">Readouts</h3>
+      <dl class="wc-readouts" id="readouts"></dl>
+      <ul class="wc-warnings" id="chordWarn"></ul>
+
+      <h3 class="wc-panel__title">Selected point</h3>
+      <div id="pointBox"></div>
+
+      <h3 class="wc-panel__title">Curvature check</h3>
+      <ul class="wc-warnings" id="curvCheck"></ul>
+
+      <h3 class="wc-panel__title">XFOIL preview <span class="wc-chip">mock</span></h3>
+      <div class="wc-xf wc-xf--stale" id="xf">
+        <svg viewBox="0 0 280 160" id="xfsvg" role="img" aria-label="Lift curve preview (fake)"></svg>
+        <div class="wc-xf__nums" id="xfnums"></div>
+        <div class="wc-xf__status"><span class="wc-xf__dot"></span><span id="xfstatus"></span></div>
+      </div>
+      <p class="wc-muted" style="font-size:.8rem;margin-top:6px">The real thing would run XFOIL in the background a second or two after you stop dragging and show the Cl-alpha curve here. This curve is made up from the thickness and camber.</p>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = (id) => document.getElementById(id);
+const svg = $('svg'), stage = $('stage'), cmd = $('cmd'), pop = $('pop');
+const SVGNS = 'http://www.w3.org/2000/svg';
+const PER = 24;                                   // spline samples per segment
+const SNAP_X = 0.005, SNAP_Y = 0.0025;
+
+/* ------------------------------ seeds ------------------------------ */
+const STATIONS = [1, 0.8, 0.6, 0.45, 0.3, 0.18, 0.09, 0.035, 0.012];
+function naca4(code) {
+  const m = +code[0] / 100, p = +code[1] / 10, t = +code.slice(2) / 100;
+  const yt = (x) => 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1015 * x ** 4);
+  const yc = (x) => (p === 0 ? 0 : x < p ? (m / (p * p)) * (2 * p * x - x * x) : (m / ((1 - p) ** 2)) * ((1 - 2 * p) + 2 * p * x - x * x));
+  const dyc = (x) => (p === 0 ? 0 : x < p ? (2 * m / (p * p)) * (p - x) : (2 * m / ((1 - p) ** 2)) * (p - x));
+  const up = [], lo = [];
+  for (const x of STATIONS) {
+    const th = Math.atan(dyc(x)), y = yt(x), c = yc(x);
+    up.push({ x: x - y * Math.sin(th), y: c + y * Math.cos(th) });
+    lo.push({ x: x + y * Math.sin(th), y: c - y * Math.cos(th) });
+  }
+  return [...up, { x: 0, y: 0, le: true }, ...lo.reverse()];
+}
+const SEEDS = [
+  { code: '2412', name: 'NACA 2412', note: 'Cambered, 12 % thick. The classic trainer section.' },
+  { code: '0012', name: 'NACA 0012', note: 'Symmetric, 12 % thick. Aerobatic and tail surfaces.' },
+  { code: '4415', name: 'NACA 4415', note: 'High camber, 15 % thick. Slow, high-lift wings.' },
+];
+
+/* ------------------------------ geometry ------------------------------ */
+const leIndex = (pts) => pts.findIndex((p) => p.le);
+// Centripetal Catmull-Rom through the points, as dense samples
+function sample(pts) {
+  const n = pts.length, D = [];
+  const P = (i) => (i < 0 ? { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y }
+    : i >= n ? { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y } : pts[i]);
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const d = (a, b) => Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1e-6) ** 0.5;
+    const t0 = 0, t1 = t0 + d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3);
+    for (let k = 0; k < PER; k++) {
+      const t = t1 + ((t2 - t1) * k) / PER;
+      const lerp = (a, b, ta, tb) => ({ x: a.x + ((b.x - a.x) * (t - ta)) / (tb - ta), y: a.y + ((b.y - a.y) * (t - ta)) / (tb - ta) });
+      const a1 = lerp(p0, p1, t0, t1), a2 = lerp(p1, p2, t1, t2), a3 = lerp(p2, p3, t2, t3);
+      const b1 = lerp(a1, a2, t0, t2), b2 = lerp(a2, a3, t1, t3);
+      D.push(lerp(b1, b2, t1, t2));
+    }
+  }
+  D.push({ x: pts[n - 1].x, y: pts[n - 1].y });
+  return D;
+}
+function curvature(a, b, c) {
+  const ab = Math.hypot(b.x - a.x, b.y - a.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a.x, c.y - a.y);
+  if (ab * bc * ac < 1e-12) return 0;
+  return (2 * ((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x))) / (ab * bc * ac);
+}
+// Rotate and scale so LE is the origin and the TE midpoint is (1, 0)
+function normalised(pts) {
+  const le = pts[leIndex(pts)], a = pts[0], b = pts[pts.length - 1];
+  const mx = (a.x + b.x) / 2 - le.x, my = (a.y + b.y) / 2 - le.y, L = Math.hypot(mx, my) || 1, c = mx / L, s = my / L;
+  const out = pts.map((p) => ({ ...p, x: ((p.x - le.x) * c + (p.y - le.y) * s) / L, y: (-(p.x - le.x) * s + (p.y - le.y) * c) / L }));
+  return { pts: out, chord: L, angle: (Math.atan2(my, mx) * 180) / Math.PI };
+}
+function yAt(poly, x) {
+  for (let i = 0; i < poly.length - 1; i++) {
+    const a = poly[i], b = poly[i + 1];
+    if ((a.x <= x && x <= b.x) || (b.x <= x && x <= a.x)) return Math.abs(b.x - a.x) < 1e-12 ? a.y : a.y + ((b.y - a.y) * (x - a.x)) / (b.x - a.x);
+  }
+  return null;
+}
+function analyse(pts) {
+  const N = normalised(pts), D = sample(N.pts), li = leIndex(N.pts) * PER;
+  const up = D.slice(0, li + 1).reverse(), lo = D.slice(li);
+  let tmax = -1, xt = 0, cmax = 0, xc = 0, cross = false;
+  for (let x = 0.002; x <= 0.998; x += 0.002) {
+    const yu = yAt(up, x), yl = yAt(lo, x);
+    if (yu == null || yl == null) continue;
+    const t = yu - yl, c = (yu + yl) / 2;
+    if (t > tmax) { tmax = t; xt = x; }
+    if (Math.abs(c) > Math.abs(cmax)) { cmax = c; xc = x; }
+    if (t < -1e-4) cross = true;
+  }
+  const hx = 0.005, hu = yAt(up, hx), hl = yAt(lo, hx), hh = hu != null && hl != null ? (hu - hl) / 2 : 0, leR = (hh * hh) / (2 * hx);
+  const teT = D[0].y - D[D.length - 1].y;
+  const v1 = { x: D[3].x - D[0].x, y: D[3].y - D[0].y }, v2 = { x: D[D.length - 4].x - D[D.length - 1].x, y: D[D.length - 4].y - D[D.length - 1].y };
+  const teA = (Math.acos(Math.max(-1, Math.min(1, (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y))))) * 180) / Math.PI;
+  const infl = (arr) => {
+    let last = 0, n = 0;
+    for (const k of arr) { if (Math.abs(k) < 0.5) continue; const s = Math.sign(k); if (last && s !== last) n++; last = s; }
+    return n;
+  };
+  const ks = D.map((_, i) => (i === 0 || i === D.length - 1 ? 0 : curvature(D[i - 1], D[i], D[i + 1])));
+  // skip the nose (curvature there is huge and one-signed) and the last 3 % of chord
+  const upK = ks.slice(0, li).filter((_, i) => D[i].x < 0.97), loK = ks.slice(li + 1).filter((_, i) => D[li + 1 + i].x < 0.97);
+  return { N, tmax, xt, cmax, xc, leR, teT, teA, cross, inflU: infl(upK), inflL: infl(loK.reverse()) };
+}
+
+/* ------------------------------ state and history ------------------------------ */
+let pts = naca4('2412'), refPts = naca4('2412'), seedName = 'NACA 2412';
+let sel = -1, snapOn = true, showComb = false, showCamber = true, showSeed = true, ve = 1;
+const hist = []; let hi = -1;
+const snapshot = () => JSON.stringify({ pts, refPts, seedName, name: $('name').value });
+function commit(msg) {
+  hist.length = hi + 1; hist.push(snapshot()); hi = hist.length - 1; if (hist.length > 100) { hist.shift(); hi--; }
+  setStatus(msg); changed();
+}
+function restore(i) {
+  const s = JSON.parse(hist[i]); pts = s.pts; refPts = s.refPts; seedName = s.seedName; $('name').value = s.name;
+  if (sel >= pts.length) sel = -1; changed();
+}
+function undo() { if (hi > 0) { restore(--hi); setStatus('Undid the last change'); } }
+function redo() { if (hi < hist.length - 1) { restore(++hi); setStatus('Redid the change'); } }
+function setStatus(t) { $('status').textContent = t; }
+
+/* ------------------------------ view ------------------------------ */
+let W = 800, H = 500, S = 600, ox = 80, oy = 250;
+const sx = (x) => ox + x * S, sy = (y) => oy - y * S * ve;
+const dx = (px) => (px - ox) / S, dy = (py) => (oy - py) / (S * ve);
+function fit() {
+  const ymax = Math.max(0.05, ...sample(pts).map((p) => Math.abs(p.y))) + 0.01;
+  const narrow = W < 560;
+  const aw = W - 40, ah = H - (narrow ? 130 : 130);
+  S = Math.max(60, Math.min(aw / 1.12, ah / (2 * ymax * ve)));
+  ox = (W - S * 1.0) / 2; oy = (narrow ? H * 0.42 : 56 + (H - 56 - 50) / 2);
+  render();
+}
+function zoom(f, cx = W / 2, cy = H / 2) {
+  const x = dx(cx), y = dy(cy); S = Math.max(40, Math.min(S * f, 20000)); ox = cx - x * S; oy = cy + y * S * ve; render();
+}
+new ResizeObserver(() => { const r = svg.getBoundingClientRect(); const first = W === 800 && H === 500; W = r.width; H = r.height; svg.setAttribute('viewBox', `0 0 ${W} ${H}`); if (first || true) fit(); }).observe(svg);
+
+/* ------------------------------ render ------------------------------ */
+const f = (n, d = 1) => (n * 100).toFixed(d);
+let raf = 0;
+function render() { if (document.hidden) { draw(); return; } if (!raf) raf = requestAnimationFrame(draw); }
+function path(D, close) { return 'M' + D.map((p) => `${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join('L') + (close ? 'Z' : ''); }
+function draw() {
+  raf = 0;
+  const D = sample(pts), li = leIndex(pts) * PER, A = analyse(pts);
+  let o = '';
+  // grid: major every 10 % chord, minor 5 %; y every 2.5 % / 10 %
+  const x0 = dx(0), x1 = dx(W), yA = dy(H), yB = dy(0);
+  for (let g = Math.ceil(x0 / 0.05); g <= x1 / 0.05; g++) { const x = g * 0.05; o += `<line class="${g % 2 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="${sx(x)}" x2="${sx(x)}" y1="0" y2="${H}"/>`; }
+  for (let g = Math.ceil(yA / 0.025); g <= yB / 0.025; g++) { const y = g * 0.025; o += `<line class="${g % 4 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="0" x2="${W}" y1="${sy(y)}" y2="${sy(y)}"/>`; }
+  // chord line, LE to TE midpoint
+  const le = pts[leIndex(pts)], te = { x: (pts[0].x + pts[pts.length - 1].x) / 2, y: (pts[0].y + pts[pts.length - 1].y) / 2 };
+  o += `<line class="wc-sec__chord" x1="${sx(le.x)}" y1="${sy(le.y)}" x2="${sx(te.x)}" y2="${sy(te.y)}"/>`;
+  if (showSeed) o += `<path class="wc-sec__seed" d="${path(sample(refPts), true)}"/>`;
+  o += `<path class="wc-sec__fill" d="${path(D, true)}"/>`;
+  if (showCamber) {
+    // camber line, mapped back from the normalised frame
+    const N = A.N, nd = sample(N.pts), nli = li, up = nd.slice(0, nli + 1).reverse(), lo = nd.slice(nli);
+    const ang = (N.angle * Math.PI) / 180, c = Math.cos(ang), s = Math.sin(ang), L = N.chord;
+    const back = (x, y) => ({ x: le.x + (x * c - y * s) * L, y: le.y + (x * s + y * c) * L });
+    let cam = [];
+    for (let x = 0; x <= 1.0001; x += 0.01) { const yu = yAt(up, Math.min(x, 0.9995)), yl = yAt(lo, Math.min(x, 0.9995)); if (yu != null && yl != null) cam.push(back(x, (yu + yl) / 2)); }
+    o += `<path class="wc-sec__camber" d="${path(cam, false)}"/>`;
+    // max thickness marker
+    const yu = yAt(up, A.xt), yl = yAt(lo, A.xt);
+    if (yu != null && yl != null) {
+      const a = back(A.xt, yu), b = back(A.xt, yl);
+      o += `<line class="wc-sec__mark-t" x1="${sx(a.x)}" y1="${sy(a.y)}" x2="${sx(b.x)}" y2="${sy(b.y)}"/>`;
+      o += `<text class="wc-sec__label wc-sec__label--t" x="${sx(a.x) + 6}" y="${sy(a.y) - 7}">t ${f(A.tmax)} % at ${f(A.xt, 0)} %</text>`;
+    }
+    const cp = back(A.xc, A.cmax);
+    if (Math.abs(A.cmax) > 0.0005) {
+      o += `<circle class="wc-sec__mark-c" cx="${sx(cp.x)}" cy="${sy(cp.y)}" r="4.5"/>`;
+      o += `<text class="wc-sec__label wc-sec__label--c" x="${sx(cp.x) - 4}" y="${sy(cp.y) + (A.cmax >= 0 ? 20 : -12)}" text-anchor="middle">camber ${f(A.cmax)} % at ${f(A.xc, 0)} %</text>`;
+    }
+    // leading-edge circle, centred on the camber line at x = r
+    if (A.leR > 0) {
+      const yc = (yAt(up, A.leR) + yAt(lo, A.leR)) / 2, cc = back(A.leR, isFinite(yc) ? yc : 0);
+      o += `<circle class="wc-sec__le" cx="${sx(cc.x)}" cy="${sy(cc.y)}" r="${A.leR * S * L}" transform="rotate(0)"/>`;
+    }
+  }
+  if (showComb) {
+    const sc = D.map((p) => ({ x: sx(p.x), y: sy(p.y) }));
+    let env = [];
+    for (let i = 1; i < D.length - 1; i++) {
+      const k = curvature(D[i - 1], D[i], D[i + 1]);
+      const tx = sc[i + 1].x - sc[i - 1].x, ty = sc[i + 1].y - sc[i - 1].y, tl = Math.hypot(tx, ty) || 1;
+      // on screen (y down) a counter-clockwise traverse has its outward normal at (-ty, tx)
+      const nx = -ty / tl, ny = tx / tl;
+      const len = Math.sign(k) * Math.min(80, 26 * Math.asinh(Math.abs(k) / 3));
+      const ex = sc[i].x + nx * len, ey = sc[i].y + ny * len;
+      env.push(`${ex.toFixed(1)},${ey.toFixed(1)}`);
+      if (i % 2 === 0) o += `<line class="wc-sec__comb" x1="${sc[i].x.toFixed(1)}" y1="${sc[i].y.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}"/>`;
+    }
+    o += `<polyline class="wc-sec__comb-env" points="${env.join(' ')}"/>`;
+  }
+  o += `<path class="wc-sec__outline" d="${path(D, false)}"/>`;
+  // points
+  pts.forEach((p, i) => {
+    const lock = !!p.le, cls = 'wc-sec__pt' + (lock ? ' wc-sec__pt--lock' : '') + (i === sel ? ' wc-sec__pt--sel' : '');
+    o += `<g data-i="${i}"><circle class="wc-sec__hit${lock ? ' wc-sec__hit--lock' : ''}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="13"/>`
+      + `<circle class="${cls}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="${i === sel ? 6.5 : 5}" pointer-events="none"/></g>`;
+  });
+  if (sel >= 0) {
+    const p = pts[sel];
+    o += `<text class="wc-sec__label wc-sec__label--pt" x="${sx(p.x) + 11}" y="${sy(p.y) + (sel > leIndex(pts) ? 18 : -10)}">${f(p.x)}, ${f(p.y, 2)}</text>`;
+  }
+  if (guide) o += guide;
+  svg.innerHTML = o;
+  updateInspector(A);
+}
+let guide = '';
+
+/* ------------------------------ command bar ------------------------------ */
+const ICON = {
+  add: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>',
+};
+function surfaceOf(i) { const l = leIndex(pts); return i < l ? 'Upper' : i > l ? 'Lower' : 'Leading edge'; }
+function renderCmd() {
+  const lock = sel >= 0 && pts[sel].le;
+  const endpoint = sel === 0 || sel === pts.length - 1;
+  const l = leIndex(pts);
+  const count = sel < l ? l : pts.length - 1 - l;
+  let h;
+  if (sel < 0) {
+    h = `<span class="wc-cmd__label">Section</span>
+      <button class="wc-cmd__btn" data-act="seeds" title="Replace the shape with a built-in section">Start from…</button>
+      <span class="wc-cmd__sep"></span>
+      <button class="wc-cmd__btn" data-act="normalise" title="Rotate and scale so the chord runs from the leading edge to the trailing-edge midpoint at unit length">Normalise</button>
+      <button class="wc-cmd__btn" data-act="thick" title="Scale the thickness about the camber line to a target">Fit to thickness…</button>`;
+  } else {
+    h = `<span class="wc-cmd__label">${surfaceOf(sel)}${lock ? '' : ' point ' + (sel < l ? sel + 1 : sel - l)}</span>
+      <button class="wc-cmd__btn" data-act="add" ${lock ? 'disabled' : ''} title="Add a point on the curve after this one">Add point</button>
+      <button class="wc-cmd__btn wc-cmd__btn--danger" data-act="del" ${lock || count <= 4 ? 'disabled' : ''} title="${count <= 4 ? 'A surface needs at least four points' : 'Delete this point (Delete)'}">Delete point</button>
+      <span class="wc-cmd__sep"></span>
+      <button class="wc-cmd__btn" data-act="mirror" title="Make the other surface a mirror image of this one about the chord">Mirror to other surface</button>
+      <button class="wc-cmd__btn" data-act="smooth" ${lock || endpoint ? 'disabled' : ''} title="Pull this point towards the line between its neighbours">Smooth</button>`;
+  }
+  cmd.innerHTML = h;
+}
+
+/* ------------------------------ actions ------------------------------ */
+const act = {
+  add() {
+    const l = leIndex(pts); let i = sel; if (i === pts.length - 1) i--; if (i === l) i = l + 0;
+    const D = sample(pts), m = D[i * PER + PER / 2];
+    pts.splice(i + 1, 0, { x: m.x, y: m.y }); sel = i + 1; commit('Added a point');
+  },
+  del() { pts.splice(sel, 1); sel = -1; commit('Deleted the point'); },
+  mirror() {
+    const N = normalised(pts).pts, l = leIndex(N), fromUpper = sel < l;
+    const up = N.slice(0, l), lo = N.slice(l + 1);
+    const mir = (arr) => arr.slice().reverse().map((p) => ({ ...p, x: p.x, y: -p.y }));
+    pts = fromUpper ? [...up, { x: 0, y: 0, le: true }, ...mir(up)] : [...mir(lo), { x: 0, y: 0, le: true }, ...lo];
+    commit(`Mirrored the ${fromUpper ? 'upper' : 'lower'} surface to the ${fromUpper ? 'lower' : 'upper'}`);
+  },
+  smooth() {
+    const p = pts[sel], a = pts[sel - 1], b = pts[sel + 1];
+    const t = (p.x - a.x) / ((b.x - a.x) || 1), target = a.y + (b.y - a.y) * t;
+    p.y += (target - p.y) * 0.6; commit('Smoothed the point');
+  },
+  normalise() { pts = normalised(pts).pts; commit('Normalised to a unit chord'); fit(); },
+  seeds() { openPop('seeds'); },
+  thick() { openPop('thick'); },
+};
+cmd.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b && !b.disabled) act[b.dataset.act](); });
+
+/* popovers */
+let popOpen = '';
+function openPop(kind) {
+  if (popOpen === kind) { closePop(); return; }
+  popOpen = kind;
+  if (kind === 'seeds') {
+    pop.innerHTML = `<div class="wc-pop__title">Start from</div><div class="wc-pop__list">` + SEEDS.map((s) =>
+      `<button class="wc-button wc-pop__item" data-seed="${s.code}">${s.name}<small>${s.note}</small></button>`).join('') +
+      `</div><p class="wc-muted" style="font-size:.8rem;margin-top:8px">Replaces the current shape. Undo brings it back.</p>`;
+  } else {
+    const A = analyse(pts);
+    pop.innerHTML = `<div class="wc-pop__title">Fit to thickness</div><div class="wc-pop__row">
+      <label for="tgt" class="wc-muted" style="font-size:.9rem">Max thickness</label><input class="wc-input" id="tgt" type="number" step="0.5" min="2" max="30" value="${f(A.tmax)}"><span class="wc-muted">% chord</span></div>
+      <div class="wc-pop__row" style="margin-top:8px;justify-content:flex-end"><button class="wc-button" data-pop="cancel">Cancel</button><button class="wc-button wc-button--primary" data-pop="apply">Apply</button></div>`;
+  }
+  pop.hidden = false;
+  const first = pop.querySelector('input,button'); if (first) first.focus();
+}
+function closePop() { popOpen = ''; pop.hidden = true; pop.innerHTML = ''; }
+pop.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-seed]'), b = e.target.closest('[data-pop]');
+  if (s) { const sd = SEEDS.find((x) => x.code === s.dataset.seed); pts = naca4(sd.code); refPts = naca4(sd.code); seedName = sd.name; sel = -1; closePop(); commit('Started from ' + sd.name); fit(); }
+  else if (b && b.dataset.pop === 'cancel') closePop();
+  else if (b && b.dataset.pop === 'apply') {
+    const target = parseFloat($('tgt').value) / 100; if (!(target > 0.01)) return;
+    const A = analyse(pts), k = target / A.tmax, N = normalised(pts).pts, D = sample(N), li = leIndex(N) * PER;
+    const up = D.slice(0, li + 1).reverse(), lo = D.slice(li);
+    pts = N.map((p) => {
+      if (p.le) return p; const yu = yAt(up, Math.min(Math.max(p.x, 0.0005), 0.9995)), yl = yAt(lo, Math.min(Math.max(p.x, 0.0005), 0.9995));
+      const cam = yu != null && yl != null ? (yu + yl) / 2 : 0; return { ...p, y: cam + (p.y - cam) * k };
+    });
+    closePop(); commit(`Scaled the thickness to ${(target * 100).toFixed(1)} %`);
+  }
+});
+document.addEventListener('pointerdown', (e) => { if (popOpen && !pop.contains(e.target) && !e.target.closest('[data-act="seeds"],[data-act="thick"]')) closePop(); });
+
+/* ------------------------------ pointer interaction ------------------------------ */
+let drag = null;
+const local = (e) => { const r = svg.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+svg.addEventListener('pointerdown', (e) => {
+  stage.focus({ preventScroll: true });
+  const g = e.target.closest('[data-i]'), p = local(e);
+  svg.setPointerCapture(e.pointerId);
+  if (g) {
+    const i = +g.dataset.i; sel = i; changed();
+    if (pts[i].le) { setStatus('The leading edge is locked at the origin'); drag = null; return; }
+    drag = { kind: 'pt', i, start: p, orig: { ...pts[i] }, moved: false, axis: null };
+  } else drag = { kind: 'pan', start: p, ox, oy, moved: false };
+});
+svg.addEventListener('pointermove', (e) => {
+  const p = local(e);
+  $('hint').textContent = `x ${f(dx(p.x))} %   y ${f(dy(p.y), 2)} %   ·   Shift constrains, Alt places freely, double-click the curve to add a point`;
+  if (!drag) return;
+  const mx = p.x - drag.start.x, my = p.y - drag.start.y;
+  if (!drag.moved && Math.hypot(mx, my) < 3) return;
+  drag.moved = true;
+  if (drag.kind === 'pan') { ox = drag.ox + mx; oy = drag.oy + my; svg.classList.add('wc-sec__svg--panning'); render(); return; }
+  let x = drag.orig.x + mx / S, y = drag.orig.y - my / (S * ve);
+  guide = '';
+  if (e.shiftKey) {
+    if (!drag.axis && Math.hypot(mx, my) > 6) drag.axis = Math.abs(mx) > Math.abs(my) * 1 ? 'x' : 'y';
+    if (drag.axis === 'x') { y = drag.orig.y; guide = `<line class="wc-sec__guide" x1="0" x2="${W}" y1="${sy(y)}" y2="${sy(y)}"/>`; }
+    if (drag.axis === 'y') { x = drag.orig.x; guide = `<line class="wc-sec__guide" y1="0" y2="${H}" x1="${sx(x)}" x2="${sx(x)}"/>`; }
+  } else drag.axis = null;
+  if (snapOn && !e.altKey) { x = Math.round(x / SNAP_X) * SNAP_X; y = Math.round(y / SNAP_Y) * SNAP_Y; }
+  pts[drag.i].x = x; pts[drag.i].y = y; scheduleXf(); render();
+});
+function endDrag(e) {
+  if (!drag) return;
+  const d = drag; drag = null; guide = ''; svg.classList.remove('wc-sec__svg--panning');
+  if (d.kind === 'pt' && d.moved) commit(`Moved ${surfaceOf(d.i).toLowerCase()} point to ${f(pts[d.i].x)}, ${f(pts[d.i].y, 2)}`);
+  else if (d.kind === 'pan' && !d.moved) { sel = -1; closePop(); changed(); }
+  else render();
+}
+svg.addEventListener('pointerup', endDrag); svg.addEventListener('pointercancel', endDrag);
+svg.addEventListener('dblclick', (e) => {
+  if (e.target.closest('[data-i]')) return;
+  const p = local(e), D = sample(pts); let best = -1, bd = 18;
+  D.forEach((q, i) => { const d = Math.hypot(sx(q.x) - p.x, sy(q.y) - p.y); if (d < bd) { bd = d; best = i; } });
+  if (best < 0) return;
+  const seg = Math.min(pts.length - 2, Math.floor(best / PER)); let q = D[best];
+  if (best % PER === 0) q = D[best + Math.floor(PER / 2)]; // landed on an existing point: split the gap instead
+  pts.splice(seg + 1, 0, { x: q.x, y: q.y }); sel = seg + 1; commit('Added a point on the curve');
+});
+svg.addEventListener('wheel', (e) => { e.preventDefault(); const p = local(e); zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y); }, { passive: false });
+stage.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  const k = e.key;
+  if (k === 'f' || k === 'F') fit(); else if (k === '+' || k === '=') zoom(1.25); else if (k === '-' || k === '−') zoom(0.8);
+  else if (k === 'Escape') { sel = -1; closePop(); changed(); }
+  else if ((k === 'Delete' || k === 'Backspace') && sel >= 0 && !pts[sel].le) { const l = leIndex(pts); if ((sel < l ? l : pts.length - 1 - l) > 4) act.del(); }
+  else if (k.startsWith('Arrow') && sel >= 0 && !pts[sel].le) {
+    e.preventDefault(); const st = e.shiftKey ? 0.005 : 0.001;
+    if (k === 'ArrowLeft') pts[sel].x -= st; if (k === 'ArrowRight') pts[sel].x += st;
+    if (k === 'ArrowUp') pts[sel].y += st; if (k === 'ArrowDown') pts[sel].y -= st;
+    clearTimeout(nudgeT); nudgeT = setTimeout(() => commit('Nudged the point'), 400); scheduleXf(); render();
+  }
+});
+let nudgeT = 0;
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'number') return;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+  else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
+});
+
+/* ------------------------------ buttons ------------------------------ */
+$('undo').onclick = undo; $('redo').onclick = redo;
+$('zin').onclick = () => zoom(1.25); $('zout').onclick = () => zoom(0.8); $('fit').onclick = fit;
+$('snap').onclick = () => { snapOn = !snapOn; $('snap').setAttribute('aria-pressed', snapOn); };
+const tog = (id, set) => { $(id).onclick = () => { const v = $(id).getAttribute('aria-pressed') !== 'true'; $(id).setAttribute('aria-pressed', v); set(v); render(); }; };
+tog('tComb', (v) => (showComb = v)); tog('tCamber', (v) => (showCamber = v)); tog('tSeed', (v) => (showSeed = v));
+const setVe = (v) => { const y = dy(oy - 0); ve = v; $('ve1').setAttribute('aria-pressed', v === 1); $('ve3').setAttribute('aria-pressed', v === 3); fit(); };
+$('ve1').onclick = () => setVe(1); $('ve3').onclick = () => setVe(3);
+$('cancel').onclick = () => setStatus('Mock-up: Cancel would discard the edits and close the editor');
+$('use').onclick = () => setStatus('Mock-up: Use section would save the drawn section with the project and close');
+$('name').addEventListener('change', () => commit('Renamed the section'));
+document.querySelectorAll('[data-theme-btn]').forEach((b) => b.addEventListener('click', () => {
+  const t = b.dataset.themeBtn; $('app').dataset.theme = t; document.body.className = t;
+  document.querySelectorAll('[data-theme-btn]').forEach((x) => x.classList.toggle('wc-toggle__btn--active', x === b));
+}));
+
+/* ------------------------------ inspector ------------------------------ */
+function changed() { renderCmd(); $('undo').disabled = hi <= 0; $('redo').disabled = hi >= hist.length - 1; render(); }
+function updateInspector(A) {
+  const nm = A.N;
+  $('readouts').innerHTML = `
+    <dt>Thickness</dt><dd>${f(A.tmax)} % <small>at ${f(A.xt)} %</small></dd>
+    <dt>Camber</dt><dd>${f(A.cmax)} % <small>at ${f(A.xc)} %</small></dd>
+    <dt>Leading-edge radius</dt><dd>${f(A.leR, 2)} %</dd>
+    <dt>Trailing-edge thickness</dt><dd>${f(A.teT, 2)} %</dd>
+    <dt>Trailing-edge angle</dt><dd>${A.teA.toFixed(1)}°</dd>
+    <dt>Points</dt><dd>${pts.length - 1} <small>from ${seedName}</small></dd>`;
+  const off = Math.abs(nm.chord - 1) > 0.002 || Math.abs(nm.angle) > 0.1;
+  $('chordWarn').innerHTML = off ? `<li class="warn">The chord is ${nm.chord.toFixed(3)} long at ${nm.angle.toFixed(1)}°. Readouts use the normalised chord. Use Normalise to fix the drawing.</li>` : '';
+  // point box
+  const pb = $('pointBox');
+  if (sel < 0) {
+    pb.innerHTML = `<p class="wc-muted" style="font-size:.9rem">Click a point to edit it. Double-click the curve to add one.</p>`;
+  } else {
+    const p = pts[sel], lock = !!p.le, key = sel + '|' + lock;
+    if (pb.dataset.key !== key) {
+      pb.dataset.key = key;
+      pb.innerHTML = `<div class="wc-field"><span>Surface</span><b>${surfaceOf(sel)}${sel === 0 || sel === pts.length - 1 ? ' (trailing edge)' : ''}</b></div>
+        <label class="wc-field"><span>Position x (% chord)</span><input class="wc-input" id="px" type="number" step="0.1" ${lock ? 'disabled' : ''}></label>
+        <label class="wc-field"><span>Height y (% chord)</span><input class="wc-input" id="py" type="number" step="0.05" ${lock ? 'disabled' : ''}></label>
+        ${lock ? '<p class="wc-field__hint">The leading edge is the origin of the chord, so it stays put.</p>' : '<p class="wc-field__hint">Arrow keys nudge by 0.1 % (Shift: 0.5 %).</p>'}`;
+      for (const id of ['px', 'py']) {
+        const el = pb.querySelector('#' + id); if (!el) continue;
+        el.addEventListener('input', () => { const v = parseFloat(el.value) / 100; if (isNaN(v)) return; pts[sel][id === 'px' ? 'x' : 'y'] = v; scheduleXf(); render(); });
+        el.addEventListener('change', () => commit('Edited the point'));
+      }
+      pb.dataset.dirty = '';
+    }
+    for (const [id, v] of [['px', p.x], ['py', p.y]]) { const el = pb.querySelector('#' + id); if (el && document.activeElement !== el) el.value = (v * 100).toFixed(id === 'px' ? 1 : 2); }
+  }
+  if (sel < 0) pb.dataset.key = '';
+  // curvature check
+  const row = (n, side) => (n <= 1 ? `<li class="ok">${side} surface: smooth${n ? ' (one inflection, normal for camber)' : ''}</li>`
+    : `<li class="warn">${side} surface: ${n} inflections. It wobbles, which XFOIL will show as bumps in the pressure.</li>`);
+  $('curvCheck').innerHTML = (A.cross ? '<li class="warn">The surfaces cross. Check the points near the trailing edge.</li>' : '<li class="ok">Surfaces do not cross</li>') + row(A.inflU, 'Upper') + row(A.inflL, 'Lower')
+    + (A.leR < 0.004 ? '<li class="warn">Sharp nose: leading-edge radius under 0.4 %. Expect an early stall.</li>' : '');
+  drawXf(A, xfState === 'fresh' ? xfA : xfA || A);
+}
+
+/* ------------------------------ fake XFOIL preview ------------------------------ */
+let xfT1 = 0, xfT2 = 0, xfState = 'fresh', xfA = null;
+function scheduleXf() {
+  xfState = 'stale'; $('xf').className = 'wc-xf wc-xf--stale'; $('xfstatus').textContent = 'Waiting for you to stop dragging…';
+  clearTimeout(xfT1); clearTimeout(xfT2);
+  xfT1 = setTimeout(() => { xfState = 'busy'; $('xf').className = 'wc-xf wc-xf--busy'; $('xfstatus').textContent = 'Solving at Re 200 000 (pretend)…';
+    xfT2 = setTimeout(() => { xfState = 'fresh'; xfA = analyse(pts); $('xf').className = 'wc-xf'; $('xfstatus').textContent = 'Up to date (fake numbers)'; drawXf(xfA, xfA); }, 900); }, 1200);
+}
+function fakePolar(A) {
+  const a0 = -105 * Math.abs(A.cmax) * Math.sign(A.cmax || 1) * 1, slope = 0.108 + (A.tmax - 0.12) * 0.1;
+  const clmax = Math.max(0.6, 0.85 + 7 * Math.abs(A.cmax) + 3 * (A.tmax - 0.09) + 4 * (A.leR - 0.012));
+  const as = a0 + clmax / slope + 1.2, k = 12, curve = [];
+  for (let a = -6; a <= 16.01; a += 0.5) {
+    const lin = slope * (a - a0); let cl = -Math.log(Math.exp(-k * lin) + Math.exp(-k * clmax)) / k;
+    if (a > as) cl -= 0.035 * (a - as) ** 1.5; curve.push([a, cl]);
+  }
+  return { curve, clmax, as, a0, slope };
+}
+function drawXf(A, shown) {
+  const P = fakePolar(shown || A), X = (a) => 34 + ((a + 6) / 22) * 236, Y = (c) => 138 - ((c + 0.6) / 2.4) * 120;
+  let o = '';
+  for (let a = -5; a <= 15; a += 5) o += `<line x1="${X(a)}" x2="${X(a)}" y1="18" y2="138" stroke="var(--wc-border)" opacity=".6"/><text x="${X(a)}" y="152" text-anchor="middle">${a}°</text>`;
+  for (let c = 0; c <= 1.8; c += 0.6) o += `<line x1="34" x2="270" y1="${Y(c)}" y2="${Y(c)}" stroke="var(--wc-border)" opacity=".6"/><text x="30" y="${Y(c) + 3}" text-anchor="end">${c.toFixed(1)}</text>`;
+  o += `<line x1="${X(0)}" x2="${X(0)}" y1="18" y2="138" stroke="var(--wc-muted)"/><line x1="34" x2="270" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--wc-muted)"/>`;
+  o += `<text x="34" y="11">Cl</text><text x="270" y="130" text-anchor="end">alpha</text><text x="150" y="11" text-anchor="middle" style="font-weight:600">MOCK DATA</text>`;
+  o += `<polyline class="wc-xf__curve" points="${P.curve.map(([a, c]) => `${X(a).toFixed(1)},${Y(c).toFixed(1)}`).join(' ')}"/>`;
+  o += `<circle cx="${X(P.as)}" cy="${Y(P.clmax)}" r="3.5" fill="var(--wc-series-2)"/>`;
+  $('xfsvg').innerHTML = o;
+  $('xf').classList.toggle('wc-xf--stale', xfState === 'stale');
+  $('xfnums').innerHTML = `<span>Cl max <b>${P.clmax.toFixed(2)}</b></span><span>Stall <b>${P.as.toFixed(1)}°</b></span><span>Alpha 0 <b>${P.a0.toFixed(1)}°</b></span>`;
+}
+
+/* ------------------------------ go ------------------------------ */
+xfA = analyse(pts); $('xfstatus').textContent = 'Up to date (fake numbers)'; $('xf').className = 'wc-xf';
+hist.push(snapshot()); hi = 0;
+{ const r = svg.getBoundingClientRect(); if (r.width) { W = r.width; H = r.height; svg.setAttribute('viewBox', `0 0 ${W} ${H}`); } }
+changed(); fit();
+})();
+</script>
+</body>
+</html>
