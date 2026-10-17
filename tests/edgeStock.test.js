@@ -6,7 +6,7 @@ import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts, bounds } from '../src/lib/ribs.js'
 import { cutListCsv } from '../src/lib/dxf.js'
-import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId } from '../src/lib/edgeStock.js'
+import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId, fitDrawing, profileOutline } from '../src/lib/edgeStock.js'
 import { sectionAt as sectionIn3d, leSection } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
@@ -79,7 +79,7 @@ describe('edge stock', () => {
       st.le.width = 0.01
       st.le.height = 0.03
     }).a.edges.le
-    expect(tall.item).toMatchObject({ kind: 'symmetrical', width: 0.01, height: 0.03 })
+    expect(tall.item).toMatchObject({ kind: 'block', width: 0.01, height: 0.03 })
     expect(tall.fits).toBe(true)
     const flat = build((st) => {
       st.le.stock = 'custom'
@@ -111,7 +111,7 @@ describe('edge stock', () => {
     const le = a.warnings.find((w) => w.id === 'le-stock')
     expect(te?.message).toMatch(/^The trailing edge stock \(L421 triangular\) is too small to carve the wing's trailing edge from at the (root|tip) rib: it falls about [\d.]+ mm short of the section/)
     expect(te.message).toContain(`Use ${a.edges.te.auto.code} triangular (what Auto picks)`)
-    expect(le?.message).toMatch(/^The leading edge stock \(3 × 3 mm custom symmetrical\) is too small to carve the wing's nose from/)
+    expect(le?.message).toMatch(/^The leading edge stock \(3 × 3 mm custom block\) is too small to carve the wing's nose from/)
     expect(le.message).not.toMatch(/carve to the section|TE|LE/)
   })
 
@@ -314,5 +314,33 @@ describe('square trailing-edge stock', () => {
     const chosen = build((st) => (st.te.stock = sq.find((x) => x.width > 0.009).id)).a
     expect(chosen.structure.te.type).toBe('square')
     expect(chosen.edges.te.item.kind).toBe('square')
+  })
+})
+
+describe('edge stock drawings', () => {
+  it('draws a square stock as a square however the fit tilts it', () => {
+    const sq = { kind: 'strip', width: 0.01, height: 0.01 }
+    // A cambered section's nose wants the stock tilted
+    const sec = { c: 0.2, surf: (xi) => ({ upper: 0.02 * Math.sqrt(xi) + 0.01 * xi, lower: -0.012 * Math.sqrt(xi) + 0.01 * xi }) }
+    const d = fitDrawing(sq, sec, 'le')
+    const P = d.stock
+    // Corners: the profile's top and bottom at the edge and at the rib face
+    const n = P.length / 2 - 1
+    const corners = [P[0], P[n], P[n + 1], P.at(-1)]
+    const len = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
+    expect(len(corners[0], corners[1])).toBeCloseTo(0.01, 6)
+    expect(len(corners[1], corners[2])).toBeCloseTo(0.01, 6)
+    expect(len(corners[0], corners[3])).toBeCloseTo(0.01, 6)
+    // and square: the diagonals match
+    expect(len(corners[0], corners[2])).toBeCloseTo(len(corners[1], corners[3]), 6)
+  })
+  it('outlines a symmetrical profile evenly about its middle', () => {
+    const out = profileOutline({ kind: 'symmetrical', width: 0.01, height: 0.01 })
+    const n = out.length / 2
+    for (let i = 0; i < n; i++) {
+      const top = out[i], bot = out[out.length - 1 - i]
+      expect(top[0]).toBeCloseTo(bot[0], 9)
+      expect(top[1] + bot[1]).toBeCloseTo(0.01, 9)
+    }
   })
 })

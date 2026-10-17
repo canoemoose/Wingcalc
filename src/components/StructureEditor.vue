@@ -655,7 +655,7 @@ const braceHint = computed(() => {
           quantity="thin"
           :system="system"
           label="Leading edge stock, height at the rib face"
-          hint="Checked as the symmetrical profile at this depth and height."
+          hint="Checked as a plain block of this depth and height, carved to the section."
           @update:model-value="set('le.height', $event)"
         />
         <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />

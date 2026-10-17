@@ -18,7 +18,8 @@ export const STOCK_LENGTH = 0.915
 const mm = (v) => v / 1000
 
 // kind: 'symmetrical' (flat back, rounded front), 'strip' (plain strip, glued on edge),
-// 'triangular' (flat bottom, full thickness at the rib face, tapering to an edge).
+// 'triangular' (flat bottom, full thickness at the rib face, tapering to an edge), 'block' (a
+// custom leading edge: a plain rectangle, carved to the section).
 // Each LE_SIZES row is [depth, inch, flat code, symmetrical code]: the flat profile is retired,
 // and its codes map to the symmetrical one of the same size (see migrateLeStockId).
 const LE_SIZES = [
@@ -82,7 +83,7 @@ export const TE_STOCK = [
   // picked by Auto.
   .concat(STRIPS.filter(([, d, h]) => d === h).map(([code, d, , di]) => ({ id: `${code}-te`, code, kind: 'square', width: mm(d), height: mm(d), inch: `${di} × ${di}` })))
 
-export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular', square: 'square' }
+export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular', square: 'square', block: 'block' }
 
 // What the leading edge is made of: balsa stock (the catalogue above, or a custom size),
 // round stock (carbon rod or hardwood dowel, by diameter) or nothing, the sheeting itself
@@ -126,12 +127,13 @@ function profile(item, u) {
 }
 
 // The closed cross-section as [[u, z], ...] in metres: the top from the edge (u = 0) back to the
-// rib face (u = width), then the bottom back again. For drawing thumbnails.
-export function profileOutline(item, n = 16) {
+// rib face (u = width), then the bottom back again. Closer together towards the edge, where a
+// rounded profile curves fastest. The thumbnails and the fit drawing both draw this.
+export function profileOutline(item, n = 24) {
   const top = []
   const bottom = []
   for (let i = 0; i <= n; i++) {
-    const u = (item.width * i) / n
+    const u = item.width * (1 - Math.cos((Math.PI * i) / n / 2))
     const [b, t] = profile(item, u)
     top.push([u, t])
     bottom.push([u, b])
@@ -306,20 +308,35 @@ export function fitDrawing(item, sec, edge) {
     runs(rear.map((u) => ({ x: u, a: centre + h(u), b: surf(u).upper })))
     runs(rear.map((u) => ({ x: u, a: surf(u).lower, b: centre - h(u) })))
   } else {
+    // The fit treats a tilt as a shear (the same carving at a small angle); drawn, the stock is
+    // turned through that angle instead, so a square stays square and a profile stays even
     const f = fitAt(item, sec, edge)
     const { k, ref } = f.best
-    const top = f.pts.map((p) => [sign * p.u, ref + k * p.u + p.t])
-    const bot = f.pts.map((p) => [sign * p.u, ref + k * p.u + p.b])
-    stock = [...top, ...[...bot].reverse()]
-    runs(f.pts.map((p) => ({ x: sign * p.u, a: p.upper, b: ref + k * p.u + p.t })))
-    runs(f.pts.map((p) => ({ x: sign * p.u, a: ref + k * p.u + p.b, b: p.lower })))
+    const cs = 1 / Math.sqrt(1 + k * k), sn = k * cs
+    const n = 24
+    const turned = profileOutline({ ...item, width: W }, n).map(([u, z]) => [u * cs - z * sn, ref + u * sn + z * cs])
+    stock = turned.map(([x, z]) => [sign * x, z])
+    // Its top and bottom as heights along u, for where the section runs outside it
+    const along = (line) => (u) => {
+      if (u <= line[0][0]) return line[0][1]
+      for (let i = 1; i < line.length; i++) {
+        const [u0, z0] = line[i - 1], [u1, z1] = line[i]
+        if (u <= u1) return u1 - u0 > 1e-12 ? z0 + ((z1 - z0) * (u - u0)) / (u1 - u0) : z1
+      }
+      return line.at(-1)[1]
+    }
+    const byU = (line) => [...line].sort((p, q) => p[0] - q[0])
+    const top = along(byU(turned.slice(0, n + 1)))
+    const bot = along(byU(turned.slice(n + 1)))
+    runs(f.pts.map((p) => ({ x: sign * p.u, a: p.upper, b: top(p.u) })))
+    runs(f.pts.map((p) => ({ x: sign * p.u, a: bot(p.u), b: p.lower })))
   }
   return { edge, x0: Math.min(0, sign * reach), x1: Math.max(0, sign * reach), upper, lower, stock, short, worst }
 }
 
 // The stock to use for each edge, and how well it fits. structure.le.stock and
 // structure.te.stock are 'auto' (picked to suit), 'custom' (as entered: a custom leading edge is
-// the symmetrical profile at le.width deep by le.height tall, checked like catalogue stock; a
+// a block le.width deep by le.height tall, checked like catalogue stock; a
 // custom trailing edge is width only, unchecked) or a catalogue id (a retired flat leading-edge
 // code reads as the symmetrical stock of the same size). stations: the span positions to check (root, panel ends, tip).
 // A round leading edge (structure.le.type 'rod' or 'dowel') is checked at its diameter, and
@@ -359,13 +376,13 @@ export function resolveEdges(structure, section, stations) {
   return out
 }
 
-// A custom leading edge: the symmetrical profile at the entered depth and height (height
-// defaults to the depth, as for the square catalogue sizes)
+// A custom leading edge: a plain block at the entered depth and height, carved to the section
+// (height defaults to the depth, as for the square catalogue sizes)
 export const customLe = (e) => {
   const W = e.width || LE_MIN.depth
   const H = e.height || W
   const r = (v) => Math.round(v * 10000) / 10
-  return { id: 'custom', code: `${r(W)} × ${r(H)} mm custom`, kind: 'symmetrical', custom: true, width: W, height: H }
+  return { id: 'custom', code: `${r(W)} × ${r(H)} mm custom`, kind: 'block', custom: true, width: W, height: H }
 }
 
 // A rod or dowel as a fit-check item
