@@ -30,6 +30,7 @@ const view = computed(() => {
 const section = computed(() => pts([...props.drawing.upper, ...[...props.drawing.lower].reverse()]))
 const spare = computed(() => format(Math.max(0, -props.drawing.shortfall), 'thin', defaultUnit(props.system, 'thin')))
 const short = computed(() => format(Math.max(0, props.drawing.shortfall), 'thin', defaultUnit(props.system, 'thin')))
+const forward = computed(() => (props.drawing.offset > 0 ? format(props.drawing.offset, 'thin', defaultUnit(props.system, 'thin')) : null))
 </script>
 
 <template>
@@ -47,6 +48,7 @@ const short = computed(() => format(Math.max(0, props.drawing.shortfall), 'thin'
       <span v-if="drawing.fits">
         {{ round ? 'It sits within the section everywhere.' : `It carves to the section, with about ${spare} to spare at the tightest point.` }}
       </span>
+      <span v-if="forward">It sits {{ forward }} forward of the nose, so it fits: the part ahead of the nose is carved away, and the ribs are cut back that much less.</span>
       <span v-else class="wc-text-bad">
         {{ round ? `Red is where it stands proud of the section, by up to ${short}.` : `Red is the section the stock can't reach: about ${short} short.` }}
       </span>

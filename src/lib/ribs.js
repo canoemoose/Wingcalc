@@ -1354,7 +1354,7 @@ function stripCutList(a, structure, parts, both) {
         item: `Leading edge${leItem ? ` (${leItem.code} ${KIND_LABELS[leItem.kind]})` : ''}, ${p.name}`,
         edge: 'le',
         material: structure.le.material,
-        size: [structure.le.width, edges?.le.item ? edges.le.item.height : Math.ceil(leH * 1000) / 1000],
+        size: [edges?.le.item ? edges.le.item.width : structure.le.width, edges?.le.item ? edges.le.item.height : Math.ceil(leH * 1000) / 1000],
         length: lenAlong(p.from, p.to, edgeX('le')),
         qty: sides,
       })

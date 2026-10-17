@@ -1552,7 +1552,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const e = edges[k]
     const item = e.round ? roundItem(e.round.diameter) : e.item
     const sec = item && section(e.worstS)
-    if (sec && sec.c > 1e-4) e.drawing = { ...fitDrawing(item, sec, k), where: whereS(e.worstS), shortfall: e.shortfall, fits: e.fits }
+    if (sec && sec.c > 1e-4) e.drawing = { ...fitDrawing(item, sec, k, e.offset || 0), where: whereS(e.worstS), shortfall: e.shortfall, fits: e.fits }
   }
   // A foam wing's cores: one per panel (and the centre section), root outward
   const cores = []

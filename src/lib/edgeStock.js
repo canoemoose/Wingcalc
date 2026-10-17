@@ -155,8 +155,13 @@ function stockArea(item) {
 // shear of the section, so the area carved away is the same at any tilt
 const TILTS = Array.from({ length: 49 }, (_, i) => Math.tan((((i - 24) / 2) * Math.PI) / 180))
 
-function fitAt(item, sec, edge) {
+// A leading-edge strip may sit forward of the wing's nose by delta (m), the stock ahead of the
+// nose carved away: it then reaches W - delta into the wing, where the section is thinner, so
+// a smaller strip fits. u in pts is along the stock from its own front; v along the wing from
+// its nose (v = u - delta).
+function fitAt(item, sec, edge, delta = 0) {
   const W = Math.min(item.width, sec.c)
+  const d = edge === 'le' ? Math.min(delta, W * 0.9) : 0
   // The stock's own edge becomes the trailing edge, so the section's trailing edge
   // thickness doesn't count: close it, blended out over the stock's depth
   const end = sec.surf(edge === 'le' ? 0 : 1)
@@ -165,16 +170,17 @@ function fitAt(item, sec, edge) {
   let area = 0
   for (let i = 0; i <= SAMPLES; i++) {
     // Closer together towards the edge, where the section curves fastest
-    const u = W * (1 - Math.cos((Math.PI * i) / SAMPLES / 2))
-    const xi = edge === 'le' ? u / sec.c : 1 - u / sec.c
+    const v = (W - d) * (1 - Math.cos((Math.PI * i) / SAMPLES / 2))
+    const u = v + d
+    const xi = edge === 'le' ? v / sec.c : 1 - v / sec.c
     const s = sec.surf(Math.min(1, Math.max(0, xi)))
-    const close = (gap / 2) * (1 - u / W)
+    const close = (gap / 2) * (1 - v / W)
     const upper = s.upper - close
     const lower = s.lower + close
     const [b, t] = profile(item, u)
     const p = pts.at(-1)
-    if (p) area += ((upper - lower + p.upper - p.lower) / 2) * (u - p.u)
-    pts.push({ u, upper, lower, b, t })
+    if (p) area += ((upper - lower + p.upper - p.lower) / 2) * (v - p.v)
+    pts.push({ u, v, upper, lower, b, t })
   }
   // At each tilt, the reference line must be at least hiNeed and at most loMax
   let shortfall = Infinity
@@ -232,14 +238,14 @@ export function roundFitAt(D, sec) {
 
 // Worst fit over the stations, and the total waste (a stand-in for volume carved away)
 // (and where the fit is worst, worstS)
-export function fitOver(item, section, stations, edge) {
+export function fitOver(item, section, stations, edge, delta = 0) {
   let shortfall = -Infinity
   let waste = 0
   let worstS = stations[0] ?? 0
   for (const s of stations) {
     const sec = section(s)
     if (!sec || !(sec.c > 1e-4)) continue
-    const f = item.kind === 'round' ? roundFitAt(item.width, sec) : fitAt(item, sec, edge)
+    const f = item.kind === 'round' ? roundFitAt(item.width, sec) : fitAt(item, sec, edge, delta)
     if (f.shortfall > shortfall) {
       shortfall = f.shortfall
       worstS = s
@@ -249,15 +255,34 @@ export function fitOver(item, section, stations, edge) {
   return { shortfall, waste, worstS, fits: shortfall <= TOLERANCE }
 }
 
-// Of the items deep enough along the chord, those that fit with the least waste; if none
-// fits, the one that falls least short
+// How far forward of the nose a catalogue leading-edge strip sits (m), and its fit there: none
+// if it fits tangent to the nose; otherwise the least that makes it fit, keeping at least floor
+// of it in the wing. Stock that fits nowhere stays at the nose (and is warned about there), as
+// do round stock, custom stock (as entered) and trailing edges.
+const OFFSET_STEPS = 16
+export function bestOffset(item, section, stations, edge, floor = 0) {
+  const at0 = fitOver(item, section, stations, edge)
+  if (edge !== 'le' || item.kind === 'round' || item.custom || at0.fits) return { delta: 0, ...at0 }
+  const most = Math.max(0, Math.min(item.width * 0.6, item.width - floor))
+  for (let i = 1; i <= OFFSET_STEPS; i++) {
+    const delta = (most * i) / OFFSET_STEPS
+    const f = fitOver(item, section, stations, edge, delta)
+    if (f.fits) return { delta, ...f }
+  }
+  return { delta: 0, ...at0 }
+}
+
+// Of the items deep enough along the chord, those that fit with the least waste (at the nose if
+// any do, else set forward of it); if none fits, the one that falls least short
 function pick(list, section, stations, edge, min) {
   const rootC = section(stations[0])?.c ?? 0
   const floor = Math.max(min.depth, min.chord * rootC) - 1e-9
   const pool = list.filter((x) => x.width >= floor)
-  const scored = (pool.length ? pool : list).map((item) => ({ item, ...fitOver(item, section, stations, edge) }))
-  const fitting = scored.filter((x) => x.fits)
-  if (fitting.length) return fitting.reduce((a, b) => (b.waste < a.waste ? b : a)).item
+  const scored = (pool.length ? pool : list).map((item) => ({ item, ...bestOffset(item, section, stations, edge, floor) }))
+  // Stock that fits at the nose first; set forward of it only when none does
+  const fitting = scored.filter((x) => x.fits && !(x.delta > 0))
+  const forward = scored.filter((x) => x.fits && x.delta > 0)
+  for (const set of [fitting, forward]) if (set.length) return set.reduce((a, b) => (b.waste < a.waste ? b : a)).item
   return scored.reduce((a, b) => (b.shortfall < a.shortfall ? b : a)).item
 }
 
@@ -268,10 +293,11 @@ function pick(list, section, stations, edge, min) {
 // x runs aft from the nose for the leading edge, forward from the trailing edge as
 // negative values, so the drawing reads like the wing; z is height, both in metres.
 // Returns { edge, x0, x1, upper, lower, stock, short: [polygon], worst: [x, z] }.
-export function fitDrawing(item, sec, edge) {
+export function fitDrawing(item, sec, edge, delta = 0) {
   const sign = edge === 'le' ? 1 : -1
   const W = Math.min(item.width, sec.c)
-  const reach = Math.min(sec.c, W * 1.6)
+  const d = edge === 'le' && item.kind !== 'round' ? Math.min(delta, W * 0.9) : 0
+  const reach = Math.min(sec.c, Math.max(W - d, 0.4 * W) * 1.6)
   const surf = (u) => (item.kind === 'round' ? noseSurf : (q, xi) => q.surf(xi))(sec, Math.min(1, Math.max(0, edge === 'le' ? u / sec.c : 1 - u / sec.c)))
   const N = 48
   const us = Array.from({ length: N + 1 }, (_, i) => reach * (1 - Math.cos((Math.PI * i) / N / 2)))
@@ -310,12 +336,13 @@ export function fitDrawing(item, sec, edge) {
   } else {
     // The fit treats a tilt as a shear (the same carving at a small angle); drawn, the stock is
     // turned through that angle instead, so a square stays square and a profile stays even
-    const f = fitAt(item, sec, edge)
+    const f = fitAt(item, sec, edge, d)
     const { k, ref } = f.best
     const cs = 1 / Math.sqrt(1 + k * k), sn = k * cs
     const n = 24
     const turned = profileOutline({ ...item, width: W }, n).map(([u, z]) => [u * cs - z * sn, ref + u * sn + z * cs])
-    stock = turned.map(([x, z]) => [sign * x, z])
+    // drawn from the wing's nose: a strip set forward overhangs it by d
+    stock = turned.map(([x, z]) => [sign * (x - d), z])
     // Its top and bottom as heights along u, for where the section runs outside it
     const along = (line) => (u) => {
       if (u <= line[0][0]) return line[0][1]
@@ -328,10 +355,10 @@ export function fitDrawing(item, sec, edge) {
     const byU = (line) => [...line].sort((p, q) => p[0] - q[0])
     const top = along(byU(turned.slice(0, n + 1)))
     const bot = along(byU(turned.slice(n + 1)))
-    runs(f.pts.map((p) => ({ x: sign * p.u, a: p.upper, b: top(p.u) })))
-    runs(f.pts.map((p) => ({ x: sign * p.u, a: bot(p.u), b: p.lower })))
+    runs(f.pts.map((p) => ({ x: sign * p.v, a: p.upper, b: top(p.u) })))
+    runs(f.pts.map((p) => ({ x: sign * p.v, a: bot(p.u), b: p.lower })))
   }
-  return { edge, x0: Math.min(0, sign * reach), x1: Math.max(0, sign * reach), upper, lower, stock, short, worst }
+  return { edge, x0: Math.min(0, sign * reach), x1: Math.max(0, sign * reach), upper, lower, stock, short, worst, offset: d }
 }
 
 // The stock to use for each edge, and how well it fits. structure.le.stock and
@@ -369,9 +396,13 @@ export function resolveEdges(structure, section, stations) {
     const id = k === 'le' ? migrateLeStockId(e.stock) : e.stock
     const custom = id === 'custom' && k === 'le' ? customLe(e) : null
     const item = id === 'auto' ? auto : id === 'custom' ? custom : (list.find((x) => x.id === id) ?? auto)
-    const f = item ? fitOver(item, section, stations, k) : { shortfall: 0, worstS: stations[0], fits: true }
-    const autoFits = item === auto ? f.fits : fitOver(auto, section, stations, k).fits
-    out[k] = { width: item ? item.width : e.width || 0, height: item?.height ?? null, item, auto, autoFits, shortfall: f.shortfall, worstS: f.worstS, fits: f.fits }
+    const floor = k === 'le' ? Math.max(min.depth, min.chord * (section(stations[0])?.c ?? 0)) : 0
+    const f = item ? bestOffset(item, section, stations, k, floor) : { delta: 0, shortfall: 0, worstS: stations[0], fits: true }
+    const autoFits = item === auto ? f.fits : bestOffset(auto, section, stations, k, floor).fits
+    // width is how far the stock reaches into the wing (the ribs are cut back by it); a strip
+    // set forward of the nose (offset) reaches less than its own depth (stockWidth)
+    const offset = f.delta || 0
+    out[k] = { width: item ? item.width - offset : e.width || 0, height: item?.height ?? null, item, auto, autoFits, shortfall: f.shortfall, worstS: f.worstS, fits: f.fits, offset, stockWidth: item ? item.width : e.width || 0 }
   }
   return out
 }

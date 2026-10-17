@@ -6,7 +6,7 @@ import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts, bounds } from '../src/lib/ribs.js'
 import { cutListCsv } from '../src/lib/dxf.js'
-import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId, fitDrawing, profileOutline } from '../src/lib/edgeStock.js'
+import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId, fitDrawing, profileOutline, fitOver } from '../src/lib/edgeStock.js'
 import { sectionAt as sectionIn3d, leSection } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
@@ -51,15 +51,24 @@ describe('edge stock', () => {
     expect(e.le.fits).toBe(true)
   })
 
-  it('checks the whole profile, not just the rib face', () => {
+  it('checks the whole profile, not just the rib face, and slides a profile forward to fit', () => {
     // A blunt nose: full depth almost at once. A symmetrical (rounded) profile as tall as the
-    // section at the rib face can't contain it; a plain strip of the same size can.
+    // section at the rib face can't contain it tangent to the nose; a plain strip of the same
+    // size can. Slid forward, the rounded front ahead of the nose is carved away and it fits,
+    // reaching less far into the wing.
     const section = plainSection(0.25, (xi) => (xi > 0 ? 0.022 : 0))
     const sym = LE_STOCK.find((x) => x.code === 'L345')
     const strip = LE_STOCK.find((x) => x.code === 'L280')
+    expect(fitOver(sym, section, [0], 'le').fits).toBe(false)
     const fit = (id) => resolveEdges({ le: { stock: id }, te: { stock: 'custom', width: 0.015 } }, section, [0]).le
-    expect(fit(sym.id).fits).toBe(false)
-    expect(fit(strip.id).fits).toBe(true)
+    const s = fit(sym.id)
+    expect(s.fits).toBe(true)
+    expect(s.offset).toBeGreaterThan(0)
+    expect(s.width).toBeCloseTo(sym.width - s.offset, 9)
+    expect(s.stockWidth).toBe(sym.width)
+    const p = fit(strip.id)
+    expect(p.fits).toBe(true)
+    expect(p.offset).toBe(0)
   })
 
   it('reads a retired flat leading-edge code as the symmetrical stock of the same size', () => {
