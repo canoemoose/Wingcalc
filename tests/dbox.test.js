@@ -3,7 +3,7 @@ import { defaultState, migrate } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure, sheetExtent } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, sheetExtent, hardPatches } from '../src/lib/structure.js'
 import { buildParts, buildRib } from '../src/lib/ribs.js'
 
 // Same build as covering.test.js, with the structure edited by `edit`
@@ -98,5 +98,38 @@ describe('cap strips on an open structure', () => {
     const r0 = buildRib(full, full.structure, full.ribs[0]).outline
     // The nose isn't inset by the strips, so the rib is a little bigger
     expect(area(r1)).toBeGreaterThan(area(r0))
+  })
+})
+
+describe('sheeted hard points', () => {
+  // An open wing without cap strips, so the patch's sheeting is all that insets the ribs
+  const hp = (extra) => (st) => {
+    st.covering.type = 'open'
+    st.covering.capStrips = false
+    st.ribs.hardPoints = [{ id: 1, d: 0.1, label: 'Undercarriage', ...extra }]
+  }
+  it('put a rib at each end of a hard point that runs between two distances', () => {
+    const one = build(hp({}))
+    const two = build(hp({ to: 0.2 }))
+    const hard = (r) => r.a.ribs.filter((x) => x.kind === 'hard').map((x) => x.s - r.a.rootS)
+    expect(hard(one)).toHaveLength(1)
+    expect(hard(two).map((d) => Math.round(d * 1000))).toEqual([100, 200])
+  })
+  it('sheet between them over part of the chord, insetting the ribs there and adding a template', () => {
+    const plain = build(hp({ to: 0.2 }))
+    const sheeted = build(hp({ to: 0.2, sheet: 'top', chordFrom: 0.2, chordTo: 0.6 }))
+    expect(hardPatches(sheeted.a.structure, sheeted.a.rootS)).toMatchObject([{ sides: ['top'], from: 0.2, to: 0.6 }])
+    const tmpl = sheeted.parts.filter((p) => /^HP1/.test(p.id))
+    expect(tmpl.map((p) => p.id)).toEqual(['HP1T'])
+    expect(sheeted.weight.total).toBeGreaterThan(plain.weight.total)
+    // The rib at the hard point is inset on top within the patch, so it's a little smaller
+    const area = (o) => Math.abs(o.reduce((s, [x1, y1], i) => { const [x2, y2] = o[(i + 1) % o.length]; return s + x1 * y2 - x2 * y1 }, 0)) / 2
+    const ribAt = (r) => r.a.ribs.find((x) => x.kind === 'hard')
+    const a0 = area(buildRib(plain.a, plain.a.structure, ribAt(plain)).outline)
+    const a1 = area(buildRib(sheeted.a, sheeted.a.structure, ribAt(sheeted)).outline)
+    expect(a1).toBeLessThan(a0)
+  })
+  it('ignore sheeting on a hard point without a second distance', () => {
+    expect(hardPatches({ ribs: { hardPoints: [{ id: 1, d: 0.1, sheet: 'both' }] } }, 0)).toEqual([])
   })
 })

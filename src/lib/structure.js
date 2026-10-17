@@ -192,7 +192,11 @@ export function defaultStructure() {
       rootPitch: 0.05,
       tipPitch: 0.09,
       manual: [], // { id, d }: distance from the root rib
-      hardPoints: [], // { id, d, label }: ribs that must be there (servo bays, aileron ends)
+      // { id, d, label, to, sheet, chordFrom, chordTo }: ribs that must be there (servo bays,
+      // aileron ends), at d from the root rib and, if to is set, at to as well, with sheeting
+      // between them if sheet is 'top', 'bottom' or 'both' (default 'none'), from chordFrom to
+      // chordTo (fractions of the chord from the LE). See hardPatches.
+      hardPoints: [],
       rootJoint: 'one-piece', // 'one-piece' (continuous through the centreline) | 'two-piece'
       lightening: false,
       lighteningMargin: 0.004,
@@ -302,12 +306,38 @@ export function hardPoints(sampler, structure, extra = []) {
   })
   for (const h of structure.ribs.hardPoints ?? []) {
     if (!Number.isFinite(h.d)) continue
-    const s = s0 + h.d
-    if (s > s0 + 1e-4 && s < tip - 1e-4) pts.push({ s, kind: 'hard', label: h.label || 'Hard point', id: h.id })
+    // A rib at its start and, if it runs to a second distance, one at its end too
+    for (const d of Number.isFinite(h.to) && h.to > h.d + 1e-4 ? [h.d, h.to] : [h.d]) {
+      const s = s0 + d
+      if (s > s0 + 1e-4 && s < tip - 1e-4) pts.push({ s, kind: 'hard', label: h.label || 'Hard point', id: h.id })
+    }
   }
   for (const h of extra) if (h.s > s0 + 1e-4 && h.s < tip - 1e-4) pts.push({ s: h.s, kind: 'hard', label: h.label })
   return mergeClose(pts.sort((a, b) => a.s - b.s))
 }
+
+// The sheeted hard points: each hard point that runs from d to a second distance `to` with
+// sheeting on its top, bottom or both, as { id, label, s0, s1 (flat span positions), from, to
+// (chord fractions), sides: ['top', 'bottom'] }. The sheet is the covering's sheeting (its
+// thickness and material; 1.5 mm balsa if none is set), laid over the ribs at its ends and any
+// between, so the ribs there are inset by it.
+export function hardPatches(structure, rootS) {
+  const out = []
+  for (const h of structure.ribs?.hardPoints ?? []) {
+    if (!Number.isFinite(h.d) || !Number.isFinite(h.to) || !(h.to > h.d + 1e-4)) continue
+    const sides = h.sheet === 'both' ? ['top', 'bottom'] : h.sheet === 'top' || h.sheet === 'bottom' ? [h.sheet] : []
+    if (!sides.length) continue
+    const from = Math.min(1, Math.max(0, h.chordFrom ?? 0))
+    const to = Math.min(1, Math.max(0, h.chordTo ?? 1))
+    if (!(to > from)) continue
+    out.push({ id: h.id, label: h.label || 'Hard point', s0: rootS + h.d, s1: rootS + h.to, from, to, sides })
+  }
+  return out
+}
+export const patchSheet = (structure) => ({
+  thickness: structure.covering.sheetThickness || 0.0015,
+  material: structure.covering.sheetMaterial || 'balsa-medium',
+})
 
 // Two ribs within 3 mm of each other are one rib; keep the more important kind.
 const RANK = { root: 0, tip: 1, break: 2, hard: 3, manual: 4, normal: 5 }

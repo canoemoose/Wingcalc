@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, sheetExtent, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, sheetExtent, hardPatches, patchSheet, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -258,14 +258,18 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const n = us.length
   const upIn = new Array(n)
   const loIn = new Array(n)
+  // Sheeted hard points over this rib: the rib is inset by their sheeting where they cover it
+  const patches = split?.side === 'moving' ? [] : hardPatches(structure, a.rootS).filter((h) => rib.s >= h.s0 - 1e-6 && rib.s <= h.s1 + 1e-6)
+  const patchT = patchSheet(structure).thickness
+  const patchAt = (q, side) => (patches.some((h) => h.sides.includes(side) && q >= h.from - 1e-9 && q <= h.to + 1e-9) ? patchT : 0)
   for (let i = 0; i < n; i++) {
     const i0 = Math.max(0, i - 1)
     const i1 = Math.min(n - 1, i + 1)
     const du = us[i1] - us[i0] || 1e-9
     const su = (prof.up[i1] - prof.up[i0]) / du
     const sl = (prof.lo[i1] - prof.lo[i0]) / du
-    const tUp = skinAt(structure, prof.xi[i], sparXiRear, 'top')
-    const tLo = skinAt(structure, prof.xi[i], sparXiRear, 'bottom')
+    const tUp = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'top'), patchAt(prof.xi[i], 'top'))
+    const tLo = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'bottom'), patchAt(prof.xi[i], 'bottom'))
     // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
     const mid = (prof.up[i] + prof.lo[i]) / 2
     upIn[i] = Math.max(mid, prof.up[i] - tUp * Math.sqrt(1 + su * su))
@@ -1131,6 +1135,37 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         })
         k++
       }
+    }
+  }
+
+  // Sheeted hard points: one template per surface, developed approximately as its plan shape
+  for (const h of hardPatches(structure, a.rootS)) {
+    const ps = patchSheet(structure)
+    const widthAt = (s) => {
+      const sec = a.section(s)
+      return sec ? (h.to - h.from) * sec.c : 0
+    }
+    const L = h.s1 - h.s0
+    for (const side of h.sides) {
+      const name = `HP${h.id}${side === 'top' ? 'T' : 'B'}`
+      parts.push({
+        id: name,
+        name,
+        group: 'sheeting',
+        material: ps.material,
+        thickness: ps.thickness,
+        qty: both ? 2 : 1,
+        outline: [
+          [0, 0],
+          [L, 0],
+          [L, widthAt(h.s1)],
+          [0, widthAt(h.s0)],
+        ],
+        holes: [],
+        etch: [],
+        label: null,
+        notes: [`${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, ${Math.round(h.from * 100)}% to ${Math.round(h.to * 100)}% of the chord; approximate, cut oversize and trim`],
+      })
     }
   }
 

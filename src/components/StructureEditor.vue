@@ -50,6 +50,12 @@ function set(path, value) {
 }
 const st = computed(() => structure.value)
 const warnIn = (k) => props.warnings[k] ?? []
+const HARD_SHEET = [
+  { value: 'none', label: 'No' },
+  { value: 'top', label: 'Top' },
+  { value: 'bottom', label: 'Bottom' },
+  { value: 'both', label: 'Both' },
+]
 const id = (k) => `${props.idPrefix}-${k}`
 
 // Short names fit the inspector's value column; the full description is the option's tooltip
@@ -791,7 +797,10 @@ const braceHint = computed(() => {
 
       <div class="wc-structure-editor__sub">
         <span class="wc-field__label">Hard points</span>
-        <p class="wc-field__hint">Ribs that must be at a set distance from the root rib: servo bays, aileron ends, undercarriage.</p>
+        <p class="wc-field__hint">
+          Ribs that must be at a set distance from the root rib: servo bays, aileron ends, undercarriage. Give one a second
+          distance to put a rib there too, and sheet between them on the top, the bottom or both, over part of the chord.
+        </p>
         <div v-for="h in byDistance(st.ribs.hardPoints)" :key="h.id" class="wc-structure-editor__row">
           <UnitInput
             :id="id(`hp${h.id}d`)"
@@ -813,6 +822,43 @@ const braceHint = computed(() => {
             />
           </div>
           <button type="button" class="wc-stations__remove" aria-label="Remove hard point" @click="removeFrom('ribs.hardPoints', h.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
+          <div class="wc-structure-editor__hardmore">
+            <UnitInput
+              :id="id(`hp${h.id}to`)"
+              :model-value="h.to ?? null"
+              quantity="length"
+              :system="system"
+              label="To"
+              placeholder="One rib only"
+              @update:model-value="updateIn('ribs.hardPoints', h.id, 'to', $event)"
+            />
+            <template v-if="Number.isFinite(h.to) && h.to > (h.d ?? 0)">
+              <SegmentedField
+                :model-value="h.sheet ?? 'none'"
+                label="Sheeted"
+                :options="HARD_SHEET"
+                @update:model-value="updateIn('ribs.hardPoints', h.id, 'sheet', $event)"
+              />
+              <div v-if="(h.sheet ?? 'none') !== 'none'" class="wc-structure-editor__pair">
+                <UnitInput
+                  :id="id(`hp${h.id}cf`)"
+                  :model-value="h.chordFrom ?? 0"
+                  quantity="percent"
+                  :system="system"
+                  label="Chord from"
+                  @update:model-value="updateIn('ribs.hardPoints', h.id, 'chordFrom', $event ?? 0)"
+                />
+                <UnitInput
+                  :id="id(`hp${h.id}ct`)"
+                  :model-value="h.chordTo ?? 1"
+                  quantity="percent"
+                  :system="system"
+                  label="Chord to"
+                  @update:model-value="updateIn('ribs.hardPoints', h.id, 'chordTo', $event ?? 1)"
+                />
+              </div>
+            </template>
+          </div>
         </div>
         <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '' })">
           Add hard point

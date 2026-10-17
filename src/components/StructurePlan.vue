@@ -13,7 +13,7 @@
 // ribs are fixed.
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { flatPanels } from '../lib/wing.js'
-import { MODES, SPACING_MODES, sheetOutline } from '../lib/structure.js'
+import { MODES, SPACING_MODES, sheetOutline, hardPatches } from '../lib/structure.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import StageZoom from './StageZoom.vue'
 
@@ -67,6 +67,12 @@ const geom = computed(() => {
   // D-box or sheeting area, hatched
   const outline = sheetOutline(an, st, n)
   const sheet = outline && outline.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+  // Sheeted hard points, hatched like the sheeting
+  const patches = hardPatches(st, an.rootS).map((h) => {
+    const ss = Array.from({ length: 9 }, (_, i) => h.s0 + ((h.s1 - h.s0) * i) / 8)
+    const at = (s, f) => an.section(s).xl + f * an.section(s).c
+    return [...ss.map((s) => [s, at(s, h.from)]), ...[...ss].reverse().map((s) => [s, at(s, h.to)])].map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+  })
   // Control surfaces: each hinge spar as a band, and the moving surface's outline
   const hinges = []
   for (const sf of (an.surfaces ?? []).filter((x) => x.ok)) {
@@ -127,6 +133,7 @@ const geom = computed(() => {
     spar: band.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' '),
     stringers: (st.stringers ?? []).filter((x) => Number.isFinite(x.position)).map((x) => line((s) => sec(s).xl + x.position * sec(s).c)),
     sheet,
+    patches,
   }
 })
 
@@ -516,6 +523,10 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           <polygon v-if="fuselage" :points="fuselage" class="wc-sp__outline" />
           <polygon v-for="p in flat.panels" :key="'p' + p.index" :points="poly(p.polygon)" class="wc-sp__outline" />
           <polygon v-if="flat.tip" :points="poly(flat.tip.polygon)" class="wc-sp__outline wc-sp__tip" />
+          <template v-for="(p, i) in geom.patches" :key="'hp' + i">
+            <polygon :points="p" class="wc-sp__sheet" />
+            <polygon :points="p" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
+          </template>
           <template v-if="geom.sheet">
             <polygon :points="geom.sheet" class="wc-sp__sheet" />
             <polygon :points="geom.sheet" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
