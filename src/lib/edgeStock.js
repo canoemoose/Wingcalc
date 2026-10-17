@@ -17,10 +17,10 @@ export const STOCK_LENGTH = 0.915
 
 const mm = (v) => v / 1000
 
-// kind: 'flat' (the symmetrical profile's top half over a filled lower half: flat back and
-// bottom, a short flat front, so it sits square on the bench),
-// 'symmetrical' (flat back, rounded front), 'strip' (plain strip, glued on edge),
-// 'triangular' (flat bottom, full thickness at the rib face, tapering to an edge)
+// kind: 'symmetrical' (flat back, rounded front), 'strip' (plain strip, glued on edge),
+// 'triangular' (flat bottom, full thickness at the rib face, tapering to an edge).
+// Each LE_SIZES row is [depth, inch, flat code, symmetrical code]: the flat profile is retired,
+// and its codes map to the symmetrical one of the same size (see migrateLeStockId).
 const LE_SIZES = [
   [6.5, '1/4"', 'L320', 'L325'],
   [9.5, '3/8"', 'L330', 'L335'],
@@ -49,10 +49,16 @@ const STRIPS = [
   ['L290', 19, 19, '3/4"', '3/4"'],
 ]
 export const LE_STOCK = [
-  ...LE_SIZES.map(([s, inch, code]) => ({ id: code, code, kind: 'flat', width: mm(s), height: mm(s), inch: `${inch} × ${inch}` })),
   ...LE_SIZES.map(([s, inch, , code]) => ({ id: code, code, kind: 'symmetrical', width: mm(s), height: mm(s), inch: `${inch} × ${inch}` })),
   ...STRIPS.map(([code, d, h, di, hi]) => ({ id: code, code, kind: 'strip', width: mm(d), height: mm(h), inch: `${di} × ${hi}` })),
 ]
+
+// Retired flat leading-edge codes (saved projects may still name them) and their symmetrical
+// stock of the same size
+const FLAT_TO_SYMMETRICAL = Object.fromEntries(LE_SIZES.map(([, , flat, sym]) => [flat, sym]))
+export function migrateLeStockId(id) {
+  return FLAT_TO_SYMMETRICAL[id] ?? id
+}
 
 // Triangular, thickness × width
 export const TE_STOCK = [
@@ -72,7 +78,7 @@ export const TE_STOCK = [
   ['L472', 12.5, 50, '1/2" × 2"'],
 ].map(([code, t, w, inch]) => ({ id: code, code, kind: 'triangular', width: mm(w), height: mm(t), inch }))
 
-export const KIND_LABELS = { flat: 'flat', symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular' }
+export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular' }
 
 // What the leading edge is made of: balsa stock (the catalogue above, or a custom size),
 // round stock (carbon rod or hardwood dowel, by diameter) or nothing, the sheeting itself
@@ -105,9 +111,6 @@ function profile(item, u) {
   const { width: W, height: H } = item
   const e = Math.sqrt(Math.max(0, 1 - ((W - u) / W) ** 2))
   switch (item.kind) {
-    case 'flat':
-      // The symmetrical profile's top half over a filled, flat-bottomed lower half
-      return [0, (H / 2) * (1 + e)]
     case 'symmetrical':
       return [(H / 2) * (1 - e), (H / 2) * (1 + e)]
     case 'triangular':
@@ -121,7 +124,6 @@ function profile(item, u) {
 function stockArea(item) {
   const { width: W, height: H } = item
   if (item.kind === 'symmetrical') return (Math.PI / 4) * W * H
-  if (item.kind === 'flat') return (W * H) / 2 + (Math.PI / 8) * W * H
   if (item.kind === 'triangular') return (W * H) / 2
   return W * H
 }
@@ -298,8 +300,10 @@ export function fitDrawing(item, sec, edge) {
 }
 
 // The stock to use for each edge, and how well it fits. structure.le.stock and
-// structure.te.stock are 'auto' (picked to suit), 'custom' (width as entered, no catalogue
-// part) or a catalogue id. stations: the span positions to check (root, panel ends, tip).
+// structure.te.stock are 'auto' (picked to suit), 'custom' (as entered: a custom leading edge is
+// the symmetrical profile at le.width deep by le.height tall, checked like catalogue stock; a
+// custom trailing edge is width only, unchecked) or a catalogue id (a retired flat leading-edge
+// code reads as the symmetrical stock of the same size). stations: the span positions to check (root, panel ends, tip).
 // A round leading edge (structure.le.type 'rod' or 'dowel') is checked at its diameter, and
 // one of type 'none' has no stock at all.
 // Returns { le, te }: each { width, height (null for custom), item (or null), auto,
@@ -326,12 +330,23 @@ export function resolveEdges(structure, section, stations) {
       continue
     }
     const auto = pick(list, section, stations, k, min)
-    const item = e.stock === 'auto' ? auto : e.stock === 'custom' ? null : (list.find((x) => x.id === e.stock) ?? auto)
+    const id = k === 'le' ? migrateLeStockId(e.stock) : e.stock
+    const custom = id === 'custom' && k === 'le' ? customLe(e) : null
+    const item = id === 'auto' ? auto : id === 'custom' ? custom : (list.find((x) => x.id === id) ?? auto)
     const f = item ? fitOver(item, section, stations, k) : { shortfall: 0, worstS: stations[0], fits: true }
     const autoFits = item === auto ? f.fits : fitOver(auto, section, stations, k).fits
     out[k] = { width: item ? item.width : e.width || 0, height: item?.height ?? null, item, auto, autoFits, shortfall: f.shortfall, worstS: f.worstS, fits: f.fits }
   }
   return out
+}
+
+// A custom leading edge: the symmetrical profile at the entered depth and height (height
+// defaults to the depth, as for the square catalogue sizes)
+export const customLe = (e) => {
+  const W = e.width || LE_MIN.depth
+  const H = e.height || W
+  const r = (v) => Math.round(v * 10000) / 10
+  return { id: 'custom', code: `${r(W)} × ${r(H)} mm custom`, kind: 'symmetrical', custom: true, width: W, height: H }
 }
 
 // A rod or dowel as a fit-check item

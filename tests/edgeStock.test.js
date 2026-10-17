@@ -6,7 +6,7 @@ import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts, bounds } from '../src/lib/ribs.js'
 import { cutListCsv } from '../src/lib/dxf.js'
-import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt } from '../src/lib/edgeStock.js'
+import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId } from '../src/lib/edgeStock.js'
 import { sectionAt as sectionIn3d, leSection } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
@@ -62,9 +62,36 @@ describe('edge stock', () => {
     expect(fit(strip.id).fits).toBe(true)
   })
 
-  it('cuts the ribs back by the chosen stock', () => {
+  it('reads a retired flat leading-edge code as the symmetrical stock of the same size', () => {
+    expect(migrateLeStockId('L320')).toBe('L325')
+    expect(migrateLeStockId('L360')).toBe('L365')
+    expect(migrateLeStockId('auto')).toBe('auto')
+    expect(LE_STOCK.some((x) => x.kind === 'flat')).toBe(false)
     const res = build((st) => {
       st.le.stock = 'L340'
+    })
+    expect(res.a.edges.le.item.id).toBe('L345')
+  })
+
+  it('checks a custom leading edge at its depth and height', () => {
+    const tall = build((st) => {
+      st.le.stock = 'custom'
+      st.le.width = 0.01
+      st.le.height = 0.03
+    }).a.edges.le
+    expect(tall.item).toMatchObject({ kind: 'symmetrical', width: 0.01, height: 0.03 })
+    expect(tall.fits).toBe(true)
+    const flat = build((st) => {
+      st.le.stock = 'custom'
+      st.le.width = 0.01
+      st.le.height = 0.002
+    }).a.edges.le
+    expect(flat.fits).toBe(false)
+  })
+
+  it('cuts the ribs back by the chosen stock', () => {
+    const res = build((st) => {
+      st.le.stock = 'L345'
       st.te.stock = 'L441'
     })
     const r1 = res.parts.find((p) => p.group === 'ribs')
@@ -76,19 +103,23 @@ describe('edge stock', () => {
   it('warns when the chosen stock is too small to carve to the section, says where, and suggests the auto pick', () => {
     const { a } = build((st) => {
       st.te.stock = 'L421'
-      st.le.stock = 'L320'
+      st.le.stock = 'custom'
+      st.le.width = 0.003
+      st.le.height = 0.003
     })
     const te = a.warnings.find((w) => w.id === 'te-stock')
     const le = a.warnings.find((w) => w.id === 'le-stock')
     expect(te?.message).toMatch(/^The trailing edge stock \(L421 triangular\) is too small to carve the wing's trailing edge from at the (root|tip) rib: it falls about [\d.]+ mm short of the section/)
     expect(te.message).toContain(`Use ${a.edges.te.auto.code} triangular (what Auto picks)`)
-    expect(le?.message).toMatch(/^The leading edge stock \(L320 flat\) is too small to carve the wing's nose from/)
+    expect(le?.message).toMatch(/^The leading edge stock \(3 × 3 mm custom symmetrical\) is too small to carve the wing's nose from/)
     expect(le.message).not.toMatch(/carve to the section|TE|LE/)
   })
 
   it('draws the fit where it is worst, red where the stock falls short', () => {
     const bad = build((st) => {
-      st.le.stock = 'L320'
+      st.le.stock = 'custom'
+      st.le.width = 0.003
+      st.le.height = 0.003
     }).a.edges.le
     expect(bad.drawing.fits).toBe(false)
     expect(bad.drawing.short.length).toBeGreaterThan(0)
@@ -126,7 +157,8 @@ describe('edge stock', () => {
       st.le.width = 0.008
     })
     expect(a.structure.le.width).toBe(0.008)
-    expect(a.edges.le.item).toBe(null)
+    // No height entered: as tall as it is deep
+    expect(a.edges.le.item).toMatchObject({ custom: true, width: 0.008, height: 0.008 })
   })
 
   it('keeps older saves on their own widths', () => {

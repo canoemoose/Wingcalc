@@ -244,14 +244,14 @@ describe('app render', () => {
     // Each leading edge type, and each covering's hint (glass over sheeting and over an open wing)
     for (const [type, diameter, stock, finish, covering = 'dbox'] of [
       ['balsa', null, 'auto', 'film'],
-      ['balsa', null, 'L320', 'glass'],
+      ['balsa', null, 'custom', 'glass'],
       ['rod', 0.003, 'auto', 'tissue'],
       ['rod', 0.008, 'auto', 'glass', 'open'],
       ['none', null, 'auto', 'fabric'],
     ]) {
       const s = defaultState()
       const structure = defaultStructure()
-      structure.le = { ...structure.le, type, diameter, stock }
+      structure.le = { ...structure.le, type, diameter, stock, ...(stock === 'custom' ? { width: 0.003, height: 0.003 } : {}) }
       structure.covering = { ...structure.covering, finish, type: covering }
       const airfoil = resolveAirfoil(s.airfoil)
       const g = wingGeometry({ ...s.input, mode: 'panels' })
@@ -274,7 +274,7 @@ describe('app render', () => {
       if (html.includes('wc-edgefit')) fitDrawn++
       if (!a.edges.le.fits) misfits++
     }
-    // The fit is drawn for those that don't fit (L320 doesn't)
+    // The fit is drawn for those that don't fit (a 3 mm custom leading edge doesn't)
     expect(misfits).toBeGreaterThan(0)
     expect(fitDrawn).toBe(misfits)
     expect(warn).not.toHaveBeenCalled()
