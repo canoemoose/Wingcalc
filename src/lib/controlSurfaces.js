@@ -30,9 +30,11 @@ export const ROLES = {
 // Saved with the wing: the surfaces, crow (both surfaces' deflections when it's on), the
 // servo bays' settings (servos.js: each surface has a bay unless removed here) and the air
 // brakes (airBrakes.js), which sit with the surfaces as the wing's other moving parts.
-// Crow's settings are kept even while the wing can't use it, so they come back.
+// Crow's settings are kept even while the wing can't use it, so they come back. `landing` is
+// how far the flaps go down for the stall speed with flaps (flaps.js): null for each flap's
+// own most down.
 export function defaultControls() {
-  return { surfaces: [], crow: { enabled: false, aileronUp: 25, flapDown: 45 }, bays: [], brakes: [] }
+  return { surfaces: [], crow: { enabled: false, aileronUp: 25, flapDown: 45 }, landing: { flapDown: null }, bays: [], brakes: [] }
 }
 
 const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1

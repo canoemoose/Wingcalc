@@ -2,6 +2,8 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { createXfoilEngine } from '../src/lib/xfoilEngine.js'
 import { comparePolars, alphaGrid, XFOIL_SETTINGS } from '../src/lib/xfoil.js'
+import { polarIncrement, flapEffectiveness } from '../src/lib/flaps.js'
+import { analysePolar } from '../src/lib/stall.js'
 import { findSection } from '../src/lib/airfoils.js'
 
 vi.setConfig({ testTimeout: 30000 })
@@ -45,6 +47,24 @@ describe('XFOIL engine', () => {
     expect(p.alpha.filter((a) => a <= 8).length).toBeGreaterThan(20)
     const m = comparePolars(polar, p)
     expect(Math.abs(m.dClMax)).toBeLessThan(0.15)
+  })
+
+  it('raises Clmax and moves the zero-lift angle with a 20 deg flap, as flap theory expects', () => {
+    // 1° steps to keep it quick
+    const s = { ...XFOIL_SETTINGS, alphaStep: 1, alphaEnd: 16 }
+    const { coords } = reference('naca2412-il', 200000)
+    const clean = engine.runPolar(coords, 200000, s)
+    const flapped = engine.runPolar(coords, 200000, s, { hinge: 0.75, deflection: 20 })
+    // More lift, stalling earlier, as a plain flap does
+    expect(analysePolar(flapped).clMax).toBeGreaterThan(analysePolar(clean).clMax + 0.15)
+    expect(analysePolar(flapped).alphaClMax).toBeLessThan(analysePolar(clean).alphaClMax)
+    const inc = polarIncrement(clean, flapped)
+    // Thin-aerofoil theory: -0.61 × 20° = -12.2°; a real flap gets 40 to 90% of that
+    const theory = -flapEffectiveness(0.75) * 20
+    expect(inc.dAlphaL0).toBeLessThan(0.4 * theory)
+    expect(inc.dAlphaL0).toBeGreaterThan(0.9 * theory)
+    expect(inc.dClMax).toBeGreaterThan(0.15)
+    expect(inc.dClMax).toBeLessThan(0.9)
   })
 
 })

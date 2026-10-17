@@ -13,7 +13,7 @@ import { generateSection, upperOrdinate, zeroLiftAngle, unpack, isMultiElement }
 import { stallSpeed, reynolds, WING_CLMAX_FACTOR, NU_SEA_LEVEL } from './calc.js'
 import { leastSquares } from './fit.js'
 import { quantiseRe, polarSegments, COMPARE_THRESHOLDS } from './xfoil.js'
-import { liftingLine, firstStall, clDistribution } from './liftingLine.js'
+import { liftingLine, firstStall, clDistribution, progressiveStall } from './liftingLine.js'
 
 export const LIBRARY = data
 export const FAMILIES = {
@@ -284,26 +284,54 @@ export function sectionModel(airfoil, computed = null) {
 }
 
 const MIN_RE = 20000 // below this the bundled data says nothing useful; hold it there
+// How far (degrees of wing angle of attack) a stalled section behind a deflected flap is taken
+// to hold its maximum lift while the rest of the wing goes on to its own stall.
+export const PROGRESSIVE_STALL_DEG = 3
 
 // The wing's maximum lift from the spanwise lift distribution (lifting line) at a stall
 // speed: each station's Reynolds number, thickness and twist give its own Clmax and share of
 // the lift, and the wing stalls when the first station reaches its Clmax.
 // planform: { atY, semiSpan } from projectedSampler; area is the projected area.
-export function wingStallAt(model, planform, { span, area, speed }) {
+// effects(s), if given, is the change a deflected flap or aileron makes at flat span station s
+// ({ dAlphaL0 (°), dClMax } or null; flaps.js): the zero-lift angle shift enters as twist (a
+// flap down is wash-in), and Clmax moves by the increment.
+export function wingStallAt(model, planform, { span, area, speed, effects = null }) {
   const at = (eta) => planform.atY(eta * planform.semiSpan)
   const reOf = (c) => Math.max(MIN_RE, (speed * c) / NU_SEA_LEVEL)
+  const effectAt = (p) => (effects && p.s !== null && p.s !== undefined ? effects(p.s) : null)
   const ll = liftingLine({
     span,
     area,
     station: (eta) => {
       const p = at(eta)
-      return { c: p.c, twist: (p.twist * Math.PI) / 180, a0: model.a0At(reOf(p.c)) }
+      const twist = p.twist + (effectAt(p)?.dAlphaL0 ?? 0)
+      return { c: p.c, twist: (twist * Math.PI) / 180, a0: model.a0At(reOf(p.c)) }
     },
   })
   if (!ll) return null
   const clMaxOf = (eta) => {
     const p = at(eta)
-    return model.clMaxAt(reOf(p.c), p.thickness)
+    const v = model.clMaxAt(reOf(p.c), p.thickness)
+    const e = effectAt(p)
+    return e ? Math.max(0.2, v + e.dClMax) : v // a long way up leaves the section some lift
+  }
+  if (effects) {
+    const deflected = (eta) => !!effectAt(at(eta))
+    // Stations within half a chord of a deflected surface count with it: the lifting line
+    // spreads the jump in lift at a flap's end over a few stations, which would otherwise make
+    // the clean section just beside it the first to stall.
+    const near = (eta) => {
+      const p = at(eta)
+      if (p.s === null || p.s === undefined) return false
+      return [0, -p.c / 2, p.c / 2].some((d) => !!effects(p.s + d))
+    }
+    const st = progressiveStall(ll, clMaxOf, near, (PROGRESSIVE_STALL_DEG * Math.PI) / 180)
+    if (!st) return null
+    const dist = ll.stations.map((d, i) => {
+      const p = at(d.eta)
+      return { eta: d.eta, s: p.s, c: d.c, cl: st.cl[i], clMax: clMaxOf(d.eta), deflected: deflected(d.eta) }
+    })
+    return { CLmax: st.CLmax, onsetEta: st.eta, ll, distribution: dist }
   }
   const st = firstStall(ll, clMaxOf)
   if (!st) return null
@@ -318,8 +346,9 @@ export function wingStallAt(model, planform, { span, area, speed }) {
 // clMaxFactor converts section Clmax to wing CLmax (default 0.9; the caller adds sweep).
 // Clmax is looked up (or estimated) at the Reynolds number of the stall itself, which needs
 // a short fixed-point iteration (converges in a handful of steps).
-// With `wing` ({ planform, span, sweepCos }), wing CLmax comes from the lifting line instead
-// of the fixed factor, so taper, washout and thickness taper all count.
+// With `wing` ({ planform, span, sweepCos, effects? }), wing CLmax comes from the lifting line
+// instead of the fixed factor, so taper, washout and thickness taper all count; `effects` adds
+// deflected flaps or ailerons (flaps.js configurationPerformance).
 // With `polar` (an XFOIL polar computed in the browser, at one Reynolds number), the section
 // Clmax, the stall rating and the lift curve all come from it instead; see
 // performanceWithXfoil. The lifting line still varies Clmax by station (sectionModel).
@@ -336,7 +365,7 @@ export function airfoilPerformance(airfoil, { mass, area, chord, clMaxFactor = W
   let wingClMax = sectionClMax * clMaxFactor
   for (let i = 0; i < 12; i++) {
     if (wing?.planform && vs) {
-      const w = wingStallAt(model, wing.planform, { span: wing.span, area, speed: vs })
+      const w = wingStallAt(model, wing.planform, { span: wing.span, area, speed: vs, effects: wing.effects })
       if (w && w.CLmax > 0) {
         spanwise = w
         wingClMax = w.CLmax * (wing.sweepCos ?? 1)
