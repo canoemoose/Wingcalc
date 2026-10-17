@@ -8,7 +8,10 @@ import { shallowRef } from 'vue'
 export const SOLVER_TIMEOUT_MS = 20000
 const CACHE_LIMIT = 300
 
+// No Worker in Node (server-side render, tests): null, so the solve is recorded as failed
+// and the app carries on with its table-based estimates.
 function defaultWorker() {
+  if (typeof Worker === 'undefined') return null
   return new Worker(new URL('../workers/xfoil.worker.js', import.meta.url), { type: 'module' })
 }
 
@@ -63,6 +66,10 @@ export function usePolarSolver({ createWorker = defaultWorker, timeoutMs = SOLVE
   function start(job) {
     if (!worker) {
       worker = createWorker()
+      if (!worker) {
+        store(job.key, { ok: false, error: 'no worker available' })
+        return
+      }
       worker.onmessage = onMessage
       worker.onerror = (e) => {
         if (!current) return
