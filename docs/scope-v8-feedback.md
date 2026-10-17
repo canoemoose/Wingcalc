@@ -66,6 +66,7 @@ Each wave's tasks touch different files so they can run at once. Status: ☐ to 
 - Servo mountings: upright, on its side, and flat (thin wing servos). Is "horizontally mounted" one of these, or something else?
 - A new surface is as deep as the trailing edge stock, so by default the stock is the surface (no surface ribs or hinge spar). Is that the intent, or should the default depth be the stock plus a built-up surface?
 - Cap strips start 10% back from the leading edge by default. A sensible figure?
+- The 13 mm hinge spars (to take 25 mm Mylar) leave no room for a 75%-chord aileron near the tip of a small wing with deep trailing-edge stock, so such a surface isn't built. New surfaces default to the stock instead, and saved projects keep their own spar widths. Keep 13 mm, or go back to 8 and 10 mm with shorter tabs?
 
 - Shear-web grain: what looks wrong in the export window? (A screenshot, or which way the web's long side runs on the sheet.)
 - The blue square in the structure plan: where it appears and what's selected at the time (a screenshot would settle it).
