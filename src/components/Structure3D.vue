@@ -17,6 +17,9 @@
 // same viewpoint and the same framing at the point being looked at.
 //
 // Outlines: the sharp edges of every solid (not the covering), drawn as lines.
+//
+// A foam wing has no ribs: its core is a solid between the skins (its own layer), each control
+// surface's core with the surface.
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, faceView, orbitLerp } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
@@ -34,9 +37,10 @@ const emit = defineEmits(['select'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-const show = ref({ skin: true, sheeting: true, ribs: true, surfaces: true, joints: true, spar: true, edges: true, tip: true, stringers: true, servos: true, brakes: true, outlines: true, mirror: false })
+const show = ref({ skin: true, core: true, sheeting: true, ribs: true, surfaces: true, joints: true, spar: true, edges: true, tip: true, stringers: true, servos: true, brakes: true, outlines: true, mirror: false })
 const LAYERS = [
   { id: 'skin', label: 'Covering' },
+  { id: 'core', label: 'Foam core' },
   { id: 'sheeting', label: 'Sheeting and cap strips' },
   { id: 'ribs', label: 'Ribs' },
   { id: 'surfaces', label: 'Control surfaces' },
@@ -69,6 +73,9 @@ function onViewKey(e) {
 function focusView(e) {
   if (!e.target.closest('button, input, select, label')) wrapEl.value?.focus({ preventScroll: true })
 }
+const foam = computed(() => props.structure.construction === 'foam')
+// A foam wing's sheeting is its skins
+const layerLabel = (l) => (l.id === 'sheeting' && foam.value ? 'Skins' : l.label)
 const hasStringers = computed(() => (props.structure.stringers ?? []).length > 0)
 const hasSheeting = computed(() => {
   const c = props.structure.covering
@@ -76,11 +83,16 @@ const hasSheeting = computed(() => {
 })
 const hasJoints = computed(() => props.parts.some((p) => p.group === 'gussets' || p.group === 'braces'))
 const hasTip = computed(() => props.parts.some((p) => p.group === 'tip'))
-const hasSurfaces = computed(() => props.parts.some((p) => p.group === 'surfaces'))
+// A foam wing's surfaces have no ribs of their own, only their core and hinge spar
+const hasSurfaces = computed(() => props.parts.some((p) => p.group === 'surfaces') || (foam.value && (props.analysis.surfaces ?? []).some((x) => x.ok)))
 const hasServos = computed(() => props.parts.some((p) => p.group === 'servos'))
 const hasBrakes = computed(() => props.parts.some((p) => p.group === 'brakes'))
 const shown = (l) =>
-  l.id === 'stringers'
+  l.id === 'core'
+    ? foam.value
+    : l.id === 'ribs'
+      ? !foam.value
+      : l.id === 'stringers'
     ? hasStringers.value
     : l.id === 'sheeting'
       ? hasSheeting.value
@@ -193,10 +205,12 @@ const COLOURS = {
   blade: 0x7f8c97,
   plate: 0xa8794a,
   teMoving: 0xe3c48f,
+  core: 0xe9e5d8,
+  coreMoving: 0xe9e5d8,
 }
 // Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
 // hidden to see the fixed part's hinge spar
-const GROUPS = ['skin', 'sheeting', 'ribs', 'surfaces', 'servos', 'brakes', 'joints', 'spar', 'edges', 'tip', 'stringers']
+const GROUPS = ['skin', 'core', 'sheeting', 'ribs', 'surfaces', 'servos', 'brakes', 'joints', 'spar', 'edges', 'tip', 'stringers']
 const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
 const FILM = 0.0003 // m: how far the covering stands off the surface
 
@@ -360,8 +374,10 @@ function build() {
   for (const s of model.solids) {
     const colour = s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
     const group =
-      s.kind === 'hingeMoving' || s.kind === 'teMoving'
+      s.kind === 'hingeMoving' || s.kind === 'teMoving' || s.kind === 'coreMoving'
         ? groups.surfaces
+        : s.kind === 'core'
+        ? groups.core
         : s.kind === 'servo' || s.kind === 'plate'
         ? groups.servos
         : s.kind === 'brakeBox' || s.kind === 'blade'
@@ -544,7 +560,10 @@ function updateSection() {
       geo.setIndex(faces.flat())
       for (const hole of piece.holes) cut.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(hole.map(toWorld)), lineMat))
       const colour = new THREE.Color(piece.kind === 'spar' && props.structure.spar.type === 'tube' ? COLOURS.tube : COLOURS[piece.kind]).multiplyScalar(0.82)
-      cut.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide })))
+      // A foam core is drawn first and pushed back, so the caps and web let into it show over it
+      const fill = new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide })
+      if (piece.kind === 'core') Object.assign(fill, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
+      cut.add(new THREE.Mesh(geo, fill))
       cut.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(piece.pts.map(toWorld)), lineMat))
     }
     if (sec.outline.length) {
@@ -854,12 +873,12 @@ watch(projection, setProjection)
             <h4 class="wc-layers__head">Show</h4>
             <ul class="wc-layers__rows">
               <li v-for="l in LAYERS.filter(shown)" :key="l.id" class="wc-layers__row" :class="{ 'wc-layers__row--off': !show[l.id] }">
-                <span class="wc-layers__name">{{ l.label }}</span>
+                <span class="wc-layers__name">{{ layerLabel(l) }}</span>
                 <button
                   type="button"
                   class="wc-layers__icon"
                   :aria-pressed="String(show[l.id])"
-                  :title="`${show[l.id] ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`"
+                  :title="`${show[l.id] ? 'Hide' : 'Show'} ${layerLabel(l).toLowerCase()}`"
                   @click="show[l.id] = !show[l.id]"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in show[l.id] ? EYE : EYE_OFF" :key="k" :d="d" /></svg>
@@ -922,8 +941,9 @@ watch(projection, setProjection)
       </div>
     </div>
     <figcaption class="wc-figure__caption">
-      Drag to turn, right-drag to move, scroll to zoom; click a rib to select it, or a face of the cube to see the wing from
-      that side. Twist and dihedral are true to scale.
+      Drag to turn, right-drag to move, scroll to zoom; <template v-if="!foam">click a rib to select it, or </template>a face of
+      the cube to see the wing from that side. Twist and dihedral are true to scale.<template v-if="foam">
+        The foam core hides the spar caps let into it: turn its layer off to see them.</template>
     </figcaption>
   </figure>
 </template>

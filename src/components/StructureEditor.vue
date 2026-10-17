@@ -1,7 +1,9 @@
 <script setup>
-// Numeric entry for the wing's structure: design loads, spar, covering, edges, stringers,
-// ribs, gussets, dihedral braces and control-surface hinges. Every change replaces the whole structure object, so
-// undo/redo and autosave see it.
+// Numeric entry for the wing's structure: how it's built (built-up or a foam core), design
+// loads, spar, covering, edges, stringers, ribs, gussets, dihedral braces and control-surface
+// hinges. A foam wing shows its core, skins and spar caps instead of the spar, covering,
+// stringers, ribs and gussets (which are kept, for switching back). Every change replaces the
+// whole structure object, so undo/redo and autosave see it.
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
@@ -11,6 +13,7 @@ import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
 import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS, gussetLayer, FINISHES, finishOf } from '../lib/structure.js'
+import { FOAMS, SKIN_MATERIALS, FOAM_CAP_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter } from '../lib/edgeStock.js'
 
 const props = defineProps({
@@ -52,6 +55,19 @@ const CAPS = materials(['spruce', 'basswood', 'balsa-hard', 'balsa-medium', 'car
 const SHEET = materials(['balsa-light', 'balsa-medium', 'balsa-hard', 'ply-lite', 'ply-birch'])
 const PLY = materials(['ply-birch', 'ply-lite', 'balsa-hard'])
 const TUBE = materials(['carbon-tube'])
+const FOAM_OPTIONS = FOAMS.map((k) => ({ value: k, label: MATERIALS[k].label, title: `${(MATERIALS[k].E / 1e6).toFixed(1)} MPa modulus, ${Math.round(MATERIALS[k].shear / 1000)} kPa shear strength` }))
+const SKINS = materials(SKIN_MATERIALS)
+const FOAM_CAPS = materials(FOAM_CAP_MATERIALS)
+
+const CONSTRUCTIONS = [
+  { value: 'built-up', label: 'Built-up', title: 'Ribs, a spar and covering' },
+  { value: 'foam', label: 'Foam core', title: 'A hot-wire cut foam core, skinned with veneer or balsa' },
+]
+const foam = computed(() => st.value.construction === 'foam')
+// The foam settings, filled in for a structure saved before them
+const fm = computed(() => st.value.foam ?? defaultFoam())
+const sheetSize = computed(() => SKIN_SHEETS[fm.value.skin.material] ?? SKIN_SHEETS.default)
+const lengthText = (v) => format(v, 'length', defaultUnit(props.system, 'length'))
 
 const SPAR_TYPES = [
   { value: 'caps', label: 'Caps and web' },
@@ -71,6 +87,10 @@ const finishHint = computed(() => {
   const f = finishOf(cov)
   const g = (kgm2) => `${Math.round(kgm2 * 1000)} g/m²`
   const total = Number.isFinite(props.coveringMass) ? ` About ${format(props.coveringMass, 'mass', defaultUnit(props.system, 'mass'))} on this wing, both surfaces.` : ''
+  if (foam.value) {
+    if (f.laminate) return `Over the skins, ${g(f.mass)}.${total} The check counts it as a ${(f.laminate.t * 1000).toFixed(2)} mm skin at ${f.laminate.E / 1e9} GPa on the veneer or balsa: it shares the bending and stiffens the skin against wrinkling.`
+    return `About ${g(f.mass)} with its adhesive.${total} Counted as weight only.`
+  }
   if (f.laminate) {
     if (cov.type === 'open') return `Goes over sheeting only, and there's none here, so it's weighed as lightweight film.${total}`
     return `Over the sheeting, ${g(f.mass)}${cov.type === 'dbox' ? ', with lightweight film over the open bays behind the spar' : ''}.${total} The check counts it as a ${(f.laminate.t * 1000).toFixed(2)} mm skin at ${f.laminate.E / 1e9} GPa on the sheeting: it shares the bending and stiffens the sheet panels between ribs.`
@@ -168,7 +188,12 @@ const summaries = computed(() => {
     : `${[g.le && 'LE', g.te && 'TE'].filter(Boolean).join(' and ')}, ${g.where === 'all' ? 'every rib' : 'ends'}, ${[...new Set(
         ['le', 'te'].filter((e) => g[e]).map((e) => LAYER_SUMS[gussetLayer(g, e)]),
       )].join(' / ')}`
+  const f = x.foam ?? defaultFoam()
   return {
+    construction: x.construction === 'foam' ? 'Foam core' : 'Built-up',
+    core: `${MATERIALS[f.core]?.short ?? f.core}, ${mm(f.skin.thickness)} ${mat(f.skin.material)} skins`,
+    caps: `${size(f.caps.width, f.caps.thickness)} ${mat(f.caps.material)}${f.web.enabled ? ', web' : ''}`,
+    finish: finishOf(cov).short.replace(/^./, (c) => c.toUpperCase()),
     loads: `${x.loads.designG} g, −${x.loads.negativeG} g, ×${x.loads.safetyFactor}`,
     spar,
     covering,
@@ -243,6 +268,14 @@ const roundHint = computed(() => {
   return `Sits in a half-round notch at the front of each rib, the sheeting or covering meeting it at its centre line. It can't be carved, so it has to fit inside the section at every rib. ${best}`
 })
 
+const halvesHint = computed(() =>
+  st.value.ribs.rootJoint === 'two-piece' ? "Each half starts at the fuselage side and plugs in; the joiner itself isn't designed here." : 'Joined at the centreline.',
+)
+const webHint = computed(() =>
+  fm.value.web.enabled
+    ? "Grain vertical, in a slot cut through the core along the caps' front face before skinning. It carries the shear instead of the foam."
+    : 'Without a web, the foam between the caps carries the shear.',
+)
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 const braceHint = computed(() => {
   const n = props.braceNeeds.filter(Number.isFinite)
@@ -255,6 +288,121 @@ const braceHint = computed(() => {
 
 <template>
   <div class="wc-structure-editor wc-inspector">
+    <InspectorSection title="Construction" fold-key="structure:construction" :summary="summaries.construction" open>
+      <SegmentedField :model-value="st.construction ?? 'built-up'" label="Built as" :options="CONSTRUCTIONS" @update:model-value="set('construction', $event)" />
+      <p class="wc-field__hint">
+        {{
+          foam
+            ? 'A hot-wire cut foam core for each panel, skinned top and bottom, with spar caps let in under the skins and no ribs. The built-up settings are kept for switching back.'
+            : 'Ribs on a spar, with sheeting, cap strips and covering as set below.'
+        }}
+      </p>
+    </InspectorSection>
+
+    <template v-if="foam">
+      <InspectorSection title="Foam core and skins" fold-key="structure:foamcore" :summary="summaries.core">
+        <SelectField
+          :id="id('fcore')"
+          :model-value="fm.core"
+          label="Foam"
+          :options="FOAM_OPTIONS"
+          hint="Denser foam resists the skin wrinkling and the core shear better, and weighs more."
+          @update:model-value="set('foam.core', $event)"
+        />
+        <SelectField :id="id('fskm')" :model-value="fm.skin.material" label="Skin" :options="SKINS" @update:model-value="set('foam.skin.material', $event)" />
+        <UnitInput
+          :id="id('fskt')"
+          :model-value="fm.skin.thickness"
+          quantity="thin"
+          :system="system"
+          label="Skin thickness"
+          hint="Obechi veneer is usually 0.6 mm; balsa sheet 1, 1.5 or 2 mm."
+          @update:model-value="set('foam.skin.thickness', $event)"
+        />
+        <div class="wc-structure-editor__pair">
+          <UnitInput
+            :id="id('fshw')"
+            :model-value="fm.skin.sheetWidth"
+            quantity="length"
+            :system="system"
+            label="Sheet width"
+            :placeholder="lengthText(sheetSize.width)"
+            @update:model-value="set('foam.skin.sheetWidth', $event)"
+          />
+          <UnitInput
+            :id="id('fshl')"
+            :model-value="fm.skin.sheetLength"
+            quantity="length"
+            :system="system"
+            label="Sheet length"
+            :placeholder="lengthText(sheetSize.length)"
+            @update:model-value="set('foam.skin.sheetLength', $event)"
+          />
+        </div>
+        <p class="wc-field__hint">The sheets the skins are cut from, for the cut list. Blank for the usual size of the material.</p>
+        <ParamInput
+          :id="id('fglue')"
+          :model-value="Math.round((fm.glue ?? 0.1) * 1000)"
+          label="Glue for the skins"
+          suffix="g/m²"
+          :min="0"
+          :max="400"
+          :step="10"
+          hint="Epoxy bonding the skins to the core, per square metre of skin, for the weight. 100 g/m² is typical of a vacuum-bagged lay-up."
+          @update:model-value="set('foam.glue', $event / 1000)"
+        />
+        <SegmentedField
+          :model-value="st.ribs.rootJoint"
+          label="Wing halves"
+          :options="[
+            { value: 'one-piece', label: 'One piece' },
+            { value: 'two-piece', label: 'Two pieces' },
+          ]"
+          :hint="halvesHint"
+          @update:model-value="set('ribs.rootJoint', $event)"
+        />
+      </InspectorSection>
+
+      <InspectorSection title="Spar caps" fold-key="structure:foamcaps" :summary="summaries.caps">
+        <UnitInput
+          :id="id('fsparpos')"
+          :model-value="st.spar.position"
+          quantity="percent"
+          :system="system"
+          label="Position along the chord"
+          :placeholder="autoSparText"
+          hint="Kept at this fraction of the chord at every panel end, and straight between them. Blank puts it at the section's thickest point."
+          @update:model-value="set('spar.position', $event)"
+        />
+        <div class="wc-structure-editor__pair">
+          <UnitInput :id="id('fcapw')" :model-value="fm.caps.width" quantity="thin" :system="system" label="Cap width" @update:model-value="set('foam.caps.width', $event)" />
+          <UnitInput :id="id('fcapt')" :model-value="fm.caps.thickness" quantity="thin" :system="system" label="Cap thickness" @update:model-value="set('foam.caps.thickness', $event)" />
+        </div>
+        <SelectField :id="id('fcapm')" :model-value="fm.caps.material" label="Cap material" :options="FOAM_CAPS" @update:model-value="set('foam.caps.material', $event)" />
+        <p class="wc-field__hint">One under each skin, let into a slot in the core so it's flush with the core's surface.</p>
+        <label class="wc-check wc-structure-editor__check">
+          <input type="checkbox" :checked="fm.web.enabled" @change="set('foam.web.enabled', $event.target.checked)" />
+          Shear web between the caps
+        </label>
+        <template v-if="fm.web.enabled">
+          <UnitInput :id="id('fwebt')" :model-value="fm.web.thickness" quantity="thin" :system="system" label="Web thickness" @update:model-value="set('foam.web.thickness', $event)" />
+          <SelectField :id="id('fwebm')" :model-value="fm.web.material" label="Web material" :options="SHEET" @update:model-value="set('foam.web.material', $event)" />
+        </template>
+        <p class="wc-field__hint">{{ webHint }}</p>
+      </InspectorSection>
+
+      <InspectorSection title="Finish" fold-key="structure:finish" :summary="summaries.finish">
+        <SelectField
+          :id="id('ffinish')"
+          :model-value="st.covering.finish ?? 'film'"
+          label="Covered with"
+          :options="FINISH_OPTIONS"
+          :hint="finishHint"
+          @update:model-value="set('covering.finish', $event)"
+        />
+      </InspectorSection>
+    </template>
+
     <InspectorSection title="Design loads" fold-key="structure:loads" :summary="summaries.loads">
       <ParamInput
         :id="id('g')"
@@ -291,7 +439,7 @@ const braceHint = computed(() => {
       />
     </InspectorSection>
 
-    <InspectorSection title="Spar" fold-key="structure:spar" :summary="summaries.spar">
+    <InspectorSection v-if="!foam" title="Spar" fold-key="structure:spar" :summary="summaries.spar">
       <SegmentedField :model-value="st.spar.type" label="Type" :options="SPAR_TYPES" @update:model-value="set('spar.type', $event)" />
       <UnitInput
         :id="id('sparpos')"
@@ -361,7 +509,7 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection title="Covering" fold-key="structure:covering" :summary="summaries.covering">
+    <InspectorSection v-if="!foam" title="Covering" fold-key="structure:covering" :summary="summaries.covering">
       <SegmentedField :model-value="st.covering.type" label="Structure" :options="COVERINGS" @update:model-value="set('covering.type', $event)" />
       <SelectField
         :id="id('finish')"
@@ -422,7 +570,7 @@ const braceHint = computed(() => {
           :model-value="st.le.stock"
           label="Leading edge stock"
           :options="LE_OPTIONS"
-          :hint="st.le.stock === 'custom' ? '' : 'Standard balsa sections (SLEC sizes, 915 mm lengths), carved to the section once glued on. The ribs are cut back by its depth.'"
+          :hint="st.le.stock === 'custom' ? '' : `Standard balsa sections (SLEC sizes, 915 mm lengths), carved to the section once glued on. The ${foam ? 'core is' : 'ribs are'} cut back by its depth.`"
           @update:model-value="setStock('le', $event)"
         />
         <UnitInput
@@ -432,7 +580,7 @@ const braceHint = computed(() => {
           quantity="thin"
           :system="system"
           label="Leading edge stock, depth along the chord"
-          hint="The ribs are cut back by this much; the stock is glued on and carved to shape."
+:hint="`The ${foam ? 'core is' : 'ribs are'} cut back by this much; the stock is glued on and carved to shape.`"
           @update:model-value="set('le.width', $event)"
         />
         <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
@@ -482,7 +630,7 @@ const braceHint = computed(() => {
       <EdgeFit v-if="edges?.te.drawing && !edges.te.fits" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
-    <InspectorSection title="Stringers and turbulator spars" fold-key="structure:stringers" :summary="summaries.stringers">
+    <InspectorSection v-if="!foam" title="Stringers and turbulator spars" fold-key="structure:stringers" :summary="summaries.stringers">
       <div v-for="(s, k) in st.stringers" :key="s.id" class="wc-structure-editor__item">
         <div class="wc-structure-editor__itemhead">
           <span>Stringer {{ k + 1 }}</span>
@@ -525,7 +673,7 @@ const braceHint = computed(() => {
       </button>
     </InspectorSection>
 
-    <InspectorSection title="Ribs" fold-key="structure:ribs" :summary="summaries.ribs">
+    <InspectorSection v-if="!foam" title="Ribs" fold-key="structure:ribs" :summary="summaries.ribs">
       <UnitInput :id="id('ribt')" :model-value="st.ribs.thickness" quantity="thin" :system="system" label="Rib thickness" @update:model-value="set('ribs.thickness', $event)" />
       <SelectField :id="id('ribm')" :model-value="st.ribs.material" label="Rib material" :options="WOOD" @update:model-value="set('ribs.material', $event)" />
       <SegmentedField
@@ -660,7 +808,7 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection title="Corner gussets" fold-key="structure:gussets" :summary="summaries.gussets">
+    <InspectorSection v-if="!foam" title="Corner gussets" fold-key="structure:gussets" :summary="summaries.gussets">
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.gussets.le" @change="set('gussets.le', $event.target.checked)" /> Where ribs meet the leading edge
       </label>
@@ -707,7 +855,12 @@ const braceHint = computed(() => {
     </InspectorSection>
 
     <InspectorSection title="Control surface hinges" fold-key="structure:hinges" :summary="summaries.hinges">
-      <p class="wc-field__hint">
+      <p v-if="foam" class="wc-field__hint">
+        For the ailerons and flaps set in the wing editor. The core is cut and skinned whole, then each surface is sawn off
+        along its hinge line, and both cut faces are capped with a hinge spar: the surface's bevelled to a point at the
+        centre line so it can swing through its throws. Mylar tabs are slotted into both at the centre line.
+      </p>
+      <p v-else class="wc-field__hint">
         For the ailerons and flaps set in the wing editor. A hinge spar each side of the hinge line: the fixed part's ribs
         stop at the front of one, and the surface's own ribs start at the back of the other, which is bevelled to a point
         at the centre line so the surface can swing through its throws. Mylar tabs are slotted into both at the centre

@@ -510,7 +510,8 @@ const structureResult = computed(() => {
   const wing = { fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }
   const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise, controls: input.controls })
   if (!a) return null
-  return { a, ...buildParts(a, a.structure, { handedness: input.exportOptions.handedness }) }
+  const o = input.exportOptions
+  return { a, ...buildParts(a, a.structure, { handedness: o.handedness, wireKerf: o.wireKerf, leadIn: o.leadIn }) }
 })
 const structureOpen = ref(false)
 const exportOpen = ref(false)
@@ -552,14 +553,25 @@ const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.g
 const projectFileBase = computed(() => fileName(project.name).replace(/\.wingcalc\.json$/, ''))
 
 const thin = (v) => format(v, 'thin', u('thin'))
+const isFoamWing = computed(() => input.structure.construction === 'foam')
 const sparSummary = computed(() => {
   const sp = input.structure.spar
   const mat = (id) => MATERIALS[id]?.label.toLowerCase() ?? id
+  if (isFoamWing.value) {
+    const f = input.structure.foam
+    return `${thin(f.caps.width)} × ${thin(f.caps.thickness)} ${mat(f.caps.material)} caps${f.web.enabled ? `, ${thin(f.web.thickness)} web` : ', no web'}`
+  }
   if (sp.type === 'tube') return `${thin(sp.tubeDiameter)} ${mat(sp.tubeMaterial)}`
   if (sp.type === 'solid') return `${thin(sp.solidWidth)} × ${thin(sp.solidDepth)} ${mat(sp.solidMaterial)}`
   return `${sp.type === 'box' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} web${sp.type === 'box' ? 's' : ''}`
 })
 const COVERING_LABELS = { open: 'Open', dbox: 'D-box', sheeted: 'Fully sheeted' }
+// A foam wing's core and skins, for the structure card
+const foamSummary = computed(() => {
+  const f = input.structure.foam
+  const mat = (id) => MATERIALS[id]?.short ?? id
+  return { core: `${MATERIALS[f.core]?.label ?? f.core}, ${structureResult.value?.a.cores.length ?? 0} per side`, skins: `${thin(f.skin.thickness)} ${mat(f.skin.material)}, ${finishOf(input.structure.covering).short}` }
+})
 const ribSummary = computed(() => {
   const r = structureResult.value?.a.ribs
   if (!r?.length) return '–'
@@ -590,7 +602,8 @@ const brakeSummary = computed(() => {
 const worstMargin = computed(() => {
   const w = structureResult.value?.a.summary.worst
   if (!w) return null
-  return { ...w, label: MODES[w.mode] ?? w.mode, text: `${w.ms >= 0 ? '+' : ''}${w.ms.toFixed(2)}`, ok: w.ms >= 0 }
+  const labels = structureResult.value.a.modeLabels ?? MODES
+  return { ...w, label: labels[w.mode] ?? w.mode, text: `${w.ms >= 0 ? '+' : ''}${w.ms.toFixed(2)}`, ok: w.ms >= 0 }
 })
 // Room for the corner gussets at each edge, and the ribs where they don't fit
 const gussetRoom = computed(() => {
@@ -628,8 +641,10 @@ const structureWarnings = computed(() => {
     )
   return out
 })
+// The part shown in the preview: the first rib, or a foam wing's first template
+const firstParts = computed(() => (ribParts.value.length ? ribParts.value : (structureResult.value?.parts.filter((p) => p.group === 'templates') ?? [])))
 watch(
-  ribParts,
+  firstParts,
   (list) => {
     if (!list.length) return
     const all = structureResult.value.parts
@@ -1005,14 +1020,26 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 <dt>Spar</dt>
                 <dd>{{ sparSummary }}</dd>
               </div>
-              <div>
-                <dt>Covering</dt>
-                <dd>{{ COVERING_LABELS[input.structure.covering.type] }}, {{ finishOf(input.structure.covering).short }}</dd>
-              </div>
-              <div>
-                <dt>Ribs</dt>
-                <dd>{{ ribSummary }}</dd>
-              </div>
+              <template v-if="isFoamWing">
+                <div>
+                  <dt>Foam core</dt>
+                  <dd>{{ foamSummary.core }}</dd>
+                </div>
+                <div>
+                  <dt>Skins</dt>
+                  <dd>{{ foamSummary.skins }}</dd>
+                </div>
+              </template>
+              <template v-else>
+                <div>
+                  <dt>Covering</dt>
+                  <dd>{{ COVERING_LABELS[input.structure.covering.type] }}, {{ finishOf(input.structure.covering).short }}</dd>
+                </div>
+                <div>
+                  <dt>Ribs</dt>
+                  <dd>{{ ribSummary }}</dd>
+                </div>
+              </template>
               <div v-if="surfaceSummary">
                 <dt>Control surfaces</dt>
                 <dd>{{ surfaceSummary }}</dd>
@@ -1134,7 +1161,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
     <Teleport v-if="workspaceTarget && structureResult" :to="workspaceTarget">
       <WingWorkspace v-model:open="structureOpen" :theme="themeMode" title="Structure and ribs" quiet-done>
         <template #stats>
-          <span class="wc-stat"><span>Ribs</span>{{ structureResult.a.ribs.length }} per side</span>
+          <span v-if="isFoamWing" class="wc-stat"><span>Cores</span>{{ structureResult.a.cores.length }} per side</span>
+          <span v-else class="wc-stat"><span>Ribs</span>{{ structureResult.a.ribs.length }} per side</span>
           <span v-if="worstMargin" class="wc-stat" :class="worstMargin.ok ? 'wc-text-ok' : 'wc-text-bad'">
             <span>Lowest margin</span>{{ worstMargin.text }} <em>{{ worstMargin.label.toLowerCase() }}</em>
           </span>

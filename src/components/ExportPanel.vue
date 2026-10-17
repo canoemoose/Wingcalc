@@ -2,13 +2,15 @@
 // Export options and downloads: the parts laid out for cutting (DXF), a full-size plan
 // (DXF) and a cut list (CSV). Options are kept with the project, so a re-export comes out
 // the same. Rib details that change the parts themselves (lightening holes, jig tabs) are set
-// in the structure editor; this only names them.
+// in the structure editor; this only names them. A foam wing adds its hot-wire templates (with
+// the wire's kerf and lead-in set here), skins and pocket routing templates, and a download of
+// the templates on their own.
 import { computed, ref, onMounted } from 'vue'
 import { zipSync, strToU8 } from 'fflate'
 import UnitInput from './UnitInput.vue'
 import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
-import { layoutParts, partsDxf, planDxf, cutListCsv, partsDrawing, planEntities } from '../lib/dxf.js'
+import { layoutParts, partsDxf, planDxf, cutListCsv, partsDrawing, planEntities, templatesDxf } from '../lib/dxf.js'
 import { drawingPdf, tiling, PAPERS } from '../lib/pdf.js'
 import { bounds } from '../lib/ribs.js'
 
@@ -43,7 +45,11 @@ const GROUPS = [
   { id: 'webs', label: 'Shear webs' },
   { id: 'sheeting', label: 'Sheeting templates (approximate)' },
   { id: 'tip', label: 'Tip block template' },
+  { id: 'templates', label: 'Hot-wire templates' },
+  { id: 'skins', label: 'Skins (approximate)' },
+  { id: 'pockets', label: 'Pocket routing templates' },
 ]
+const foam = computed(() => props.analysis.construction === 'foam')
 const present = computed(() => GROUPS.filter((g) => props.parts.some((p) => p.group === g.id)))
 const count = (id) => props.parts.filter((p) => p.group === id).reduce((n, p) => n + p.qty, 0)
 
@@ -70,6 +76,7 @@ const preview = computed(() => {
 const fmtThin = (v) => `${Number((v * 1000).toFixed(2))} mm`
 // Rib details are structure decisions (weight, 3D, plan), so they're set in the editor
 const ribDetails = computed(() => {
+  if (foam.value) return 'The hot-wire templates allow for the wire\'s kerf below; the other templates are cut true size.'
   const r = props.analysis.structure.ribs
   const on = [r.lightening && 'lightening holes', r.jigTabs && 'jig tabs'].filter(Boolean)
   return on.length ? `Ribs have ${on.join(' and ')}.` : 'Ribs are plain: no lightening holes or jig tabs.'
@@ -82,6 +89,7 @@ const summaries = computed(() => {
     machine: x.machine === 'laser' ? `Laser, ${fmtThin(x.kerf || 0)} kerf` : `Router, ${fmtThin(x.toolDiameter)} cutter${x.dogbones ? ', dogbones' : ''}`,
     drawing: `${x.format === 'lines' ? 'Lines' : 'Polylines'}, ${x.labels ? 'labelled' : 'no labels'}`,
     layout: `${x.repeat ? 'Every piece' : 'One of each'}, ${Math.round(x.rowLength * 1000)} mm rows${x.split ? ', split' : ''}`,
+    wire: `${fmtThin(x.wireKerf ?? 0.001)} kerf, ${fmtThin(x.leadIn ?? 0.02)} lead-in`,
   }
 })
 
@@ -98,6 +106,10 @@ function downloadParts() {
   if (files.length === 1) save(files[0].name, files[0].text, 'application/dxf')
   else save(`${props.baseName}-parts.zip`, zipSync(Object.fromEntries(files.map((f) => [f.name, strToU8(f.text)]))), 'application/zip')
 }
+function downloadTemplates() {
+  const f = templatesDxf(props.parts, o.value, props.baseName)
+  save(f.name, f.text, 'application/dxf')
+}
 function downloadPlan() {
   const f = planDxf(props.analysis, props.analysis.structure, props.parts, o.value, props.baseName)
   save(f.name, f.text, 'application/dxf')
@@ -106,6 +118,7 @@ function downloadPlan() {
 const printOpts = computed(() => ({ ...o.value, machine: 'laser', kerf: 0, dogbones: false, toolOffset: false }))
 const printDrawings = computed(() => ({
   parts: partsDrawing(props.parts, printOpts.value),
+  templates: foam.value ? templatesDxf(props.parts, printOpts.value).entities : [],
   plan: planEntities(props.analysis, props.analysis.structure, props.parts, { handedness: o.value.handedness }),
 }))
 const sheets = (ents) => {
@@ -115,12 +128,14 @@ const sheets = (ents) => {
   const t = tiling(b.w, b.h, o.value.pdfPaper ?? 'a4')
   return t.cols * t.rows
 }
-const sheetCount = computed(() => ({ parts: sheets(printDrawings.value.parts), plan: sheets(printDrawings.value.plan) }))
+const sheetCount = computed(() => ({ parts: sheets(printDrawings.value.parts), plan: sheets(printDrawings.value.plan), templates: sheets(printDrawings.value.templates) }))
 function downloadPdf(which) {
   const drawing =
     which === 'parts'
       ? 'Parts, true size (no kerf allowance)'
-      : `Plan, ${{ right: 'right half', left: 'left half', pair: 'both halves' }[o.value.handedness] ?? 'right half'}`
+      : which === 'templates'
+        ? 'Hot-wire templates, with the wire kerf allowance'
+        : `Plan, ${{ right: 'right half', left: 'left half', pair: 'both halves' }[o.value.handedness] ?? 'right half'}`
   const pdf = drawingPdf(printDrawings.value[which], { paper: o.value.pdfPaper ?? 'a4', project: props.projectName, drawing })
   save(`${props.baseName}-${which}.pdf`, pdf, 'application/pdf')
 }
@@ -159,10 +174,10 @@ function downloadCutList() {
               { value: 'right', label: 'Right half' },
               { value: 'left', label: 'Left half' },
             ]"
-            hint="Ribs are the same for either side; the plan is mirrored for the left. A pair doubles every quantity except parts on the centreline."
+            :hint="foam ? 'Parts are the same for either side (one pair of hot-wire templates cuts both halves); the plan is mirrored for the left. A pair doubles every other quantity except parts on the centreline.' : 'Ribs are the same for either side; the plan is mirrored for the left. A pair doubles every quantity except parts on the centreline.'"
             @update:model-value="set('handedness', $event)"
           />
-          <p class="wc-field__hint">{{ ribDetails }} Change these in the structure editor, under Ribs.</p>
+          <p class="wc-field__hint">{{ ribDetails }}<template v-if="!foam"> Change these in the structure editor, under Ribs.</template></p>
         </InspectorSection>
 
         <InspectorSection title="Machine" fold-key="export:machine" :summary="summaries.machine" open>
@@ -203,6 +218,27 @@ function downloadCutList() {
               Offset the paths by the cutter radius (leave off if your CAM does it)
             </label>
           </template>
+        </InspectorSection>
+
+        <InspectorSection v-if="foam" title="Hot wire" fold-key="export:wire" :summary="summaries.wire" open>
+          <UnitInput
+            id="wcx-wire-kerf"
+            :model-value="o.wireKerf ?? 0.001"
+            quantity="thin"
+            :system="system"
+            label="Wire kerf (width of the cut)"
+            hint="The templates are half this bigger all round than the core, so it comes out true size. Measure it from a test cut in the same foam at the same heat and speed."
+            @update:model-value="set('wireKerf', $event ?? 0)"
+          />
+          <UnitInput
+            id="wcx-lead-in"
+            :model-value="o.leadIn ?? 0.02"
+            quantity="thin"
+            :system="system"
+            label="Lead-in and lead-out"
+            hint="The wire's straight run into the block at the trailing edge and out at the front, drawn on the notes layer."
+            @update:model-value="set('leadIn', $event ?? 0)"
+          />
         </InspectorSection>
 
         <InspectorSection title="Drawing" fold-key="export:drawing" :summary="summaries.drawing" open>
@@ -267,6 +303,7 @@ function downloadCutList() {
         </ul>
         <div class="wc-export__actions">
           <button type="button" class="wc-button wc-button--primary" :disabled="!preview" @click="downloadParts">Download parts (DXF)</button>
+          <button v-if="foam" type="button" class="wc-button" @click="downloadTemplates">Download hot-wire templates (DXF)</button>
           <button type="button" class="wc-button" @click="downloadPlan">Download plan (DXF)</button>
           <button type="button" class="wc-button" @click="downloadCutList">Download cut list (CSV)</button>
         </div>
@@ -284,6 +321,9 @@ function downloadCutList() {
             </select>
             <button type="button" class="wc-button" :disabled="!sheetCount.parts" @click="downloadPdf('parts')">
               Parts (PDF, {{ sheetCount.parts }} sheet{{ sheetCount.parts === 1 ? '' : 's' }})
+            </button>
+            <button v-if="foam" type="button" class="wc-button" :disabled="!sheetCount.templates" @click="downloadPdf('templates')">
+              Templates (PDF, {{ sheetCount.templates }} sheet{{ sheetCount.templates === 1 ? '' : 's' }})
             </button>
             <button type="button" class="wc-button" @click="downloadPdf('plan')">
               Plan (PDF, {{ sheetCount.plan }} sheet{{ sheetCount.plan === 1 ? '' : 's' }})

@@ -180,6 +180,60 @@ describe('app render', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('renders a foam-core wing, its editor, charts, plan and export dialogue', async () => {
+    const s = defaultState()
+    s.input.rootChord = 0.4
+    s.input.panels = [
+      { id: 1, length: 0.5, tipChord: 0.36, sweep: 0.01, dihedral: 0, washout: 0 },
+      { id: 2, length: 0.3, tipChord: 0.25, sweep: 0.04, dihedral: 5, washout: 2 },
+    ]
+    s.input.mass = 2
+    s.input.structure.construction = 'foam'
+    s.input.structure.foam.web.enabled = true
+    s.input.controls = {
+      surfaces: [{ id: 1, role: 'aileron', panel: 2, from: 0.05, to: 0.25, hingeIn: 0.75, hingeOut: 0.75, up: 20, down: 15, gap: 0.001 }],
+      crow: { enabled: false, aileronUp: 25, flapDown: 45 },
+      bays: [],
+      brakes: [{ id: 1, type: 'blade', panel: 1, at: 0.3, length: 0.08, x: 0.6, chord: 0.03, height: 0.012, blades: 1, surface: 'top', angle: 60 }],
+    }
+    const html = await render(s)
+    expect(html).toContain('Foam core')
+    expect(html).toContain('EPS foam, 20 kg/m³ (EPS 100), 2 per side')
+    expect(html).toContain('0.6 mm obechi')
+    expect(warn).not.toHaveBeenCalled()
+
+    const { default: StructureEditor } = await import('../src/components/StructureEditor.vue')
+    const { default: LoadsChart } = await import('../src/components/LoadsChart.vue')
+    const { default: StructurePlan } = await import('../src/components/StructurePlan.vue')
+    const { default: ExportPanel } = await import('../src/components/ExportPanel.vue')
+    const structure = s.input.structure
+    const airfoil = resolveAirfoil(s.airfoil)
+    const g = wingGeometry({ ...s.input, mode: 'panels' })
+    const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+    const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+    const a = analyseStructure({ wing: s.input, airfoil, structure, mass: s.input.mass, spanwise: perf.spanwise, controls: s.input.controls })
+    const { parts, cutList } = buildParts(a, a.structure)
+    const out = await renderToString(
+      createSSRApp({
+        render: () => [
+          h(StructureEditor, { structure, system: 'metric', edges: a.edges, coveringMass: 0.05 }),
+          h(LoadsChart, { analysis: a, ribs: [], system: 'metric', designG: 6 }),
+          h(StructurePlan, { structure, analysis: a, parts, selected: null, system: 'metric' }),
+          h(ExportPanel, { options: s.input.exportOptions, analysis: a, parts, cutList, system: 'metric' }),
+        ],
+      }),
+    )
+    expect(out).toContain('Foam core and skins')
+    expect(out).toContain('Spar caps')
+    expect(out).toContain('Shear web between the caps')
+    expect(out).not.toContain('Corner gussets')
+    expect(out).toContain('Skin wrinkling')
+    expect(out).toContain('Wire kerf')
+    expect(out).toContain('Download hot-wire templates (DXF)')
+    expect(out).toContain('Pocket routing templates')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   // The structure editor's window isn't rendered on the server (it's teleported), so its
   // parts are rendered on their own
   it('renders the structure editor and charts for each leading edge type', async () => {

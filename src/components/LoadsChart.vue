@@ -3,7 +3,7 @@
 // safety for each failure mode at each station (0 is just enough), with a legend; the
 // lowest is marked. Rib positions are ticked.
 import { computed } from 'vue'
-import { MODES } from '../lib/structure.js'
+import { MODES, MODE_SLOTS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -38,13 +38,15 @@ const chart = computed(() => {
     return { d: r.d, m, mode }
   })
   const msPts = lowest.filter((p) => Number.isFinite(p.m))
-  // One line per mode, in MODES order so each keeps its colour whatever else is present
+  // One line per mode, each in its own colour slot whatever else is present (a foam wing's names
+  // for them from the analysis)
+  const labels = props.analysis.modeLabels ?? MODES
   const modes = Object.keys(MODES)
     .map((k, i) => {
       const pts = st.filter((r) => Number.isFinite(r.ms[k]))
       if (!pts.length) return null
       const low = pts.reduce((w, r) => (r.ms[k] < w.ms[k] ? r : w))
-      return { key: k, slot: i + 1, label: MODES[k], low: low.ms[k], points: pts.map((r) => `${x(r.d).toFixed(1)},${yS(r.ms[k]).toFixed(1)}`).join(' ') }
+      return { key: k, slot: MODE_SLOTS[k] ?? i + 1, label: labels[k], low: low.ms[k], points: pts.map((r) => `${x(r.d).toFixed(1)},${yS(r.ms[k]).toFixed(1)}`).join(' ') }
     })
     .filter(Boolean)
   const worst = msPts.reduce((w, p) => (!w || p.m < w.m ? p : w), null)
@@ -106,10 +108,10 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
     <figcaption class="wc-figure__caption">
       <span>
         Root bending {{ nm(analysis.rootMoment) }} and shear {{ analysis.rootShear.toFixed(0) }} N at
-        {{ designG }} g (solid; dashed is the negative case). Ribs are the vertical ticks.
+        {{ designG }} g (solid; dashed is the negative case).<template v-if="ribs.length"> Ribs are the vertical ticks.</template>
       </span>
       <span v-if="chart.worst">
-        Lowest margin {{ chart.worst.m >= 0 ? '+' : '' }}{{ chart.worst.m.toFixed(2) }} ({{ MODES[chart.worst.mode] ?? chart.worst.mode }}),
+        Lowest margin {{ chart.worst.m >= 0 ? '+' : '' }}{{ chart.worst.m.toFixed(2) }} ({{ (analysis.modeLabels ?? MODES)[chart.worst.mode] ?? chart.worst.mode }}),
         {{ format(chart.worst.d, 'length', defaultUnit(system, 'length')) }} from the root rib (the dot; its line is drawn
         heavier). Margins above +3 are drawn at +3.
       </span>

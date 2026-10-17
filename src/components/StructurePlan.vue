@@ -591,6 +591,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to
       move around.
       <template v-if="editable">Double-click the wing to add a rib there.</template>
+      <template v-else-if="a.construction === 'foam'">A foam wing has no ribs: its cores are cut between the panel ends, and the servo and air brake pockets are routed where outlined.</template>
       <template v-else>Click a rib to see it; set spacing to Manual to move ribs here.</template>
     </figcaption>
   </figure>
