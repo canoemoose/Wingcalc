@@ -29,6 +29,16 @@ From Sam's feedback on the structure editor (2026-10-16). Each needs his detail 
 - On a fully sheeted wing the sheeting templates run over the hinge; they should stop at the fixed hinge spar, with the surface sheeted separately.
 - Not yet: XFOIL flap deflection (CLmax and stall speed with flap and crow), dragging hinge ends in the plan, the surface drawn deflected in 3D, hinge moments.
 
+## Air brakes (v8 step 7)
+
+- The linkage isn't modelled: no pushrod, bellcrank, blade guide rails or end stops, and blades are drawn straight up. A real box needs the blades guided and the servo's throw turned into lift; the bay beside the brake is just a servo bay.
+- The slots or opening in the covering are drawn in the plan only. The sheeting parts are developed templates and have no holes in them.
+- Brake sizes are plausible defaults, not published figures: a 12 mm blade, 1 mm ply blades and walls, a 40 mm spoiler plate opening to 60 degrees. A thin wing can't take much blade height (the depth check warns). Worth Sam's eye, and what he flies.
+- A box right behind the main spar blocks the strip the lead holes of outer servo bays use, so the order matters; warned, not solved.
+- Brakes can't be dragged in the plan; the centre is a number. They aren't in the 3D section cut or the rib thumbnails (the plan thumbnail has their outline).
+- Drag isn't calculated: v9 and v10's performance work needs a drag figure per open brake (the dimensions are all saved).
+- A spoiler is always on the top surface and hinged at its front edge; no rear-hinged or bottom-surface spoilers.
+
 ## Servo bays (v8 step 8)
 
 - Servos always stand upright (shaft vertical), so a thin wing can't take them: a micro servo needs about 24.5 mm clear behind the spar, more than a 12% section gives except near the root, and the bay warns. Real thin wings mount servos on their sides on a vertical tray or rails; that needs an orientation choice and a different plate. Ask Sam which he builds.
