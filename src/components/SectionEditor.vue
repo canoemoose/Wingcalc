@@ -9,7 +9,8 @@ import StageZoom from './StageZoom.vue'
 import {
   sampleSection, analyseSection, leIndex, curvature, naca4Points, SEEDS, yAt,
   applyRadius, bendSegment, moveStraightSegment, clampOrder, NOSE_MIN, NOSE_MAX,
-  fairShape, isFairable, normalise, setStraight, mirrorSurface,
+  fairShape, isFairable, normalise, setStraight, mirrorSurface, closeTrailingEdge, syncTrailingEdge,
+  otherTrailingEdge,
 } from '../lib/sectionSpline.js'
 
 const pts = defineModel('pts', { type: Array, required: true })
@@ -140,8 +141,11 @@ watch(pts, (P) => {
   if (ps.length !== selPts.value.length || ss.length !== selSegs.value.length) setSelection(ps, ss)
 })
 
+// The two trailing-edge points are one point, so selecting either selects both
 function setSelection(points, segs) {
-  selPts.value = [...new Set(points)].sort((a, b) => a - b)
+  const n = pts.value.length
+  const withTe = points.flatMap((i) => (otherTrailingEdge(pts.value, i) >= 0 ? [i, otherTrailingEdge(pts.value, i)] : [i]))
+  selPts.value = [...new Set(withTe)].filter((i) => i < n).sort((a, b) => a - b)
   selSegs.value = [...new Set(segs)].sort((a, b) => a - b)
   emit('update:selection', { points: [...selPts.value], segments: [...selSegs.value] })
 }
@@ -282,13 +286,14 @@ function onDown(e) {
   if (pi >= 0) {
     // The LE can be selected on its own, but never joins a multi-selection or moves
     if (add) {
-      if (pi !== l) setSelection(selPts.value.includes(pi) ? selPts.value.filter((j) => j !== pi) : [...selPts.value, pi], selSegs.value)
+      const te = otherTrailingEdge(P, pi)
+      if (pi !== l) setSelection(selPts.value.includes(pi) ? selPts.value.filter((j) => j !== pi && j !== te) : [...selPts.value, pi], selSegs.value)
       return
     }
     const inGroup = selPts.value.includes(pi)
     if (!inGroup) setSelection([pi], [])
     if (pi === l) return
-    const group = inGroup ? selPts.value.filter((j) => j !== l) : [pi]
+    const group = selPts.value.filter((j) => j !== l)
     gesture = {
       kind: 'pt', i: pi, group, origs: group.map((j) => ({ x: P[j].x, y: P[j].y })), start: p, moved: false,
       axis: null, base: clone(P), wasGroup: inGroup && selPts.value.length > 1,
@@ -349,9 +354,9 @@ function onMove(e) {
     const v = { x: mx / S.value, y: -my / (S.value * ve.value) }
     if (g.straight) {
       if (shift && !g.axis && Math.hypot(mx, my) > 6) g.axis = segAxis(g.base, g.ui, mx, my)
-      pts.value = moveStraightSegment(g.base, g.ui, v, shift ? g.axis : null)
+      pts.value = syncTrailingEdge(g.base, moveStraightSegment(g.base, g.ui, v, shift ? g.axis : null))
     } else {
-      pts.value = bendSegment(g.base, g.ui, g.u, v)
+      pts.value = syncTrailingEdge(g.base, bendSegment(g.base, g.ui, g.u, v))
     }
     return
   }
@@ -368,7 +373,7 @@ function onMove(e) {
     next[j].x = g.origs[k].x + ddx
     next[j].y = g.origs[k].y + ddy
   })
-  pts.value = clampOrder(next, g.group)
+  pts.value = syncTrailingEdge(g.base, clampOrder(next, g.group))
 }
 
 // A gesture that changes the outline (a point, a segment or the nose)
@@ -492,7 +497,7 @@ function nudge([ux, uy], step) {
     next[j].x += ux * s
     next[j].y += uy * s
   })
-  pts.value = clampOrder(next, idx)
+  pts.value = syncTrailingEdge(g.P, clampOrder(next, idx))
   nudged = true
 }
 
@@ -504,7 +509,8 @@ function deleteSelected() {
   let up = l, lo = P.length - 1 - l, skipped = 0
   const drop = new Set()
   for (const j of [...selPts.value].sort((a, b) => a - b)) {
-    if (j === l || j >= P.length) continue
+    // The LE and the trailing edge stay; each surface ends at the trailing edge
+    if (j === l || j >= P.length || otherTrailingEdge(P, j) >= 0) continue
     if (j < l) {
       if (up - 1 < 3) { skipped++; continue }
       up--
@@ -641,6 +647,8 @@ const surfaceIdx = (w) => {
   return pts.value.map((_, i) => i).filter((i) => w === 'both' || (w === 'upper' ? i < l : i > l))
 }
 // Reset actions: confirmed first, then one history step. The seed is part of the history, so undo brings it back.
+// A section saved before the trailing edge was always sharp opens with it closed
+if (closeTrailingEdge(pts.value) !== pts.value) pts.value = closeTrailingEdge(pts.value)
 const startPts = clone(pts.value)
 const startSeed = props.seed
 const unchangedFromStart = computed(() => JSON.stringify(pts.value) === JSON.stringify(startPts) && props.seed === startSeed)

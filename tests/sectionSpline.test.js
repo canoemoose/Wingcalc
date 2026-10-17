@@ -7,6 +7,10 @@ import {
   fairShape,
   applyRadius,
   leIndex,
+  closeTrailingEdge,
+  syncTrailingEdge,
+  sectionCoords,
+  drawnFromParams,
 } from '../src/lib/sectionSpline.js'
 
 const SEED_CODES = ['2412', '0012', '4415']
@@ -159,8 +163,7 @@ describe('editing helpers', () => {
     const NM = normalise(M).pts
     const lm = li(M)
     expect(M.length).toBe(P.length)
-    // The lower surface is the upper one turned over: the same x, the opposite y, in reverse order. The tolerance is
-    // loose because the open trailing edge (about 0.25 %) moves the TE midpoint, so the chord is re-measured slightly
+    // The lower surface is the upper one turned over: the same x, the opposite y, in reverse order
     for (let j = 0; j < l - 1; j++) {
       expect(NM[lm + 1 + j].x).toBeCloseTo(N[l - 1 - j].x, 3)
       expect(NM[lm + 1 + j].y).toBeCloseTo(-N[l - 1 - j].y, 3)
@@ -169,5 +172,49 @@ describe('editing helpers', () => {
     expect(Math.abs(analyseSection(M).cmax)).toBeLessThan(1e-6)
     expect(Math.abs(analyseSection(mirrorSurface(P, P.length - 1)).cmax)).toBeLessThan(1e-6)
     expect(mirrorSurface(P, l)).toBe(P)
+  })
+})
+
+describe('sharp trailing edge', () => {
+  const ends = (P) => [P[0], P[P.length - 1]]
+  it('closes every seed and the drawn copy of a parametric section', () => {
+    for (const code of SEED_CODES) {
+      const [a, b] = ends(naca4Points(code))
+      expect(a.x).toBe(b.x)
+      expect(a.y).toBe(b.y)
+    }
+    const [a, b] = ends(drawnFromParams({ thicknessPct: 12, thicknessPosPct: 30, camberPct: 2, camberPosPct: 40, leRadiusPct: 1.59 }))
+    expect(a.y).toBe(b.y)
+  })
+
+  it('closes an open section at the midpoint of its two trailing-edge points', () => {
+    const P = copy(naca4Points('0012'))
+    P[0] = { x: 1, y: 0.01 }
+    P[P.length - 1] = { x: 0.98, y: -0.01 }
+    const [a, b] = ends(closeTrailingEdge(P))
+    expect(a).toEqual({ x: 0.99, y: 0 })
+    expect(b).toEqual({ x: 0.99, y: 0 })
+  })
+
+  it('carries the other trailing-edge point with whichever one moved', () => {
+    const base = naca4Points('2412'), n = base.length
+    const up = copy(base)
+    up[0] = { ...up[0], x: 1.05, y: 0.02 }
+    expect(ends(syncTrailingEdge(base, up))[1]).toMatchObject({ x: 1.05, y: 0.02 })
+    const lo = copy(base)
+    lo[n - 1] = { ...lo[n - 1], x: 0.95, y: -0.02 }
+    expect(ends(syncTrailingEdge(base, lo))[0]).toMatchObject({ x: 0.95, y: -0.02 })
+    const both = copy(base)
+    both[0] = { ...both[0], x: 1, y: 0.02 }
+    both[n - 1] = { ...both[n - 1], x: 1, y: -0.01 }
+    expect(ends(syncTrailingEdge(base, both))[0]).toMatchObject({ x: 1, y: 0.005 })
+    expect(syncTrailingEdge(base, base)).toBe(base)
+  })
+
+  it('analyses a section saved with an open trailing edge as sharp', () => {
+    const P = copy(naca4Points('2412'))
+    P[0] = { ...P[0], y: P[0].y + 0.005 }
+    const c = sectionCoords(P)
+    expect(c[0][1]).toBeCloseTo(c[c.length - 1][1], 9)
   })
 })

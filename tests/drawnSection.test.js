@@ -102,8 +102,8 @@ describe('drawnFromParams', () => {
     expect(pts[9].r).toBeCloseTo(0.0159, 4)
     expect(pts[0].x).toBe(1)
     expect(pts[18].x).toBe(1)
-    expect(pts[0].y).toBeGreaterThan(0)
-    expect(pts[18].y).toBeLessThan(0)
+    // The trailing edge is sharp: both surfaces end on the same point
+    expect(pts[0].y).toBe(pts[18].y)
   })
 
   it('round-trips: resolving the drawn copy gives back the parametric params', () => {

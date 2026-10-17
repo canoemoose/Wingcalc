@@ -36,8 +36,38 @@ export function naca4Points(code) {
     up.push({ x: x - y * Math.sin(th), y: c + y * Math.cos(th) })
     lo.push({ x: x + y * Math.sin(th), y: c - y * Math.cos(th) })
   }
-  return [...up, { x: 0, y: 0, le: true, r: 1.1019 * t * t }, ...lo.reverse()]
+  return closeTrailingEdge([...up, { x: 0, y: 0, le: true, r: 1.1019 * t * t }, ...lo.reverse()])
 }
+
+/* ------------------------------ trailing edge ------------------------------ */
+
+// The trailing edge is always sharp: the upper surface's last point (P[0]) and the lower surface's (P[last]) are one
+// point, kept as two entries so each surface still ends on its own knot. A buildable trailing-edge thickness comes
+// from the structure's trailing-edge stock, not the section.
+const sameXY = (a, b) => a.x === b.x && a.y === b.y
+
+// Joins the two trailing-edge points at their midpoint. Returns a new point list.
+export function closeTrailingEdge(P) {
+  const n = P.length
+  if (n < 2 || sameXY(P[0], P[n - 1])) return P
+  const m = { x: (P[0].x + P[n - 1].x) / 2, y: (P[0].y + P[n - 1].y) / 2 }
+  return P.map((p, i) => (i === 0 || i === n - 1 ? { ...p, ...m } : p))
+}
+
+// After an edit turned base into P: whichever trailing-edge point moved takes the other with it (both moved: their
+// midpoint). Returns a new point list.
+export function syncTrailingEdge(base, P) {
+  const n = P.length
+  if (n < 2 || sameXY(P[0], P[n - 1])) return P
+  if (!base || base.length !== n) return closeTrailingEdge(P)
+  const upMoved = !sameXY(P[0], base[0]), loMoved = !sameXY(P[n - 1], base[n - 1])
+  if (upMoved && !loMoved) return P.map((p, i) => (i === n - 1 ? { ...p, x: P[0].x, y: P[0].y } : p))
+  if (loMoved && !upMoved) return P.map((p, i) => (i === 0 ? { ...p, x: P[n - 1].x, y: P[n - 1].y } : p))
+  return closeTrailingEdge(P)
+}
+
+// Index of the other trailing-edge point, or -1 if i is not one
+export const otherTrailingEdge = (P, i) => (i === 0 ? P.length - 1 : i === P.length - 1 ? 0 : -1)
 
 /* ------------------------------ geometry ------------------------------ */
 
@@ -469,10 +499,10 @@ function ySurface(poly, x) {
 
 // The outline in the format generateSection returns: Selig order, TE upper -> LE -> TE lower, LE at the origin and
 // TE at x = 1 (chord fractions), 2n + 1 points for n stations per surface (121 at the default n = 60). Resampled
-// from the spline outline, so the points are cosine-spaced in x. The two TE points stay where the drawn surfaces
-// meet them, so an open trailing edge keeps its gap.
+// from the spline outline, so the points are cosine-spaced in x. The trailing edge is closed first, so a section
+// saved with an open one (before it was always sharp) comes out sharp too.
 export function sectionCoords(pts, n = 60) {
-  const N = normalise(pts).pts
+  const N = normalise(closeTrailingEdge(pts)).pts
   const D = sampleSection(N), li = D.at[leIndex(N)]
   const up = D.slice(0, li + 1).reverse(), lo = D.slice(li) // both LE -> TE
   const xs = cosineStations(n)
@@ -493,6 +523,11 @@ export function drawnFromParams(c) {
     leRadius: c.leRadiusPct / 100,
   })
   const { upper, lower } = splitSurfaces(coords) // both LE -> TE
+  // The parametric section has a slightly open trailing edge; the target is that outline sheared linearly to close
+  // it (the drawn copy's trailing edge is sharp), which leaves the thickness and camber peaks where they were
+  const teMid = (interp(upper, 1) + interp(lower, 1)) / 2
+  const dU = interp(upper, 1) - teMid, dL = interp(lower, 1) - teMid
+  const tU = (x) => interp(upper, x) - x * dU, tL = (x) => interp(lower, x) - x * dL
   const r = c.leRadiusPct / 100
   // The spline passes through the station points, so the heights at the stations are the unknowns. Start from the
   // target at each station, then least-squares fit all 18 heights so the outline between stations matches too
@@ -500,19 +535,19 @@ export function drawnFromParams(c) {
   const layout = (p) => {
     const up = STATIONS.map((x, j) => ({ x, y: p[j] })) // TE -> LE
     const lo = STATIONS.map((x, j) => ({ x, y: p[9 + j] })).reverse() // LE -> TE
-    return [...up, { x: 0, y: 0, le: true, r }, ...lo]
+    return closeTrailingEdge([...up, { x: 0, y: 0, le: true, r }, ...lo])
   }
   const residual = (p) => {
     const N = normalise(layout(p)).pts, D = sampleSection(N), li = D.at[leIndex(N)]
     const up = D.slice(0, li + 1).reverse(), lo = D.slice(li)
     const out = []
     for (const x of FIT_XS) {
-      out.push(ySurface(up, x) - interp(upper, x))
-      out.push(ySurface(lo, x) - interp(lower, x))
+      out.push(ySurface(up, x) - tU(x))
+      out.push(ySurface(lo, x) - tL(x))
     }
     return out
   }
-  let p = [...STATIONS.map((x) => interp(upper, x)), ...STATIONS.map((x) => interp(lower, x))]
+  let p = [...STATIONS.map(tU), ...STATIONS.map(tL)]
   for (let it = 0; it < FIT_ITERS; it++) {
     const r0 = residual(p)
     const cols = p.map((_, j) => {
@@ -603,5 +638,5 @@ export function mirrorSurface(P, fromIdx) {
     return q
   })
   const Q = fromIdx < l ? [...up, N[l], ...mir(up)] : [...mir(lo), N[l], ...lo]
-  return denormalise(P, Q)
+  return closeTrailingEdge(denormalise(P, Q))
 }

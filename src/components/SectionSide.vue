@@ -43,7 +43,6 @@ const readouts = computed(() => {
     thick: `${pc(a.tmax)} % at ${pc(a.xt, 0)} %`,
     camber: `${pc(a.cmax)} % at ${pc(a.xc, 0)} %`,
     leR: `${pc(a.leR, 2)} %`,
-    teT: `${pc(a.teT, 2)} %`,
     teA: `${a.teA.toFixed(1)}°`,
   }
 })
@@ -176,7 +175,7 @@ function setPoint(axis, v) {
         <dt>Thickness</dt><dd>{{ readouts.thick }}</dd>
         <dt>Camber</dt><dd>{{ readouts.camber }}</dd>
         <dt>Nose radius, measured</dt><dd>{{ readouts.leR }}</dd>
-        <dt>Trailing edge</dt><dd>{{ readouts.teT }} thick, {{ readouts.teA }}</dd>
+        <dt>Trailing-edge angle</dt><dd>{{ readouts.teA }}</dd>
       </dl>
     </section>
 
