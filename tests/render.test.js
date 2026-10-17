@@ -81,6 +81,10 @@ describe('app render', () => {
     expect(html).toContain("Flap F2 isn&#39;t built")
     expect(html).toContain('wc-plan__surface')
     expect(html).toContain('wc-plan__hinge')
+    // The flight configurations under Stall speed: clean by default, flaps and crow offered
+    expect(html).toContain('aria-label="Configuration"')
+    expect(html).toMatch(/>Flaps \d+\.\d km\/h</)
+    expect(html).toMatch(/>Crow \d+\.\d km\/h</)
     expect(warn).not.toHaveBeenCalled()
 
     // The structure editor's hinge settings, and the plan with the surfaces drawn
@@ -107,6 +111,7 @@ describe('app render', () => {
     expect(parts2).toContain('wc-sp__hinge')
     expect(parts2).toContain('Aileron A1 rib')
     expect(parts2).toContain('Crow braking')
+    expect(parts2).toContain('Landing flap')
     // The servo bays: settings in the editor, drawn on the structure plan, in the weight
     expect(parts2).toContain('A bay for this surface')
     expect(parts2).toContain('Mini (the 17 g class)')

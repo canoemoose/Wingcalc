@@ -121,8 +121,16 @@ const crowResult = computed(() => {
   if (!c.available) return ''
   const byRole = (role) => c.deflections.filter((d) => d.role === role).map((d) => Math.abs(d.deflection))
   const range = (v) => (Math.min(...v) === Math.max(...v) ? `${Math.min(...v)}°` : `${Math.min(...v)}° to ${Math.max(...v)}°`)
-  return `Ailerons go ${range(byRole('aileron'))} up and flaps ${range(byRole('flap'))} down, each no further than its own throw. The stall speed and stall character are worked out for the clean wing.`
+  return `Ailerons go ${range(byRole('aileron'))} up and flaps ${range(byRole('flap'))} down, each no further than its own throw. Choose Crow under Stall speed for its stall speed and stall character.`
 })
+
+// Landing flap: how far flaps and flaperons go down for the stall speed with flaps
+const flapSurfaces = computed(() => controls.value.surfaces.filter((s) => s.role === 'flap' || s.role === 'flaperon'))
+const fullFlap = computed(() => Math.max(0, ...flapSurfaces.value.map((s) => s.down)))
+const landingFlap = computed(() => controls.value.landing?.flapDown ?? fullFlap.value)
+function setLanding(v) {
+  controls.value = { ...controls.value, landing: { ...(controls.value.landing ?? {}), flapDown: v } }
+}
 </script>
 
 <template>
@@ -198,6 +206,21 @@ const crowResult = computed(() => {
       <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd" :title="canAdd ? '' : 'No room left on that panel'" @click="add">
         Add control surface to panel {{ addTo + 1 }}
       </button>
+
+      <div v-if="flapSurfaces.length" class="wc-structure-editor__sub">
+        <span class="wc-field__label">Landing flap</span>
+        <ParamInput
+          :id="id('landing-flap')"
+          :model-value="landingFlap"
+          label="Flaps down"
+          suffix="°"
+          :min="0"
+          :max="70"
+          :step="1"
+          hint="For the stall speed with flaps (choose Flaps under Stall speed). Each flap and flaperon goes no further than its own most down."
+          @update:model-value="setLanding"
+        />
+      </div>
 
       <div class="wc-structure-editor__sub">
         <span class="wc-field__label">Crow</span>

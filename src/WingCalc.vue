@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, shallowRef, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import UnitInput from './components/UnitInput.vue'
+import SegmentedField from './components/SegmentedField.vue'
 import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
@@ -43,7 +44,8 @@ import {
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
 import { resolveAirfoil, performanceWithXfoil, loadCatalogue } from './lib/airfoils.js'
-import { XFOIL_SETTINGS, coordsKey, settingsKey } from './lib/xfoil.js'
+import { XFOIL_SETTINGS, coordsKey, settingsKey, flapKey } from './lib/xfoil.js'
+import { flightConfigurations, configurationPerformance } from './lib/flaps.js'
 import {
   defaultState,
   browserStorage,
@@ -362,11 +364,13 @@ const tipSection = computed(() => {
 const sweepCos = computed(() => Math.cos(geometry.value.sweepQuarter ?? 0))
 const sweepDeg = computed(() => ((geometry.value.sweepQuarter ?? 0) * 180) / Math.PI)
 
-// The planform by projected span, for the lifting line (panel mode with a valid wing).
-const planform = computed(() => {
+// The wing at any span station, and its planform by projected span for the lifting line
+// (panel mode with a valid wing).
+const liftSampler = computed(() => {
   if (input.geometryMode !== 'panels' || !(geometry.value.area > 0) || geometry.value.invalid) return null
-  return projectedSampler(wingSampler(input, baseThickness.value))
+  return wingSampler(input, baseThickness.value)
 })
+const planform = computed(() => projectedSampler(liftSampler.value))
 
 // XFOIL polars, computed in a worker and kept for the page's lifetime. Results show the
 // instant answer (bundled polar or estimate) until the computed polar is ready.
@@ -375,34 +379,63 @@ onBeforeUnmount(solver.dispose)
 const polarKeyBase = computed(() =>
   airfoil.value?.valid ? `${coordsKey(airfoil.value.coords)}|${settingsKey(XFOIL_SETTINGS)}` : null,
 )
-const xfoil = computed(() => {
-  const base = polarKeyBase.value
-  if (!base) return { perf: null, need: null, status: null }
+// Stall speed uses projected area: dihedral tilts each panel's lift inwards.
+// In panel mode wing CLmax comes from the spanwise lift distribution, otherwise a fixed factor.
+const wingArgs = computed(() => {
   const g = geometry.value
-  // Stall speed uses projected area: dihedral tilts each panel's lift inwards.
-  // In panel mode wing CLmax comes from the spanwise lift distribution, otherwise a fixed factor.
-  const wing = {
+  return {
     mass: input.mass,
     area: g.projectedArea,
     chord: g.mac,
     clMaxFactor: WING_CLMAX_FACTOR * sweepCos.value,
     wing: planform.value ? { planform: planform.value, span: g.span, sweepCos: sweepCos.value } : null,
   }
-  return performanceWithXfoil(airfoil.value, wing, (re) => solver.lookup(`${base}@${re}`))
+})
+const flapPolarKey = (base, flap, re) => `${base}|${flapKey(flap)}@${re}`
+const xfoil = computed(() => {
+  const base = polarKeyBase.value
+  if (!base) return { perf: null, need: null, status: null }
+  return performanceWithXfoil(airfoil.value, wingArgs.value, (re) => solver.lookup(`${base}@${re}`))
+})
+
+// Flight configurations: clean, flaps down for landing, crow. The clean wing is the headline
+// (and what the structure is checked for); the others are shown when chosen.
+const flightConfig = ref('clean')
+const configurations = computed(() => {
+  const base = polarKeyBase.value
+  const list = flightConfigurations(planform.value ? liftSampler.value : null, input.controls)
+  return list.map((c) => ({
+    ...c,
+    result:
+      c.id === 'clean' || !base
+        ? { ...xfoil.value, need: [], surfaces: [] }
+        : configurationPerformance(airfoil.value, wingArgs.value, xfoil.value, c, (flap, re) => solver.lookup(flapPolarKey(base, flap, re))),
+  }))
+})
+const shownConfig = computed(() => configurations.value.find((c) => c.id === flightConfig.value) ?? configurations.value[0])
+watch(configurations, (list) => {
+  if (!list.some((c) => c.id === flightConfig.value)) flightConfig.value = 'clean'
+})
+
+// Polars wanted, most wanted first: the clean wing's, then the chosen configuration's, then the rest
+const polarJobs = computed(() => {
+  const base = polarKeyBase.value
+  if (!base) return []
+  const coords = () => airfoil.value.coords.map(([x, y]) => [x, y])
+  const jobs = []
+  if (xfoil.value.need) jobs.push({ key: `${base}@${xfoil.value.need}`, coords: coords(), re: xfoil.value.need, settings: { ...XFOIL_SETTINGS } })
+  const order = [shownConfig.value, ...configurations.value.filter((c) => c !== shownConfig.value)]
+  for (const c of order) {
+    for (const { flap, re } of c.result.need ?? []) {
+      const key = flapPolarKey(base, flap, re)
+      if (!jobs.some((j) => j.key === key)) jobs.push({ key, coords: coords(), re, settings: { ...XFOIL_SETTINGS }, flap: { ...flap } })
+    }
+  }
+  return jobs
 })
 watch(
-  () => [polarKeyBase.value, xfoil.value.need],
-  ([base, need]) =>
-    solver.want(
-      base && need
-        ? {
-            key: `${base}@${need}`,
-            coords: airfoil.value.coords.map(([x, y]) => [x, y]),
-            re: need,
-            settings: { ...XFOIL_SETTINGS },
-          }
-        : null,
-    ),
+  () => polarJobs.value.map((j) => j.key).join(' '),
+  () => solver.want(polarJobs.value),
   { immediate: true },
 )
 
@@ -411,6 +444,30 @@ const results = computed(() => {
   const wl = wingLoading(input.mass, g.area)
   const wcl = cubeLoading(input.mass, g.area)
   return { wl, wcl, band: cubeBand(wcl), perf: xfoil.value.perf }
+})
+// The performance shown in the stall cards: the chosen configuration's (the clean wing's by default)
+const shownPerf = computed(() => shownConfig.value?.result.perf ?? results.value.perf)
+const onsetText = (perf) => (perf?.spanwise ? `, stall starts at ${Math.round(perf.spanwise.onsetEta * 100)}% of the semi-span` : '')
+const configOptions = computed(() =>
+  configurations.value.map((c) => ({
+    value: c.id,
+    label: `${c.label} ${format(c.result.perf?.stallSpeed, 'speed', u('speed'))}`,
+    title: `Stall speed ${format(c.result.perf?.stallSpeed, 'speed', u('speed'))}${onsetText(c.result.perf)}`,
+  })),
+)
+// What the chosen configuration deflects, and where its numbers come from
+const configNote = computed(() => {
+  const c = shownConfig.value
+  if (!c || c.id === 'clean' || !c.result.perf) return ''
+  const r = c.result
+  const surfaces = r.surfaces.map((e) => `${e.name} ${Math.abs(e.deflection)}° ${e.deflection > 0 ? 'down' : 'up'}`).join(', ')
+  const fromXfoil = r.surfaces.filter((e) => e.increment.source === 'xfoil').map((e) => e.name)
+  let source
+  if (fromXfoil.length === r.surfaces.length) source = `Their effect on the section is from XFOIL with each surface deflected, at Re ${fmtRe(results.value.perf?.polar?.re)}.`
+  else if (r.status === 'computing') source = 'Their effect on the section is estimated from flap theory until the XFOIL polars are ready.'
+  else if (fromXfoil.length) source = `${fromXfoil.join(', ')} from XFOIL with the surface deflected; the rest estimated from flap theory, as XFOIL gave no usable polar for them.`
+  else source = 'Their effect on the section is estimated from flap theory, as XFOIL gave no usable polar for it.'
+  return `${surfaces}. Wing CLmax ${r.perf.wingClMax.toFixed(2)}${onsetText(r.perf)}. ${source}`
 })
 
 const warnings = computed(() =>
@@ -440,7 +497,7 @@ const marker = computed(() => {
 })
 
 const rating = computed(() => {
-  const s = results.value.perf?.stall
+  const s = shownPerf.value?.stall
   return s ? { ...s, ...RATINGS[s.rating] } : null
 })
 
@@ -776,14 +833,16 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           <article class="wc-card">
             <h3 class="wc-card__label">Stall speed</h3>
             <p class="wc-card__value">
-              {{ format(results.perf?.stallSpeed, 'speed', u('speed')) }}
+              {{ format(shownPerf?.stallSpeed, 'speed', u('speed')) }}
             </p>
             <p class="wc-card__alt-list">
               <span v-for="unit in ['ms', 'kmh', 'mph'].filter((x) => x !== u('speed'))" :key="unit">
-                {{ format(results.perf?.stallSpeed, 'speed', unit) }}
+                {{ format(shownPerf?.stallSpeed, 'speed', unit) }}
               </span>
             </p>
-            <p v-if="results.perf" class="wc-card__note">
+            <SegmentedField v-if="configurations.length > 1" v-model="flightConfig" label="Configuration" :options="configOptions" />
+            <p v-if="configNote" class="wc-card__note">{{ configNote }}</p>
+            <p v-if="results.perf && shownConfig?.id === 'clean'" class="wc-card__note">
               Level flight, sea level (ρ = {{ RHO_SEA_LEVEL }} kg/m³)<template v-if="geometry.hasDihedral"
                 >, projected wing area</template
               >.
@@ -813,7 +872,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 {{ results.perf.clMaxSource === 'polar' ? 'from the bundled data' : 'the estimate' }}.</template
               >
             </p>
-            <p v-if="results.perf?.reference?.differs" class="wc-notice-warn">
+            <p v-if="results.perf?.reference?.differs && shownConfig?.id === 'clean'" class="wc-notice-warn">
               XFOIL here gives a section Clmax of {{ results.perf.sectionClMax.toFixed(2) }} at Re
               {{ fmtRe(results.perf.polar.re) }}; the airfoiltools.com polars give
               {{ results.perf.reference.clMax.toFixed(2) }}. The results use the value computed here.
@@ -1019,10 +1078,13 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 The section alone rates {{ RATINGS[rating.sectionRating].label.toLowerCase() }}.</template
               >
             </p>
+            <p v-if="shownConfig?.id !== 'clean'" class="wc-card__note">
+              {{ shownConfig.label }}, as chosen under Stall speed. The lift curve below is the clean section's.
+            </p>
             <SpanLiftChart
-              v-if="results.perf?.spanwise"
-              :distribution="results.perf.spanwise.distribution"
-              :onset-eta="results.perf.spanwise.onsetEta"
+              v-if="shownPerf?.spanwise"
+              :distribution="shownPerf.spanwise.distribution"
+              :onset-eta="shownPerf.spanwise.onsetEta"
             />
             <LiftCurve v-if="results.perf?.curve" :curve="results.perf.curve" />
             <p class="wc-disclaimer">Indicative only: not a substitute for flight testing.</p>
