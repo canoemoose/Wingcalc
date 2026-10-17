@@ -245,8 +245,9 @@ export function tubeLoft(outer, inner) {
 }
 
 // Height of the inset surface at (s, x): the outer surface less the skin over the ribs there,
-// measured square to the surface, exactly as the ribs are inset (ribs.js).
-export function insetHeight(a, structure, s, x, which) {
+// measured square to the surface, exactly as the ribs are inset (ribs.js). caps false leaves
+// the cap strips out (the hinge spars' height: see skinAt).
+export function insetHeight(a, structure, s, x, which, caps = true) {
   const sec = a.section(s)
   const rear = (a.sparX(s) + sparWidth(structure.spar) / 2 - sec.xl) / sec.c
   const d = 1e-4
@@ -254,7 +255,7 @@ export function insetHeight(a, structure, s, x, which) {
   const up = surfaceHeight(a, s, x, 'upper')
   const lo = surfaceHeight(a, s, x, 'lower')
   // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
-  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom', sec.c) * Math.sqrt(1 + slope * slope))
+  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom', sec.c, caps) * Math.sqrt(1 + slope * slope))
   return which === 'upper' ? up - t : lo + t
 }
 
@@ -391,13 +392,14 @@ export function leSection(a, structure, s) {
   return [...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...xs.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
 }
 
-// A control surface's fixed hinge spar at s: between the inset surfaces, from its front face
-// to its rear face (a box that follows the section). sf from structure.js surfaceLayouts.
+// A control surface's fixed hinge spar at s: from its front face to its rear face (a box that
+// follows the section), the full height of the ribs and their cap strips, which stop at it:
+// only sheeting covers it. sf from structure.js surfaceLayouts.
 export function hingeSparSection(a, structure, sf, s) {
   const x0 = sf.faces.fixedFront(s)
   const x1 = sf.faces.fixedRear(s)
-  const up = (x) => insetHeight(a, structure, s, x, 'upper')
-  const lo = (x) => insetHeight(a, structure, s, x, 'lower')
+  const up = (x) => insetHeight(a, structure, s, x, 'upper', false)
+  const lo = (x) => insetHeight(a, structure, s, x, 'lower', false)
   return [
     [x0, lo(x0)],
     [x1, lo(x1)],
@@ -408,12 +410,12 @@ export function hingeSparSection(a, structure, sf, s) {
 
 // The moving surface's hinge spar at s: its front bevelled to a point at the centre line (the
 // top face at sf.bevel.top from square, the bottom at sf.bevel.bottom), its rear face square,
-// between the inset surfaces.
+// as tall as the fixed one (ribs and cap strips).
 export function movingSparSection(a, structure, sf, s) {
   const xa = sf.faces.apex(s)
   const xr = sf.faces.movingRear(s)
-  const up = (x) => insetHeight(a, structure, s, x, 'upper')
-  const lo = (x) => insetHeight(a, structure, s, x, 'lower')
+  const up = (x) => insetHeight(a, structure, s, x, 'upper', false)
+  const lo = (x) => insetHeight(a, structure, s, x, 'lower', false)
   const mid = (up(xa) + lo(xa)) / 2
   // Where each bevel meets its surface, no further back than the rear face
   const meet = (deg, which) => {

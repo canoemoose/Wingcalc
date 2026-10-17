@@ -592,11 +592,13 @@ export function capStripStart(structure, chord) {
   return chord > 0 ? leStockDepth(structure.le) / chord : 0
 }
 
-// chord (m) is the station's chord; it's only needed for a null capStripStart.
-export function skinAt(structure, q, sparXiRear, side, chord) {
+// chord (m) is the station's chord; it's only needed for a null capStripStart. caps false
+// leaves the cap strips out: hinge spars stand the full height of a rib and its capping, the
+// strips stopping at them, so only sheeting covers them.
+export function skinAt(structure, q, sparXiRear, side, chord, caps = true) {
   const cov = structure.covering
   // Cap strips stop short of the leading edge (capStripStart), so the rib's nose is uncovered
-  const strip = cov.capStrips && q >= capStripStart(structure, chord) - 1e-9 ? cov.capStripThickness || 0 : 0
+  const strip = caps && cov.capStrips && q >= capStripStart(structure, chord) - 1e-9 ? cov.capStripThickness || 0 : 0
   if (cov.type === 'sheeted') return cov.sheetThickness || 0
   if (cov.type === 'dbox') {
     if (!side) return q <= sparXiRear ? cov.sheetThickness || 0 : strip
@@ -877,14 +879,15 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
   const t = structure.ribs.thickness || 0
   const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
   const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
-  // Depth between the skins at plan position x
+  // Depth between the skins at plan position x: the hinge spars' depth, so any sheeting but
+  // not the cap strips, which stop at the spars
   const depthAt = (s, x) => {
     const sec = section(s)
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    const top = skinAt(structure, q, 0, 'top', sec.c)
-    const bot = skinAt(structure, q, 0, 'bottom', sec.c)
+    const top = skinAt(structure, q, 0, 'top', sec.c, false)
+    const bot = skinAt(structure, q, 0, 'bottom', sec.c, false)
     return Math.max(0, f.upper - f.lower - top - bot)
   }
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
