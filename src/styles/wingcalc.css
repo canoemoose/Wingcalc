@@ -2628,8 +2628,10 @@
   background: var(--wc-accent);
   border: 1px solid rgba(0, 0, 0, 0.2);
 }
+/* Centred in the space between the slider and the Flip button */
 .wc-3d__sectionbar .wc-3d__readout {
   min-width: 9.5em;
+  text-align: center;
   color: var(--wc-text);
 }
 .wc-3d__close {

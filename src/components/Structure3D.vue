@@ -133,21 +133,45 @@ const sectionLabel = computed(() => {
   return b ? `${d}, ${b.label}` : d
 })
 // Each rib's place along the track, 0 to 1
-// A tick at each rib along the section bar, named as on the plan. Crowded, only every few are
-// named (always the first and last, and the two either side of the cut)
+// A tick at each rib along the section bar, each named as on the plan unless its name would
+// overlap one already placed. The two ribs either side of the cut are placed first, then the
+// first and last, then the rest root outward.
+const trackEl = ref(null)
+const trackWidth = ref(0)
+let trackObs = null
+watch(trackEl, (el) => {
+  trackObs?.disconnect()
+  trackObs = null
+  if (!el || typeof ResizeObserver === 'undefined') return
+  trackObs = new ResizeObserver(() => (trackWidth.value = el.clientWidth))
+  trackObs.observe(el)
+  trackWidth.value = el.clientWidth
+})
+// A name's width in px at the label's size (0.68rem, digits and capitals about 0.6 em each)
+const labelWidth = (name) => name.length * 6.6 + 2
 const ribTicks = computed(() => {
   const { min, max } = sectionRange.value
   const list = ribs.value
-  const every = Math.max(1, Math.ceil(list.length / 12))
   const k = list.findIndex((r) => r.s > section.value.s)
   const bay = k > 0 ? [k - 1, k] : []
-  return list.map((r, i) => ({
-    id: r.id,
-    name: r.name,
-    at: (r.s - min) / Math.max(1e-9, max - min),
-    named: i % every === 0 || i === list.length - 1 || bay.includes(i),
-    near: bay.includes(i),
-  }))
+  const ticks = list.map((r, i) => ({ id: r.id, name: r.name, at: (r.s - min) / Math.max(1e-9, max - min), named: false, near: bay.includes(i) }))
+  const W = trackWidth.value
+  if (!(W > 0)) {
+    ticks.forEach((t) => (t.named = true))
+    return ticks
+  }
+  const taken = []
+  const order = [...bay, 0, ticks.length - 1, ...ticks.keys()]
+  for (const i of order) {
+    const t = ticks[i]
+    if (!t || t.named) continue
+    const half = labelWidth(t.name) / 2 + 2
+    const x = t.at * W
+    if (taken.some(([a, b]) => x - half < b && x + half > a)) continue
+    taken.push([x - half, x + half])
+    t.named = true
+  }
+  return ticks
 })
 // Move the cut along the span, kept clear of the ribs: a cut through a rib shows nothing
 // useful, so a value inside one moves to the side it came from
@@ -852,6 +876,7 @@ onBeforeUnmount(() => {
   swinging++
   window.removeEventListener('keydown', onKeydown)
   resizeObs?.disconnect()
+  trackObs?.disconnect()
   controls?.dispose()
   disposeGroup(root)
   disposeGroup(cut)
@@ -942,7 +967,7 @@ watch(projection, setProjection)
       <!-- Along the bottom: the section bar while the wing is cut, then the zoom controls -->
       <div class="wc-3d__bottom">
         <div v-if="section.on" class="wc-3d__sectionbar" role="group" aria-label="Section">
-          <div class="wc-3d__track">
+          <div ref="trackEl" class="wc-3d__track">
             <template v-for="t in ribTicks" :key="t.id">
               <span class="wc-3d__tick" :class="{ 'wc-3d__tick--near': t.near }" :style="{ left: `${t.at * 100}%` }" :title="t.name" />
               <span v-if="t.named" class="wc-3d__ticklabel" :class="{ 'wc-3d__ticklabel--near': t.near }" :style="{ left: `${t.at * 100}%` }" aria-hidden="true">{{ t.name }}</span>
