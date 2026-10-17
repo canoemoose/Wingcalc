@@ -137,7 +137,7 @@ The custom section is drawn from the NACA modified four-digit thickness form, wi
 
 Implementation: `src/lib/structure.js`. A first-order sizing check, and the app says so.
 
-- **Load**: the lifting line's spanwise lift distribution at the stall (the design point at manoeuvring speed, where full load factor is reached at maximum lift), scaled so the half wing carries n × weight / 2. Negative g uses the distribution at the matching negative lift. The wing's own weight is ignored, which errs on the safe side.
+- **Load**: the lifting line's spanwise lift distribution at the stall (the design point at manoeuvring speed, where full load factor is reached at maximum lift), scaled so the half wing carries n × weight / 2. Negative g uses the distribution at the matching negative lift. The wing's own weight is ignored, which errs on the safe side, except for the servos: each pulls down on the half wing with n × its weight at its span station, so it takes that force off the shear inboard of it and (its force × its distance from the section) off the bending moment there (see Servo bays).
 - **Shear and bending** come from integrating that load inward from the tip.
 - **Section**: modulus-weighted, so a D-box or fully sheeted wing's sheeting shares the bending with the spar (it typically carries more than half), and stringers count too. Stresses come from M·E·z / EI at each element's extreme fibre.
 - **Margins of safety**, allowable ÷ (stress × safety factor) − 1, so 0 is just enough:
@@ -174,6 +174,33 @@ Implementation: `src/lib/controlSurfaces.js` (placement, bevel, tabs, crow; it w
 - **Tabs**: spaced evenly along the hinge, the end ones a set distance in from the moving surface's ends, no further apart than the spacing you set, two at least. Each tab goes into both hinge spars by half its length less half the gap; a warning says if that's deeper than the narrower spar is wide.
 - **Weight**: the surfaces' ribs and both hinge spars (in the hinge spar material, at their greatest depth) are weighed with the rest of the structure, plus the tabs as Mylar at 1390 kg/m³. The strength check doesn't count the hinge spars in bending, and hinge moments and the loads on the surfaces themselves aren't checked.
 - **Crow**: offered only when the wing has ailerons and flaps as separate surfaces and no flaperons. When it's on, each aileron goes up and each flap down by the crow setting, never past its own throw. These are the deflections only: lift, stall speed and stall character are worked out for the clean wing.
+
+## Servo bays
+
+Implementation: `src/lib/servos.js` (the catalogue, which bay each surface gets and where, the masses for the loads; it works on any wing) and `bayLayouts` in `src/lib/structure.js` (the built-up bay), with the plate, hatch and lead holes in `src/lib/ribs.js`.
+
+**Catalogue.** Four generic classes, no brands. Each is the rounded figures of the common hobby servos of its class, as published by their makers, with the torque taken at 4.8 V (the lower of the usual supply voltages) and rounded down, so it is not the rating of any one servo: check the servo you mean to use.
+
+| Class | Typical | Case L × W × H (mm) | Across lugs (mm) | Lug thickness (mm) | Mass | Torque |
+|---|---|---|---|---|---|---|
+| Sub-micro | about 4 g | 20.5 × 8.5 × 16 | 27.5 | 1.5 | 4 g | 0.06 N·m (0.6 kgf·cm) |
+| Micro | the 9 g class | 23 × 12.2 × 22.5 | 32.5 | 2.5 | 9 g | 0.15 N·m (1.5 kgf·cm) |
+| Mini | the 17 g class | 28.5 × 12.5 × 26 | 39 | 2.5 | 17 g | 0.28 N·m (2.8 kgf·cm) |
+| Standard | the 40 g class | 40.5 × 20 × 36.5 | 55 | 2.5 | 45 g | 0.40 N·m (4 kgf·cm) |
+
+Length is along the chord, width across the span and height from the base to the top of the case (the output shaft end), with the servo standing with its shaft vertical. The underside of the lugs is taken about two thirds of the way up the case. With no class chosen a bay takes the one that suits the all-up weight: sub-micro up to 0.6 kg, micro to 2.5 kg, mini to 6 kg, standard beyond.
+
+**Placement.** Each built control surface has a bay unless it's removed. The bay is centred on the surface, or where you say, measured from the panel's inner end like the surface's ends. It is the gap between two ribs, the servo's width plus 1.5 mm clear each side (the ribs' faces), with a hard point (a full rib) at each end. It must lie inside its panel, 5 mm clear of the panel's ends, and not overlap another bay; a bay may stick out past the ends of its surface, which is noted.
+
+**Servo, plate and hatch.** The servo lies with its length along the chord, its lugs' span between the leads' strip behind the main spar and 2 mm ahead of the fixed hinge spar's front face (with a 3 mm margin each end for the plate), placed in the deepest spot in that stretch (the rearmost if several are as deep, so the pushrod to the horn is short). It stands on the inside of the lower skin at the highest that surface gets under it, and needs its case height plus 2 mm clear under the upper skin at the lowest, or a warning says how much depth is short and to use a smaller class or move the bay. Pushrods aren't modelled.
+
+The mount plate is birch ply (1.5 mm for sub-micro and micro, 2 mm mini, 3 mm standard) between the rib faces, its underside at the lugs' underside, with a cut-out for the case (0.5 mm clear all round) and four 1.2 mm pilot holes for the lug screws, two per lug. The servo goes in from below and its lugs screw up into the plate. The hatch is the opening in the lower surface under it, the plate's size; on a fully sheeted wing it is a part cut from the lower sheeting, with two 5 × 5 mm spruce rails across the bay at its front and back edges for it to screw to. On other wings the opening is cut in the covering, and drawn in the plan.
+
+**Lead holes.** Each bay's lead passes through every rib from the bay's inner rib in to the root rib. The holes sit in a strip just behind the main spar's rear face (3 mm clear), one hole wide per bay (4, 6, 7 or 10 mm by class) and 2 mm apart, the outermost bay's hole nearest the spar. Each hole is kept at least 1.5 mm (the least rib material anywhere) from the rib's edges and notches, sliding back a millimetre at a time (up to 20 mm) where the rib is too thin or the place is taken; where it won't fit at all the hole is left out and the rib's note and a warning say so. The label and lightening holes keep clear of them. A bay needs room for the strip, the servo and the hinge spar between the main spar and the hinge, or it isn't built.
+
+**Weight and loads.** The servos are weighed with the wing (their catalogue mass, per half wing, so a pair counts two of each), as are the plates, hatches, rails and the lead holes' loss of rib. In the strength check each servo is a point mass on the half wing: at load factor n it pulls down with n·m·g at its span station s<sub>b</sub>, which reduces the shear inboard of it by that force and the bending moment at a section s by n·m·g·(s<sub>b</sub> − s) (the wing's own weight stays ignored, so the servos are the one inertia relief taken). For a 9 g servo 0.25 m out at 6 g that is 6 × 0.009 × 9.81 × 0.25 = 0.13 N·m off the root moment. It applies at positive and negative load factor. Only built bays count.
+
+**Not covered**: the hinge moment against the servo's torque (so the catalogue's torque is shown, not checked), servo lead and connector bulk beyond the hole size, the horn and pushrod, and servos lying on their sides in thin wings.
 
 ## Edge stock
 
