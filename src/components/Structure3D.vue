@@ -133,9 +133,21 @@ const sectionLabel = computed(() => {
   return b ? `${d}, ${b.label}` : d
 })
 // Each rib's place along the track, 0 to 1
+// A tick at each rib along the section bar, named as on the plan. Crowded, only every few are
+// named (always the first and last, and the two either side of the cut)
 const ribTicks = computed(() => {
   const { min, max } = sectionRange.value
-  return ribs.value.map((r) => ({ id: r.id, name: r.name, at: (r.s - min) / Math.max(1e-9, max - min) }))
+  const list = ribs.value
+  const every = Math.max(1, Math.ceil(list.length / 12))
+  const k = list.findIndex((r) => r.s > section.value.s)
+  const bay = k > 0 ? [k - 1, k] : []
+  return list.map((r, i) => ({
+    id: r.id,
+    name: r.name,
+    at: (r.s - min) / Math.max(1e-9, max - min),
+    named: i % every === 0 || i === list.length - 1 || bay.includes(i),
+    near: bay.includes(i),
+  }))
 })
 // Move the cut along the span, kept clear of the ribs: a cut through a rib shows nothing
 // useful, so a value inside one moves to the side it came from
@@ -311,34 +323,6 @@ function disposeGroup(g) {
       o.material?.dispose()
     }
   })
-}
-
-// A rib's name as a flat label that always faces the camera (a sprite). Drawn at 2x so it
-// stays sharp when zoomed in.
-function makeRibLabel(text, clip) {
-  const c = document.createElement('canvas')
-  c.width = 256
-  c.height = 128
-  const g = c.getContext('2d')
-  g.fillStyle = cssColour('--wc-surface', '#f6f7f9')
-  g.strokeStyle = cssColour('--wc-border', '#d9dde3')
-  g.lineWidth = 8
-  g.beginPath()
-  g.roundRect(4, 4, 248, 120, 24)
-  g.fill()
-  g.stroke()
-  g.fillStyle = cssColour('--wc-text', '#1b1f24')
-  g.font = '600 72px system-ui, sans-serif'
-  g.textAlign = 'center'
-  g.textBaseline = 'middle'
-  g.fillText(text, 128, 66)
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  tex.anisotropy = renderer.capabilities.getMaxAnisotropy()
-  // Cut away with the wing, so a label on the outboard side of the cut doesn't show
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, clippingPlanes: [clip] }))
-  sprite.scale.set(0.16, 0.08, 1)
-  return sprite
 }
 
 // Smooth shading across gentle curves, sharp at corners (the end faces, a box's edges), so
@@ -608,12 +592,6 @@ function updateSection() {
     if (sec.outline.length) {
       const accent = new THREE.Color(cssColour('--wc-accent', '#1f6feb'))
       cut.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(sec.outline.map(toWorld)), new THREE.LineBasicMaterial({ color: accent })))
-    }
-    // Each rib is named at its leading edge, where it sits on the wing
-    for (const rib of ribs.value) {
-      const label = makeRibLabel(rib.name, clip)
-      label.position.set(...worldPoint(a, rib.s, 0, 0))
-      cut.add(label)
     }
     scene.add(cut)
   }
@@ -965,7 +943,10 @@ watch(projection, setProjection)
       <div class="wc-3d__bottom">
         <div v-if="section.on" class="wc-3d__sectionbar" role="group" aria-label="Section">
           <div class="wc-3d__track">
-            <span v-for="t in ribTicks" :key="t.id" class="wc-3d__tick" :style="{ left: `${t.at * 100}%` }" :title="t.name" />
+            <template v-for="t in ribTicks" :key="t.id">
+              <span class="wc-3d__tick" :class="{ 'wc-3d__tick--near': t.near }" :style="{ left: `${t.at * 100}%` }" :title="t.name" />
+              <span v-if="t.named" class="wc-3d__ticklabel" :class="{ 'wc-3d__ticklabel--near': t.near }" :style="{ left: `${t.at * 100}%` }" aria-hidden="true">{{ t.name }}</span>
+            </template>
             <input
               class="wc-3d__slider"
               type="range"

@@ -2557,6 +2557,7 @@
   flex: 1 1 200px;
   min-width: 160px;
   height: 26px;
+  margin-bottom: 14px; /* room for the rib names under the ticks */
 }
 .wc-3d__track::before {
   content: '';
@@ -2573,6 +2574,24 @@
   width: 1px;
   height: 16px;
   background: var(--wc-muted);
+}
+.wc-3d__tick--near {
+  background: var(--wc-accent);
+}
+/* The rib's name under its tick, centred on it */
+.wc-3d__ticklabel {
+  position: absolute;
+  top: 24px;
+  transform: translateX(-50%);
+  font-size: 0.68rem;
+  line-height: 1;
+  color: var(--wc-muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.wc-3d__ticklabel--near {
+  color: var(--wc-accent);
+  font-weight: 600;
 }
 /* The native slider, its track hidden, so it keeps keyboard and touch handling */
 .wingcalc .wc-3d__slider {
