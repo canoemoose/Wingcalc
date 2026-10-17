@@ -9,9 +9,11 @@
 // A bay is saved as the settings that differ from the defaults, in controls.bays:
 //   surface   the id of the control surface it works
 //   enabled   false once removed (default true: every surface has a bay)
-//   class     a servo class from SERVOS, or null for the one that suits the model's weight
-//   at        where its centre is, m from the panel's inner end, flat; null for the middle of
-//             the surface
+//   class     a servo: a class from SERVOS or a Hitec id, or null for the class that suits the
+//             model's weight
+//   mounting  'upright' (default), 'side' or 'flat' (thin wing servos only): see MOUNTINGS
+//   at        where its centre is, m from the panel's inner end, flat; null for a third of the
+//             way out along the surface
 
 // Servo classes. Generic sizes, no brand: each is the rounded figures of the common hobby
 // servos of that class (docs/methods.md), all in SI base units.
@@ -136,7 +138,7 @@ export const HITEC = [
 export const MOUNTINGS = { upright: 'Upright', side: 'On its side', flat: 'Flat (wing servo)' }
 
 export function servoEnvelope(servo, mounting = 'upright') {
-  const { length: l, width: w, height: h } = servo
+  const [l, w, h] = servo.body ?? [servo.length, servo.width, servo.height]
   if (mounting === 'side') return { chord: l, span: h, depth: w }
   if (mounting === 'flat') return servo.thin ? { chord: h, span: l, depth: w } : null
   return { chord: l, span: w, depth: h }
@@ -172,10 +174,36 @@ export function defaultServoClass(mass) {
 
 export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 
+// The servo a bay holds, in the generic classes' fields (which the bay geometry reads) and turned
+// to its mounting: length along the chord, width across the span, height its depth in the wing,
+// and the lugs half way up a servo that lies down. id is a Hitec id or a class; anything else
+// takes the class that suits the model's mass. A flat mounting needs a thin wing servo; any other
+// servo stands upright.
+export function installedServo(id, mounting = 'upright', mass = 0) {
+  const found = servoById(id) ?? { id: defaultServoClass(mass), ...SERVOS[defaultServoClass(mass)] }
+  const cls = SERVOS[found.class] ?? SERVOS[found.id] ?? SERVOS.micro
+  const [l, w, h] = found.body ?? [found.length, found.width, found.height]
+  const base = {
+    ...cls,
+    ...found,
+    label: found.model ?? cls.label,
+    length: l,
+    width: w,
+    height: h,
+    lugSpan: found.lugSpan ?? cls.lugSpan,
+    lugThickness: cls.lugThickness,
+    lugHeight: found.body ? (h * cls.lugHeight) / cls.height : cls.lugHeight,
+  }
+  const mount = mounting === 'flat' && !found.thin ? 'upright' : MOUNTINGS[mounting] ? mounting : 'upright'
+  if (mount === 'upright') return { ...base, mounting: mount }
+  const e = servoEnvelope(found, mount)
+  return { ...base, length: e.chord, width: e.span, height: e.depth, lugHeight: Math.max(0, e.depth / 2 - base.lugThickness / 2), mounting: mount }
+}
+
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  return { surface: surfaceId, enabled: true, class: null, at: null, ...(saved ?? {}) }
+  return { surface: surfaceId, enabled: true, class: null, mounting: 'upright', at: null, ...(saved ?? {}) }
 }
 
 // controls with one surface's bay settings changed. Settings that come back to the defaults
@@ -183,10 +211,12 @@ export function bayOf(controls, surfaceId) {
 export function setBay(controls, surfaceId, patch) {
   const next = { ...bayOf(controls, surfaceId), ...patch }
   const rest = (controls.bays ?? []).filter((b) => b.surface !== surfaceId)
-  const same = next.enabled && !next.class && !Number.isFinite(next.at)
+  const upright = !next.mounting || next.mounting === 'upright'
+  const same = next.enabled && !next.class && upright && !Number.isFinite(next.at)
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
+  if (!upright) entry.mounting = next.mounting
   if (Number.isFinite(next.at)) entry.at = next.at
   return { ...controls, bays: same ? rest : [...rest, entry] }
 }
@@ -198,7 +228,8 @@ export const dropBay = (controls, surfaceId) => ({ ...controls, bays: (controls.
 // air brakes' hosts from airBrakes.js brakeHosts): its servo, its centre s (flat along the
 // span), the two ribs either side (sA, sB, their centres, a rib thickness t out from the
 // servo's width plus its clearance) and the gap between the ribs' faces (width). A control
-// surface's bay is centred on it; an air brake's goes beside its box, its outer rib the box's
+// surface's bay is a third of the way out along it (where the linkage is short and the surface
+// stiff); an air brake's goes beside its box, its outer rib the box's
 // inner one, or failing that on the box's outer side. Named SB1, SB2 … root outward. ok is
 // false, with a problem, if it can't be placed: 'surface' (its host isn't built), 'span' (the
 // ribs would be off the panel) or 'overlap' (it clashes with a bay before it). beyond says it
@@ -212,9 +243,10 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
   for (const r of order) {
     const cfg = bayOf(controls, r.id)
     if (!cfg.enabled) continue
-    const cls = SERVOS[cfg.class] ? cfg.class : defaultServoClass(mass)
-    const servo = SERVOS[cls]
-    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !SERVOS[cfg.class], servo, mass: servo.mass, ok: false, problem: null }
+    const chosen = servoById(cfg.class)
+    const cls = chosen ? cfg.class : defaultServoClass(mass)
+    const servo = installedServo(cls, cfg.mounting, mass)
+    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {
       bay.problem = 'surface'
@@ -223,7 +255,7 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     const p = sampler.ends[r.panelIndex]
     const width = servo.width + 2 * SERVO_CLEARANCE
     const half = width / 2 + t / 2
-    const centres = Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - half, r.beside[1] + half] : [(r.s0 + r.s1) / 2]
+    const centres = Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - half, r.beside[1] + half] : [r.s0 + (r.s1 - r.s0) / 3]
     for (const s of centres) {
       Object.assign(bay, { s, sA: s - half, sB: s + half, width, panelIndex: r.panelIndex, rib: t, problem: null })
       // Ribs inside the panel, a few millimetres clear of its ends (which have ribs of their own)

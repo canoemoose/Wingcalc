@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SERVOS, SERVO_CLASSES, HITEC, MOUNTINGS,
-  servoEnvelope, servoById, servoOptions, defaultServoClass, bayOf, setBay, dropBay,
+  servoEnvelope, servoById, servoOptions, defaultServoClass, bayOf, setBay, dropBay, installedServo,
 } from '../src/lib/servos.js'
 
 describe('Hitec catalogue', () => {
@@ -121,7 +121,7 @@ describe('defaultServoClass', () => {
 
 describe('bay settings', () => {
   it('gives a surface its defaults when it has no saved bay', () => {
-    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, at: null })
+    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, mounting: 'upright', at: null })
     expect(bayOf(undefined, 'aileron').enabled).toBe(true)
   })
 
@@ -150,5 +150,31 @@ describe('bay settings', () => {
   it('drops the bay of a surface that has gone', () => {
     const c = dropBay({ bays: [{ surface: 'a', class: 'mini' }, { surface: 'b', class: 'micro' }] }, 'a')
     expect(c.bays).toEqual([{ surface: 'b', class: 'micro' }])
+  })
+})
+
+describe('the servo a bay holds', () => {
+  it('turns a servo to its mounting: on its side it needs its width of depth, not its height', () => {
+    const up = installedServo('standard', 'upright')
+    const side = installedServo('standard', 'side')
+    expect(up.height).toBe(SERVOS.standard.height)
+    expect(side.height).toBe(SERVOS.standard.width)
+    expect(side.width).toBe(SERVOS.standard.height)
+    expect(side.lugHeight).toBeLessThan(side.height)
+  })
+
+  it('lays a thin Hitec wing servo flat, and stands anything else upright', () => {
+    const thin = HITEC.find((s) => s.thin)
+    const flat = installedServo(thin.id, 'flat')
+    expect(flat.mounting).toBe('flat')
+    expect(flat.height).toBe(Math.min(...thin.body))
+    expect(flat.mass).toBe(thin.mass)
+    const thick = HITEC.find((s) => !s.thin)
+    expect(installedServo(thick.id, 'flat').mounting).toBe('upright')
+  })
+
+  it('falls back to the class that suits the weight for an unknown or empty choice', () => {
+    expect(installedServo(null, 'upright', 5).label).toBe(SERVOS.mini.label)
+    expect(installedServo('no-such-servo', 'upright', 0.4).label).toBe(SERVOS['sub-micro'].label)
   })
 })

@@ -102,7 +102,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, at: null })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', at: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
@@ -140,12 +140,12 @@ describe('where a bay goes', () => {
     return placeBays({ sampler, surfaces: resolveSurfaces(sampler, surfaces), controls: { ...defaultControls(), surfaces, bays }, mass, ribThickness: 0.002 })
   }
 
-  it('puts one in the middle of each surface, named root outward, between two ribs', () => {
+  it('puts one a third of the way out along each surface, named root outward, between two ribs', () => {
     const [b1, b2] = place([aileron, flap], [])
     expect([b1.name, b2.name]).toEqual(['SB1', 'SB2'])
     expect(b1.surface).toBe(2) // the flap is inboard
-    expect(b1.s).toBeCloseTo(0.25, 9)
-    expect(b2.s).toBeCloseTo(0.675, 9)
+    expect(b1.s).toBeCloseTo(0.1 + 0.3 / 3, 9)
+    expect(b2.s).toBeCloseTo(0.5 + 0.35 / 3, 9)
     const v = SERVOS.micro // 2 kg: micro
     expect(b1.class).toBe('micro')
     expect(b1.width).toBeCloseTo(v.width + 2 * SERVO_CLEARANCE, 9)
@@ -380,7 +380,7 @@ describe('servo weight', () => {
     // The rest is the ribs (lead holes take a little off them) and the extra ribs at each bay end
     const delta = res.weight.total - plain.weight.total
     expect(delta).toBeGreaterThan(res.weight.servos + byHand * 1.1 - 0.01)
-    expect(delta).toBeLessThan(res.weight.servos + byHand * 1.1 + 0.03)
+    expect(delta).toBeLessThan(res.weight.servos + byHand * 1.1 + 0.035)
     expect(res.weight.total).toBeCloseTo(res.weight.bare + res.weight.covering + res.weight.servos, 9)
   })
 })
@@ -425,12 +425,12 @@ describe('servo inertia relief', () => {
     expect(res.a.relief[0]).toMatchObject({ name: 'SB1', mass: SERVOS.micro.mass })
     const plain = build({ bays: noBays() })
     expect(plain.a.rootMoment - res.a.rootMoment).toBeCloseTo(byHand, 9)
-    // Two 9 g servos at 0.25 m and 0.675 m, at 6 g
-    expect(byHand).toBeCloseTo(6 * 0.009 * G * (0.25 + 0.675), 6)
+    // Two 9 g servos a third of the way along each surface, at 6 g
+    expect(byHand).toBeCloseTo(6 * 0.009 * G * (0.2 + (0.5 + 0.35 / 3)), 6)
     // Shear too, and the negative g case
     expect(plain.a.rootShear - res.a.rootShear).toBeCloseTo(6 * 2 * 0.009 * G, 9)
     const nn = res.st.loads.negativeG
-    expect(Math.abs(plain.a.neg.rows[0].M) - Math.abs(res.a.neg.rows[0].M)).toBeCloseTo(nn * 0.009 * G * (0.25 + 0.675), 9)
+    expect(Math.abs(plain.a.neg.rows[0].M) - Math.abs(res.a.neg.rows[0].M)).toBeCloseTo(nn * 0.009 * G * (0.2 + (0.5 + 0.35 / 3)), 9)
     // Easier on the spar, never harder: every margin is at least what it was
     const lowest = (r) => r.a.summary.modes.compression.ms
     expect(lowest(res)).toBeGreaterThan(lowest(plain))

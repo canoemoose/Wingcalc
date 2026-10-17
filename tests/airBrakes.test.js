@@ -236,7 +236,7 @@ describe('a blade brake built into the wing', () => {
     // At a chosen place instead
     const at = build({ bays: [{ surface: 'b1', at: 0.2, class: 'mini' }] })
     expect(at.a.bays[0].s).toBeCloseTo(at.a.sampler.ends[0].inner.s + 0.2, 9)
-    expect(at.a.bays[0].servo).toBe(SERVOS.mini)
+    expect(at.a.bays[0].servo).toMatchObject({ ...SERVOS.mini, mounting: 'upright' })
   })
 
   it('puts the bay on the other side when the inboard one would run off the panel', () => {
@@ -365,8 +365,8 @@ describe('clashes with control surfaces and servo bays', () => {
   })
 
   it('warns when a brake sits where another bay or the leads from an outer bay would pass', () => {
-    // The aileron's bay (centred on the surface) is under a brake dropped on top of it
-    const onBay = build({ surfaces: [aileron], brakes: [{ ...blade, at: 0.675, x: 0.4 }], bays: noBays([blade]) })
+    // The aileron's bay (a third of the way along it) is under a brake dropped on top of it
+    const onBay = build({ surfaces: [aileron], brakes: [{ ...blade, at: 0.5 + 0.35 / 3, x: 0.4 }], bays: noBays([blade]) })
     expect(messages(onBay).some((m) => /AB1 is in the way of Servo bay SB1/.test(m))).toBe(true)
     // An inboard brake right behind the spar blocks the strip the leads of the outer bay take
     const leads = build({ surfaces: [aileron], brakes: [{ ...blade, at: 0.2, x: 0.34, chord: 0.03 }], bays: noBays([blade]) })
