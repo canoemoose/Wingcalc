@@ -88,6 +88,75 @@ export const SERVO_CLASSES = Object.keys(SERVOS)
 export const SERVO_CLEARANCE = 0.0015
 // The top of the case's clearance under the upper skin, m
 export const SERVO_HEADROOM = 0.002
+
+// ---------------------------------------------------------------------------------------------
+// Hitec catalogue. Figures are NOT yet checked against Hitec's datasheets: they were entered
+// from memory and need confirming before the entries are relied on. Each entry is a real
+// servo; the generic classes above remain the fallback. Units are converted here: mm to m,
+// g to kg, kg·cm to N·m.
+//
+//   id, model, maker   the picker's id ('hitec-' + the model), the model name, 'Hitec'
+//   class              the generic class it's sized as, for plate and lead hole
+//   body               [length, width, height] of the case, m: length along the chord,
+//                      width across the span, height from base to top (the order printed
+//                      on Hitec's pages, assumed; check against a drawing)
+//   lugSpan            the mounting lugs' overall length, m. Hitec publishes no tab span, so
+//                      this is the body length plus 2 x 4 mm (sub-micro and micro), 5 mm (mini)
+//                      or 7 mm (standard); lugEstimated says so
+//   mass               with its lead, kg
+//   torque             stall torque at about 4.8 to 6 V, N·m
+//   thin               a thin wing servo, the kind that lies flat in a thin wing
+//   plate, leadHole    from the generic class above
+//
+// Dropped: HS-422 and HS-625MG, both discontinued.
+const KG_CM = 0.0980665
+const fromClass = (cls) => ({ plate: SERVOS[cls].plate, leadHole: SERVOS[cls].leadHole })
+
+export const HITEC = [
+  { id: 'hitec-hs-65mg', model: 'HS-65MG', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.024], lugSpan: 0.0316, lugEstimated: true, mass: 0.0119, torque: 2.2 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-5070mh', model: 'HS-5070MH', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.03], lugSpan: 0.0316, lugEstimated: true, mass: 0.0127, torque: 3.1 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-5085mg', model: 'HS-5085MG', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.0294], lugSpan: 0.037, lugEstimated: true, mass: 0.0219, torque: 4.3 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-85mg', model: 'HS-85MG', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.03], lugSpan: 0.037, lugEstimated: true, mass: 0.0219, torque: 3.5 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-d89mw', model: 'D89MW', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.03], lugSpan: 0.037, lugEstimated: true, mass: 0.025, torque: 8.5 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-81', model: 'HS-81', maker: 'Hitec', class: 'micro', body: [0.0298, 0.012, 0.0296], lugSpan: 0.0378, lugEstimated: true, mass: 0.0166, torque: 3.0 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-5125mg', model: 'HS-5125MG', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.034], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 3.5 * KG_CM, thin: true, ...fromClass('mini') },
+  { id: 'hitec-hs-125mg', model: 'HS-125MG', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.034], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 3.5 * KG_CM, thin: true, ...fromClass('mini') },
+  { id: 'hitec-d131mw', model: 'D131MW', maker: 'Hitec', class: 'micro', body: [0.022, 0.0085, 0.015], lugSpan: 0.03, lugEstimated: true, mass: 0.0098, torque: 2.9 * KG_CM, thin: true, ...fromClass('micro') },
+  { id: 'hitec-d141sw', model: 'D141SW', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.0295], lugSpan: 0.04, lugEstimated: true, mass: 0.026, torque: 7.0 * KG_CM, thin: true, ...fromClass('mini') },
+  { id: 'hitec-d145sw', model: 'D145SW', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.037], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 6.0 * KG_CM, thin: true, ...fromClass('mini') },
+  { id: 'hitec-hs-7115th', model: 'HS-7115TH', maker: 'Hitec', class: 'mini', body: [0.026, 0.008, 0.038], lugSpan: 0.036, lugEstimated: true, mass: 0.02, torque: 3.9 * KG_CM, thin: true, ...fromClass('mini') },
+  { id: 'hitec-hs-225mg', model: 'HS-225MG', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.031], lugSpan: 0.0424, lugEstimated: true, mass: 0.031, torque: 4.8 * KG_CM, thin: false, ...fromClass('mini') },
+  { id: 'hitec-hs-5245mg', model: 'HS-5245MG', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.0308], lugSpan: 0.0424, lugEstimated: true, mass: 0.032, torque: 5.5 * KG_CM, thin: false, ...fromClass('mini') },
+]
+
+// The mounting a servo goes in, and the envelope it takes up in the wing: chord (along the
+// chord), span (across the span) and depth (from the skin inward). Upright stands the case on
+// its base; side lies it on its side; flat lays a thin wing servo in the wing's plane, its long
+// side across the span. Flat is only for thin wing servos, so it gives null for others.
+export const MOUNTINGS = { upright: 'Upright', side: 'On its side', flat: 'Flat (wing servo)' }
+
+export function servoEnvelope(servo, mounting = 'upright') {
+  const { length: l, width: w, height: h } = servo
+  if (mounting === 'side') return { chord: l, span: h, depth: w }
+  if (mounting === 'flat') return servo.thin ? { chord: h, span: l, depth: w } : null
+  return { chord: l, span: w, depth: h }
+}
+
+// A Hitec entry by its id, or a generic class by its key (as { id, ...class }), or null
+export function servoById(id) {
+  const h = HITEC.find((s) => s.id === id)
+  if (h) return h
+  if (SERVOS[id]) return { id, ...SERVOS[id] }
+  return null
+}
+
+// The picker's choices: the generic classes, then the Hitec servos
+export function servoOptions() {
+  return [
+    ...SERVO_CLASSES.map((cls) => ({ value: cls, label: `${SERVOS[cls].label} (${SERVOS[cls].size})`, group: 'Generic' })),
+    ...HITEC.map((s) => ({ value: s.id, label: s.model, group: 'Hitec' })),
+  ]
+}
 // Gap kept between ribs and plate rim, hatch margin and the like, m
 export const BAY_MARGIN = 0.003
 
