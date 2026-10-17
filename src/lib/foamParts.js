@@ -347,6 +347,7 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
         material: sp.webMaterial,
         thickness: sp.webThickness,
         qty: sides,
+        grainAngle: Math.PI / 2,
         outline: [
           [0, 0],
           [L, 0],

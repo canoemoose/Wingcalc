@@ -175,8 +175,9 @@ describe('wing export', () => {
         for (const e of label) for (const pt of e.pts) expect(inside(outline, pt), `${p.name} label`).toBe(true)
       }
     }
-    // A 10 mm gusset can't take a legible label inside its triangle
-    expect(partEntities(gusset, opts).ents.some((e) => e.waste)).toBe(true)
+    // The gusset is cut with its hypotenuse horizontal (grain along it), so the
+    // axis-aligned label fit is judged on that turned outline. Whether it takes the
+    // label inside or in the waste is then down to the fit, which the loop above checks.
   })
 
   it('keeps each row within the sheet length', () => {

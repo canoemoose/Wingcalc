@@ -170,6 +170,12 @@ export function addDogbones(pts, r, wasteInside = false) {
 
 const toMm = (pts) => pts.map(([x, y]) => [x * MM, y * MM])
 const rotate90 = (pts) => pts.map(([x, y]) => [-y, x])
+// Turn points about the origin by phi (radians, anticlockwise)
+const rotateBy = (pts, phi) => {
+  const c = Math.cos(phi)
+  const s = Math.sin(phi)
+  return pts.map(([x, y]) => [x * c - y * s, x * s + y * c])
+}
 
 function insidePoly(poly, [x, y]) {
   let c = false
@@ -218,17 +224,20 @@ export const WASTE_LABEL = 2.5 // mm cap height
 const WASTE_GAP = 1 // mm between the part and its label
 
 // One part as entities in its own millimetre coordinates (bounding box at the origin), with
-// the machine compensation applied. Webs are turned so their grain runs along the sheet.
+// the machine compensation applied. A part with a grainAngle (radians, a direction in its own
+// coordinates) is turned so that direction runs along the sheet (x). Parts without one are not
+// turned, except webs, which keep their old quarter turn.
 export function partEntities(part, opts) {
   const ents = []
   const notes = []
   let outline = toMm(part.outline)
   let holes = part.holes.map(toMm)
   let etch = part.etch.map(toMm)
-  if (part.group === 'webs') {
-    outline = rotate90(outline)
-    holes = holes.map(rotate90)
-    etch = etch.map(rotate90)
+  const turn = part.grainAngle != null ? (pts) => rotateBy(pts, -part.grainAngle) : part.group === 'webs' ? rotate90 : null
+  if (turn) {
+    outline = turn(outline)
+    holes = holes.map(turn)
+    etch = etch.map(turn)
   }
   // Ribs come with their label placed; anything else gets one if it fits, else in the waste
   let label = null

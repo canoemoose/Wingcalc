@@ -282,7 +282,7 @@ function downloadCutList() {
           </label>
           <p class="wc-field__hint">
             Parts are laid in rows grouped by stock, with the grain left to right along the sheet (shear webs are turned so
-            theirs runs up the web).
+            their grain runs up the web, and corner gussets so theirs runs along the hypotenuse).
           </p>
         </InspectorSection>
       </div>

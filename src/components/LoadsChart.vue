@@ -51,8 +51,18 @@ const chart = computed(() => {
     .filter(Boolean)
   const worst = msPts.reduce((w, p) => (!w || p.m < w.m ? p : w), null)
   const lengthUnit = defaultUnit(props.system, 'length')
+  // Dihedral braces: one marker per break that can be made, clamped to the chart and flagged when off scale
+  const rootS = props.analysis.rootS
+  const braces = (props.analysis.braces ?? [])
+    .filter((b) => b.ok && Number.isFinite(b.margin))
+    .map((b) => {
+      const off = b.margin > MS_MAX ? 'above' : b.margin < MS_MIN ? 'below' : null
+      return { name: b.name, x: x(b.s - rootS), y: yS(b.margin), margin: b.margin, off }
+    })
   return {
     x,
+    braces,
+    breakX: (props.analysis.braces ?? []).filter((b) => b.ok).map((b) => x(b.s - rootS)),
     moment: st.map((r) => `${x(r.d).toFixed(1)},${yM(r.M).toFixed(1)}`).join(' '),
     momentNeg: st.some((r) => r.Mneg > 0) ? st.map((r) => `${x(r.d).toFixed(1)},${yM(r.Mneg).toFixed(1)}`).join(' ') : null,
     mMax,
@@ -75,6 +85,7 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
       <line :x1="M.l" :x2="W - M.r" :y1="H - M.b" :y2="H - M.b" class="wc-svg-axis" />
       <polyline v-if="chart.momentNeg" :points="chart.momentNeg" class="wc-svg-curve wc-svg-curve--indicative" />
       <polyline :points="chart.moment" class="wc-svg-curve" />
+      <line v-for="(x, i) in chart.breakX" :key="'b' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__break" />
       <text :x="M.l - 4" :y="M.t + 4" text-anchor="end" class="wc-svg-tick">{{ chart.mMax.toFixed(1) }}</text>
       <text :x="M.l - 4" :y="H - M.b" text-anchor="end" class="wc-svg-tick">0</text>
       <text :x="M.l + 4" :y="M.t + 4" class="wc-svg-tick">Bending moment, N·m</text>
@@ -94,6 +105,11 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
         <title>{{ m.label }}: lowest {{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</title>
       </polyline>
       <circle v-if="chart.worst" :cx="chart.x(chart.worst.d)" :cy="chart.yS(chart.worst.m)" r="3.5" class="wc-svg-peak" />
+      <g v-for="b in chart.braces" :key="'brace' + b.name">
+        <title>{{ b.name }}: margin {{ b.margin >= 0 ? '+' : '' }}{{ b.margin.toFixed(2) }}{{ b.off ? ` (off scale, ${b.off} the chart)` : '' }}</title>
+        <circle :cx="b.x" :cy="b.y" r="3" class="wc-loads__brace" />
+        <text :x="b.x" :y="b.y - 6" text-anchor="middle" class="wc-svg-tick">{{ b.name }}{{ b.off === 'above' ? ' ▲' : b.off === 'below' ? ' ▼' : '' }}</text>
+      </g>
       <text :x="M.l - 4" :y="chart.yS(MS_MAX) + 4" text-anchor="end" class="wc-svg-tick">+{{ MS_MAX }}</text>
       <text :x="M.l - 4" :y="chart.zero + 3" text-anchor="end" class="wc-svg-tick">0</text>
       <text :x="M.l - 4" :y="chart.yS(MS_MIN)" text-anchor="end" class="wc-svg-tick">{{ MS_MIN }}</text>
@@ -103,6 +119,10 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
       <li v-for="m in chart.modes" :key="m.key" :class="{ 'wc-loads__legend--worst': m.key === chart.worst?.mode }">
         <span :class="['wc-loads__swatch', `wc-loads__mode--${m.slot}`]" aria-hidden="true"></span>
         {{ m.label }} <span class="wc-muted">{{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</span>
+      </li>
+      <li v-if="chart.braces.length || chart.breakX.length">
+        <span class="wc-loads__swatch wc-loads__swatch--brace" aria-hidden="true"></span>
+        Dihedral brace <span class="wc-muted">B1 to B{{ chart.braces.length || chart.breakX.length }}</span>
       </li>
     </ul>
     <figcaption class="wc-figure__caption">
@@ -114,6 +134,10 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
         Lowest margin {{ chart.worst.m >= 0 ? '+' : '' }}{{ chart.worst.m.toFixed(2) }} ({{ (analysis.modeLabels ?? MODES)[chart.worst.mode] ?? chart.worst.mode }}),
         {{ format(chart.worst.d, 'length', defaultUnit(system, 'length')) }} from the root rib (the dot; its line is drawn
         heavier). Margins above +3 are drawn at +3.
+      </span>
+      <span v-if="chart.breakX.length">
+        Dashed verticals on the moment chart are the dihedral breaks. Brace markers (B1, B2...) sit at their margin; a
+        triangle means the margin is off scale (drawn at the edge of the chart).
       </span>
     </figcaption>
   </figure>

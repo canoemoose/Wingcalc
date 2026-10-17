@@ -285,9 +285,8 @@ const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props
 const braceHint = computed(() => {
   const n = props.braceNeeds.filter(Number.isFinite)
   if (!n.length) return 'No dihedral breaks to brace.'
-  return `Leave blank for the next standard ply thickness above what the bending needs (${n
-    .map((v) => `${(v * 1000).toFixed(1)} mm`)
-    .join(', ')}).`
+  const needs = n.map((v, i) => `B${i + 1} needs at least ${(v * 1000).toFixed(1)} mm at the material strength with the safety factor`)
+  return `Thickness needed: ${needs.join('; ')}. Leave blank to use the next standard ply above that.`
 })
 </script>
 

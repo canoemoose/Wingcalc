@@ -33,6 +33,7 @@ import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
 import { placeBays, servoMasses, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
+import { braceSizing } from './ribs.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -1364,6 +1365,17 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     if (!b.ok && b.problem !== 'surface') warnings.push({ id: `bay-${b.id}`, message: bayProblem(b) })
     for (const [k, m] of (b.warnings ?? []).entries()) warnings.push({ id: `bay-${b.id}-${k}`, message: m })
   }
+  // Dihedral braces: one warning per brace that is too thin for its bending, or cannot be made
+  const braces = braceSizing({ sampler, rootS: s0, tipS: sTip, section, sparX, pos, safetyFactor: sf }, structure)
+  for (const b of braces) {
+    const from = Math.round((b.s - s0) * 1000)
+    if (!b.ok) warnings.push({ id: `brace-${b.name}`, message: `Dihedral brace ${b.name} (at ${from} mm from the root) isn't built: ${b.reason}.` })
+    else if (b.margin < 0) {
+      const need = (Math.ceil(b.needT * 10000) / 10).toFixed(1)
+      const have = (b.chosenT * 1000).toFixed(1)
+      warnings.push({ id: `brace-${b.name}`, message: `Dihedral brace ${b.name} (at ${from} mm from the root) is ${have} mm ply but the bending there needs at least ${need} mm. Use thicker ply, or leave the thickness blank for the next standard size.` })
+    }
+  }
   // Each fit drawn where it's worst, for the editor (edge stock, rods and dowels)
   for (const k of ['le', 'te']) {
     const e = edges[k]
@@ -1405,6 +1417,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     rootShear: loadAt(pos.rows, s0, 'V'),
     safetyFactor: sf,
     summary,
+    braces,
     warnings,
   }
 }

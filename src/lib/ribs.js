@@ -619,6 +619,81 @@ function dihedralAt(a) {
   return out
 }
 
+// Dihedral braces: one per dihedral break (sized here, drawn by buildParts). Two plates, one each
+// side of the spar, share the bending moment at the break: t = 6 M SF / (2 σ h²), h being the depth
+// between the spar caps (or skins) there. Each entry gives the break, the moment, the brace height,
+// the thickness needed, the thickness chosen (entered, else the next standard ply) and the margin
+// (chosen / needed - 1). A brace that can't be made (no depth at the break) has ok false and a reason.
+// The centreline break has one plate each side; a polyhedral break has two. Pure: no Vue imports.
+export function braceSizing(a, structure, { both = true } = {}) {
+  const br = structure.braces
+  if (!br?.enabled || structure.spar.type === 'tube') return []
+  const r = structure.ribs
+  const m = material(br.material)
+  const sigma = Math.min(m.compression, m.tension)
+  const skin = skinAtSpar(structure)
+  const out = []
+  let k = 1
+  for (const brk of dihedralAt(a)) {
+    const delta = brk.outer - brk.inner
+    if (Math.abs(delta) < 0.05) continue
+    // A two-piece wing's root is a joiner, not a brace
+    if (r.rootJoint === 'two-piece' && brk.s <= a.rootS + 1e-6) continue
+    const at = (s) => {
+      const sec = a.section(Math.min(a.tipS, Math.max(a.rootS, s)))
+      if (!sec) return 0
+      const q = Math.min(0.95, Math.max(0.02, (a.sparX(s) - sec.xl) / sec.c))
+      return Math.max(0, sec.depth(q) - 2 * skin)
+    }
+    const Lb = br.length || 0.08
+    const centre = brk.s < 1e-6 && r.rootJoint !== 'two-piece'
+    // Each arm stops where the wing does: inboard at the centreline (or a two-piece root),
+    // outboard at the tip rib. A centre brace's inboard arm is the other half's outboard one.
+    const Lout = Math.max(0, Math.min(Lb, a.tipS - brk.s))
+    const Lin = centre ? Lout : Math.max(0, Math.min(Lb, brk.s - a.rootS))
+    const h0 = at(brk.s)
+    const hi = at(centre ? brk.s + Lin : brk.s - Lin)
+    const ho = at(brk.s + Lout)
+    const d = delta * RAD
+    const rot = ([x, y]) => [x * Math.cos(d) - y * Math.sin(d), x * Math.sin(d) + y * Math.cos(d)]
+    const kTop = (h0 / 2) / Math.cos(d / 2)
+    const raw = [
+      [-Lin, -hi / 2],
+      [-Lin, hi / 2],
+      [-kTop * Math.sin(d / 2), kTop * Math.cos(d / 2)],
+      rot([Lout, ho / 2]),
+      rot([Lout, -ho / 2]),
+      [kTop * Math.sin(d / 2), -kTop * Math.cos(d / 2)],
+    ]
+    // The engraved line marks the break, where it meets the break rib
+    const fold = [raw[5], raw[2]]
+    const M = interpRows(a.pos.rows, brk.s)
+    const ok = h0 >= MIN_BRACE_DEPTH
+    const entered = Number.isFinite(br.thickness) && br.thickness > 0 ? br.thickness : null
+    const needT = ok ? (6 * M * a.safetyFactor) / (2 * sigma * h0 * h0) : null
+    const chosenT = entered ?? (ok ? PLY.find((x) => x >= needT) ?? PLY.at(-1) : null)
+    const margin = ok && chosenT ? chosenT / needT - 1 : null
+    out.push({
+      name: `B${k}`,
+      s: brk.s,
+      dihedralDeg: delta / 1,
+      moment: M,
+      height: h0,
+      needT,
+      chosenT,
+      entered: entered !== null,
+      material: br.material,
+      margin,
+      qty: 2 * (centre || !both ? 1 : 2),
+      ok,
+      reason: ok ? null : `the spar has only ${Math.round(h0 * 1000)} mm of depth at the break`,
+      geom: { raw, fold, Lin, Lout, centre, hi, ho, h0 },
+    })
+    k++
+  }
+  return out
+}
+
 // Everything to cut for the wing, plus a cut list for strip stock and an estimate of the
 // structure's weight. handedness: 'right' | 'left' | 'pair'. A foam wing (foam.js) has no ribs;
 // its hot-wire templates, skins and pockets come from foamParts.js, wireKerf and leadIn
@@ -921,6 +996,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         material: g.material,
         thickness: g.thickness,
         qty: grp.count,
+        // Grain runs along the hypotenuse (the edge opposite the rib-edge corner)
+        grainAngle: Math.atan2(g.size * Math.sin(th), g.size * (Math.cos(th) - 1)),
         outline: normalise(outline),
         holes: [],
         etch: [],
@@ -935,77 +1012,40 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     }
   }
 
-  // Dihedral braces at breaks, on the spar's front and back faces
-  const br = structure.braces
-  if (br.enabled && structure.spar.type !== 'tube') {
-    let k = 1
-    for (const brk of breaks) {
-      const delta = brk.outer - brk.inner
-      if (Math.abs(delta) < 0.05) continue
-      // A two-piece wing's root is a joiner, not a brace
-      if (r.rootJoint === 'two-piece' && brk.s <= a.rootS + 1e-6) continue
-      const at = (s) => {
-        const sec = a.section(Math.min(a.tipS, Math.max(a.rootS, s)))
-        if (!sec) return 0
-        const q = Math.min(0.95, Math.max(0.02, (a.sparX(s) - sec.xl) / sec.c))
-        const skin = skinAtSpar(structure)
-        return Math.max(0, sec.depth(q) - 2 * skin)
-      }
-      const Lb = br.length || 0.08
-      const centre = brk.s < 1e-6 && r.rootJoint !== 'two-piece'
-      // Each arm stops where the wing does: inboard at the centreline (or a two-piece root),
-      // outboard at the tip rib. A centre brace's inboard arm is the other half's outboard one.
-      const Lout = Math.max(0, Math.min(Lb, a.tipS - brk.s))
-      const Lin = centre ? Lout : Math.max(0, Math.min(Lb, brk.s - a.rootS))
-      const h0 = at(brk.s)
-      const hi = at(centre ? brk.s + Lin : brk.s - Lin)
-      const ho = at(brk.s + Lout)
-      const d = delta * RAD
-      const rot = ([x, y]) => [x * Math.cos(d) - y * Math.sin(d), x * Math.sin(d) + y * Math.cos(d)]
-      const kTop = (h0 / 2) / Math.cos(d / 2)
-      const raw = [
-        [-Lin, -hi / 2],
-        [-Lin, hi / 2],
-        [-kTop * Math.sin(d / 2), kTop * Math.cos(d / 2)],
-        rot([Lout, ho / 2]),
-        rot([Lout, -ho / 2]),
-        [kTop * Math.sin(d / 2), -kTop * Math.cos(d / 2)],
-      ]
-      // A flat plate (the spar's face is one plane across the break), shaped to the dihedral;
-      // the engraved line marks the break, where it meets the break rib
-      const fold = [raw[5], raw[2]]
-      const bb = bounds(raw)
-      const shift = ([x, y]) => [x - bb.x0, y - bb.y0]
-      // Two plates carry the moment at the break: t = 6 M SF / (2 σ h²)
-      const M = interpRows(a.pos.rows, brk.s)
-      const m = material(br.material)
-      const need = (6 * M * a.safetyFactor) / (2 * Math.min(m.compression, m.tension) * Math.max(1e-4, h0) ** 2)
-      const t = Number.isFinite(br.thickness) && br.thickness > 0 ? br.thickness : (PLY.find((x) => x >= need) ?? PLY.at(-1))
-      parts.push({
-        id: `B${k}`,
-        name: `B${k}`,
-        group: 'braces',
-        material: br.material,
-        thickness: t,
-        qty: 2 * (centre || !both ? 1 : 2),
-        outline: raw.map(shift),
-        holes: [],
-        etch: [fold.map(shift)],
-        label: null,
-        notes: [
-          `Dihedral brace, ${Math.abs(delta).toFixed(1)}° at ${Math.round((brk.s - a.rootS) * 1000)} mm from the root rib; one each side of the spar`,
-          `Needs at least ${(need * 1000).toFixed(1)} mm ${m.label.toLowerCase()} for the bending there`,
-        ],
-        need,
-        // Where it goes, for the 3D view: the break, its reach each side, and the plate's depth
-        // at its inner end, the break and its outer end
-        at: { s: brk.s, inner: Lin, outer: Lout, depths: [hi, h0, ho], centre }
-      })
-      k++
-    }
+  // Dihedral braces at breaks, on the spar's front and back faces (sized in braceSizing)
+  for (const b of braceSizing(a, structure, { both })) {
+    if (!b.ok) continue
+    const { raw, fold, Lin, Lout, centre, hi, ho, h0 } = b.geom
+    const bb = bounds(raw)
+    const shift = ([x, y]) => [x - bb.x0, y - bb.y0]
+    const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+    parts.push({
+      id: b.name,
+      name: b.name,
+      group: 'braces',
+      material: b.material,
+      thickness: b.chosenT,
+      qty: b.qty,
+      outline: raw.map(shift),
+      holes: [],
+      etch: [fold.map(shift)],
+      label: null,
+      notes: [
+        `${b.name}, one each side of the spar, ${Math.round((b.s - a.rootS) * 1000)} mm from the root rib`,
+        `Dihedral angle at the break: ${Math.abs(b.dihedralDeg).toFixed(1)}°`,
+        `Bending moment at the break: ${b.moment.toFixed(1)} N·m`,
+        `Brace height between the spar caps: ${mm(h0)}`,
+        `Thickness needed in ${material(b.material).label.toLowerCase()} at safety factor ${a.safetyFactor}: ${mm(b.needT)}`,
+        `Thickness chosen: ${mm(b.chosenT)}${b.entered ? ' (entered)' : ' (next standard ply)'}`,
+      ],
+      need: b.needT,
+      // Where it goes, for the 3D view: the break, its reach each side, and the plate's depth
+      // at its inner end, the break and its outer end
+      at: { s: b.s, inner: Lin, outer: Lout, depths: [hi, h0, ho], centre },
+    })
   }
 
-  // Shear webs, one piece per bay (two for a box spar), vertical grain
+  // Shear webs, one piece per bay (two for a box spar), vertical grain (part y is the height)
   const sp = structure.spar
   if (sp.type === 'caps' || sp.type === 'box') {
     const ribList = parts.filter((p) => p.group === 'ribs')
@@ -1025,6 +1065,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         material: sp.webMaterial,
         thickness: sp.webThickness,
         qty: (sp.type === 'box' ? 2 : 1) * (both ? 2 : 1),
+        grainAngle: Math.PI / 2,
         outline: [
           [0, 0],
           [len, 0],
