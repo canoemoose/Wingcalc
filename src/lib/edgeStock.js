@@ -77,8 +77,12 @@ export const TE_STOCK = [
   ['L471', 9.5, 50, '3/8" × 2"'],
   ['L472', 12.5, 50, '1/2" × 2"'],
 ].map(([code, t, w, inch]) => ({ id: code, code, kind: 'triangular', width: mm(w), height: mm(t), inch }))
+  // Square strip (the square sizes of the strip range above): a bolster with wood right through,
+  // for hinge slots and strength, carved to the section like the rest. Offered by hand, never
+  // picked by Auto.
+  .concat(STRIPS.filter(([, d, h]) => d === h).map(([code, d, , di]) => ({ id: `${code}-te`, code, kind: 'square', width: mm(d), height: mm(d), inch: `${di} × ${di}` })))
 
-export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular' }
+export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular', square: 'square' }
 
 // What the leading edge is made of: balsa stock (the catalogue above, or a custom size),
 // round stock (carbon rod or hardwood dowel, by diameter) or nothing, the sheeting itself
@@ -343,7 +347,8 @@ export function resolveEdges(structure, section, stations) {
       out.le = { width: D / 2, height: D, item: null, auto: null, autoFits: false, shortfall: f.shortfall, worstS: f.worstS, fits: f.fits, round: { type: e.type, diameter: D, material: t.material }, roundFits }
       continue
     }
-    const auto = pick(list, section, stations, k, min)
+    // Auto picks from the shaped stock; square trailing-edge strip is a deliberate choice
+    const auto = pick(list.filter((x) => x.kind !== 'square'), section, stations, k, min)
     const id = k === 'le' ? migrateLeStockId(e.stock) : e.stock
     const custom = id === 'custom' && k === 'le' ? customLe(e) : null
     const item = id === 'auto' ? auto : id === 'custom' ? custom : (list.find((x) => x.id === id) ?? auto)
@@ -373,7 +378,7 @@ export function applyEdges(structure, edges) {
   return {
     ...structure,
     le: { ...structure.le, width: edges.le.width, height: edges.le.height, ...(edges.le.round ? { diameter: edges.le.round.diameter } : {}) },
-    te: { ...structure.te, width: edges.te.width, height: edges.te.height, type: edges.te.item ? 'triangular' : structure.te.type },
+    te: { ...structure.te, width: edges.te.width, height: edges.te.height, type: edges.te.item ? edges.te.item.kind : structure.te.type },
   }
 }
 

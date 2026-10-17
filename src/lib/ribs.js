@@ -1360,7 +1360,7 @@ function stripCutList(a, structure, parts, both) {
     const teQ = (s) => a.section(s).c - structure.te.width
     const teH = Math.max(faceHeight(p.from, teQ(p.from)), faceHeight(p.to, teQ(p.to)))
     out.push({
-      item: `Trailing edge (${edges?.te.item ? `${edges.te.item.code} triangular` : structure.te.type}), ${p.name}`,
+      item: `Trailing edge (${edges?.te.item ? `${edges.te.item.code} ${KIND_LABELS[edges.te.item.kind]}` : structure.te.type}), ${p.name}`,
       edge: 'te',
       material: structure.te.material,
       size: [structure.te.width, edges?.te.item ? edges.te.item.height : Math.ceil(teH * 1000) / 1000],

@@ -238,7 +238,11 @@ const LE_ITEMS = computed(() => ({ auto: props.edges?.le.auto ?? null, ...Object
 const TE_ITEMS = computed(() => ({ auto: props.edges?.te.auto ?? null, ...Object.fromEntries(TE_STOCK.map((it) => [it.id, it])), custom: null }))
 const TE_OPTIONS = computed(() => [
   { value: 'auto', label: props.edges ? `Auto (${stockName(props.edges.te.auto)})` : 'Auto', title: 'The stock that carves to the section with the least wood removed, at least 5% of the root chord deep' },
-  ...TE_STOCK.map((it) => ({ value: it.id, label: stockName(it), group: 'Triangular (thickness × width)' })),
+  ...TE_STOCK.map((it) => ({
+    value: it.id,
+    label: stockName(it),
+    group: it.kind === 'square' ? 'Square, a bolster for hinge slots' : 'Triangular (thickness × width)',
+  })),
   { value: 'custom', label: 'Custom' },
 ])
 // Going to Custom starts from the width in use, so nothing moves until it's edited

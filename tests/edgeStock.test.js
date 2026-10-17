@@ -303,3 +303,16 @@ describe('round and no leading edge', () => {
     expect(m.input.structure.le.stock).toBe('L340')
   })
 })
+
+describe('square trailing-edge stock', () => {
+  it('is offered by hand as a bolster, and Auto never picks it', () => {
+    const sq = TE_STOCK.filter((x) => x.kind === 'square')
+    expect(sq.length).toBeGreaterThan(3)
+    for (const x of sq) expect(x.width).toBe(x.height)
+    const { a } = build()
+    expect(a.edges.te.auto.kind).toBe('triangular')
+    const chosen = build((st) => (st.te.stock = sq.find((x) => x.width > 0.009).id)).a
+    expect(chosen.structure.te.type).toBe('square')
+    expect(chosen.edges.te.item.kind).toBe('square')
+  })
+})

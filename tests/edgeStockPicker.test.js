@@ -7,7 +7,7 @@ import EdgeStockPicker from '../src/components/EdgeStockPicker.vue'
 describe('edge stock thumbnails', () => {
   it('outlines each kind of stock at its own depth and height', () => {
     const kinds = new Map([...LE_STOCK, ...TE_STOCK].map((it) => [it.kind, it]))
-    expect([...kinds.keys()].sort()).toEqual(['strip', 'symmetrical', 'triangular'])
+    expect([...kinds.keys()].sort()).toEqual(['square', 'strip', 'symmetrical', 'triangular'])
     for (const it of kinds.values()) {
       const o = profileOutline(it)
       const us = o.map(([u]) => u), zs = o.map(([, z]) => z)
