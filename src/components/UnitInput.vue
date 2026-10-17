@@ -38,15 +38,36 @@ watch(
 
 const parse = (t) => evaluate(t, { quantity: props.quantity, unit: unit.value })
 
-// An empty box clears the value; an unfinished sum ("250 -") keeps the last good one.
+// Typing only updates the text. The value is committed on Enter or when leaving the box,
+// so the parent never reformats mid-entry.
 function onInput(e) {
   text.value = e.target.value
+}
+
+// An empty box clears the value; an unfinished sum ("250 -") keeps the last good one.
+function commit() {
   if (!text.value.trim()) {
+    text.value = ''
     emit('update:modelValue', null)
     return
   }
   const n = parse(text.value)
-  if (n !== null) emit('update:modelValue', toBase(n, props.quantity, unit.value))
+  if (n === null) {
+    tidy()
+    return
+  }
+  const base = toBase(n, props.quantity, unit.value)
+  // Format from the new value, not the prop: the prop only catches up on the next render.
+  text.value = inputValue(base, props.quantity, unit.value)
+  emit('update:modelValue', base)
+}
+
+// Escape drops the typed text and goes back to the last committed value without committing.
+let reverting = false
+function onEscape(e) {
+  reverting = true
+  tidy()
+  e.target.blur()
 }
 
 // What a typed sum works out to, shown under the box while typing.
@@ -63,7 +84,12 @@ function tidy() {
 
 function onBlur() {
   focused.value = false
-  tidy()
+  if (reverting) {
+    reverting = false
+    tidy()
+    return
+  }
+  commit()
 }
 </script>
 
@@ -82,7 +108,8 @@ function onBlur() {
         @input="onInput"
         @focus="focused = true"
         @blur="onBlur"
-        @keydown.enter="tidy"
+        @keydown.enter="commit"
+        @keydown.esc="onEscape"
       />
       <span class="wc-unit wc-unit--fixed">{{ UNITS[quantity][unit].label }}</span>
     </div>
