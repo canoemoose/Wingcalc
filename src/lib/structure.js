@@ -173,7 +173,7 @@ export function defaultStructure() {
     // type: 'balsa' (stock) | 'rod' (carbon) | 'dowel' (hardwood) | 'none' (the sheeting forms the nose)
     // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
     // diameter: a rod or dowel's, null for the type's default (edgeStock.js LE_TYPES)
-    le: { type: 'balsa', stock: 'auto', width: 0.006, material: 'balsa-hard', diameter: null },
+    le: { type: 'balsa', stock: 'auto', width: 0.006, height: null, material: 'balsa-hard', diameter: null }, // height: custom stock only (null: as deep)
     te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium' }, // 'triangular' | 'flat' (custom only)
     stringers: [], // { id, position (chord fraction), surface: 'upper' | 'lower' | 'both', width, height, material }
     ribs: {

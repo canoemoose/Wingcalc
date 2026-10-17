@@ -274,9 +274,9 @@ describe('app render', () => {
       if (html.includes('wc-edgefit')) fitDrawn++
       if (!a.edges.le.fits) misfits++
     }
-    // The fit is drawn for those that don't fit (a 3 mm custom leading edge doesn't)
+    // The fit is drawn for every edge with stock, fitting or not (a 3 mm custom leading edge doesn't fit)
     expect(misfits).toBeGreaterThan(0)
-    expect(fitDrawn).toBe(misfits)
+    expect(fitDrawn).toBe(5)
     expect(warn).not.toHaveBeenCalled()
   })
 

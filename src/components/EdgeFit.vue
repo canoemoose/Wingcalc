@@ -1,5 +1,5 @@
 <script setup>
-// How the leading or trailing edge stock fits the wing's section where the fit is worst, at
+// How the leading or trailing edge stock fits the wing's section where the fit is tightest, at
 // true proportions: the stock as sold (shaded) at its best height, the section over it, and
 // in red where they disagree (wood the stock hasn't got, or a rod standing proud).
 // drawing comes from analyseStructure().edges[k].drawing (edgeStock.js fitDrawing).
@@ -28,6 +28,7 @@ const view = computed(() => {
   return `${x0 - pad} ${z0 - pad} ${x1 - x0 + 2 * pad} ${z1 - z0 + 2 * pad}`
 })
 const section = computed(() => pts([...props.drawing.upper, ...[...props.drawing.lower].reverse()]))
+const spare = computed(() => format(Math.max(0, -props.drawing.shortfall), 'thin', defaultUnit(props.system, 'thin')))
 const short = computed(() => format(Math.max(0, props.drawing.shortfall), 'thin', defaultUnit(props.system, 'thin')))
 </script>
 
@@ -43,7 +44,10 @@ const short = computed(() => format(Math.max(0, props.drawing.shortfall), 'thin'
         <strong>{{ name }} {{ drawing.where }}</strong>, true to scale: the {{ round ? 'rod' : 'stock as sold' }} shaded, the
         section as a line.
       </span>
-      <span v-if="!drawing.fits" class="wc-text-bad">
+      <span v-if="drawing.fits">
+        {{ round ? 'It sits within the section everywhere.' : `It carves to the section, with about ${spare} to spare at the tightest point.` }}
+      </span>
+      <span v-else class="wc-text-bad">
         {{ round ? `Red is where it stands proud of the section, by up to ${short}.` : `Red is the section the stock can't reach: about ${short} short.` }}
       </span>
     </figcaption>

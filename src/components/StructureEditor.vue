@@ -212,12 +212,12 @@ const summaries = computed(() => {
 // Sizes as SLEC lists them: the square profiles by side, strip and triangular stock as
 // depth × height (strip) or thickness × width (triangular)
 const stockSize = (it) => {
-  if (it.kind === 'flat' || it.kind === 'symmetrical') return unit() === 'mm' ? `${num(it.width)} mm` : it.inch.split(' × ')[0]
+  if (it.kind === 'symmetrical') return unit() === 'mm' ? `${num(it.width)} mm` : it.inch.split(' × ')[0]
   if (unit() !== 'mm') return it.inch
   return it.kind === 'triangular' ? `${num(it.height)} × ${num(it.width)} mm` : `${num(it.width)} × ${num(it.height)} mm`
 }
 const stockName = (it) => `${it.code}, ${stockSize(it)}`
-const LE_GROUPS = { flat: 'Flat profile', symmetrical: 'Symmetrical profile', strip: 'Strip, on edge (depth × height)' }
+const LE_GROUPS = { symmetrical: 'Symmetrical profile', strip: 'Strip, on edge (depth × height)' }
 const LE_OPTIONS = computed(() => [
   { value: 'auto', label: props.edges ? `Auto (${stockName(props.edges.le.auto)} ${KIND_LABELS[props.edges.le.auto.kind]})` : 'Auto', title: 'The stock that carves to the section with the least wood removed' },
   ...LE_STOCK.map((it) => ({ value: it.id, label: stockName(it), group: LE_GROUPS[it.kind] })),
@@ -581,8 +581,18 @@ const braceHint = computed(() => {
           quantity="thin"
           :system="system"
           label="Leading edge stock, depth along the chord"
-:hint="`The ${foam ? 'core is' : 'ribs are'} cut back by this much; the stock is glued on and carved to shape.`"
+          :hint="`The ${foam ? 'core is' : 'ribs are'} cut back by this much; the stock is glued on and carved to shape.`"
           @update:model-value="set('le.width', $event)"
+        />
+        <UnitInput
+          v-if="st.le.stock === 'custom'"
+          :id="id('leh')"
+          :model-value="st.le.height ?? st.le.width"
+          quantity="thin"
+          :system="system"
+          label="Leading edge stock, height at the rib face"
+          hint="Checked as the symmetrical profile at this depth and height."
+          @update:model-value="set('le.height', $event)"
         />
         <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
       </template>
@@ -595,7 +605,7 @@ const braceHint = computed(() => {
         :hint="roundHint"
         @update:model-value="set('le.diameter', Number($event))"
       />
-      <EdgeFit v-if="edges?.le.drawing && !edges.le.fits" :drawing="edges.le.drawing" name="Leading edge" :round="!!edges.le.round" :system="system" />
+      <EdgeFit v-if="edges?.le.drawing" :drawing="edges.le.drawing" name="Leading edge" :round="!!edges.le.round" :system="system" />
       <p v-if="st.le.type === 'none'" class="wc-field__hint">
         The ribs run forward to the nose and the sheeting is bent round it, so there's no separate stock. Needs a D-box
         or fully sheeted wing.
@@ -628,7 +638,7 @@ const braceHint = computed(() => {
         />
       </template>
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />
-      <EdgeFit v-if="edges?.te.drawing && !edges.te.fits" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
+      <EdgeFit v-if="edges?.te.drawing" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
     <InspectorSection v-if="!foam" title="Stringers and turbulator spars" fold-key="structure:stringers" :summary="summaries.stringers">
