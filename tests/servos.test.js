@@ -40,7 +40,13 @@ describe('Hitec catalogue', () => {
   it('drops the discontinued models', () => {
     const models = HITEC.map((s) => s.model)
     expect(models).not.toContain('HS-422')
-    expect(models).not.toContain('HS-625MG')
+  })
+  it('lists the wing and sport servos Phoenix Model Products sells', () => {
+    const models = HITEC.map((s) => s.model)
+    for (const m of ['HS-55', 'HS-65HB', 'HS-5055MG', 'HS-5065MG', 'HS-85BB', 'HS-225BB', 'HS-77BB', 'HS-311', 'HS-322HD', 'HS-485HB', 'HS-5485HB', 'HS-625MG', 'HS-645MG', 'HS-5625MG', 'HS-5645MG']) expect(models).toContain(m)
+    // each once, with a sensible case and lugs wider than it
+    expect(new Set(models).size).toBe(models.length)
+    for (const s of HITEC) expect(s.lugSpan).toBeGreaterThan(s.body[0])
   })
 })
 

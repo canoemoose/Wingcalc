@@ -112,7 +112,9 @@ export const SERVO_HEADROOM = 0.002
 //   thin               a thin wing servo, the kind that lies flat in a thin wing
 //   plate, leadHole    from the generic class above
 //
-// Dropped: HS-422 and HS-625MG, both discontinued.
+// Dropped: HS-422, discontinued. HS-75BB is a retract servo, so it isn't listed; HS-50, HS-82MG
+// and HS-325HB had no published figures to hand. Body sizes and torques checked against
+// hitecrcd.com in October 2026 (torque the higher, 6 V, figure where both are given).
 const KG_CM = 0.0980665
 const fromClass = (cls) => ({ plate: SERVOS[cls].plate, leadHole: SERVOS[cls].leadHole })
 
@@ -125,12 +127,27 @@ export const HITEC = [
   { id: 'hitec-hs-81', model: 'HS-81', maker: 'Hitec', class: 'micro', body: [0.0298, 0.012, 0.0296], lugSpan: 0.0378, lugEstimated: true, mass: 0.0166, torque: 3.0 * KG_CM, thin: false, ...fromClass('micro') },
   { id: 'hitec-hs-5125mg', model: 'HS-5125MG', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.034], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 3.5 * KG_CM, thin: true, ...fromClass('mini') },
   { id: 'hitec-hs-125mg', model: 'HS-125MG', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.034], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 3.5 * KG_CM, thin: true, ...fromClass('mini') },
-  { id: 'hitec-d131mw', model: 'D131MW', maker: 'Hitec', class: 'micro', body: [0.022, 0.0085, 0.015], lugSpan: 0.03, lugEstimated: true, mass: 0.0098, torque: 2.9 * KG_CM, thin: true, ...fromClass('micro') },
+  { id: 'hitec-d131mw', model: 'D131MW', maker: 'Hitec', class: 'micro', body: [0.022, 0.0085, 0.0232], lugSpan: 0.03, lugEstimated: true, mass: 0.0098, torque: 2.9 * KG_CM, thin: true, ...fromClass('micro') },
   { id: 'hitec-d141sw', model: 'D141SW', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.0295], lugSpan: 0.04, lugEstimated: true, mass: 0.026, torque: 7.0 * KG_CM, thin: true, ...fromClass('mini') },
   { id: 'hitec-d145sw', model: 'D145SW', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.037], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 6.0 * KG_CM, thin: true, ...fromClass('mini') },
   { id: 'hitec-hs-7115th', model: 'HS-7115TH', maker: 'Hitec', class: 'mini', body: [0.026, 0.008, 0.038], lugSpan: 0.036, lugEstimated: true, mass: 0.02, torque: 3.9 * KG_CM, thin: true, ...fromClass('mini') },
   { id: 'hitec-hs-225mg', model: 'HS-225MG', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.031], lugSpan: 0.0424, lugEstimated: true, mass: 0.031, torque: 4.8 * KG_CM, thin: false, ...fromClass('mini') },
   { id: 'hitec-hs-5245mg', model: 'HS-5245MG', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.0308], lugSpan: 0.0424, lugEstimated: true, mass: 0.032, torque: 5.5 * KG_CM, thin: false, ...fromClass('mini') },
+  { id: 'hitec-hs-55', model: 'HS-55', maker: 'Hitec', class: 'micro', body: [0.0228, 0.0116, 0.024], lugSpan: 0.0308, lugEstimated: true, mass: 0.008, torque: 1.5 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-65hb', model: 'HS-65HB', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.024], lugSpan: 0.0316, lugEstimated: true, mass: 0.0112, torque: 1.9 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-5055mg', model: 'HS-5055MG', maker: 'Hitec', class: 'micro', body: [0.0228, 0.0116, 0.024], lugSpan: 0.0308, lugEstimated: true, mass: 0.0095, torque: 1.6 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-5065mg', model: 'HS-5065MG', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.03], lugSpan: 0.0316, lugEstimated: true, mass: 0.0119, torque: 2.2 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-85bb', model: 'HS-85BB', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.03], lugSpan: 0.037, lugEstimated: true, mass: 0.0192, torque: 3.5 * KG_CM, thin: false, ...fromClass('micro') },
+  { id: 'hitec-hs-225bb', model: 'HS-225BB', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.031], lugSpan: 0.0424, lugEstimated: true, mass: 0.027, torque: 4.8 * KG_CM, thin: false, ...fromClass('mini') },
+  { id: 'hitec-hs-77bb', model: 'HS-77BB', maker: 'Hitec', class: 'standard', body: [0.044, 0.023, 0.025], lugSpan: 0.058, lugEstimated: true, mass: 0.035, torque: 5.5 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-311', model: 'HS-311', maker: 'Hitec', class: 'standard', body: [0.04, 0.02, 0.0365], lugSpan: 0.054, lugEstimated: true, mass: 0.043, torque: 3.7 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-322hd', model: 'HS-322HD', maker: 'Hitec', class: 'standard', body: [0.04, 0.02, 0.0365], lugSpan: 0.054, lugEstimated: true, mass: 0.043, torque: 3.7 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-485hb', model: 'HS-485HB', maker: 'Hitec', class: 'standard', body: [0.0398, 0.0198, 0.038], lugSpan: 0.0538, lugEstimated: true, mass: 0.045, torque: 6.0 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-5485hb', model: 'HS-5485HB', maker: 'Hitec', class: 'standard', body: [0.0398, 0.0198, 0.038], lugSpan: 0.0538, lugEstimated: true, mass: 0.045, torque: 6.4 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-625mg', model: 'HS-625MG', maker: 'Hitec', class: 'standard', body: [0.0406, 0.0198, 0.0378], lugSpan: 0.0546, lugEstimated: true, mass: 0.0552, torque: 6.8 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-645mg', model: 'HS-645MG', maker: 'Hitec', class: 'standard', body: [0.0406, 0.0198, 0.0378], lugSpan: 0.0546, lugEstimated: true, mass: 0.0552, torque: 9.6 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-5625mg', model: 'HS-5625MG', maker: 'Hitec', class: 'standard', body: [0.0408, 0.02, 0.0378], lugSpan: 0.0548, lugEstimated: true, mass: 0.06, torque: 9.4 * KG_CM, thin: false, ...fromClass('standard') },
+  { id: 'hitec-hs-5645mg', model: 'HS-5645MG', maker: 'Hitec', class: 'standard', body: [0.04, 0.02, 0.0378], lugSpan: 0.054, lugEstimated: true, mass: 0.06, torque: 12.1 * KG_CM, thin: false, ...fromClass('standard') },
 ]
 
 // The mounting a servo goes in, and the envelope it takes up in the wing: chord (along the
