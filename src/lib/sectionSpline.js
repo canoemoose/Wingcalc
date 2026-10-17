@@ -206,6 +206,31 @@ export function sampleSection(pts) {
   return D
 }
 
+/* ------------------------------ self-intersection ------------------------------ */
+
+// Signed area of the triangle o, a, b (positive when b is to the left of o -> a)
+const orient = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+
+// True when the outline (upper and lower surfaces as one open polyline, TE to TE) crosses itself. Only proper
+// crossings count: contact at the LE (where the two surfaces meet) and at the closed trailing edge (where the first
+// and last samples coincide) touch without crossing, so they are not reported. Samples are the same few hundred
+// that the editor draws; the bounding-box test keeps the pair check cheap.
+export function selfIntersects(pts) {
+  if (!pts || pts.length < 4 || leIndex(pts) < 0) return false
+  const D = sampleSection(pts), m = D.length - 1
+  for (let i = 0; i < m; i++) {
+    const a = D[i], b = D[i + 1]
+    const ax0 = Math.min(a.x, b.x), ax1 = Math.max(a.x, b.x), ay0 = Math.min(a.y, b.y), ay1 = Math.max(a.y, b.y)
+    for (let j = i + 2; j < m; j++) {
+      const c = D[j], d = D[j + 1]
+      if (Math.max(c.x, d.x) < ax0 || Math.min(c.x, d.x) > ax1 || Math.max(c.y, d.y) < ay0 || Math.min(c.y, d.y) > ay1) continue
+      const d1 = orient(c, d, a), d2 = orient(c, d, b), d3 = orient(a, b, c), d4 = orient(a, b, d)
+      if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true
+    }
+  }
+  return false
+}
+
 // Nose radius measured on the outline: the circle through the LE and one point just behind it on each surface
 // (in chord lengths). Measured, not read back from the stored r, so it shows what the spline really does.
 export function noseRadiusOf(pts) {

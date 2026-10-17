@@ -11,6 +11,7 @@ import {
   syncTrailingEdge,
   sectionCoords,
   drawnFromParams,
+  selfIntersects,
 } from '../src/lib/sectionSpline.js'
 
 const SEED_CODES = ['2412', '0012', '4415']
@@ -216,5 +217,18 @@ describe('sharp trailing edge', () => {
     P[0] = { ...P[0], y: P[0].y + 0.005 }
     const c = sectionCoords(P)
     expect(c[0][1]).toBeCloseTo(c[c.length - 1][1], 9)
+  })
+})
+
+describe('selfIntersects', () => {
+  it('passes every seed section', () => {
+    for (const code of SEED_CODES) expect(selfIntersects(naca4Points(code))).toBe(false)
+  })
+  it('catches an upper point dragged through the lower surface', () => {
+    const pts = copy(naca4Points('2412'))
+    const l = leIndex(pts)
+    const i = Math.floor(l / 2) // an upper point mid-chord
+    pts[i].y = -0.2
+    expect(selfIntersects(pts)).toBe(true)
   })
 })

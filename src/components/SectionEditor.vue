@@ -10,7 +10,7 @@ import {
   sampleSection, analyseSection, leIndex, curvature, naca4Points, SEEDS, yAt,
   applyRadius, bendSegment, moveStraightSegment, clampOrder, NOSE_MIN, NOSE_MAX,
   fairShape, isFairable, normalise, setStraight, mirrorSurface, closeTrailingEdge, syncTrailingEdge,
-  otherTrailingEdge,
+  otherTrailingEdge, selfIntersects,
 } from '../lib/sectionSpline.js'
 
 const pts = defineModel('pts', { type: Array, required: true })
@@ -355,7 +355,7 @@ function onMove(e) {
     // Distance along the chord from the LE, halved: the handle sits at 2r
     const cf = g.cf
     const r = ((dx(p.x) - cf.le.x) * cf.ux + (dy(p.y) - cf.le.y) * cf.uy) / (2 * cf.L)
-    pts.value = applyRadius(g.base, Math.min(NOSE_MAX, Math.max(NOSE_MIN, r)))
+    accept(applyRadius(g.base, Math.min(NOSE_MAX, Math.max(NOSE_MIN, r))))
     return
   }
 
@@ -363,9 +363,9 @@ function onMove(e) {
     const v = { x: mx / S.value, y: -my / (S.value * ve.value) }
     if (g.straight) {
       if (shift && !g.axis && Math.hypot(mx, my) > 6) g.axis = segAxis(g.base, g.ui, mx, my)
-      pts.value = syncTrailingEdge(g.base, moveStraightSegment(g.base, g.ui, v, shift ? g.axis : null))
+      accept(syncTrailingEdge(g.base, moveStraightSegment(g.base, g.ui, v, shift ? g.axis : null)))
     } else {
-      pts.value = syncTrailingEdge(g.base, bendSegment(g.base, g.ui, g.u, v))
+      accept(syncTrailingEdge(g.base, bendSegment(g.base, g.ui, g.u, v)))
     }
     return
   }
@@ -382,7 +382,19 @@ function onMove(e) {
     next[j].x = g.origs[k].x + ddx
     next[j].y = g.origs[k].y + ddy
   })
-  pts.value = syncTrailingEdge(g.base, clampOrder(next, g.group))
+  accept(syncTrailingEdge(g.base, clampOrder(next, g.group)))
+}
+
+// Takes a new outline unless it would cross itself, which no aerofoil can. A drag that would
+// cross stops at the last outline that didn't; an outline already crossed (an old save) can
+// still be edited. Returns whether it took it.
+function accept(next) {
+  if (selfIntersects(next) && !selfIntersects(pts.value)) {
+    notice.value = 'The outline would cross itself'
+    return false
+  }
+  pts.value = next
+  return true
 }
 
 // A gesture that changes the outline (a point, a segment or the nose)
@@ -506,8 +518,7 @@ function nudge([ux, uy], step) {
     next[j].x += ux * s
     next[j].y += uy * s
   })
-  pts.value = syncTrailingEdge(g.P, clampOrder(next, idx))
-  nudged = true
+  if (accept(syncTrailingEdge(g.P, clampOrder(next, idx)))) nudged = true
 }
 
 // Removes the selected free points, keeping at least three on each surface (the LE is never removed)
@@ -533,7 +544,7 @@ function deleteSelected() {
     if (skipped) notice.value = 'Each surface keeps at least three points'
     return
   }
-  pts.value = P.filter((_, j) => !drop.has(j))
+  if (!accept(P.filter((_, j) => !drop.has(j)))) return
   setSelection([], [])
   notice.value = skipped ? 'Kept at least three points on each surface' : ''
   emit('commit', `Deleted ${drop.size} point${drop.size > 1 ? 's' : ''}`)
@@ -611,13 +622,13 @@ function smoothIdx(idxs, what) {
     notice.value = 'Nothing to smooth: the leading edge, trailing edge and straight-segment ends stay where they are'
     return
   }
-  pts.value = fairShape(pts.value, idxs, { keepThickness: keepThick.value })
+  if (!accept(fairShape(pts.value, idxs, { keepThickness: keepThick.value }))) return
   emit('commit', `Smoothed ${what}`)
 }
 function setStraightSel(on) {
   let Q = pts.value
   for (const i of segsFree.value) Q = setStraight(Q, i, on)
-  pts.value = Q
+  if (!accept(Q)) return
   emit('commit', on ? 'Made the segment straight' : 'Made the segment curved')
 }
 // Adds a point at the middle of the single selected segment
@@ -633,7 +644,7 @@ function mirrorSel() {
   const i = freeSel.value[0]
   if (i == null || surfaceSel.value === 'mixed') return
   const from = surfaceSel.value
-  pts.value = mirrorSurface(pts.value, i)
+  if (!accept(mirrorSurface(pts.value, i))) return
   setSelection([], [])
   emit('commit', `Mirrored the ${from} surface to the other side`)
 }
@@ -647,7 +658,7 @@ function normaliseSection() {
 const MM_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]
 function gridSteps() {
   const mm = props.mmPerUnit
-  if (!mm) return { minor: 0.025, every: 4, mm: null }
+  if (!mm) return { minor: 0.02, every: 5, mm: null }
   const step = MM_STEPS.find((s) => (s / mm) * S.value >= 8) ?? 100
   // Majors at 1, 5, 10… times a power of ten: five minor steps of 1 or 2, two of 5
   const lead = Math.round(step / 10 ** Math.floor(Math.log10(step)))
@@ -712,7 +723,7 @@ const body = computed(() => {
   const v = ve.value
   let o = ''
 
-  // Grid in true units, the same step on both axes. In % chord: minor every 2.5 %, major (and ruler labels) every
+  // Grid in true units, the same step on both axes. In % chord: minor every 2 %, major (and ruler labels) every
   // 10 %. In millimetres: a round step that keeps the minor lines at least 8 px apart, major every 5 (or 2) of them.
   // At 3x the y lines sit 3x further apart, because they are true distances.
   const x0 = dx(0)
@@ -745,7 +756,7 @@ const body = computed(() => {
     if (px < 30 || px > Wv - 30) continue
     o += `<text class="wc-sec__ruler" x="${(px + 3).toFixed(1)}" y="${Hv - 32}">${label(k * major)}</text>`
   }
-  const gridNote = grid.mm ? `grid ${+(minor * grid.mm).toFixed(1)} mm` : 'grid 2.5 % chord'
+  const gridNote = grid.mm ? `grid ${+(minor * grid.mm).toFixed(1)} mm` : 'grid 2 % chord'
   o += `<text class="wc-sec__ruler" x="${Wv - 8}" y="${Hv - 44}" text-anchor="end">${grid.mm ? 'Millimetres, ' : ''}Vertical ${v}×${v > 1 ? ` (${gridNote}, rulers true)` : ''}</text>`
 
   // Chord line, LE to the TE midpoint
