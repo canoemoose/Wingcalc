@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, sheetExtent, hardPatches, patchSheet, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, sheetExtent, hardPatches, patchSheet, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -244,8 +244,9 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const capFrom = (side) => {
     const cov = structure.covering
     if (movingSide) return uA
-    const start = cov.capStripStart ?? 0
-    const open = start > 0 ? Math.max(uA, crossing((s) => a.section(s).xl + start * a.section(s).c, start * a.section(rib.s).c)) : uA
+    // As set, or with none set just behind the LE stock (capStripStart)
+    const start = capStripStart(structure, a.section(rib.s).c)
+    const open = !(start > 0) ? uA : Math.max(uA, crossing((s) => a.section(s).xl + start * a.section(s).c, start * a.section(rib.s).c))
     if (cov.type !== 'dbox') return open
     const ext = sheetExtent(structure, side, sparXiRear)
     if (!ext) return open
@@ -268,8 +269,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const du = us[i1] - us[i0] || 1e-9
     const su = (prof.up[i1] - prof.up[i0]) / du
     const sl = (prof.lo[i1] - prof.lo[i0]) / du
-    const tUp = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'top'), patchAt(prof.xi[i], 'top'))
-    const tLo = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'bottom'), patchAt(prof.xi[i], 'bottom'))
+    const tUp = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'top', a.section(rib.s).c), patchAt(prof.xi[i], 'top'))
+    const tLo = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'bottom', a.section(rib.s).c), patchAt(prof.xi[i], 'bottom'))
     // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
     const mid = (prof.up[i] + prof.lo[i]) / 2
     upIn[i] = Math.max(mid, prof.up[i] - tUp * Math.sqrt(1 + su * su))

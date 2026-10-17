@@ -70,8 +70,10 @@ describe('leading-edge notch in a full build', () => {
   // (1.5 and 2 mm rods are left out: the root rib's nose stops just behind them, so there's nothing there to notch)
   for (const [type, d] of [['rod', 0.003], ['rod', 0.004], ['rod', 0.006], ['dowel', 0.006], ['dowel', 0.008]]) {
     it(`${type} ${d * 1000} mm notches every rib`, () => {
-      const plain = buildWing((st) => { st.covering.type = 'open'; Object.assign(st.le, { type: 'balsa', stock: 'custom', width: d / 2 }) })
-      const ribs = buildWing((st) => { st.covering.type = 'open'; Object.assign(st.le, { type, diameter: d }) })
+      // Cap strips start at one fixed place in both, so the only difference is the notch (by default they start
+      // behind the stock, which differs between the two)
+      const plain = buildWing((st) => { st.covering.type = 'open'; st.covering.capStripStart = 0.1; Object.assign(st.le, { type: 'balsa', stock: 'custom', width: d / 2 }) })
+      const ribs = buildWing((st) => { st.covering.type = 'open'; st.covering.capStripStart = 0.1; Object.assign(st.le, { type, diameter: d }) })
       expect(ribs.length).toBe(plain.length)
       const half = (Math.PI * (d / 2) ** 2) / 2
       ribs.forEach((p, i) => {

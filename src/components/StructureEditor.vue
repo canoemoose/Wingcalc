@@ -603,16 +603,18 @@ const braceHint = computed(() => {
             label="Cap strip thickness"
             @update:model-value="set('covering.capStripThickness', $event)"
           />
-          <UnitInput
-            :id="id('css')"
-            :model-value="st.covering.capStripStart ?? 0"
-            quantity="percent"
-            :system="system"
-            label="Cap strips start at"
-            hint="Percent of the chord back from the leading edge, where there's no sheeting ahead of them. Ahead of it the rib's own nose sets the leading-edge shape."
-            @update:model-value="set('covering.capStripStart', $event ?? 0)"
-          />
         </template>
+        <UnitInput
+          v-if="st.covering.capStrips && st.covering.type === 'open'"
+          :id="id('css')"
+          :model-value="st.covering.capStripStart ?? null"
+          quantity="percent"
+          :system="system"
+          label="Cap strips start at"
+          placeholder="Behind the LE stock"
+          hint="Percent of the chord back from the leading edge. Empty starts the strips behind the leading-edge stock, so the rib's nose sets the leading-edge shape."
+          @update:model-value="set('covering.capStripStart', $event)"
+        />
       </template>
     </InspectorSection>
 

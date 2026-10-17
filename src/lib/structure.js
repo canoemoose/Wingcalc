@@ -28,7 +28,7 @@ import { wingSampler } from './wing.js'
 import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
-import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
+import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES, isRound } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
 import { placeBays, servoMasses, fitBaysToRibs, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
@@ -173,9 +173,9 @@ export function defaultStructure() {
       // D-box only, per surface: whether that surface is sheeted, and where its sheeting stops as
       // a chord fraction from the LE (null: back to the spar's rear face)
       dbox: { top: true, bottom: true, topTo: null, bottomTo: null },
-      // Where cap strips start where there's no sheeting ahead of them, as a chord fraction: they
-      // stop short of the leading edge, so the rib's own nose sets the leading-edge shape
-      capStripStart: 0.1,
+      // Open covering only: where cap strips start, as a chord fraction. null (the default) starts
+      // them behind the leading-edge stock, so the rib's own nose sets the leading-edge shape
+      capStripStart: null,
     },
     // type: 'balsa' (stock) | 'rod' (carbon) | 'dowel' (hardwood) | 'none' (the sheeting forms the nose)
     // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
@@ -578,10 +578,25 @@ export function sheetExtent(structure, side, sparXi, { leXi = 0, teXi = 1 } = {}
 // to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
 // and stringers sit under it, so ribs, stringers and the 3D view all agree. With a side
 // ('top' or 'bottom'), a D-box is judged on that surface's own sheeting extent.
-export function skinAt(structure, q, sparXiRear, side) {
+// How far the leading-edge stock reaches back from the nose, m: a rod or dowel's diameter, a
+// strip's width, nothing when the sheeting forms the nose
+export function leStockDepth(le) {
+  if (isRound(le)) return le.diameter || 0
+  return le?.type === 'none' ? 0 : le?.width || 0
+}
+// Chord fraction where cap strips start: the set value, or with null just behind the
+// leading-edge stock, as a fraction of the chord (chord in m; without one, from the nose).
+export function capStripStart(structure, chord) {
+  const v = structure.covering.capStripStart
+  if (v != null) return v
+  return chord > 0 ? leStockDepth(structure.le) / chord : 0
+}
+
+// chord (m) is the station's chord; it's only needed for a null capStripStart.
+export function skinAt(structure, q, sparXiRear, side, chord) {
   const cov = structure.covering
   // Cap strips stop short of the leading edge (capStripStart), so the rib's nose is uncovered
-  const strip = cov.capStrips && q >= (cov.capStripStart ?? 0) - 1e-9 ? cov.capStripThickness || 0 : 0
+  const strip = cov.capStrips && q >= capStripStart(structure, chord) - 1e-9 ? cov.capStripThickness || 0 : 0
   if (cov.type === 'sheeted') return cov.sheetThickness || 0
   if (cov.type === 'dbox') {
     if (!side) return q <= sparXiRear ? cov.sheetThickness || 0 : strip
@@ -597,7 +612,8 @@ export function skinAtSpar(structure, side) {
   // The spar is under whatever covers the ribs there: the rib notches are cut from below it.
   // On an open wing that's the cap strips, which start ahead of the spar.
   if (structure.covering.type === 'open') return structure.covering.capStrips ? structure.covering.capStripThickness || 0 : 0
-  return skinAt(structure, 0, 1, side)
+  // Tested at the spar itself (not the nose), so a null cap-strip start still lies ahead of it
+  return skinAt(structure, sparFraction(structure), 1, side)
 }
 
 // Spar properties at a station with outside depth h (m) at the spar. Returns null where
@@ -767,11 +783,11 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
     const A = st.width * st.height
     const I0 = (st.width * st.height ** 3) / 12
     if (st.surface !== 'lower') {
-      const t = f.upper - skinAt(structure, st.position, rear, 'top')
+      const t = f.upper - skinAt(structure, st.position, rear, 'top', sec.c)
       els.push({ part: 'stringer', surface: 'upper', E, A, z: t - st.height / 2, I0, top: t, bottom: t - st.height })
     }
     if (st.surface !== 'upper') {
-      const b = f.lower + skinAt(structure, st.position, rear, 'bottom')
+      const b = f.lower + skinAt(structure, st.position, rear, 'bottom', sec.c)
       els.push({ part: 'stringer', surface: 'lower', E, A, z: b + st.height / 2, I0, top: b + st.height, bottom: b })
     }
   }
@@ -867,8 +883,8 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    const top = skinAt(structure, q, 0, 'top')
-    const bot = skinAt(structure, q, 0, 'bottom')
+    const top = skinAt(structure, q, 0, 'top', sec.c)
+    const bot = skinAt(structure, q, 0, 'bottom', sec.c)
     return Math.max(0, f.upper - f.lower - top - bot)
   }
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
@@ -966,7 +982,7 @@ export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    return Math.max(0, f.upper - f.lower - skinAt(structure, q, 0, 'top') - skinAt(structure, q, 0, 'bottom'))
+    return Math.max(0, f.upper - f.lower - skinAt(structure, q, 0, 'top', sec.c) - skinAt(structure, q, 0, 'bottom', sec.c))
   }
   const built = surfaces.filter((x) => x.ok)
   for (const r of list) {
@@ -1122,8 +1138,8 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
           const x = x0 + (sv.lugSpan * k) / 6
           const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
           const f = sec.surf(q)
-          const skinLo = skinAt(structure, q, xiRear, 'bottom')
-          const skinUp = skinAt(structure, q, xiRear, 'top')
+          const skinLo = skinAt(structure, q, xiRear, 'bottom', sec.c)
+          const skinUp = skinAt(structure, q, xiRear, 'top', sec.c)
           base = Math.max(base, f.lower + skinLo)
           ceil = Math.min(ceil, f.upper - skinUp)
         }

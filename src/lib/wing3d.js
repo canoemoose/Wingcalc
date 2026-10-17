@@ -254,7 +254,7 @@ export function insetHeight(a, structure, s, x, which) {
   const up = surfaceHeight(a, s, x, 'upper')
   const lo = surfaceHeight(a, s, x, 'lower')
   // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
-  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom') * Math.sqrt(1 + slope * slope))
+  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom', sec.c) * Math.sqrt(1 + slope * slope))
   return which === 'upper' ? up - t : lo + t
 }
 

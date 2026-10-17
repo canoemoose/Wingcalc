@@ -38,7 +38,8 @@ describe('D-box sheeting per surface', () => {
   })
 
   it('top-only leaves the bottom rib edge un-inset and gives the bottom cap strips from short of the LE', () => {
-    const { a } = build(dboxEdit(true, false))
+    // Pins a numeric start: with the null default the bottom strip starts exactly at the LE stock
+    const { a } = build((st) => { dboxEdit(true, false)(st); st.covering.capStripStart = 0.1 })
     const rb = buildRib(a, a.structure, a.ribs[Math.floor(a.ribs.length / 2)])
     // Bottom sheeting off: the bottom cap strip starts short of the leading edge, ahead of the top's
     expect(rb.capStripFrom.bottom).toBeGreaterThan(rb.uA)
