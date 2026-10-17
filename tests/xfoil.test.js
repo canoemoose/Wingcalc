@@ -10,6 +10,8 @@ import {
   polarSegments,
   comparePolars,
   coordsKey,
+  flapSpec,
+  flapKey,
 } from '../src/lib/xfoil.js'
 
 const POLAR_FILE = `
@@ -49,6 +51,27 @@ describe('XFOIL command script', () => {
     const s = xfoilScript(1e5, { ...XFOIL_SETTINGS, alphaStart: 2, alphaEnd: 10 })
     expect(s).toContain('ASEQ 2 10 0.5')
     expect(s).not.toContain('INIT')
+  })
+
+  it('deflects a flap with GDES FLAP before repanelling, hinge height as a fraction of the thickness', () => {
+    const lines = xfoilScript(200000, XFOIL_SETTINGS, { hinge: 0.75, deflection: 20 }).split('\n')
+    const g = lines.indexOf('GDES')
+    expect(g).toBeGreaterThan(lines.indexOf('LOAD foil.dat'))
+    expect(lines.slice(g, g + 8)).toEqual(['GDES', 'FLAP', '0.75', '999', '0.5', '20', 'EXEC', ''])
+    expect(lines.indexOf('PPAR')).toBe(g + 8)
+    // Up is negative, and the rest of the script is as without a flap
+    const up = xfoilScript(200000, XFOIL_SETTINGS, { hinge: 0.7, deflection: -25, yt: 0.4 }).split('\n')
+    expect(up.slice(up.indexOf('FLAP') + 1, up.indexOf('FLAP') + 5)).toEqual(['0.7', '999', '0.4', '-25'])
+    const plain = xfoilScript(200000).split('\n')
+    expect(plain).not.toContain('GDES')
+    expect(up.slice(up.indexOf('PPAR'))).toEqual(plain.slice(plain.indexOf('PPAR')))
+  })
+
+  it('rounds a flap for the cache: hinge to 1% of the chord, deflection to 0.5 degrees', () => {
+    expect(flapSpec({ hinge: 0.7483, deflection: 44.8 })).toEqual({ hinge: 0.75, yt: 0.5, deflection: 45 })
+    expect(flapKey({ hinge: 0.7483, deflection: 44.8 })).toBe(flapKey({ hinge: 0.7512, deflection: 45.1 }))
+    expect(flapKey({ hinge: 0.75, deflection: 20 })).not.toBe(flapKey({ hinge: 0.75, deflection: -20 }))
+    expect(flapKey(null)).toBe('')
   })
 })
 

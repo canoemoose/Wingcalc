@@ -26,10 +26,11 @@ export async function createXfoilEngine(moduleOptions = {}) {
   FS.chdir(WORK_DIR)
   const encoder = new TextEncoder()
 
-  function runPolar(coords, re, settings = XFOIL_SETTINGS) {
+  // flap: { hinge, yt, deflection } (xfoil.js flapSpec) to solve with a deflected flap.
+  function runPolar(coords, re, settings = XFOIL_SETTINGS, flap = null) {
     FS.writeFile(FOIL_FILE, seligText(coords))
     if (FS.analyzePath(POLAR_FILE).exists) FS.unlink(POLAR_FILE)
-    io.input = encoder.encode(xfoilScript(re, settings))
+    io.input = encoder.encode(xfoilScript(re, settings, flap))
     io.offset = 0
     try {
       module.callMain([])

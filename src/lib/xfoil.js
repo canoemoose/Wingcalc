@@ -49,10 +49,26 @@ export function alphaGrid({ alphaStart, alphaEnd, alphaStep }) {
 export const FOIL_FILE = 'foil.dat'
 export const POLAR_FILE = 'polar.txt'
 
-// XFOIL keyboard input for one viscous polar. Graphics off, load and repanel, viscous at
-// Re, Ncrit, iteration limit, accumulate to POLAR_FILE, sweep 0 → end, reinitialise the
-// boundary layer, sweep -step → start.
-export function xfoilScript(re, s = XFOIL_SETTINGS) {
+// A deflected plain flap for XFOIL's GDES FLAP: the hinge's chord fraction, its height as a
+// fraction of the local thickness (0.5: on the centre line, where the Mylar tabs are), and the
+// deflection in degrees (+ trailing edge down). Rounded so near-identical surfaces share a
+// polar: hinge to 1% of the chord, deflection to 0.5°.
+export function flapSpec({ hinge, deflection, yt = 0.5 }) {
+  return { hinge: Math.round(hinge * 100) / 100, yt: Math.round(yt * 100) / 100, deflection: Math.round(deflection * 2) / 2 }
+}
+
+export function flapKey(flap) {
+  if (!flap) return ''
+  const f = flapSpec(flap)
+  return `flap:${f.hinge}/${f.yt}/${f.deflection}`
+}
+
+// XFOIL keyboard input for one viscous polar. Graphics off, load, optionally deflect a flap
+// (GDES FLAP on the buffer aerofoil: hinge x, 999 to give the hinge's y as a fraction of the
+// thickness, the deflection; EXEC makes it current), repanel (which also smooths the flapped
+// shape onto the panels), viscous at Re, Ncrit, iteration limit, accumulate to POLAR_FILE,
+// sweep 0 → end, reinitialise the boundary layer, sweep -step → start.
+export function xfoilScript(re, s = XFOIL_SETTINGS, flap = null) {
   const step = Math.abs(s.alphaStep)
   const sweeps =
     s.alphaStart < 0 && s.alphaEnd > 0
@@ -61,12 +77,18 @@ export function xfoilScript(re, s = XFOIL_SETTINGS) {
   return [
     'PLOP', 'G F', '',
     `LOAD ${FOIL_FILE}`,
+    ...(flap ? flapCommands(flap) : []),
     'PPAR', `N ${s.panels}`, '', '',
     'OPER', `VISC ${Math.round(re)}`, 'VPAR', `N ${s.ncrit}`, '', `ITER ${s.maxIter}`,
     'PACC', POLAR_FILE, '',
     ...sweeps,
     'PACC', '', 'QUIT', '',
   ].join('\n')
+}
+
+function flapCommands(flap) {
+  const f = flapSpec(flap)
+  return ['GDES', 'FLAP', String(f.hinge), '999', String(f.yt), String(f.deflection), 'EXEC', '']
 }
 
 // Rows of an XFOIL polar save file: everything after the dashed rule under the header.

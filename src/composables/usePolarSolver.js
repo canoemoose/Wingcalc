@@ -1,8 +1,10 @@
 // Runs XFOIL polars in a Web Worker and keeps the results in memory for the page's
-// lifetime. One polar runs at a time and only the latest request matters: asking for a
-// different polar while one is running terminates the worker (respawning costs a few tens
-// of milliseconds) rather than queueing behind work nobody wants any more. A polar that
-// runs past the time limit (degenerate shapes can make XFOIL grind) is recorded as failed.
+// lifetime. One polar runs at a time and only the latest request matters: a request is a
+// list of polars in order of priority (the clean wing's first, then flapped ones), solved one
+// after another, and asking for a list without the polar that's running terminates the worker
+// (respawning costs a few tens of milliseconds) rather than queueing behind work nobody wants
+// any more. A polar that runs past the time limit (degenerate shapes can make XFOIL grind) is
+// recorded as failed.
 import { shallowRef } from 'vue'
 
 export const SOLVER_TIMEOUT_MS = 20000
@@ -24,7 +26,7 @@ export function usePolarSolver({ createWorker = defaultWorker, timeoutMs = SOLVE
 
   let worker = null
   let current = null
-  let wanted = null
+  let wanted = []
   let seq = 0
   let debounce = null
   let deadline = null
@@ -68,6 +70,7 @@ export function usePolarSolver({ createWorker = defaultWorker, timeoutMs = SOLVE
       worker = createWorker()
       if (!worker) {
         store(job.key, { ok: false, error: 'no worker available' })
+        pump()
         return
       }
       worker.onmessage = onMessage
@@ -81,7 +84,7 @@ export function usePolarSolver({ createWorker = defaultWorker, timeoutMs = SOLVE
     }
     current = { ...job, id: ++seq }
     running.value = job.key
-    worker.postMessage({ id: current.id, coords: job.coords, re: job.re, settings: job.settings })
+    worker.postMessage({ id: current.id, coords: job.coords, re: job.re, settings: job.settings, flap: job.flap ?? null })
     deadline = setTimeout(() => {
       const key = current?.key
       stopWorker()
@@ -90,29 +93,33 @@ export function usePolarSolver({ createWorker = defaultWorker, timeoutMs = SOLVE
     }, timeoutMs)
   }
 
+  const outstanding = () => wanted.filter((j) => !cache.has(j.key))
+
   function pump() {
-    if (!wanted || cache.has(wanted.key)) return
+    const next = outstanding()[0]
+    if (!next) return
     if (current) {
-      if (current.key === wanted.key) return
+      if (wanted.some((j) => j.key === current.key)) return // carries on; pump runs again after it
       stopWorker()
     }
-    start(wanted)
+    start(next)
   }
 
-  // Ask for a polar: job { key, coords, re, settings }, or null when nothing is needed.
-  // Requests settle for debounceMs first, so rapid edits don't each start a solve.
-  function want(job) {
-    wanted = job
+  // Ask for polars: a job { key, coords, re, settings, flap? } or a list of them, most wanted
+  // first, or null when nothing is needed. Requests settle for debounceMs first, so rapid
+  // edits don't each start a solve.
+  function want(jobs) {
+    wanted = (Array.isArray(jobs) ? jobs : [jobs]).filter(Boolean)
     clearTimeout(debounce)
-    if (!job || cache.has(job.key)) return
-    if (current?.key === job.key) return
+    if (!outstanding().length) return
+    if (current && wanted.some((j) => j.key === current.key)) return
     debounce = setTimeout(pump, debounceMs)
   }
 
   function dispose() {
     clearTimeout(debounce)
     stopWorker()
-    wanted = null
+    wanted = []
   }
 
   return { lookup, want, running, dispose }

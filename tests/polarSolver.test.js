@@ -74,6 +74,45 @@ describe('polar solver', () => {
     expect(s.lookup('x')).toMatchObject({ ok: false, error: 'boom' })
   })
 
+  it('solves a list in order, one at a time, passing a flap to the worker', () => {
+    const { made, createWorker } = fakeWorkers()
+    const s = usePolarSolver({ createWorker, debounceMs: 0 })
+    const flap = { hinge: 0.75, yt: 0.5, deflection: 45 }
+    s.want([job('clean'), { ...job('flap'), flap }])
+    vi.advanceTimersByTime(0)
+    const w = made[0]
+    expect(w.sent).toHaveLength(1)
+    expect(w.sent[0].flap).toBeNull()
+    w.reply({ id: w.sent[0].id, ok: true, polar })
+    expect(w.sent).toHaveLength(2)
+    expect(w.sent[1].flap).toEqual(flap)
+    w.reply({ id: w.sent[1].id, ok: true, polar })
+    expect(s.lookup('flap')).toMatchObject({ ok: true })
+    expect(made).toHaveLength(1)
+  })
+
+  it('lets the running polar finish when a new list still wants it', () => {
+    const { made, createWorker } = fakeWorkers()
+    const s = usePolarSolver({ createWorker, debounceMs: 0 })
+    s.want([job('a'), job('b')])
+    vi.advanceTimersByTime(0)
+    s.want([job('c'), job('a')])
+    vi.advanceTimersByTime(0)
+    expect(made[0].terminated).toBe(false)
+    made[0].reply({ id: made[0].sent[0].id, ok: true, polar })
+    expect(s.lookup('a')).not.toBeNull()
+    expect(made[0].sent).toHaveLength(2)
+    expect(s.running.value).toBe('c') // b is no longer wanted
+  })
+
+  it('moves on down the list when there is no worker', () => {
+    const s = usePolarSolver({ createWorker: () => null, debounceMs: 0 })
+    s.want([job('a'), job('b')])
+    vi.advanceTimersByTime(0)
+    expect(s.lookup('a')).toMatchObject({ ok: false })
+    expect(s.lookup('b')).toMatchObject({ ok: false })
+  })
+
   it('stops everything on dispose', () => {
     const { made, createWorker } = fakeWorkers()
     const s = usePolarSolver({ createWorker, debounceMs: 0 })
