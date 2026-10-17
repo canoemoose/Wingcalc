@@ -1844,7 +1844,7 @@
 .wc-sp__sheet-hatch {
   stroke: none;
 }
-.wingcalc svg .wc-sp__hatch {
+.wingcalc svg .wc-sp__hatch-line {
   stroke: color-mix(in srgb, var(--wc-accent) 45%, transparent);
   vector-effect: none;
 }

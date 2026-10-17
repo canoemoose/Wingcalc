@@ -493,7 +493,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         <defs>
           <!-- Stroke width in user units: non-scaling strokes inside a pattern tile aren't dependable -->
           <pattern :id="hatchId" patternUnits="userSpaceOnUse" :width="hatch.step" :height="hatch.step" patternTransform="rotate(45)">
-            <line x1="0" y1="0" x2="0" :y2="hatch.step" :stroke-width="hatch.width" class="wc-sp__hatch" />
+            <line x1="0" y1="0" x2="0" :y2="hatch.step" :stroke-width="hatch.width" class="wc-sp__hatch-line" />
           </pattern>
         </defs>
         <g pointer-events="none">

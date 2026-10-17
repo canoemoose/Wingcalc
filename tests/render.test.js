@@ -120,6 +120,10 @@ describe('app render', () => {
     expect(parts2).toContain('HS-65MG, 12 g')
     expect(parts2).toContain('On its side')
     expect(parts2).toContain('wc-sp__servo')
+    // The sheeting hatch's pattern lines have a class of their own: the servo hatch outline once
+    // shared theirs and was drawn with a stroke a metre wide (a big blue square on the plan)
+    expect(parts2).toContain('class="wc-sp__hatch-line"')
+    expect(parts2).not.toMatch(/<line[^>]*class="wc-sp__hatch"/)
     expect(parts2).toContain('wc-sp__lead')
     expect(parts.some((p) => p.group === 'servos')).toBe(true)
     expect(parts2).toContain('overlaps another surface')
