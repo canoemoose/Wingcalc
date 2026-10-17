@@ -83,4 +83,17 @@ describe('structure thumbnails', () => {
     // Both edges touch every rib (at its corner against the stock)
     for (const line of edges) for (const rib of ribLines) expect(Math.min(...rib.map((q) => gap(q, line)))).toBeLessThan(0.15)
   })
+
+  it('draws a foam wing as its cores: no spar, no ribs, a line at each core end', () => {
+    const { a: fa, parts: fp } = build((input) => (input.structure.construction = 'foam'))
+    expect(fa.ribs).toHaveLength(0)
+    const ends = new Set(fa.cores.flatMap((c) => [c.from, c.to])).size
+    const plan = planThumb(fa, fa.structure, fp)
+    expect(plan.lines.filter((l) => l.kind === 'spar')).toHaveLength(0)
+    expect(plan.lines.filter((l) => l.kind === 'rib')).toHaveLength(ends)
+    const iso = isoThumb(fa, fa.structure, fp)
+    expect(iso.lines.filter((l) => l.kind === 'spar')).toHaveLength(0)
+    expect(iso.lines.filter((l) => l.kind === 'rib')).toHaveLength(ends)
+    for (const l of [...plan.lines, ...iso.lines]) expect(numbers(l.d).every(Number.isFinite)).toBe(true)
+  })
 })

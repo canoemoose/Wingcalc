@@ -21,7 +21,8 @@ function framed(lines) {
   }
 }
 
-// The plan: outline, edge stock, spar and ribs, leading edge at the top. In millimetres, so
+// The plan: outline, edge stock, spar and ribs, leading edge at the top; on a foam wing, which
+// has neither spar nor ribs, the cores' ends between the edge stock instead. In millimetres, so
 // stroke widths are best set non-scaling. Returns { box, lines: [{ kind, d }] } or null.
 const PLAN_LAYERS = { OUTLINE: 'outline', STOCK: 'stock', SPAR: 'spar', RIBS: 'rib', HINGE: 'stock', BRAKE: 'stock' }
 export function planThumb(a, structure, parts) {
@@ -29,8 +30,18 @@ export function planThumb(a, structure, parts) {
   const lines = ents
     .filter((e) => e.type === 'poly' && PLAN_LAYERS[e.layer])
     .map((e) => ({ kind: PLAN_LAYERS[e.layer], pts: e.pts.map(([x, y]) => [x, -y]), closed: e.closed }))
+  for (const s of coreEnds(a)) {
+    const sec = a.section(s)
+    if (!sec || !(sec.c > 1e-4)) continue
+    const x0 = sec.xl + Math.min(structure.le?.width || 0, sec.c / 2)
+    const x1 = sec.xl + sec.c - Math.min(structure.te?.width || 0, sec.c / 2)
+    lines.push({ kind: 'rib', pts: [[s * 1000, x0 * 1000], [s * 1000, x1 * 1000]] })
+  }
   return framed(lines)
 }
+
+// A foam wing's core ends (span positions), each once; none on a built-up wing
+const coreEnds = (a) => [...new Set((a.cores ?? []).flatMap((c) => [c.from, c.to]))]
 
 // Screen axes looking along a view direction (target to camera), the 3D view's home by default
 function camera(dir = HOME_VIEW) {
@@ -63,8 +74,8 @@ export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
     lines.push({ kind: 'rib', pts: p.outline.map(at), closed: true })
     for (const h of p.holes) lines.push({ kind: 'hole', pts: h.map(at), closed: true })
   }
-  const coreEnds = [...new Set((a.cores ?? []).flatMap((c) => [c.from, c.to]))]
-  for (const s of coreEnds) {
+  const ends = coreEnds(a)
+  for (const s of ends) {
     const sec = a.section(s)
     if (!sec || !(sec.c > 1e-4)) continue
     const x0 = sec.xl + Math.min(structure.le?.width || 0, sec.c / 2)
@@ -74,7 +85,7 @@ export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
   }
   // Along the span, from the root to the tip, through each rib's station so the lines meet
   // the ribs there rather than cutting the corner between samples
-  const along = [...new Set([...Array.from({ length: steps + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / steps), ...ribs.map((p) => p.s), ...coreEnds])]
+  const along = [...new Set([...Array.from({ length: steps + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / steps), ...ribs.map((p) => p.s), ...ends])]
     .filter((s) => s >= a.rootS - 1e-9 && s <= a.tipS + 1e-9)
     .sort((p, q) => p - q)
   const span = (kind, fn) => {
@@ -93,6 +104,6 @@ export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
   const edge = (x) => (s) => [x(s), insetHeight(a, structure, s, x(s), 'upper')]
   span('edge', edge((s) => a.section(s).xl + Math.min(le, a.section(s).c / 2)))
   span('edge', edge((s) => a.section(s).xl + a.section(s).c - Math.min(te, a.section(s).c / 2)))
-  for (const which of ['upper', 'lower']) span('spar', outer((s) => a.sparX(s), which))
+  if (structure.spar?.type !== 'none') for (const which of ['upper', 'lower']) span('spar', outer((s) => a.sparX(s), which))
   return framed(lines)
 }

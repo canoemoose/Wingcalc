@@ -584,8 +584,11 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   const halfW = (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(s1, s0 + sp.tubeLength) : s1
   const sparLine = (off) => line((s) => (s <= sparEnd + 1e-9 ? a.sparX(s) + off : NaN))
-  add('SPAR', sparLine(-halfW))
-  add('SPAR', sparLine(halfW))
+  // None on a wing with no spar (a foam core's skins carry the bending)
+  if (sp.type !== 'none') {
+    add('SPAR', sparLine(-halfW))
+    add('SPAR', sparLine(halfW))
+  }
   for (const st of structure.stringers ?? []) {
     if (Number.isFinite(st.position)) add('STOCK', line((s) => sec(s).xl + st.position * sec(s).c))
   }
