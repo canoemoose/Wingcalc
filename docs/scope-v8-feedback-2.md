@@ -42,16 +42,16 @@ Status: ☐ to do, ◐ in progress, ☑ done.
 
 ### Wave 3: control surfaces
 - ☑ New surfaces sit parallel to the trailing edge (constant depth in mm) until the hinge is moved by hand. `controlSurfaces.js`.
-- ☐ Dimensions on the drawing are editable: click one, type, Enter. `WingPlanEditor.vue`.
+- ☑ Dimensions on the drawing are editable: click one, type, Enter. `WingPlanEditor.vue`.
 - ☑ A surface that is the TE stock alone is built like any other: bevel on the hinge side, Mylar tabs, gap. `controlSurfaces.js`, `ribs.js`, `structure.js`.
 - ☑ Hinge spars the full height of the rib plus capping; cap strips stop at them. `ribs.js`, `structure.js`, `wing3d.js`.
-- ☐ Mylar tabs drawn in the 2D plan and the 3D view. `StructurePlan.vue`, `wing3d.js`, `Structure3D.vue`.
+- ☑ Mylar tabs drawn in the 2D plan and the 3D view. `StructurePlan.vue`, `wing3d.js`, `Structure3D.vue`.
 
 ### Wave 4: structure
-- ☐ Hard points replaced: a hard point runs from one rib to another over any number of whole bays, sheeted full chord on the top, bottom or both. Old span/chord patches migrate to the whole bays they cover. `structure.js` (`hardPatches`), `StructureEditor.vue`, `projects.js`.
-- ☐ Dihedral braces: a thickness for each brace position; simpler hint. Grain rotated by half the V angle so it runs along the brace as a whole. `structure.js`, `ribs.js`, `StructureEditor.vue`.
-- ☐ Servo lead holes: minimum remaining material setting, like lightening holes, so they keep clear of the spar holes. `ribs.js`, `StructureEditor.vue`.
-- ☐ Gussets clipped to the rib: never across the hinge gap, a slot or a cut-out. `ribs.js`. (Probably also Sam's earlier "random gusset issues", backlog question 2.)
+- ☑ Hard points replaced: a hard point runs from one rib to another over any number of whole bays, sheeted full chord on the top, bottom or both. Old span/chord patches migrate to the whole bays they cover. `structure.js` (`hardPatches`), `StructureEditor.vue`, `projects.js`.
+- ☑ Dihedral braces: a thickness for each brace position; simpler hint. Grain rotated by half the V angle so it runs along the brace as a whole. `structure.js`, `ribs.js`, `StructureEditor.vue`.
+- ☑ Servo lead holes: minimum remaining material setting, like lightening holes, so they keep clear of the spar holes. `ribs.js`, `StructureEditor.vue`.
+- ☑ Gussets clipped to the rib: never across the hinge gap, a slot or a cut-out. `ribs.js`. (Probably also Sam's earlier "random gusset issues", backlog question 2.)
 
 ### Wave 5: servos
 - ☑ Every servo can take every orientation (upright, side, flat), not only thin ones; the depth check decides if it fits. `servos.js`, `SurfaceStructure.vue`.
@@ -60,14 +60,14 @@ Status: ☐ to do, ◐ in progress, ☑ done.
 - ◐ Better servo 3D models: Hitec's CAD where it exists, otherwise built from the dimensioned drawings on hitec.uk and hitecrcd.com (case, lugs, output boss, lead exit). Tray outlines checked against Phoenix's wing servo mounts. `wing3d.js`, `servos.js`.
 
 ### Wave 6: 3D view, layers, foam, loads chart
-- ☐ No covering (film, tissue, cloth) in 3D; sheeting stays. `wing3d.js`, `Structure3D.vue`.
-- ☐ More layers: each control surface its own (already per surface; check), plus hinges and tabs, servos and trays, braces, gussets. Layers that don't apply to the wing (foam or not) aren't listed.
-- ☐ Layers menu in the 2D structure plan, sharing the 3D layer list. `StructurePlan.vue`.
-- ☐ Foam wings: the home page's structure card (plan and 3D thumbnails) shows the cores, skins and caps, not ribs and spars. `thumbnails.js`.
+- ☑ No covering (film, tissue, cloth) in 3D; sheeting stays. `wing3d.js`, `Structure3D.vue`.
+- ☑ More layers: each control surface its own (already per surface; check), plus hinges and tabs, servos and trays, braces, gussets. Layers that don't apply to the wing (foam or not) aren't listed.
+- ☑ Layers menu in the 2D structure plan, sharing the 3D layer list. `StructurePlan.vue`.
+- ☑ Foam wings: the home page's structure card (plan and 3D thumbnails) shows the cores, skins and caps, not ribs and spars. `thumbnails.js`.
 - ☑ Loads chart: expand to a larger view; a hover crosshair that reads every series at that span position. Note on the chart what the bending counts. `LoadsChart.vue`, `methods.md`.
 
 ### Docs
-- ☐ User guide and methods updated as each wave lands (hard points, servo orientations and positions, edge fitting by area, what the loads count).
+- ☑ User guide and methods updated as each wave lands (hard points, servo orientations and positions, edge fitting by area, what the loads count).
 
 ## Notes on what was done
 
@@ -75,6 +75,11 @@ Status: ☐ to do, ◐ in progress, ☑ done.
 - Bevels: every surface is bevelled to at least its throws (the exact-clearance rule gave a thin stock surface none).
 - Edge stock set forward of the nose only when it doesn't fit at the nose; Auto still prefers stock that fits at the nose. Custom stock never moves.
 - Hitec: fifteen models added; HS-50, HS-82MG and HS-325HB not found. Servo 3D models not improved yet: no dimensioned drawings were reached.
+- Hard points keep their two distances (a rib at each, so the sheet covers whole bays) and drop the chord range; an old save's range is ignored.
+- Servo lead margin defaults to 3 mm (4 mm pushed a bay off the default wing); it also applies between holes and along each rib from the spar notch.
+- Gussets: none on a surface end rib's surface side (TE), none where the next rib is closer than the legs.
+- 3D and plan layers list only what the wing has (built from the model, not guessed per construction).
+- Typing a surface's dimension: commits on Enter; blur couldn't be checked in the hidden browser pane.
 
 ## Recommendations
 
