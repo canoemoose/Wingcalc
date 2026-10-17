@@ -173,7 +173,7 @@ describe('built-up control surfaces', () => {
   })
 
   it('leaves the ribs whole where a surface isn’t built', () => {
-    const aft = build({ surfaces: [{ ...aileron, hingeIn: 0.93, hingeOut: 0.93 }] })
+    const aft = build({ surfaces: [{ ...aileron, hingeIn: 0.97, hingeOut: 0.97 }] })
     expect(aft.parts.some((p) => p.split || p.group === 'surfaces' || p.group === 'hinges')).toBe(false)
   })
 

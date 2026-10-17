@@ -543,6 +543,8 @@ const rating = computed(() => {
 // --- Structure ---------------------------------------------------------------------------
 
 // Stage A loads and the parts to cut, for a panel wing whose stall the lifting line resolved.
+// A new control surface is the trailing edge stock's width deep (the stock is the surface)
+const surfaceDepth = computed(() => structureResult.value?.a.structure.te.width ?? null)
 const structureResult = computed(() => {
   const spanwise = results.value.perf?.spanwise
   if (!planform.value || !spanwise) return null
@@ -869,6 +871,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-model:selected="selectedSurface"
           :wing="planWing"
           :selected-panel="selectedPanel"
+          :surface-depth="surfaceDepth"
           :mass="input.mass"
           :system="system"
         />
@@ -1102,6 +1105,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:controls="input.controls"
             v-model:selected-surface="selectedSurface"
             v-model:selected-brake="selectedBrake"
+            :surface-depth="surfaceDepth"
             :system="system"
             @commit="history.commit"
           />
@@ -1455,6 +1459,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:selected="selectedSurface"
             :wing="planWing"
             :selected-panel="selectedPanel"
+            :surface-depth="surfaceDepth"
             :mass="input.mass"
             :system="system"
             id-prefix="wcx"
@@ -1483,6 +1488,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:controls="input.controls"
             v-model:selected-surface="selectedSurface"
             v-model:selected-brake="selectedBrake"
+            :surface-depth="surfaceDepth"
             :system="system"
             fill
             @commit="history.commit"

@@ -4,7 +4,7 @@ import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
-import { polygonArea } from '../src/lib/ribs.js'
+import { polygonArea, buildParts } from '../src/lib/ribs.js'
 import {
   resolveSurface,
   resolveSurfaces,
@@ -238,7 +238,7 @@ describe('control surfaces in the structure', () => {
 
   it('refuses a hinge line in front of the main spar or behind the trailing edge stock, with a warning', () => {
     expect(build({ surfaces: [{ ...aileron, hingeIn: 0.3, hingeOut: 0.3 }] }).a.surfaces[0].problem).toBe('forward')
-    const aft = build({ surfaces: [{ ...aileron, hingeIn: 0.93, hingeOut: 0.93 }] })
+    const aft = build({ surfaces: [{ ...aileron, hingeIn: 0.97, hingeOut: 0.97 }] })
     expect(aft.a.surfaces[0].problem).toBe('aft')
     expect(aft.a.warnings.some((w) => w.message.startsWith("Aileron A1 isn't built"))).toBe(true)
     // Not built, so no ribs at its ends
@@ -248,5 +248,34 @@ describe('control surfaces in the structure', () => {
   it('warns when the tabs go deeper than a hinge spar is wide', () => {
     const { a } = build({ edit: (st) => (st.hinges.tabLength = 0.03) })
     expect(a.warnings.some((w) => /go 14\.5 mm into each hinge spar/.test(w.message))).toBe(true)
+  })
+})
+
+describe('a surface cut from the trailing edge stock', () => {
+  // The default wing with a custom trailing edge 15 mm deep (build's default)
+  const stockSurface = () => {
+    const s = defaultState()
+    const sampler = wingSampler(s.input)
+    const res = addSurface(sampler, [], 0, { depth: 0.015 })
+    return res.surfaces
+  }
+  it('is added the trailing edge stock deep when given its width', () => {
+    const [sf] = stockSurface()
+    const s = defaultState()
+    const r = resolveSurface(wingSampler(s.input), sf)
+    const w0 = wingSampler(s.input).at(r.s0)
+    // Hinge plus half the gap is 15 mm in from the trailing edge
+    expect(w0.xl + w0.c - r.x0 - sf.gap / 2).toBeCloseTo(0.015, 6)
+  })
+  it('is built as the stock itself: no surface hinge spar or ribs, and the stock in the cut list', () => {
+    const { a } = build({ surfaces: stockSurface() })
+    const sf = a.surfaces[0]
+    expect(sf.ok).toBe(true)
+    expect(sf.stock).toBe(true)
+    expect(sf.endRibs).toEqual([])
+    const { parts, cutList } = buildParts(a, a.structure)
+    expect(parts.some((p) => p.group === 'surfaces')).toBe(false)
+    expect(cutList.some((c) => c.item === `Trailing edge stock as ${sf.label}`)).toBe(true)
+    expect(cutList.some((c) => c.item.startsWith('Hinge spar, moving side'))).toBe(false)
   })
 })

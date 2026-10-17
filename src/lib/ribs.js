@@ -795,7 +795,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   // Each control surface's own ribs: one at each end (a gap clear of the wing's end ribs) and
   // the part behind the hinge of every wing rib between
   const h = structure.hinges
-  for (const sf of foam ? [] : surfaces) {
+  // (none for a surface that is the trailing edge stock itself)
+  for (const sf of foam ? [] : surfaces.filter((x) => !x.stock)) {
     const t = r.thickness || 0
     const inner = ribs.filter((rb) => rb.s > sf.endRibs[0] + t + 1e-6 && rb.s < sf.endRibs[1] - t - 1e-6)
     const list = [{ s: sf.endRibs[0], kind: 'surface' }, ...inner, { s: sf.endRibs[1], kind: 'surface' }]
@@ -1391,6 +1392,17 @@ function stripCutList(a, structure, parts, both) {
       qty: sides,
       note: `Between the end ribs, ribs butting its front face; ${slots}`,
     })
+    if (sf.stock) {
+      out.push({
+        item: `Trailing edge stock as ${sf.label}`,
+        material: structure.te.material,
+        size: [structure.te.width, up(sf.depth.moving)],
+        length: (sf.moving[1] - sf.moving[0]) * k,
+        qty: sides,
+        note: `Cut from the trailing edge stock; bevel its front face to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+      })
+      continue
+    }
     out.push({
       item: `Hinge spar, moving side, ${sf.label}`,
       material: h.material,

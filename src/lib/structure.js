@@ -850,18 +850,22 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     r.warnings = []
     if (!r.ok) continue
     const g = Math.max(0, r.gap || 0)
+    const ss = Array.from({ length: 9 }, (_, k) => r.s0 + ((r.s1 - r.s0) * k) / 8)
+    // A surface whose hinge is at the trailing edge stock's front face (within STOCK_HINGE) is the
+    // stock itself: no hinge spar or ribs of its own, its front face bevelled
+    const apexAt = offsetLine(r, g / 2)
+    const stock = ss.every((s) => Math.abs(apexAt(s) - teFront(s)) <= STOCK_HINGE)
     const faces = {
       fixedFront: offsetLine(r, -(g / 2 + h.fixedWidth)),
       fixedRear: offsetLine(r, -g / 2),
-      apex: offsetLine(r, g / 2),
-      movingRear: offsetLine(r, g / 2 + h.movingWidth),
+      apex: apexAt,
+      movingRear: stock ? apexAt : offsetLine(r, g / 2 + h.movingWidth),
     }
-    const ss = Array.from({ length: 9 }, (_, k) => r.s0 + ((r.s1 - r.s0) * k) / 8)
     let problem = null
     if (r.s0 < rootS - 1e-6 || r.s1 > tipS + 1e-6) problem = 'outside'
     // Room for both hinge spars between the main spar and the trailing edge stock
     else if (ss.some((s) => faces.fixedFront(s) < sparRear(s) + 0.002)) problem = 'forward'
-    else if (ss.some((s) => faces.movingRear(s) > teFront(s) - 0.005)) problem = 'aft'
+    else if (!stock && ss.some((s) => faces.movingRear(s) > teFront(s) - 0.005)) problem = 'aft'
     const fixed = [r.s0 + t / 2, r.s1 - t / 2]
     const moving = [r.s0 + t / 2 + g, r.s1 - t / 2 - g]
     if (!problem && !(moving[1] - moving[0] > 2 * t + 0.005)) problem = 'short'
@@ -877,18 +881,22 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     const k = Math.sqrt(1 + r.slope * r.slope)
     const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: h.tabInset, width: h.tabWidth }).map((d) => moving[0] + d / k)
     const slot = Math.max(0, (h.tabLength - g) / 2)
-    const narrow = Math.min(h.fixedWidth, h.movingWidth)
+    const narrow = stock ? Math.min(h.fixedWidth, structure.te.width || h.fixedWidth) : Math.min(h.fixedWidth, h.movingWidth)
     if (slot > narrow + 1e-9) {
       r.warnings.push(`The hinge tabs on ${r.label} go ${mm(slot)} into each hinge spar, deeper than the narrower spar is wide (${mm(narrow)}): use shorter tabs or wider hinge spars.`)
     }
     const run = (movingDepth / 2) * Math.tan(Math.max(bevel.top, bevel.bottom) * (Math.PI / 180))
-    if (run > h.movingWidth - 0.001) {
+    if (!stock && run > h.movingWidth - 0.001) {
       r.warnings.push(`The bevel on ${r.label}'s hinge spar runs ${mm(run)} back, nearly all of its ${mm(h.movingWidth)} width: use a wider hinge spar on the moving side, or less throw.`)
     }
-    Object.assign(r, { faces, fixed, moving, endRibs: [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot })
+    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot })
   }
   return list
 }
+
+// How close (m) a surface's hinge must be to the trailing edge stock's front face for the stock
+// itself to be the moving surface
+export const STOCK_HINGE = 0.003
 
 // The built surface whose span (between its end ribs) contains s, strictly, or null.
 export function surfaceAt(surfaces, s) {

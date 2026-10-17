@@ -174,7 +174,10 @@ const snap5 = (v) => Math.round(v / 0.005) * 0.005
 // Add a surface to panel i, in the longest stretch of it no surface uses yet. The wing's first
 // is an aileron in the outer part of that stretch; later ones are flaps along most of it.
 // Returns { surfaces, id } (the new surface's id), or null if there's no room.
-export function addSurface(sampler, surfaces, i) {
+// depth (m, optional): the new surface's depth from the hinge to the trailing edge, the same at
+// both ends (the trailing edge stock's width, so the stock is the surface); otherwise 25% of the
+// chord.
+export function addSurface(sampler, surfaces, i, { depth = null } = {}) {
   const end = sampler?.ends[i]
   if (!end) return null
   const L = end.outer.s - end.inner.s
@@ -199,6 +202,15 @@ export function addSurface(sampler, surfaces, i) {
     to = gap[1]
   }
   const surface = newSurface(role, id, from, to, nextId(surfaces ?? []))
+  if (depth > 0) {
+    // The hinge where the surface is `depth` deep at each end (the gap is half each side of it)
+    const at = (d) => {
+      const w = sampler.at(end.inner.s + d)
+      return w && w.c > 0 ? Math.min(0.95, Math.max(0.5, 1 - (depth + surface.gap / 2) / w.c)) : 0.75
+    }
+    surface.hingeIn = at(from)
+    surface.hingeOut = at(to)
+  }
   return { surfaces: [...(surfaces ?? []), surface], id: surface.id }
 }
 

@@ -26,6 +26,8 @@ const props = defineProps({
   // The all-up mass, kg: which servo class a bay takes unless one is chosen
   mass: { type: Number, default: 0 },
   idPrefix: { type: String, default: 'wc' },
+  // A new surface's depth (m): the trailing edge stock's width; null for a quarter of the chord
+  surfaceDepth: { type: Number, default: null },
 })
 const controls = defineModel('controls', { type: Object, required: true })
 const selected = defineModel('selected', { type: Number, default: null })
@@ -67,9 +69,9 @@ function remove(sid) {
 
 // On the panel selected in the plan, or the last one
 const addTo = computed(() => (Number.isInteger(props.selectedPanel) && props.selectedPanel < props.wing.panels.length ? props.selectedPanel : props.wing.panels.length - 1))
-const canAdd = computed(() => !!(sampler.value && addSurface(sampler.value, controls.value.surfaces, addTo.value)))
+const canAdd = computed(() => !!(sampler.value && addSurface(sampler.value, controls.value.surfaces, addTo.value, { depth: props.surfaceDepth })))
 function add() {
-  const res = sampler.value && addSurface(sampler.value, controls.value.surfaces, addTo.value)
+  const res = sampler.value && addSurface(sampler.value, controls.value.surfaces, addTo.value, { depth: props.surfaceDepth })
   if (!res) return
   controls.value = { ...controls.value, surfaces: res.surfaces }
   selected.value = res.id

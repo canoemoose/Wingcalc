@@ -18,6 +18,9 @@ const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   // Fill the parent's height (the expanded editor) instead of a fixed height.
   fill: { type: Boolean, default: false },
+  // A new control surface's depth (m): the trailing edge stock's width, so the stock is the
+  // surface; null for a quarter of the chord
+  surfaceDepth: { type: Number, default: null },
 })
 const emit = defineEmits(['commit'])
 const rootChord = defineModel('rootChord', { type: Number, default: null })
@@ -465,7 +468,7 @@ function newStation() {
 }
 
 // A control surface on the selected panel, in its longest free stretch (controlSurfaces.js)
-const surfaceToAdd = computed(() => (selected.value !== null && sampler.value && controls.value ? addSurface(sampler.value, controls.value.surfaces, selected.value) : null))
+const surfaceToAdd = computed(() => (selected.value !== null && sampler.value && controls.value ? addSurface(sampler.value, controls.value.surfaces, selected.value, { depth: props.surfaceDepth }) : null))
 function newSurface() {
   const res = surfaceToAdd.value
   if (!res) return

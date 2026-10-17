@@ -505,7 +505,7 @@ export function sectionAt(a, structure, parts, s) {
   // Control surfaces' hinge spars, where the cut crosses them
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
     if (s >= sf.fixed[0] && s <= sf.fixed[1]) add('hinge', hingeSparSection(a, st, sf, s))
-    if (s >= sf.moving[0] && s <= sf.moving[1]) add('hingeMoving', movingSparSection(a, st, sf, s))
+    if (!sf.stock && s >= sf.moving[0] && s <= sf.moving[1]) add('hingeMoving', movingSparSection(a, st, sf, s))
   }
   const sec = a.section(s)
   const xs = cosine(40)
@@ -745,7 +745,7 @@ export function wing3d(a, structure, parts) {
     // The hinge spars: the fixed side's between the end ribs' faces, the moving side's across
     // the moving surface
     add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12))
-    add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12))
+    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12))
   }
   add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }))
 
@@ -760,7 +760,7 @@ export function wing3d(a, structure, parts) {
     for (const sf of surfaces) {
       add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40))
       add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12))
-      add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12))
+      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12))
       at = sf.s1
     }
     add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40))
