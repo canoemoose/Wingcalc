@@ -420,22 +420,25 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     return { t, b }
   }
 
-  // Lead holes, in a strip behind the main spar. Each keeps MIN_MATERIAL clear of the rib's edges
-  // and notches, sliding aft a millimetre at a time (up to 2 cm) if the nominal place is too
-  // thin or taken; the label and lightening holes keep clear of them.
+  // Lead holes, in a strip behind the main spar. Each keeps its margin (the rib's lead margin, at
+  // least MIN_MATERIAL) clear of the spar, the rib's edges and notches and the other holes,
+  // sliding aft a millimetre at a time (up to 2 cm) if the nominal place is too thin or taken;
+  // the label and lightening holes keep clear of them.
   const leadBlocks = []
   const leadFails = []
   if (!movingSide) {
     for (const ld of leads) {
       const D = ld.diameter
+      const m = Math.max(MIN_MATERIAL, ld.margin ?? MIN_MATERIAL)
       const fx = (s) => sparRearX(clampS(s)) + ld.offset + D / 2
-      const u0 = crossing(fx, uSpar + (fx(rib.s) - xs0) / cs)
+      // Never closer to the spar's notch or hole than the margin, along this rib
+      const u0 = Math.max(crossing(fx, uSpar + (fx(rib.s) - xs0) / cs), uSpar1 + m + D / 2)
       let placed = null
       for (let k = 0; k <= 20 && !placed; k++) {
         const u = u0 + k * 0.001
-        if (u + D / 2 > uB - MIN_MATERIAL) break
-        if (leadBlocks.some(([b0, b1]) => u - D / 2 < b1 + 0.001 && u + D / 2 > b0 - 0.001)) continue
-        const c = clearOver(u - D / 2, u + D / 2, MIN_MATERIAL)
+        if (u + D / 2 > uB - m) break
+        if (leadBlocks.some(([b0, b1]) => u - D / 2 < b1 + m && u + D / 2 > b0 - m)) continue
+        const c = clearOver(u - D / 2, u + D / 2, m)
         if (c.t - c.b >= D) placed = { u, z: (c.t + c.b) / 2 }
       }
       if (placed) {
@@ -749,7 +752,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   const brakes = (a.brakes ?? []).filter((x) => x.ok)
   // The servo leads through a rib: every bay outboard of it (or at its inner rib), and the ribs
   // that couldn't take a hole for each
-  const leadsAt = (s) => bays.filter((x) => s <= x.sA + 1e-6).map((x) => ({ name: x.name, diameter: x.lead.diameter, offset: x.lead.offset }))
+  const leadsAt = (s) => bays.filter((x) => s <= x.sA + 1e-6).map((x) => ({ name: x.name, diameter: x.lead.diameter, offset: x.lead.offset, margin: x.lead.margin }))
   const leadFailed = new Map()
   for (const rb of ribs) {
     const board = r.jigTabs ? boards.get(panelKey(a, rb.s)) : null

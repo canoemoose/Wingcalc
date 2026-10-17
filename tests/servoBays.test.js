@@ -285,6 +285,8 @@ describe('built servo bays', () => {
     const sparBack = res.a.sparX(rib.s) + res.st.spar.capWidth / 2 - res.a.section(rib.s).xl
     const [h2, h1] = [...rib.holes].sort((p, q) => bounds(p).x0 - bounds(q).x0)
     expect(bounds(h1).x0).toBeGreaterThan(sparBack)
+    // with at least the lead margin of material between the spar's notch and the nearer hole
+    expect(bounds(h2).x0 - sparBack).toBeGreaterThanOrEqual(res.st.ribs.leadMargin - 2e-4)
     expect(bounds(h2).w).toBeCloseTo(b2.lead.diameter, 3)
     expect(bounds(h2).x0).toBeLessThan(bounds(h1).x0)
   })
@@ -303,6 +305,8 @@ describe('built servo bays', () => {
           const p = bounds(leads[i])
           const q = bounds(leads[j])
           expect(p.x1 <= q.x0 || q.x1 <= p.x0, `${rib.name} holes overlap`).toBe(true)
+          // the lead margin of material between them
+          expect(Math.max(q.x0 - p.x1, p.x0 - q.x1), `${rib.name} holes too close`).toBeGreaterThanOrEqual(res.st.ribs.leadMargin - 2e-4)
         }
       }
       // The label stays clear of them

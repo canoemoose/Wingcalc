@@ -199,6 +199,9 @@ export function defaultStructure() {
       rootJoint: 'one-piece', // 'one-piece' (continuous through the centreline) | 'two-piece'
       lightening: false,
       lighteningMargin: 0.004,
+      // Material left round each servo lead hole: from the spar, between holes, and to the
+      // rib's edges and notches
+      leadMargin: 0.003,
       jigTabs: false,
       tabWidth: 0.006,
       tabClearance: 0.003,
@@ -1121,11 +1124,13 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
     }
   }
   const live = bays.filter((b) => b.ok).sort((a, b) => b.s - a.s)
-  // Lead holes side by side behind the spar, 2 mm apart, the outermost bay's first
-  let offset = 0.003
+  // Lead holes side by side behind the spar, the outermost bay's first, with the rib's lead
+  // margin of material between the spar and the first and between each
+  const leadMargin = Math.max(MIN_MATERIAL, structure.ribs?.leadMargin ?? 0.003)
+  let offset = leadMargin
   for (const b of live) {
-    b.lead = { diameter: b.servo.leadHole, offset }
-    offset += b.servo.leadHole + 0.002
+    b.lead = { diameter: b.servo.leadHole, offset, margin: leadMargin }
+    offset += b.servo.leadHole + leadMargin
   }
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
   for (const b of live) {

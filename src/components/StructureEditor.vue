@@ -893,6 +893,15 @@ const braceHint = computed(() => {
         label="Material left around each hole"
         @update:model-value="set('ribs.lighteningMargin', $event)"
       />
+      <UnitInput
+        :id="id('lead')"
+        :model-value="st.ribs.leadMargin ?? 0.003"
+        quantity="thin"
+        :system="system"
+        label="Material left around servo lead holes"
+        hint="Between the spar and the first hole, between holes, and to the rib's edges."
+        @update:model-value="set('ribs.leadMargin', $event ?? 0.003)"
+      />
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.ribs.jigTabs" @change="set('ribs.jigTabs', $event.target.checked)" />
         Jig tabs to build on a flat board
