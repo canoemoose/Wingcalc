@@ -921,7 +921,11 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     }
     const fixedDepth = Math.max(...ss.map((s) => depthAt(s, faces.fixedFront(s))), ...ss.map((s) => depthAt(s, faces.fixedRear(s))))
     const movingDepth = Math.max(...ss.map((s) => depthAt(s, faces.apex(s))))
-    const bevel = { top: bevelAngle(r.down, g, movingDepth / 2), bottom: bevelAngle(r.up, g, movingDepth / 2) }
+    // Each face bevelled to its full throw, as builders do (it leaves room for the covering and
+    // a stiff hinge), or more where the gap alone wouldn't clear it: a surface cut from the
+    // trailing edge stock is bevelled like any other, though its depth is small enough that the
+    // gap would clear it square
+    const bevel = { top: Math.max(r.down, bevelAngle(r.down, g, movingDepth / 2)), bottom: Math.max(r.up, bevelAngle(r.up, g, movingDepth / 2)) }
     // Tabs along the moving surface's span, measured along the hinge
     const k = Math.sqrt(1 + r.slope * r.slope)
     const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: h.tabInset, width: h.tabWidth }).map((d) => moving[0] + d / k)

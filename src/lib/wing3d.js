@@ -469,6 +469,30 @@ export function teSection(a, structure, s, k = 8) {
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
 }
 
+// A control surface that is the trailing edge stock itself, at s: the stock from the hinge back,
+// its front bevelled to a point at the centre line as a moving hinge spar's is (top face at
+// sf.bevel.top from square, bottom at sf.bevel.bottom), so it clears the fixed side over its
+// throws.
+export function stockSurfaceSection(a, structure, sf, s, k = 8) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4)) return null
+  const xa = sf.faces.apex(s)
+  const te = sec.xl + sec.c
+  const up = (x) => surfaceHeight(a, s, x, 'upper')
+  const lo = (x) => surfaceHeight(a, s, x, 'lower')
+  const mid = (up(xa) + lo(xa)) / 2
+  const meet = (deg, h) => {
+    const t = Math.tan(deg * RAD)
+    let x = xa
+    for (let i = 0; i < 4; i++) x = Math.min(te - 1e-5, xa + t * Math.abs(h(x) - mid))
+    return x
+  }
+  const run = (x0) => Array.from({ length: k + 1 }, (_, i) => x0 + ((te - x0) * i) / k)
+  const bottom = run(meet(sf.bevel.bottom, lo)).map((x) => [x, lo(x)])
+  const top = run(meet(sf.bevel.top, up)).map((x) => [x, up(x)])
+  return [[xa, mid], ...bottom, ...top.reverse().slice(1)]
+}
+
 // The plane square to the span at s (where a cut is made): a point on it and its outward
 // normal, in world coordinates.
 export function spanPlane(a, s) {
@@ -492,7 +516,10 @@ export function sectionAt(a, structure, parts, s) {
     if (sec && sec.c > 1e-4) add('core', coreSection(a, st, s, sec.xl + Math.min(st.le.width || 0, sec.c / 2), sf ? sf.faces.fixedFront(s) : sec.xl + sec.c - Math.min(st.te.width || 0, sec.c / 2)))
   }
   add('le', leSection(a, st, s))
-  add('te', teSection(a, st, s))
+  // Behind a surface that is the stock itself, the stock is that surface, bevelled at the hinge
+  const stockSf = (a.surfaces ?? []).find((x) => x.ok && x.stock && s >= x.moving[0] && s <= x.moving[1])
+  if (stockSf) add('teMoving', stockSurfaceSection(a, st, stockSf, s))
+  else add('te', teSection(a, st, s))
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(a.tipS, a.rootS + sp.tubeLength) : a.tipS
   if (s <= sparEnd + 1e-9) {
     const bore = tubeBore(a, st, s)
@@ -745,7 +772,7 @@ export function wing3d(a, structure, parts) {
     add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }))
     from = sf.s1
     fromExt = halfRib
-    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => teSection(a, st, s), 20))
+    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20))
     // The hinge spars: the fixed side's between the end ribs' faces, the moving side's across
     // the moving surface
     add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12))
