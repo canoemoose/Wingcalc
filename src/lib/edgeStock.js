@@ -121,6 +121,20 @@ function profile(item, u) {
   }
 }
 
+// The closed cross-section as [[u, z], ...] in metres: the top from the edge (u = 0) back to the
+// rib face (u = width), then the bottom back again. For drawing thumbnails.
+export function profileOutline(item, n = 16) {
+  const top = []
+  const bottom = []
+  for (let i = 0; i <= n; i++) {
+    const u = (item.width * i) / n
+    const [b, t] = profile(item, u)
+    top.push([u, t])
+    bottom.push([u, b])
+  }
+  return [...top, ...bottom.reverse()]
+}
+
 function stockArea(item) {
   const { width: W, height: H } = item
   if (item.kind === 'symmetrical') return (Math.PI / 4) * W * H

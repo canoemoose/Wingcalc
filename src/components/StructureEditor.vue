@@ -12,10 +12,11 @@ import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
+import EdgeStockPicker from './EdgeStockPicker.vue'
 import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS, gussetLayer, FINISHES, finishOf } from '../lib/structure.js'
 import { FOAMS, SKIN_MATERIALS, FOAM_CAP_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
-import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter } from '../lib/edgeStock.js'
+import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter, customLe } from '../lib/edgeStock.js'
 
 const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
@@ -223,6 +224,9 @@ const LE_OPTIONS = computed(() => [
   ...LE_STOCK.map((it) => ({ value: it.id, label: stockName(it), group: LE_GROUPS[it.kind] })),
   { value: 'custom', label: 'Custom' },
 ])
+// Cross-sections for the pickers' thumbnails (Auto shows what it picks; a custom leading edge its own size)
+const LE_ITEMS = computed(() => ({ auto: props.edges?.le.auto ?? null, ...Object.fromEntries(LE_STOCK.map((it) => [it.id, it])), custom: customLe(st.value.le) }))
+const TE_ITEMS = computed(() => ({ auto: props.edges?.te.auto ?? null, ...Object.fromEntries(TE_STOCK.map((it) => [it.id, it])), custom: null }))
 const TE_OPTIONS = computed(() => [
   { value: 'auto', label: props.edges ? `Auto (${stockName(props.edges.te.auto)})` : 'Auto', title: 'The stock that carves to the section with the least wood removed, at least 5% of the root chord deep' },
   ...TE_STOCK.map((it) => ({ value: it.id, label: stockName(it), group: 'Triangular (thickness × width)' })),
@@ -566,11 +570,12 @@ const braceHint = computed(() => {
     <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :summary="summaries.edges">
       <SelectField :id="id('let')" :model-value="st.le.type ?? 'balsa'" label="Leading edge" :options="LE_TYPE_OPTIONS" @update:model-value="setLeType" />
       <template v-if="(st.le.type ?? 'balsa') === 'balsa'">
-        <SelectField
+        <EdgeStockPicker
           :id="id('les')"
           :model-value="st.le.stock"
           label="Leading edge stock"
           :options="LE_OPTIONS"
+          :items="LE_ITEMS"
           :hint="st.le.stock === 'custom' ? '' : `Standard balsa sections (SLEC sizes, 915 mm lengths), carved to the section once glued on. The ${foam ? 'core is' : 'ribs are'} cut back by its depth.`"
           @update:model-value="setStock('le', $event)"
         />
@@ -610,11 +615,12 @@ const braceHint = computed(() => {
         The ribs run forward to the nose and the sheeting is bent round it, so there's no separate stock. Needs a D-box
         or fully sheeted wing.
       </p>
-      <SelectField
+      <EdgeStockPicker
         :id="id('tes')"
         :model-value="st.te.stock"
         label="Trailing edge stock"
         :options="TE_OPTIONS"
+        :items="TE_ITEMS"
         :hint="st.te.stock === 'custom' ? '' : 'Triangular balsa, thickness × width (SLEC sizes, 915 mm lengths).'"
         @update:model-value="setStock('te', $event)"
       />
