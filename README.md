@@ -17,7 +17,7 @@ Wingcalc is for the bit between "I fancy building a wing" and the first cut on t
 - **Stall character, not just stall speed.** Gentle, Moderate or Sharp, and *where* along the span it lets go first. A tip stall gets marked down, because that's the one that drops a wing at the bottom of a turn.
 - **Real aerodynamics, quietly.** A lifting-line solution for the whole wing, and XFOIL itself (the original Fortran, compiled to WebAssembly) solving a fresh polar for your section at your Reynolds number, a second or two after you stop typing.
 - **Any wing you can draw.** Straight, tapered, cranked, swept, elliptical, polyhedral, with washout and thickness taper, drawn in a CAD-style plan editor or typed in to the millimetre. Pick from all ~1,660 sections in the UIUC catalogue, or make your own.
-- **Then it designs the structure.** Spar, covering and rib spacing checked against a design load, edge stock picked from what you can actually buy, and every rib, gusset, brace and web exported as DXF for a laser or router, or printed 1:1 to build over.
+- **Then it designs the structure.** Spar, covering and rib spacing checked against a design load, edge stock picked from what you can actually buy, and every rib, gusset, brace and web exported as DXF for a laser or router, or printed 1:1 to build over. Or a foam-core wing, checked as a sandwich, with hot-wire templates for each panel.
 
 Metric or imperial, or both at once: type `24in + 50mm` into a millimetre box and it'll cope.
 

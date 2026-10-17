@@ -57,3 +57,16 @@ From Sam's feedback on the structure editor (2026-10-16). Each needs his detail 
 - Bays aren't drawn in the wing editor's plan, and can't be dragged; the centre is a number. No servo in the 3D section cut, and none in the thumbnails.
 - The relief counts servos only. The wing's own weight stays ignored in the loads (safe side).
 - The mount plate leaves about 1 mm of ply down each side of the case cut-out, which a laser kerf could take; a wider bay clearance would help.
+
+## Foam-core wings (v8 step 9)
+
+- Hot-wire templates are DXF for hand or bow cutting (Matt's call). No G-code or four-axis CNC output; a CNC cutter wants the two profiles resampled to matched point counts with synchronised speeds, which the templates' common frame would make straightforward.
+- Foam, obechi and carbon tow figures are conservative indicative values (EN 13163/13164 classes, Wood Handbook), not tested. The wrinkling coefficient Q = 0.5 and the core shear's 45-degree spread (b = cap width + depth) are textbook design assumptions worth checking against a real wing, and Sam's experience of what breaks.
+- The check leaves out the skins' own share of the shear (the closed skin round the section), so core shear governs most light EPS wings and is pessimistic. A shear-flow model of the skin box would credit it.
+- Cap slots, the web slot and pockets aren't cut out of the 3D core, and the core runs through the servo and brake pockets in the weight (a few grams, safe side).
+- Hatch rails are listed for a foam wing's servo hatches, as for a sheeted built-up wing; a foam pocket may want a ply frame or magnets instead.
+- The servo leads run in a channel in the core behind the spar (noted on the pocket templates); the channel isn't drawn or checked.
+- Skins are developed per panel as a strip along the leading edge, with no allowance for sweep in the developed shape beyond the section's own, and their sheet count doesn't nest pieces; the skins' DXF is off by default. No grain-direction or joint-line layout across sheets.
+- Templates are drawn for the panel ends only: a curved (Bézier) leading or trailing edge between them can't be cut with a straight wire, and the core comes out with straight edges between the templates. No warning yet when the planform is curved.
+- The dihedral bevel at a joint is noted on the template, not drawn. No joiner or dihedral brace layout specific to foam (the built-up brace plates are kept).
+- Balsa as a skin on foam is checked for wrinkling with its grain-wise modulus, though the cross-grain stiffness of balsa is far lower; a balsa-skinned core should probably be checked more conservatively.
