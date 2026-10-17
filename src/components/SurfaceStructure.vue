@@ -42,10 +42,13 @@ const SERVO_OPTIONS = computed(() => [
   { value: '', label: `Automatic (${SERVOS[autoClass.value].label.toLowerCase()}, for this weight)` },
   ...servoOptions(),
 ])
-// Flat is only for a thin wing servo
-const mountOptions = (s) => {
-  const thin = !!servoById(bayFor(s).class)?.thin
-  return Object.entries(MOUNTINGS).map(([value, label]) => ({ value, label, disabled: value === 'flat' && !thin, title: value === 'flat' && !thin ? 'Only a thin wing servo lies flat' : '' }))
+const mountOptions = () => Object.entries(MOUNTINGS).map(([value, label]) => ({ value, label }))
+// The bay's centre, m from the surface's inner end. An older save only has `at` (from the panel's
+// inner end), so convert it by the surface's own start.
+const bayAlong = (s) => {
+  const b = bayFor(s)
+  if (Number.isFinite(b.along)) return b.along
+  return Number.isFinite(b.at) ? b.at - s.from : null
 }
 function servoText(s) {
   const b = bayFor(s)
@@ -67,18 +70,18 @@ function servoText(s) {
       </label>
       <template v-if="bayFor(s).enabled">
         <SelectField :id="id(`${s.id}-servo`)" :model-value="bayFor(s).class ?? ''" label="Servo" :options="SERVO_OPTIONS" @update:model-value="setBayFor(s, { class: $event || null })" />
-        <SegmentedField :model-value="bayFor(s).mounting ?? 'upright'" label="Mounted" :options="mountOptions(s)" @update:model-value="setBayFor(s, { mounting: $event })" />
+        <SegmentedField :model-value="bayFor(s).mounting ?? 'upright'" label="Mounted" :options="mountOptions()" @update:model-value="setBayFor(s, { mounting: $event })" />
         <UnitInput
           :id="id(`${s.id}-bay`)"
-          :model-value="bayFor(s).at"
+          :model-value="bayAlong(s)"
           quantity="length"
           :system="system"
           label="Bay centre"
           placeholder="A third of the way along"
-          @update:model-value="setBayFor(s, { at: $event })"
+          @update:model-value="setBayFor(s, { along: $event, at: null })"
         />
         <p class="wc-field__hint">
-          From the panel's inner end, like the surface's own ends; leave it empty for a third of the way out along the surface. {{ servoText(s) }}
+          Measured from the surface's inner end, along the surface; leave it empty for a third of the way along. {{ servoText(s) }}
         </p>
       </template>
     </div>

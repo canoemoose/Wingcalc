@@ -102,7 +102,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', at: null })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', along: null, at: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
@@ -160,6 +160,18 @@ describe('where a bay goes', () => {
     expect(b.class).toBe('standard')
     expect(b.s).toBeCloseTo(0.6, 9)
     expect(b.width).toBeCloseTo(SERVOS.standard.width + 0.003, 9)
+  })
+
+  it('centres a bay along, measured from its surface\'s inner end', () => {
+    const row = resolveSurfaces(wing(), [aileron])[0]
+    const [b] = place([aileron], [{ surface: 1, along: 0.05 }])
+    expect(b.s).toBeCloseTo(row.s0 + 0.05, 9)
+  })
+
+  it('takes along over an older at when both are saved', () => {
+    const row = resolveSurfaces(wing(), [aileron])[0]
+    const [b] = place([aileron], [{ surface: 1, along: 0.05, at: 0.6 }])
+    expect(b.s).toBeCloseTo(row.s0 + 0.05, 9)
   })
 
   it('leaves out a removed bay, and flags the ones that cannot go', () => {

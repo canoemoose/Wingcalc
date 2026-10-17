@@ -72,8 +72,8 @@ describe('servoEnvelope', () => {
     expect(servoEnvelope(s, 'side')).toEqual({ chord: 0.03, span: 0.04, depth: 0.01 })
   })
 
-  it('gives no flat mounting for a servo that is not a thin wing servo', () => {
-    expect(servoEnvelope(s, 'flat')).toBeNull()
+  it('gives a flat envelope for a servo that is not a thin wing servo', () => {
+    expect(servoEnvelope(s, 'flat')).toEqual({ chord: 0.04, span: 0.03, depth: 0.01 })
   })
 
   it('lays a thin wing servo flat, its long side across the span', () => {
@@ -123,7 +123,7 @@ describe('defaultServoClass', () => {
 
 describe('bay settings', () => {
   it('gives a surface its defaults when it has no saved bay', () => {
-    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, mounting: 'upright', at: null })
+    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, mounting: 'upright', along: null, at: null })
     expect(bayOf(undefined, 'aileron').enabled).toBe(true)
   })
 
@@ -165,14 +165,14 @@ describe('the servo a bay holds', () => {
     expect(side.lugHeight).toBeLessThan(side.height)
   })
 
-  it('lays a thin Hitec wing servo flat, and stands anything else upright', () => {
+  it('lays a thin Hitec wing servo flat, and lays a thick one flat too', () => {
     const thin = HITEC.find((s) => s.thin)
     const flat = installedServo(thin.id, 'flat')
     expect(flat.mounting).toBe('flat')
     expect(flat.height).toBe(Math.min(...thin.body))
     expect(flat.mass).toBe(thin.mass)
     const thick = HITEC.find((s) => !s.thin)
-    expect(installedServo(thick.id, 'flat').mounting).toBe('upright')
+    expect(installedServo(thick.id, 'flat').mounting).toBe('flat')
   })
 
   it('falls back to the class that suits the weight for an unknown or empty choice', () => {
