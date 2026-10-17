@@ -170,6 +170,12 @@ export function defaultStructure() {
       capStripThickness: 0.0015,
       capStripMaterial: 'balsa-medium',
       finish: 'film', // FINISHES: what covers the ribs and sheeting
+      // D-box only, per surface: whether that surface is sheeted, and where its sheeting stops as
+      // a chord fraction from the LE (null: back to the spar's rear face)
+      dbox: { top: true, bottom: true, topTo: null, bottomTo: null },
+      // Where cap strips start where there's no sheeting ahead of them, as a chord fraction: they
+      // stop short of the leading edge, so the rib's own nose sets the leading-edge shape
+      capStripStart: 0.1,
     },
     // type: 'balsa' (stock) | 'rod' (carbon) | 'dowel' (hardwood) | 'none' (the sheeting forms the nose)
     // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
@@ -492,19 +498,52 @@ export function lineFaces(line, w) {
 // Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
 // to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
 // and stringers sit under it, so ribs, stringers and the 3D view all agree.
-export function skinAt(structure, q, sparXiRear) {
+// Which surface a sheet is on: 'top' or 'bottom' (the analysis calls them 'upper' and 'lower').
+export function sheetSide(surface) {
+  return surface === 'upper' ? 'top' : surface === 'lower' ? 'bottom' : surface
+}
+
+// Where one surface's sheeting runs, as chord fractions from the LE: { from, to }, or null if
+// that surface has no sheeting. 'sheeted' runs to the TE on both sides and 'open' has none. On
+// a D-box, a surface is sheeted only if its dbox flag is on, and it runs to its own topTo or
+// bottomTo when set, else to sparXi (the caller's choice of spar fraction: the centreline for
+// the analysis, the rear face for the plan). Either end is clamped to the LE and TE stock.
+export function sheetExtent(structure, side, sparXi, { leXi = 0, teXi = 1 } = {}) {
   const cov = structure.covering
-  const strip = cov.capStrips ? cov.capStripThickness || 0 : 0
+  if (cov.type === 'open') return null
+  if (cov.type === 'sheeted') return { from: leXi, to: teXi }
+  if (cov.type !== 'dbox') return null
+  const d = cov.dbox ?? {}
+  if (d[side] === false) return null
+  const set = side === 'top' ? d.topTo : d.bottomTo
+  const to = Math.min(Math.max(set ?? sparXi, leXi), teXi)
+  return { from: leXi, to }
+}
+
+// Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
+// to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
+// and stringers sit under it, so ribs, stringers and the 3D view all agree. With a side
+// ('top' or 'bottom'), a D-box is judged on that surface's own sheeting extent.
+export function skinAt(structure, q, sparXiRear, side) {
+  const cov = structure.covering
+  // Cap strips stop short of the leading edge (capStripStart), so the rib's nose is uncovered
+  const strip = cov.capStrips && q >= (cov.capStripStart ?? 0) - 1e-9 ? cov.capStripThickness || 0 : 0
   if (cov.type === 'sheeted') return cov.sheetThickness || 0
-  if (cov.type === 'dbox') return q <= sparXiRear ? cov.sheetThickness || 0 : strip
+  if (cov.type === 'dbox') {
+    if (!side) return q <= sparXiRear ? cov.sheetThickness || 0 : strip
+    const ext = sheetExtent(structure, side, sparXiRear)
+    return ext && q <= ext.to ? cov.sheetThickness || 0 : strip
+  }
   return strip
 }
 
 // Skin thickness over the spar: sheeting, or cap strips on an open wing (they run over
-// the caps).
-export function skinAtSpar(structure) {
-  // The spar is under whatever covers the ribs there: the rib notches are cut from below it
-  return skinAt(structure, 0, 1)
+// the caps). With a side, that surface's own skin.
+export function skinAtSpar(structure, side) {
+  // The spar is under whatever covers the ribs there: the rib notches are cut from below it.
+  // On an open wing that's the cap strips, which start ahead of the spar.
+  if (structure.covering.type === 'open') return structure.covering.capStrips ? structure.covering.capStripThickness || 0 : 0
+  return skinAt(structure, 0, 1, side)
 }
 
 // Spar properties at a station with outside depth h (m) at the spar. Returns null where
@@ -607,10 +646,10 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
   const els = []
   const cov = structure.covering
   const sp = sparSection(structure, sec.depth(sparXi), dFromRoot)
-  const skin = skinAtSpar(structure)
+  // Each surface's own skin: a D-box may sheet one side only
   const at = sec.surf(sparXi)
-  const top = at.upper - skin
-  const bot = at.lower + skin
+  const top = at.upper - skinAtSpar(structure, 'top')
+  const bot = at.lower + skinAtSpar(structure, 'bottom')
   if (sp.type === 'caps' || sp.type === 'box') {
     const tc = structure.spar.capThickness
     const I0 = (sp.b * tc ** 3) / 12
@@ -627,43 +666,56 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
     const mid = mount === 'top' ? top - d / 2 : mount === 'bottom' ? bot + d / 2 : (top + bot) / 2
     els.push({ part: 'spar', E: sp.mat.E, A: structure.spar.solidWidth * d, z: mid, I0: sp.I, top: mid + d / 2, bottom: mid - d / 2 })
   }
-  const end = cov.type === 'sheeted' ? teXi : cov.type === 'dbox' ? sparXi : leXi
-  if (cov.type !== 'open' && cov.sheetThickness > 0 && end > leXi) {
+  // Each surface sheets to its own extent (a D-box may sheet one side only)
+  const ext = {
+    upper: cov.type !== 'open' && cov.sheetThickness > 0 ? sheetExtent(structure, 'top', sparXi, { leXi, teXi }) : null,
+    lower: cov.type !== 'open' && cov.sheetThickness > 0 ? sheetExtent(structure, 'bottom', sparXi, { leXi, teXi }) : null,
+  }
+  if (ext.upper || ext.lower) {
     const t = cov.sheetThickness
     const E = material(cov.sheetMaterial).E
-    const dx = (end - leXi) / strips
-    for (let i = 0; i < strips; i++) {
-      const xm = leXi + dx * (i + 0.5)
-      const f = sec.surf(xm)
-      const A = t * dx * sec.c
-      els.push({ part: 'sheet', surface: 'upper', x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t })
-      els.push({ part: 'sheet', surface: 'lower', x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower })
+    for (const surface of ['upper', 'lower']) {
+      const e = ext[surface]
+      if (!e || !(e.to > e.from)) continue
+      const dx = (e.to - e.from) / strips
+      for (let i = 0; i < strips; i++) {
+        const xm = e.from + dx * (i + 0.5)
+        const f = sec.surf(xm)
+        const A = t * dx * sec.c
+        if (surface === 'upper') els.push({ part: 'sheet', surface, x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t })
+        else els.push({ part: 'sheet', surface, x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower })
+      }
     }
     // Glass and epoxy laid over the sheeting, outside it
     const lam = finishOf(cov).laminate
     if (lam?.t > 0) {
-      for (let i = 0; i < strips; i++) {
-        const xm = leXi + dx * (i + 0.5)
-        const f = sec.surf(xm)
-        const A = lam.t * dx * sec.c
-        els.push({ part: 'laminate', surface: 'upper', x: xm, E: lam.E, A, z: f.upper + lam.t / 2, I0: 0, top: f.upper + lam.t, bottom: f.upper })
-        els.push({ part: 'laminate', surface: 'lower', x: xm, E: lam.E, A, z: f.lower - lam.t / 2, I0: 0, top: f.lower, bottom: f.lower - lam.t })
+      for (const surface of ['upper', 'lower']) {
+        const e = ext[surface]
+        if (!e || !(e.to > e.from)) continue
+        const dx = (e.to - e.from) / strips
+        for (let i = 0; i < strips; i++) {
+          const xm = e.from + dx * (i + 0.5)
+          const f = sec.surf(xm)
+          const A = lam.t * dx * sec.c
+          if (surface === 'upper') els.push({ part: 'laminate', surface, x: xm, E: lam.E, A, z: f.upper + lam.t / 2, I0: 0, top: f.upper + lam.t, bottom: f.upper })
+          else els.push({ part: 'laminate', surface, x: xm, E: lam.E, A, z: f.lower - lam.t / 2, I0: 0, top: f.lower, bottom: f.lower - lam.t })
+        }
       }
     }
   }
+  const rear = sparXi + sparWidth(structure.spar) / 2 / sec.c
   for (const st of structure.stringers ?? []) {
     if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
     const f = sec.surf(st.position)
-    const under = skinAt(structure, st.position, sparXi + sparWidth(structure.spar) / 2 / sec.c)
     const E = material(st.material).E
     const A = st.width * st.height
     const I0 = (st.width * st.height ** 3) / 12
     if (st.surface !== 'lower') {
-      const t = f.upper - under
+      const t = f.upper - skinAt(structure, st.position, rear, 'top')
       els.push({ part: 'stringer', surface: 'upper', E, A, z: t - st.height / 2, I0, top: t, bottom: t - st.height })
     }
     if (st.surface !== 'upper') {
-      const b = f.lower + under
+      const b = f.lower + skinAt(structure, st.position, rear, 'bottom')
       els.push({ part: 'stringer', surface: 'lower', E, A, z: b + st.height / 2, I0, top: b + st.height, bottom: b })
     }
   }
@@ -687,9 +739,9 @@ export function bendingProps(els) {
 // Sheet panels on one surface between supports (the LE stock, stringers on that surface,
 // the spar and, when fully sheeted, the TE stock), as [from, to] chord fractions.
 function sheetPanels(structure, surface, sparXi, leXi, teXi) {
-  const cov = structure.covering.type
-  if (cov === 'open') return []
-  const end = cov === 'sheeted' ? teXi : sparXi
+  const ext = sheetExtent(structure, sheetSide(surface), sparXi, { leXi, teXi })
+  if (!ext) return []
+  const end = ext.to
   const supports = [leXi, sparXi, end]
   for (const st of structure.stringers ?? []) {
     if (Number.isFinite(st.position) && (st.surface === 'both' || st.surface === surface)) supports.push(st.position)
@@ -703,13 +755,23 @@ function sheetPanels(structure, surface, sparXi, leXi, teXi) {
 // --- Plan ---------------------------------------------------------------------------------
 
 // The sheeted area in plan, as a closed (s, x) outline: from the LE stock's inner edge back to
-// the spar's rear face (D-box) or the TE stock (fully sheeted). Null when it's open.
-export function sheetOutline(a, structure, n = 80) {
+// the spar's rear face (D-box) or the TE stock (fully sheeted). Null when it's open. With a
+// side ('top' or 'bottom'), that surface's own sheeting only; without, the larger of the two
+// sheeted surfaces, so the plan shows whichever side reaches furthest aft.
+export function sheetOutline(a, structure, n = 80, side = null) {
   const cov = structure.covering.type
   if (cov !== 'dbox' && cov !== 'sheeted') return null
+  const d = structure.covering.dbox ?? {}
   const sec = (s) => a.section(s)
   const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
-  const back = cov === 'sheeted' ? (s) => sec(s).xl + sec(s).c - structure.te.width : sparRear
+  const backAt = (s, sd) => {
+    if (cov === 'sheeted') return sec(s).xl + sec(s).c - structure.te.width
+    const set = sd === 'top' ? d.topTo : d.bottomTo
+    return set == null ? sparRear(s) : sec(s).xl + Math.min(Math.max(set, 0), 1) * sec(s).c
+  }
+  const sides = (side ? [side] : ['top', 'bottom']).filter((sd) => cov === 'sheeted' || d[sd] !== false)
+  if (!sides.length) return null
+  const back = (s) => Math.max(...sides.map((sd) => backAt(s, sd)))
   const ss = Array.from({ length: n + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / n)
   return [...ss.map((s) => [s, sec(s).xl + structure.le.width]), ...[...ss].reverse().map((s) => [s, back(s)])]
 }
@@ -749,8 +811,9 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    const skin = skinAt(structure, q, 0)
-    return Math.max(0, f.upper - f.lower - 2 * skin)
+    const top = skinAt(structure, q, 0, 'top')
+    const bot = skinAt(structure, q, 0, 'bottom')
+    return Math.max(0, f.upper - f.lower - top - bot)
   }
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
   for (const r of list) {
@@ -839,7 +902,7 @@ export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    return Math.max(0, f.upper - f.lower - 2 * skinAt(structure, q, 0))
+    return Math.max(0, f.upper - f.lower - skinAt(structure, q, 0, 'top') - skinAt(structure, q, 0, 'bottom'))
   }
   const built = surfaces.filter((x) => x.ok)
   for (const r of list) {
@@ -995,9 +1058,10 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
           const x = x0 + (sv.lugSpan * k) / 6
           const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
           const f = sec.surf(q)
-          const skin = skinAt(structure, q, xiRear)
-          base = Math.max(base, f.lower + skin)
-          ceil = Math.min(ceil, f.upper - skin)
+          const skinLo = skinAt(structure, q, xiRear, 'bottom')
+          const skinUp = skinAt(structure, q, xiRear, 'top')
+          base = Math.max(base, f.lower + skinLo)
+          ceil = Math.min(ceil, f.upper - skinUp)
         }
       }
       return ceil - base

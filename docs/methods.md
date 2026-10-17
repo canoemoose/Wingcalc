@@ -143,7 +143,7 @@ Implementation: `src/lib/structure.js`. A first-order sizing check, and the app 
 
 - **Load**: the lifting line's spanwise lift distribution at the stall (the design point at manoeuvring speed, where full load factor is reached at maximum lift), scaled so the half wing carries n × weight / 2. Negative g uses the distribution at the matching negative lift. The wing's own weight is ignored, which errs on the safe side, except for the servos: each pulls down on the half wing with n × its weight at its span station, so it takes that force off the shear inboard of it and (its force × its distance from the section) off the bending moment there (see Servo bays).
 - **Shear and bending** come from integrating that load inward from the tip.
-- **Section**: modulus-weighted, so a D-box or fully sheeted wing's sheeting shares the bending with the spar (it typically carries more than half), and stringers count too. Stresses come from M·E·z / EI at each element's extreme fibre.
+- **Section**: modulus-weighted, so a D-box or fully sheeted wing's sheeting shares the bending with the spar (it typically carries more than half), and stringers count too. Each surface's sheeting is taken to its own extent: a D-box may sheet the top, the bottom or both, each back to the spar or to a chord position of its own, so the section can be unsymmetrical and its neutral axis moves accordingly. Stresses come from M·E·z / EI at each element's extreme fibre.
 - **Margins of safety**, allowable ÷ (stress × safety factor) − 1, so 0 is just enough:
   - spar in compression and in tension (positive and negative g);
   - sheeting crushing;

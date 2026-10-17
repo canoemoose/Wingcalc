@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, sheetExtent, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -238,6 +238,21 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const uSpar1 = crossing(sparRearX, uSpar + sparWidth(sp) / 2)
   const halfSpar = (uSpar1 - uSpar0) / 2 // half the notch along the rib
   const sparXiRear = interp(us, prof.xi, uSpar1)
+  // Rib station where one surface's cap strips start: behind that side's sheeting, or where no
+  // sheeting is ahead of them, short of the leading edge (capStripStart), so the rib's own nose
+  // sets the leading-edge shape
+  const capFrom = (side) => {
+    const cov = structure.covering
+    if (movingSide) return uA
+    const start = cov.capStripStart ?? 0
+    const open = start > 0 ? Math.max(uA, crossing((s) => a.section(s).xl + start * a.section(s).c, start * a.section(rib.s).c)) : uA
+    if (cov.type !== 'dbox') return open
+    const ext = sheetExtent(structure, side, sparXiRear)
+    if (!ext) return open
+    const set = side === 'top' ? cov.dbox?.topTo : cov.dbox?.bottomTo
+    if (set == null) return uSpar1
+    return crossing((s) => a.section(s).xl + set * a.section(s).c, uSpar1)
+  }
 
   // Inset surfaces: offset by the skin, measured square to the surface
   const n = us.length
@@ -249,11 +264,12 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const du = us[i1] - us[i0] || 1e-9
     const su = (prof.up[i1] - prof.up[i0]) / du
     const sl = (prof.lo[i1] - prof.lo[i0]) / du
-    const t = skinAt(structure, prof.xi[i], sparXiRear)
+    const tUp = skinAt(structure, prof.xi[i], sparXiRear, 'top')
+    const tLo = skinAt(structure, prof.xi[i], sparXiRear, 'bottom')
     // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
     const mid = (prof.up[i] + prof.lo[i]) / 2
-    upIn[i] = Math.max(mid, prof.up[i] - t * Math.sqrt(1 + su * su))
-    loIn[i] = Math.min(mid, prof.lo[i] + t * Math.sqrt(1 + sl * sl))
+    upIn[i] = Math.max(mid, prof.up[i] - tUp * Math.sqrt(1 + su * su))
+    loIn[i] = Math.min(mid, prof.lo[i] + tLo * Math.sqrt(1 + sl * sl))
   }
   const top = (u) => interp(us, upIn, u)
   const bot = (u) => interp(us, loIn, u)
@@ -531,7 +547,9 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     capGap,
     // The rib's outer and inset surfaces, for drawing cap strips on it
     surfaces: { us, up: prof.up, lo: prof.lo, upIn, loIn },
-    capStripFrom: structure.covering.type === 'dbox' && !movingSide ? uSpar1 : uA,
+    // Where each surface's cap strips start from the LE side: a D-box side with sheeting
+    // runs its strips from the end of that side's sheet, the rest from the LE stock
+    capStripFrom: { top: capFrom('top'), bottom: capFrom('bottom') },
     uA,
     uB,
     outline,
@@ -1381,8 +1399,7 @@ function stripCutList(a, structure, parts, both) {
     let total = 0
     for (const p of ribs) {
       const b = p.rib
-      const from = cov.type === 'dbox' ? b.sparU : b.uA
-      total += Math.max(0, b.uB - from) * 2 * p.qty
+      total += (Math.max(0, b.uB - b.capStripFrom.top) + Math.max(0, b.uB - b.capStripFrom.bottom)) * p.qty
     }
     out.push({ item: 'Cap strips (total, both surfaces)', material: cov.capStripMaterial, size: [cov.capStripWidth, cov.capStripThickness], length: total, qty: 1 })
   }
@@ -1419,13 +1436,17 @@ export function coveredArea(a, structure, n = 40) {
     }
     return L
   }
+  // Each surface has its own sheeted run: a D-box side runs back to the spar's rear face, or
+  // to its own setting, or not at all when that side is off
   const row = (s) => {
     const sec = a.section(s)
     if (!sec || !(sec.c > 1e-4)) return { sheeted: 0, open: 0 }
-    const back = cov.type === 'sheeted' ? 1 : cov.type === 'dbox' ? Math.min(1, Math.max(0, (sparRear(s) - sec.xl) / sec.c)) : 0
+    const sparXi = cov.type === 'dbox' ? Math.min(1, Math.max(0, (sparRear(s) - sec.xl) / sec.c)) : 0
     let sheeted = 0
     let open = 0
     for (const w of ['upper', 'lower']) {
+      const ext = sheetExtent(structure, w === 'upper' ? 'top' : 'bottom', sparXi)
+      const back = ext ? ext.to : 0
       sheeted += back > 0 ? arc(sec, 0, back, w) : 0
       open += back < 1 ? arc(sec, back, 1, w) : 0
     }

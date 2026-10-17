@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
 import { gussetSides } from './ribs.js'
 import { isRound, roundFitAt } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -254,7 +254,7 @@ export function insetHeight(a, structure, s, x, which) {
   const up = surfaceHeight(a, s, x, 'upper')
   const lo = surfaceHeight(a, s, x, 'lower')
   // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
-  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear) * Math.sqrt(1 + slope * slope))
+  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom') * Math.sqrt(1 + slope * slope))
   return which === 'upper' ? up - t : lo + t
 }
 
@@ -360,7 +360,12 @@ export function sheetSection(a, structure, s, which) {
   if (!sec || !(sec.c > 1e-4)) return null
   const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
   const x0 = sec.xl + structure.le.width
-  const x1 = structure.covering.type === 'sheeted' ? sec.xl + sec.c - structure.te.width : sparRear(s)
+  // Each surface's sheet runs to its own end (a D-box side may stop short of the spar, or be off)
+  const side = which === 'upper' ? 'top' : 'bottom'
+  const rearXi = (sparRear(s) - sec.xl) / sec.c
+  const ext = sheetExtent(structure, side, rearXi)
+  if (!ext) return null
+  const x1 = structure.covering.type === 'sheeted' ? sec.xl + sec.c - structure.te.width : sec.xl + ext.to * sec.c
   const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, structure, s, x, which)])]
 }
@@ -835,14 +840,16 @@ export function wing3d(a, structure, parts) {
         const f = (u - us[i - 1]) / (us[i] - us[i - 1] || 1)
         return arr[i - 1] + (arr[i] - arr[i - 1]) * f
       }
-      const from = r.capStripFrom
       const to = r.uB
       const n = 40
-      const uu = Array.from({ length: n + 1 }, (_, i) => from + ((to - from) * i) / n)
-      for (const [outer, inner] of [
-        [up, upIn],
-        [lo, loIn],
+      for (const [outer, inner, side] of [
+        [up, upIn, 'top'],
+        [lo, loIn, 'bottom'],
       ]) {
+        // Each surface's strips start behind its own sheeting (from the LE where that side is open)
+        const from = r.capStripFrom[side]
+        if (!(to > from)) continue
+        const uu = Array.from({ length: n + 1 }, (_, i) => from + ((to - from) * i) / n)
         const outline = [...uu.map((u) => [u, at(outer, u)]), ...[...uu].reverse().map((u) => [u, at(inner, u)])]
         // Centred on the rib, except on end ribs, where it's flush with the outer face; the
         // centre rib's is split between the halves (the other half comes with the mirror)

@@ -543,10 +543,29 @@ const braceHint = computed(() => {
           @update:model-value="set('covering.sheetMaterial', $event)"
         />
       </template>
+      <template v-if="st.covering.type === 'dbox'">
+        <div v-for="side in ['top', 'bottom']" :key="side" class="wc-structure-editor__sub">
+          <label class="wc-check wc-structure-editor__check">
+            <input type="checkbox" :checked="st.covering.dbox?.[side] !== false" @change="set(`covering.dbox.${side}`, $event.target.checked)" />
+            Sheet the {{ side }}
+          </label>
+          <UnitInput
+            v-if="st.covering.dbox?.[side] !== false"
+            :id="id(`dbox-${side}`)"
+            :model-value="st.covering.dbox?.[`${side}To`] ?? null"
+            quantity="percent"
+            :system="system"
+            :label="`${side === 'top' ? 'Top' : 'Bottom'} sheeting back to`"
+            placeholder="The spar"
+            @update:model-value="set(`covering.dbox.${side}To`, $event)"
+          />
+        </div>
+        <p class="wc-field__hint">Percent of the chord back from the leading edge, for each surface on its own; leave it empty to sheet back to the spar.</p>
+      </template>
       <template v-if="st.covering.type !== 'sheeted'">
         <label class="wc-check wc-structure-editor__check">
           <input type="checkbox" :checked="st.covering.capStrips" @change="set('covering.capStrips', $event.target.checked)" />
-          Cap strips on the ribs{{ st.covering.type === 'dbox' ? ' behind the spar' : '' }}
+          Cap strips on the ribs{{ st.covering.type === 'dbox' ? ' behind the sheeting' : '' }}
         </label>
         <template v-if="st.covering.capStrips">
           <UnitInput
@@ -564,6 +583,15 @@ const braceHint = computed(() => {
             :system="system"
             label="Cap strip thickness"
             @update:model-value="set('covering.capStripThickness', $event)"
+          />
+          <UnitInput
+            :id="id('css')"
+            :model-value="st.covering.capStripStart ?? 0"
+            quantity="percent"
+            :system="system"
+            label="Cap strips start at"
+            hint="Percent of the chord back from the leading edge, where there's no sheeting ahead of them. Ahead of it the rib's own nose sets the leading-edge shape."
+            @update:model-value="set('covering.capStripStart', $event ?? 0)"
           />
         </template>
       </template>
