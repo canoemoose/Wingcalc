@@ -13,7 +13,7 @@
 // ribs are fixed.
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { flatPanels } from '../lib/wing.js'
-import { MODES, SPACING_MODES, sheetOutline, hardPatches } from '../lib/structure.js'
+import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan } from '../lib/structure.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import StageZoom from './StageZoom.vue'
 
@@ -70,8 +70,8 @@ const geom = computed(() => {
   // Sheeted hard points, hatched like the sheeting
   const patches = hardPatches(st, an.rootS).map((h) => {
     const ss = Array.from({ length: 9 }, (_, i) => h.s0 + ((h.s1 - h.s0) * i) / 8)
-    const at = (s, f) => an.section(s).xl + f * an.section(s).c
-    return [...ss.map((s) => [s, at(s, h.from)]), ...[...ss].reverse().map((s) => [s, at(s, h.to)])].map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+    const at = (s, k) => patchSpan(an, st, s)?.[k] ?? an.section(s).xl
+    return [...ss.map((s) => [s, at(s, 0)]), ...[...ss].reverse().map((s) => [s, at(s, 1)])].map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
   })
   // Control surfaces: each hinge spar as a band, and the moving surface's outline
   const hinges = []

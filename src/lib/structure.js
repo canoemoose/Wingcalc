@@ -192,10 +192,9 @@ export function defaultStructure() {
       rootPitch: 0.05,
       tipPitch: 0.09,
       manual: [], // { id, d }: distance from the root rib
-      // { id, d, label, to, sheet, chordFrom, chordTo }: ribs that must be there (servo bays,
-      // aileron ends), at d from the root rib and, if to is set, at to as well, with sheeting
-      // between them if sheet is 'top', 'bottom' or 'both' (default 'none'), from chordFrom to
-      // chordTo (fractions of the chord from the LE). See hardPatches.
+      // { id, d, label, to, sheet }: ribs that must be there, at d from the root rib and, if to
+      // is set, at to as well, the bays between them sheeted over the whole chord on the top,
+      // bottom or both (sheet; 'none' leaves them open). See hardPatches.
       hardPoints: [],
       rootJoint: 'one-piece', // 'one-piece' (continuous through the centreline) | 'two-piece'
       lightening: false,
@@ -316,23 +315,34 @@ export function hardPoints(sampler, structure, extra = []) {
   return mergeClose(pts.sort((a, b) => a.s - b.s))
 }
 
-// The sheeted hard points: each hard point that runs from d to a second distance `to` with
-// sheeting on its top, bottom or both, as { id, label, s0, s1 (flat span positions), from, to
-// (chord fractions), sides: ['top', 'bottom'] }. The sheet is the covering's sheeting (its
-// thickness and material; 1.5 mm balsa if none is set), laid over the ribs at its ends and any
-// between, so the ribs there are inset by it.
+// The sheeted hard points: each hard point that runs from d to a second distance `to`, a rib at
+// each end, sheeted on its top, bottom or both, as { id, label, s0, s1 (flat span positions),
+// from, to (chord fractions: always the whole chord, 0 to 1), sides: ['top', 'bottom'] }. The
+// sheet covers the bays between, any number of them, over the whole chord: from the leading
+// edge stock to the trailing edge stock, or to a control surface's fixed hinge spar
+// (patchSpan). It's the covering's sheeting (its thickness and material; 1.5 mm balsa if none
+// is set), laid over the ribs, so the ribs there are inset by it.
 export function hardPatches(structure, rootS) {
   const out = []
   for (const h of structure.ribs?.hardPoints ?? []) {
     if (!Number.isFinite(h.d) || !Number.isFinite(h.to) || !(h.to > h.d + 1e-4)) continue
     const sides = h.sheet === 'both' ? ['top', 'bottom'] : h.sheet === 'top' || h.sheet === 'bottom' ? [h.sheet] : []
     if (!sides.length) continue
-    const from = Math.min(1, Math.max(0, h.chordFrom ?? 0))
-    const to = Math.min(1, Math.max(0, h.chordTo ?? 1))
-    if (!(to > from)) continue
-    out.push({ id: h.id, label: h.label || 'Hard point', s0: rootS + h.d, s1: rootS + h.to, from, to, sides })
+    out.push({ id: h.id, label: h.label || 'Hard point', s0: rootS + h.d, s1: rootS + h.to, from: 0, to: 1, sides })
   }
   return out
+}
+// Where a hard point's sheet runs across the chord at span position s, as plan positions
+// [x0, x1]: from the back of the leading edge stock to the front of the trailing edge stock, or
+// alongside a control surface to the rear face of its fixed hinge spar. a from analyseStructure
+// (its section and surfaces), structure the resolved one.
+export function patchSpan(a, structure, s) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4)) return null
+  const x0 = sec.xl + Math.min(structure.le.width || 0, sec.c / 2)
+  const sf = (a.surfaces ?? []).find((x) => x.ok && s >= x.s0 - 1e-9 && s <= x.s1 + 1e-9)
+  const x1 = sf ? sf.faces.fixedRear(s) : sec.xl + sec.c - Math.min(structure.te.width || 0, sec.c / 2)
+  return x1 > x0 ? [x0, x1] : null
 }
 export const patchSheet = (structure) => ({
   thickness: structure.covering.sheetThickness || 0.0015,

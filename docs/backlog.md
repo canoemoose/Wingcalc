@@ -21,7 +21,7 @@ Requested in the 17 October feedback: a complete downloadable design booklet for
 
 - The Hitec servo figures come from Hitec's product pages and retailers, with the case dimensions mapped as length × width × height in the order printed (not labelled on the pages) and the lug spans estimated (Hitec publishes none). Check against a drawing before relying on a tight fit. Round 2 (October 2026) added fifteen models Phoenix sells (HS-55, 65HB, 5055MG, 5065MG, 85BB, 225BB, 77BB, 311, 322HD, 485HB, 5485HB, 625MG, 645MG, 5625MG, 5645MG) from hitecrcd.com. HS-311 and HS-322HD print identical figures; several pages give torque only as a range (the top used). HS-625MG is back: it was dropped as discontinued, but Hitec and Phoenix both still list it. Still missing: HS-50, HS-82MG, HS-325HB (no figures found). The servo 3D models are still boxes with lugs: Hitec's drawings (lug positions, output boss, lead exit) weren't to hand.
 - The covering weights for Doculam, and for glass and carbon cloth with epoxy, are estimates (film thickness plus adhesive; cloth weight times a hand-laid wet-out). Oracover's figure is a retailer's. Weigh some samples.
-- Cap strips are still listed full length where a sheeted hard point covers part of a rib.
+- Cap strips are still listed full length where a sheeted hard point covers a rib (the sheet now covers the whole chord, so they aren't needed there).
 - Air brakes' servo bays are still set in the wing editor, with the brake; control surfaces' moved to the structure editor.
 
 ## Questions for Sam

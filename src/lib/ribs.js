@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, sheetExtent, hardPatches, patchSheet, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, sheetExtent, hardPatches, patchSheet, patchSpan, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -1144,8 +1144,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   for (const h of hardPatches(structure, a.rootS)) {
     const ps = patchSheet(structure)
     const widthAt = (s) => {
-      const sec = a.section(s)
-      return sec ? (h.to - h.from) * sec.c : 0
+      const span = patchSpan(a, structure, s)
+      return span ? span[1] - span[0] : 0
     }
     const L = h.s1 - h.s0
     for (const side of h.sides) {
@@ -1166,7 +1166,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         holes: [],
         etch: [],
         label: null,
-        notes: [`${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, ${Math.round(h.from * 100)}% to ${Math.round(h.to * 100)}% of the chord; approximate, cut oversize and trim`],
+        notes: [`${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, across the whole chord between the edge stock (to the hinge spar beside a control surface); approximate, cut oversize and trim`],
       })
     }
   }

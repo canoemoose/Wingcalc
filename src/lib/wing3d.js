@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan } from './structure.js'
 import { gussetSides } from './ribs.js'
 import { isRound, roundFitAt } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -373,6 +373,23 @@ export function sheetSection(a, structure, s, which) {
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, structure, s, x, which)])]
 }
 
+// A sheeted hard point's sheet at s on one surface: over the whole chord it covers (patchSpan),
+// its thickness in from the outer surface, measured square to it.
+export function patchSection(a, structure, s, which) {
+  const span = patchSpan(a, structure, s)
+  if (!span) return null
+  const [x0, x1] = span
+  const t = patchSheet(structure).thickness
+  const d = 1e-4
+  const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
+  const inner = (x) => {
+    const slope = (surfaceHeight(a, s, x + d, which) - surfaceHeight(a, s, x - d, which)) / (2 * d)
+    const k = t * Math.sqrt(1 + slope * slope)
+    return which === 'upper' ? surfaceHeight(a, s, x, which) - k : surfaceHeight(a, s, x, which) + k
+  }
+  return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, inner(x)])]
+}
+
 // Leading edge stock at s: the section's own nose over its depth, cosine-spaced so it stays
 // round; a rod or dowel as its circle, placed as the fit check places it (edgeStock.js);
 // nothing for a sheeted nose.
@@ -509,6 +526,11 @@ export function sectionAt(a, structure, parts, s) {
   const pieces = []
   const add = (kind, pts, holes = []) => pts && pts.length > 2 && pieces.push({ kind, pts, holes })
   if (st.covering.type !== 'open' && st.covering.sheetThickness > 0) for (const w of ['upper', 'lower']) add('sheet', sheetSection(a, st, s, w))
+  // Sheeted hard points the cut passes through
+  for (const h of hardPatches(st, a.rootS)) {
+    if (s < h.s0 - 1e-9 || s > h.s1 + 1e-9) continue
+    for (const side of h.sides) add('sheet', patchSection(a, st, s, side === 'top' ? 'upper' : 'lower'))
+  }
   if (isFoam(st)) {
     const sec = a.section(s)
     // Stopping at a control surface's fixed hinge spar, as the 3D core does
@@ -761,6 +783,13 @@ export function wing3d(a, structure, parts) {
   const cov = st.covering
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
     for (const which of ['upper', 'lower']) add('sheet', sweep(a, s0, s1, (s) => sheetSection(a, st, s, which), 40, { extend: ends, caps: 'strip' }))
+  }
+  // Sheeted hard points, over the ribs at their ends and the bays between
+  for (const h of hardPatches(st, a.rootS)) {
+    for (const side of h.sides) {
+      const which = side === 'top' ? 'upper' : 'lower'
+      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }))
+    }
   }
   add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }))
   // The trailing edge: the wing's, broken where each control surface's own runs, between the

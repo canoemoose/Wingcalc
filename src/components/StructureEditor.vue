@@ -56,7 +56,7 @@ function set(path, value) {
 const st = computed(() => structure.value)
 const warnIn = (k) => props.warnings[k] ?? []
 const HARD_SHEET = [
-  { value: 'none', label: 'No' },
+  { value: 'none', label: 'Open' },
   { value: 'top', label: 'Top' },
   { value: 'bottom', label: 'Bottom' },
   { value: 'both', label: 'Both' },
@@ -831,8 +831,9 @@ const braceHint = computed(() => {
       <div class="wc-structure-editor__sub">
         <span class="wc-field__label">Hard points</span>
         <p class="wc-field__hint">
-          Ribs that must be at a set distance from the root rib: servo bays, aileron ends, undercarriage. Give one a second
-          distance to put a rib there too, and sheet between them on the top, the bottom or both, over part of the chord.
+          A rib that must be at a set distance from the root rib. Give it a second distance and it's a sheeted hard point:
+          a rib there too, and every bay between sheeted across the whole chord on the top, the bottom or both, for a wing
+          joiner, a tow hook or a launch peg.
         </p>
         <div v-for="h in hardList.rows(st.ribs.hardPoints)" :key="h.id" class="wc-structure-editor__row" @focusin="hardList.focusin" @focusout="hardList.focusout">
           <UnitInput
@@ -865,39 +866,16 @@ const braceHint = computed(() => {
               placeholder="One rib only"
               @update:model-value="updateIn('ribs.hardPoints', h.id, 'to', $event)"
             />
-            <template v-if="Number.isFinite(h.to) && h.to > (h.d ?? 0)">
-              <SegmentedField
-                :model-value="h.sheet ?? 'none'"
-                label="Sheeted"
-                :options="HARD_SHEET"
-                @update:model-value="updateIn('ribs.hardPoints', h.id, 'sheet', $event)"
-              />
-              <div v-if="(h.sheet ?? 'none') !== 'none'" class="wc-structure-editor__pair">
-                <UnitInput
-                  :id="id(`hp${h.id}cf`)"
-                  :model-value="h.chordFrom ?? 0"
-                  quantity="percent"
-                  :chord="rootChord"
-                  chord-name="root chord"
-                  :system="system"
-                  label="Chord from"
-                  @update:model-value="updateIn('ribs.hardPoints', h.id, 'chordFrom', $event ?? 0)"
-                />
-                <UnitInput
-                  :id="id(`hp${h.id}ct`)"
-                  :model-value="h.chordTo ?? 1"
-                  quantity="percent"
-                  :chord="rootChord"
-                  chord-name="root chord"
-                  :system="system"
-                  label="Chord to"
-                  @update:model-value="updateIn('ribs.hardPoints', h.id, 'chordTo', $event ?? 1)"
-                />
-              </div>
-            </template>
+            <SegmentedField
+              v-if="Number.isFinite(h.to) && h.to > (h.d ?? 0)"
+              :model-value="h.sheet ?? 'none'"
+              label="Sheeted"
+              :options="HARD_SHEET"
+              @update:model-value="updateIn('ribs.hardPoints', h.id, 'sheet', $event)"
+            />
           </div>
         </div>
-        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '' })">
+        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '', sheet: 'both' })">
           Add hard point
         </button>
       </div>
