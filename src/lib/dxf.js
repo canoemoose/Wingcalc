@@ -10,6 +10,9 @@
 //  - router: dogbones in every internal corner of the cut (a round tool can't cut a square
 //    inside corner, and the spar caps need one), and optionally the tool-radius offset if your
 //    CAM doesn't apply it.
+//
+// A foam wing's hot-wire templates carry their own allowance for the wire's kerf (foamParts.js),
+// set here as wireKerf, with the wire's lead-in and lead-out drawn on the notes layer.
 
 import { strokeText, textWidth } from './strokeFont.js'
 import { MATERIALS, sheetOutline } from './structure.js'
@@ -19,7 +22,7 @@ import { BRAKE } from './airBrakes.js'
 
 export function defaultExportOptions() {
   return {
-    parts: { ribs: true, surfaces: true, hinges: true, servos: true, brakes: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true },
+    parts: { ribs: true, surfaces: true, hinges: true, servos: true, brakes: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true, templates: true, skins: false, pockets: true },
     machine: 'laser', // 'laser' | 'router'
     kerf: 0.00015, // m
     toolDiameter: 0.003175, // m
@@ -34,11 +37,27 @@ export function defaultExportOptions() {
     gap: 0.003, // m between parts
     split: false, // one file per material and thickness, zipped
     pdfPaper: 'a4', // printed templates: a paper size from pdf.js PAPERS, or 'fit' for one sheet
+    wireKerf: 0.001, // m: the width of the cut a hot wire melts, allowed for on foam-core templates
+    leadIn: 0.02, // m: the wire's straight run in to and out of a template
   }
 }
 
 const MM = 1000
-const GROUP_TITLES = { ribs: 'Ribs', surfaces: 'Control surface ribs', hinges: 'Hinge tabs', servos: 'Servo bays', brakes: 'Air brakes', gussets: 'Gussets', braces: 'Dihedral braces', webs: 'Shear webs', sheeting: 'Sheeting', tip: 'Tip block' }
+const GROUP_TITLES = {
+  ribs: 'Ribs',
+  surfaces: 'Control surface ribs',
+  hinges: 'Hinge tabs',
+  servos: 'Servo bays',
+  brakes: 'Air brakes',
+  gussets: 'Gussets',
+  braces: 'Dihedral braces',
+  webs: 'Shear webs',
+  sheeting: 'Sheeting',
+  tip: 'Tip block',
+  templates: 'Hot-wire templates',
+  skins: 'Skins',
+  pockets: 'Pocket routing templates',
+}
 
 // --- Contour operations -------------------------------------------------------------------------
 
@@ -244,12 +263,14 @@ export function partEntities(part, opts) {
   ents.push({ type: 'poly', layer: 'cut', pts: cutOuter, closed: true })
   for (const h of cutHoles) ents.push({ type: 'poly', layer: 'cut', pts: h, closed: true })
   for (const e of etch) ents.push({ type: 'poly', layer: 'etch', pts: e, closed: false })
+  // Notes-layer lines (a hot-wire template's lead-in and lead-out), part of the part's extent
+  for (const g of (part.guide ?? []).map(toMm)) ents.push({ type: 'poly', layer: 'guide', pts: g, closed: false })
   if (label) {
     for (const s of strokeText(label.text, label.u, label.z, label.h)) ents.push({ type: 'poly', layer: 'etch', pts: s, closed: false })
   }
   // Shift so the part's (uncompensated) bounding box starts at the origin, or sits just above
   // its label in the waste
-  const b = bounds([...outline, ...ents.filter((e) => e.type === 'poly' && e.layer === 'cut').flatMap((e) => e.pts)])
+  const b = bounds([...outline, ...ents.filter((e) => e.type === 'poly' && (e.layer === 'cut' || e.layer === 'guide')).flatMap((e) => e.pts)])
   if (!waste) return { ents: ents.map((e) => shiftEnt(e, -b.x0, -b.y0)), w: b.w, h: b.h, notes }
   const lw = textWidth(waste, WASTE_LABEL)
   const up = WASTE_LABEL + WASTE_GAP
@@ -449,6 +470,30 @@ export function partsDxf(parts, opts, baseName = 'wing') {
   return [{ name: `${baseName}-parts.dxf`, title: 'All parts', text: file(partsDrawing(parts, opts)) }]
 }
 
+// A foam wing's hot-wire templates on their own: one file, one of each, each pair side by side
+// (inner end then outer), the pairs one under another.
+export function templatesDxf(parts, opts, baseName = 'wing') {
+  const list = parts.filter((p) => p.group === 'templates')
+  const o = { ...opts, parts: { templates: true }, repeat: false, rowLength: 100, split: false }
+  const ents = []
+  let y = 0
+  const gap = 15
+  const pairs = new Map()
+  for (const p of list) pairs.set(p.core, [...(pairs.get(p.core) ?? []), p])
+  for (const [core, pair] of pairs) {
+    const pes = pair.map((p) => partEntities(p, o))
+    const h = Math.max(...pes.map((pe) => pe.h))
+    for (const pts of strokeText(`${core}: ${pair.map((p) => p.name).join(' and ')}`, 0, y + 4, 5)) ents.push({ type: 'poly', layer: 'guide', pts, closed: false })
+    let x = 0
+    for (const pe of pes) {
+      for (const e of pe.ents) ents.push(shiftEnt(e, x, y - pe.h))
+      x += pe.w + gap
+    }
+    y -= h + 25
+  }
+  return { name: `${baseName}-hot-wire-templates.dxf`, title: 'Hot-wire templates', text: toDxf(ents, { layerNames: opts.layers, format: opts.format }), entities: ents }
+}
+
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
 
 // --- Plan view --------------------------------------------------------------------------------------
@@ -635,7 +680,7 @@ export function cutListCsv(parts, cutList) {
     rows.push([p.name, p.qty, materialLabel(p.material), `${Number((p.thickness * MM).toFixed(2))} thick, ${mm(b.w)} x ${mm(b.h)}`, '', p.notes.join('; ')])
   }
   for (const c of cutList) {
-    rows.push([c.item, c.qty, materialLabel(c.material), c.tube ? `${mm(c.size[0])} OD, ${mm(c.size[1])} wall` : c.round ? `${mm(c.size[0])} diameter` : `${mm(c.size[0])} x ${mm(c.size[1])}`, mm(c.length), [c.triangular && 'Triangular section', c.note].filter(Boolean).join('; ')])
+    rows.push([c.item, c.qty, materialLabel(c.material), c.block ? `${mm(c.size[0])} x ${mm(c.size[1])} block` : c.buy ? `${Number((c.size[1] * MM).toFixed(2))} thick, ${mm(c.size[0])} wide` : c.tube ? `${mm(c.size[0])} OD, ${mm(c.size[1])} wall` : c.round ? `${mm(c.size[0])} diameter` : `${mm(c.size[0])} x ${mm(c.size[1])}`, mm(c.length), [c.triangular && 'Triangular section', c.note].filter(Boolean).join('; ')])
   }
   const cell = (v) => {
     const s = String(v)

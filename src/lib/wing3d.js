@@ -7,7 +7,11 @@
 // s, chordwise x and height h above its panel's chord plane; dihedral tilts that plane.
 // Washout rotates each section about the spar line (TE up), as in ribs.js, so the skin and
 // the ribs agree.
+//
+// A foam wing (foam.js) comes as its equivalent fully sheeted structure with no ribs: the skins
+// are its sheeting, and its core is a solid between them (coreSection).
 
+import { MIN_CORE, isFoam } from './foam.js'
 import { skinAt, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
 import { gussetSides } from './ribs.js'
 import { isRound, roundFitAt } from './edgeStock.js'
@@ -430,6 +434,22 @@ export function servoBox(a, structure, b) {
   return { base, ceil, top: base + b.servo.height }
 }
 
+// A foam wing's core at s, from x0 to x1 (plan x): between the skins' inner faces, top surface
+// front to back then the bottom back to front, n + 1 points each; where the skins meet the two
+// surfaces close up rather than cross.
+export function coreSection(a, structure, s, x0, x1, n = 24) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4) || !(x1 > x0)) return null
+  const xs = cosine(n).map((f) => x0 + (x1 - x0) * f)
+  const pairs = xs.map((x) => {
+    const up = insetHeight(a, structure, s, x, 'upper')
+    const lo = insetHeight(a, structure, s, x, 'lower')
+    const mid = (up + lo) / 2
+    return up - lo < MIN_CORE ? [mid, mid] : [up, lo]
+  })
+  return [...xs.map((x, i) => [x, pairs[i][0]]), ...[...xs].reverse().map((x, i) => [x, pairs[n - i][1]])]
+}
+
 // Trailing edge stock at s: the section's own tail over its depth.
 export function teSection(a, structure, s, k = 8) {
   const sec = a.section(s)
@@ -456,6 +476,12 @@ export function sectionAt(a, structure, parts, s) {
   const pieces = []
   const add = (kind, pts, holes = []) => pts && pts.length > 2 && pieces.push({ kind, pts, holes })
   if (st.covering.type !== 'open' && st.covering.sheetThickness > 0) for (const w of ['upper', 'lower']) add('sheet', sheetSection(a, st, s, w))
+  if (isFoam(st)) {
+    const sec = a.section(s)
+    // Stopping at a control surface's fixed hinge spar, as the 3D core does
+    const sf = (a.surfaces ?? []).find((x) => x.ok && s > x.s0 && s < x.s1)
+    if (sec && sec.c > 1e-4) add('core', coreSection(a, st, s, sec.xl + Math.min(st.le.width || 0, sec.c / 2), sf ? sf.faces.fixedFront(s) : sec.xl + sec.c - Math.min(st.te.width || 0, sec.c / 2)))
+  }
   add('le', leSection(a, st, s))
   add('te', teSection(a, st, s))
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(a.tipS, a.rootS + sp.tubeLength) : a.tipS
@@ -717,6 +743,24 @@ export function wing3d(a, structure, parts) {
     add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12))
   }
   add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }))
+
+  // A foam wing's core: from the leading edge stock to the trailing edge stock, stopping at the
+  // fixed hinge spar along each control surface, whose own core runs from its hinge spar back;
+  // and its shear web, the whole span
+  if (isFoam(st)) {
+    const sec = (s) => a.section(s)
+    const front = (s) => sec(s).xl + Math.min(st.le.width || 0, sec(s).c / 2)
+    const teFront = (s) => sec(s).xl + sec(s).c - Math.min(st.te.width || 0, sec(s).c / 2)
+    let at = s0
+    for (const sf of surfaces) {
+      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40))
+      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12))
+      add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12))
+      at = sf.s1
+    }
+    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40))
+    if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40))
+  }
 
   // Servo bays: each servo's case, standing on the lower skin's inside, and the mount plate
   // across the bay under its lugs

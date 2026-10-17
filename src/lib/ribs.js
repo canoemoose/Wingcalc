@@ -20,6 +20,8 @@ import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
 import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt } from './edgeStock.js'
+import { isFoam } from './foam.js'
+import { foamParts, WIRE_KERF, LEAD_IN } from './foamParts.js'
 
 const RAD = Math.PI / 180
 const PROFILE_POINTS = 120
@@ -589,8 +591,11 @@ function dihedralAt(a) {
 }
 
 // Everything to cut for the wing, plus a cut list for strip stock and an estimate of the
-// structure's weight. handedness: 'right' | 'left' | 'pair'.
-export function buildParts(a, structure, { handedness = 'pair' } = {}) {
+// structure's weight. handedness: 'right' | 'left' | 'pair'. A foam wing (foam.js) has no ribs;
+// its hot-wire templates, skins and pockets come from foamParts.js, wireKerf and leadIn
+// setting its templates.
+export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_KERF, leadIn = LEAD_IN } = {}) {
+  const foam = isFoam(structure)
   const r = structure.ribs
   const both = handedness === 'pair'
   const qtyOf = (s) => (both ? (s < 1e-6 && r.rootJoint !== 'two-piece' ? 1 : 2) : 1)
@@ -664,7 +669,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   // Each control surface's own ribs: one at each end (a gap clear of the wing's end ribs) and
   // the part behind the hinge of every wing rib between
   const h = structure.hinges
-  for (const sf of surfaces) {
+  for (const sf of foam ? [] : surfaces) {
     const t = r.thickness || 0
     const inner = ribs.filter((rb) => rb.s > sf.endRibs[0] + t + 1e-6 && rb.s < sf.endRibs[1] - t - 1e-6)
     const list = [{ s: sf.endRibs[0], kind: 'surface' }, ...inner, { s: sf.endRibs[1], kind: 'surface' }]
@@ -724,6 +729,8 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const warnings = []
   const sheeted = structure.covering.type === 'sheeted' && structure.covering.sheetThickness > 0
   const ribNamed = (s) => ribs.find((rb) => Math.abs(rb.s - s) < 1e-3)?.name ?? '?'
+  // Where a bay's or a brake's parts are glued: between its ribs, or in a foam wing's pocket
+  const betweenRibs = (sA, sB) => (foam ? 'into its pocket in the core' : `between ${ribNamed(sA)} and ${ribNamed(sB)}`)
   for (const bay of bays) {
     const sv = bay.servo
     const len = bay.plate.s1 - bay.plate.s0
@@ -748,8 +755,8 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       label: null,
       bay,
       notes: [
-        `${bay.label} (${bay.hostLabel || 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued between ${ribNamed(bay.sA)} and ${ribNamed(bay.sB)}, long side along the chord. The servo goes in from below, its lugs screwed up into the plate`,
-        `Plate fits the gap between the rib faces (${(len * 1000).toFixed(1)} mm); the cut-out leaves about ${(((len - sv.width) / 2 - cut) * 1000).toFixed(1)} mm of ply down each side`,
+        `${bay.label} (${bay.hostLabel || 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued ${betweenRibs(bay.sA, bay.sB)}, long side along the chord. The servo goes in from below, its lugs screwed up into the plate`,
+        `Plate fits the gap between the ${foam ? "pocket's ends" : 'rib faces'} (${(len * 1000).toFixed(1)} mm); the cut-out leaves about ${(((len - sv.width) / 2 - cut) * 1000).toFixed(1)} mm of ply down each side`,
       ],
     })
     if (sheeted) {
@@ -776,7 +783,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const halves = both ? 2 : 1
   for (const br of brakes) {
     const len = br.inner[1] - br.inner[0]
-    const between = `between ${ribNamed(br.sA)} and ${ribNamed(br.sB)}`
+    const between = betweenRibs(br.sA, br.sB)
     if (br.type === 'blade') {
       br.walls.forEach((w, k) => {
         const id = `${br.name}-${k ? 'R' : 'F'}`
@@ -1045,7 +1052,10 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
     const base = flat.tip.base
     const outline = flat.tip.polygon.map(([s, x]) => [s - base.s, x])
     const tipRib = parts.find((p) => p.group === 'ribs' && p.kind === 'tip')
-    const depth = tipRib ? bounds(tipRib.rib.outline).h + 2 * (cov.type === 'open' ? 0 : cov.sheetThickness || 0) : 0
+    // A foam wing has no tip rib: the deepest the section gets at the tip
+    const tipSec = a.section(a.tipS)
+    const tipDepth = tipSec ? Math.max(...Array.from({ length: 41 }, (_, i) => tipSec.depth(i / 40))) : 0
+    const depth = tipRib ? bounds(tipRib.rib.outline).h + 2 * (cov.type === 'open' ? 0 : cov.sheetThickness || 0) : foam ? tipDepth : 0
     parts.push({
       id: 'T1',
       name: 'T1',
@@ -1062,9 +1072,16 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   }
 
   const cutList = stripCutList(a, structure, parts, both)
+  // A foam wing's templates, skins, web and pockets, its blocks and skin sheets, and the core's
+  // and skin glue's weight
+  const extra = foam ? foamParts(a, structure, { both, kerf: wireKerf, leadIn }) : null
+  if (extra) {
+    parts.push(...extra.parts)
+    cutList.push(...extra.cutList)
+  }
   const covered = coveredArea(a, structure)
   const servoMass = bays.reduce((m, x) => m + x.mass, 0)
-  const weight = estimateWeight(parts, cutList, covered, structure, both ? 2 : 1, servoMass)
+  const weight = estimateWeight(parts, cutList, covered, structure, both ? 2 : 1, servoMass, extra)
   return { parts, skipped, cutList, weight, covered, boards, warnings }
 }
 
@@ -1369,8 +1386,10 @@ export function coveredArea(a, structure, n = 40) {
 // Rough weight of the structure, kg, by group: every part and strip from its size and
 // density, plus 10% for glue, and the covering over both surfaces (covered from
 // coveredArea, for one half wing; halves: how many are being made), plus the servos
-// (servoMass: those on one half wing).
-function estimateWeight(parts, cutList, covered, structure, halves, servoMass = 0) {
+// (servoMass: those on one half wing). foam: a foam wing's core and skin glue, kg on one half
+// wing (foamParts.js); its skins are weighed as parts but get no 10% (their glue is the
+// stated allowance), and the templates and foam blocks aren't part of the wing.
+function estimateWeight(parts, cutList, covered, structure, halves, servoMass = 0, foam = null) {
   const by = {}
   const add = (k, v) => (by[k] = (by[k] ?? 0) + v)
   for (const p of parts) {
@@ -1381,6 +1400,7 @@ function estimateWeight(parts, cutList, covered, structure, halves, servoMass = 
     add(p.group, area * p.thickness * rho * p.qty * fill)
   }
   for (const c of cutList) {
+    if (c.buy || c.block) continue
     const rho = (MATERIALS[c.material] ?? MATERIALS['balsa-medium']).density
     let section = c.size[0] * c.size[1]
     if (c.triangular) section /= 2
@@ -1388,7 +1408,13 @@ function estimateWeight(parts, cutList, covered, structure, halves, servoMass = 
     if (c.tube) section = (Math.PI / 4) * (c.size[0] ** 2 - (c.size[0] - 2 * c.size[1]) ** 2)
     add('strip', section * c.length * c.qty * rho)
   }
-  const bare = Object.values(by).reduce((s, v) => s + v, 0) * 1.1
+  const skins = by.skins ?? 0
+  let bare = (Object.values(by).reduce((s, v) => s + v, 0) - skins) * 1.1 + skins
+  if (foam) {
+    by.core = foam.core * halves
+    by.glue = foam.glue * halves
+    bare += by.core + by.glue
+  }
   const f = finishes(structure.covering)
   by.covering = covered ? (covered.sheeted * f.sheeted.mass + covered.open * f.open.mass) * halves : 0
   // The servos themselves, one per bay on each half

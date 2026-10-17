@@ -3,7 +3,7 @@
 // behind, above and inboard, so it reads like the plan (root left, tip right, leading edge at
 // the top) and the ribs show their profiles. Plain SVG path data, so the page needs no three.js.
 import { planEntities } from './dxf.js'
-import { worldPoint, ribPlacement, applyMatrix, HOME_VIEW, surfaceHeight, insetHeight } from './wing3d.js'
+import { worldPoint, ribPlacement, applyMatrix, HOME_VIEW, surfaceHeight, insetHeight, coreSection } from './wing3d.js'
 import { bounds } from './ribs.js'
 
 const PAD = 0.04 // of the drawing's larger side, around it
@@ -50,7 +50,8 @@ function camera(dir = HOME_VIEW) {
 
 // The half wing as a wireframe: each rib's outline (and lightening holes) at its mid-plane,
 // and lines along the span for the leading and trailing edges (where the ribs end) and the
-// spar's top and bottom. Every line follows the washout, as the ribs do. Returns { box, lines: [{ kind, d }] } or null.
+// spar's top and bottom. Every line follows the washout, as the ribs do. A foam wing has no
+// ribs: its cores' end faces stand in for them. Returns { box, lines: [{ kind, d }] } or null.
 export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
   const view = camera()
   const lines = []
@@ -62,9 +63,18 @@ export function isoThumb(a, structure, parts, { steps = 24 } = {}) {
     lines.push({ kind: 'rib', pts: p.outline.map(at), closed: true })
     for (const h of p.holes) lines.push({ kind: 'hole', pts: h.map(at), closed: true })
   }
+  const coreEnds = [...new Set((a.cores ?? []).flatMap((c) => [c.from, c.to]))]
+  for (const s of coreEnds) {
+    const sec = a.section(s)
+    if (!sec || !(sec.c > 1e-4)) continue
+    const x0 = sec.xl + Math.min(structure.le?.width || 0, sec.c / 2)
+    const x1 = sec.xl + sec.c - Math.min(structure.te?.width || 0, sec.c / 2)
+    const pts = coreSection(a, structure, s, x0, x1)
+    if (pts) lines.push({ kind: 'rib', pts: pts.map(([x, h]) => view(worldPoint(a, s, x, h))), closed: true })
+  }
   // Along the span, from the root to the tip, through each rib's station so the lines meet
   // the ribs there rather than cutting the corner between samples
-  const along = [...new Set([...Array.from({ length: steps + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / steps), ...ribs.map((p) => p.s)])]
+  const along = [...new Set([...Array.from({ length: steps + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / steps), ...ribs.map((p) => p.s), ...coreEnds])]
     .filter((s) => s >= a.rootS - 1e-9 && s <= a.tipS + 1e-9)
     .sort((p, q) => p - q)
   const span = (kind, fn) => {
