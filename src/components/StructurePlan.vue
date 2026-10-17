@@ -11,7 +11,11 @@
 // bay. Delete (or the command bar) removes the selected rib, and the arrow keys nudge it a
 // grid step (Shift for ten). Manual ribs and hard points move; root, panel-break and tip
 // ribs are fixed.
+//
+// Layers (top left), as in the 3D view: each kind of part can be hidden, and only those the wing
+// has are listed. The menu closes on Esc, its button, or a press outside it.
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
+import { EYE, EYE_OFF } from '../lib/icons.js'
 import { flatPanels } from '../lib/wing.js'
 import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan } from '../lib/structure.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
@@ -222,6 +226,48 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', remeasure)
 })
 // Space kept clear of the rail (when editing) and the controls along the top and bottom, px
+// Layers: what's drawn
+const show = reactive({ sheeting: true, edges: true, stringers: true, spar: true, surfaces: true, hinges: true, brakes: true, servos: true, ribs: true })
+const LAYERS = [
+  { id: 'sheeting', label: 'Sheeting' },
+  { id: 'edges', label: 'Leading/Trailing edges' },
+  { id: 'spar', label: 'Spar' },
+  { id: 'stringers', label: 'Stringers' },
+  { id: 'ribs', label: 'Ribs' },
+  { id: 'surfaces', label: 'Control surfaces' },
+  { id: 'hinges', label: 'Hinge spars and tabs' },
+  { id: 'servos', label: 'Servo bays' },
+  { id: 'brakes', label: 'Air brakes' },
+]
+const present = computed(() => ({
+  sheeting: !!geom.value.sheet || geom.value.patches.length > 0,
+  edges: true,
+  spar: props.analysis.structure?.spar.type !== 'none',
+  stringers: geom.value.stringers.length > 0,
+  ribs: ribLines.value.length > 0,
+  surfaces: geom.value.hinges.length > 0,
+  hinges: geom.value.hinges.length > 0,
+  servos: geom.value.servos.length > 0,
+  brakes: geom.value.brakes.length > 0,
+}))
+const layersOpen = ref(false)
+const layersEl = ref(null)
+function onLayersOutside(e) {
+  if (layersOpen.value && !layersEl.value?.contains(e.target)) layersOpen.value = false
+}
+function onLayersKey(e) {
+  if (e.key === 'Escape' && layersOpen.value) {
+    e.stopPropagation()
+    layersOpen.value = false
+  }
+}
+watch(layersOpen, (open) => {
+  if (typeof document === 'undefined') return
+  if (open) document.addEventListener('pointerdown', onLayersOutside, true)
+  else document.removeEventListener('pointerdown', onLayersOutside, true)
+})
+onBeforeUnmount(() => typeof document !== 'undefined' && document.removeEventListener('pointerdown', onLayersOutside, true))
+
 const inset = computed(() => ({ left: props.editable ? 76 : 8, right: 8, top: 40, bottom: 40 }))
 const vb = computed(() => {
   const f = fit.value
@@ -528,37 +574,41 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           <polygon v-if="fuselage" :points="fuselage" class="wc-sp__outline" />
           <polygon v-for="p in flat.panels" :key="'p' + p.index" :points="poly(p.polygon)" class="wc-sp__outline" />
           <polygon v-if="flat.tip" :points="poly(flat.tip.polygon)" class="wc-sp__outline wc-sp__tip" />
-          <template v-for="(p, i) in geom.patches" :key="'hp' + i">
+          <template v-for="(p, i) in show.sheeting ? geom.patches : []" :key="'hp' + i">
             <polygon :points="p" class="wc-sp__sheet" />
             <polygon :points="p" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
           </template>
-          <template v-if="geom.sheet">
+          <template v-if="geom.sheet && show.sheeting">
             <polygon :points="geom.sheet" class="wc-sp__sheet" />
             <polygon :points="geom.sheet" class="wc-sp__sheet-hatch" :fill="`url(#${hatchId})`" />
           </template>
-          <polyline :points="geom.le" class="wc-sp__stock" />
-          <polyline :points="geom.te" class="wc-sp__stock" />
-          <polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" />
-          <polygon v-if="analysis.structure?.spar.type !== 'none'" :points="geom.spar" class="wc-sp__spar" />
-          <template v-for="h in geom.hinges" :key="'h' + h.id">
-            <polygon :points="h.outline" class="wc-sp__surface" />
-            <polygon :points="h.fixed" class="wc-sp__hinge" />
-            <polygon :points="h.moving" class="wc-sp__hinge" />
-            <polygon v-for="(t, k) in h.tabs" :key="k" :points="t" class="wc-sp__tab" />
+          <template v-if="show.edges">
+            <polyline :points="geom.le" class="wc-sp__stock" />
+            <polyline :points="geom.te" class="wc-sp__stock" />
           </template>
-          <template v-for="r in geom.brakes" :key="'ab' + r.id">
+          <template v-if="show.stringers"><polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" /></template>
+          <polygon v-if="analysis.structure?.spar.type !== 'none' && show.spar" :points="geom.spar" class="wc-sp__spar" />
+          <template v-for="h in geom.hinges" :key="'h' + h.id">
+            <polygon v-if="show.surfaces" :points="h.outline" class="wc-sp__surface" />
+            <template v-if="show.hinges">
+              <polygon :points="h.fixed" class="wc-sp__hinge" />
+              <polygon :points="h.moving" class="wc-sp__hinge" />
+              <polygon v-for="(t, k) in h.tabs" :key="k" :points="t" class="wc-sp__tab" />
+            </template>
+          </template>
+          <template v-for="r in show.brakes ? geom.brakes : []" :key="'ab' + r.id">
             <polygon :points="r.box" class="wc-sp__brake"><title>{{ r.label }}: {{ r.type === 'blade' ? 'box between its ribs' : 'frame under the top surface' }}</title></polygon>
             <polygon v-for="(o, k) in r.openings" :key="k" :points="o" class="wc-sp__slot" />
             <polyline v-if="r.hinge" :points="r.hinge" class="wc-sp__brake-hinge" />
           </template>
-          <template v-for="b in geom.servos" :key="'b' + b.id">
+          <template v-for="b in show.servos ? geom.servos : []" :key="'b' + b.id">
             <polyline :points="b.lead" class="wc-sp__lead" />
             <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: hatch in the lower surface</title></polygon>
             <polygon :points="b.body" class="wc-sp__servo" />
           </template>
         </g>
         <g
-          v-for="(r, i) in ribLines"
+          v-for="(r, i) in show.ribs ? ribLines : []"
           :key="r.id"
           class="wc-sp__rib"
           :class="{
@@ -585,6 +635,24 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         </g>
         <line v-if="preview" :x1="preview.s" :x2="preview.s" :y1="preview.y1" :y2="preview.y2" class="wc-sp__preview" />
       </svg>
+      <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Show">
+        <div ref="layersEl" class="wc-3d__menu" @keydown="onLayersKey">
+          <button type="button" class="wc-button wc-stage__btn" :aria-expanded="String(layersOpen)" :aria-controls="`${hatchId}-layers`" title="Show and hide parts" @click="layersOpen = !layersOpen">
+            Layers
+          </button>
+          <div v-if="layersOpen" :id="`${hatchId}-layers`" class="wc-layers" role="group" aria-label="Layers">
+            <h4 class="wc-layers__head">Show</h4>
+            <ul class="wc-layers__rows">
+              <li v-for="l in LAYERS.filter((x) => present[x.id])" :key="l.id" class="wc-layers__row" :class="{ 'wc-layers__row--off': !show[l.id] }">
+                <span class="wc-layers__name">{{ l.label }}</span>
+                <button type="button" class="wc-layers__icon" :aria-pressed="String(show[l.id])" :title="`${show[l.id] ? 'Hide' : 'Show'} ${l.label.toLowerCase()}`" @click="show[l.id] = !show[l.id]">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in show[l.id] ? EYE : EYE_OFF" :key="k" :d="d" /></svg>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
       <div v-if="editable" class="wc-cmd" role="toolbar" :aria-label="readout?.movable ? readout.name : 'Ribs'">
         <template v-if="readout?.movable">
           <span class="wc-cmd__label">{{ readout.name }}</span>

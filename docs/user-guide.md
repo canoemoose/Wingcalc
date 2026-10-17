@@ -150,7 +150,7 @@ The 3D view shows the core as a solid between the skins (layer **Foam core**; tu
 
 The structure card lists the control surfaces built, the servo bays, whether crow is available or on, and the air brakes built. The wing weight includes the servos, and the root bending moment is a little lower for them: each servo's weight relieves the spar, in proportion to how far out it sits.
 
-The plan shades bays amber where ribs are too far apart and red where the spar, web or sheeting is short of strength in itself; closer ribs only fix the first. A warning says which part, where, by how much and what would help, including roughly the cap thickness needed. Sheeted areas are hatched.
+The plan has a **Layers** menu (top left) like the 3D view's, to hide the sheeting, edge stock, spar, stringers, ribs, control surfaces, hinge spars and tabs, servo bays or air brakes; it lists only those the wing has. The plan shades bays amber where ribs are too far apart and red where the spar, web or sheeting is short of strength in itself; closer ribs only fix the first. A warning says which part, where, by how much and what would help, including roughly the cap thickness needed. Sheeted areas are hatched.
 
 The **Loads** card plots the bending moment along the span, and below it the margin of safety for each failure mode (spar in compression and tension, sheeting, shear web, web buckling, buckling between ribs), one coloured line each with a legend giving its lowest margin. The lowest of all is marked with a dot, and its line and legend entry are heavier. The shaded band below 0 is short of strength; margins above +3 are drawn at +3.
 
