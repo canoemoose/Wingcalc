@@ -209,7 +209,9 @@ export function defaultStructure() {
     // layer: flush with the rib's 'top', 'bottom' or 'both'; teLayer the same at the trailing
     // edge, null to follow layer (as saves from before it did)
     gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both', layer: 'top', teLayer: null },
-    braces: { enabled: true, material: 'ply-birch', thickness: null, length: 0.08 },
+    // thicknesses: each brace's ply, by name ({ B1: 0.003 }); a brace not listed takes thickness
+    // (as older saves set one for all), and with neither, the next standard ply the loads need
+    braces: { enabled: true, material: 'ply-birch', thickness: null, thicknesses: {}, length: 0.08 },
     // Control-surface hinges: a bevelled hinge line with Mylar tabs slotted into a hinge spar
     // on each side at its centre line. fixedWidth and movingWidth are the hinge spars' widths
     // across the hinge (the fixed part's, square; the moving surface's, bevelled); tabs are

@@ -695,7 +695,9 @@ export function braceSizing(a, structure, { both = true } = {}) {
     const fold = [raw[5], raw[2]]
     const M = interpRows(a.pos.rows, brk.s)
     const ok = h0 >= MIN_BRACE_DEPTH
-    const entered = Number.isFinite(br.thickness) && br.thickness > 0 ? br.thickness : null
+    // This brace's own thickness, else the one for all braces (older saves), else from the loads
+    const own = br.thicknesses?.[`B${k}`]
+    const entered = Number.isFinite(own) && own > 0 ? own : Number.isFinite(br.thickness) && br.thickness > 0 ? br.thickness : null
     const needT = ok ? (6 * M * a.safetyFactor) / (2 * sigma * h0 * h0) : null
     const chosenT = entered ?? (ok ? PLY.find((x) => x >= needT) ?? PLY.at(-1) : null)
     const margin = ok && chosenT ? chosenT / needT - 1 : null
@@ -1057,8 +1059,11 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       holes: [],
       etch: [fold.map(shift)],
       label: null,
+      // The face grain along the brace as a whole: half way between its two arms (the inner arm
+      // runs along x, the outer one turned by the dihedral angle)
+      grainAngle: (b.dihedralDeg * RAD) / 2,
       notes: [
-        `${b.name}, one each side of the spar, ${Math.round((b.s - a.rootS) * 1000)} mm from the root rib`,
+        `${b.name}, one each side of the spar, ${Math.round((b.s - a.rootS) * 1000)} mm from the root rib, face grain along it, half way between its arms`,
         `Dihedral angle at the break: ${Math.abs(b.dihedralDeg).toFixed(1)}°`,
         `Bending moment at the break: ${b.moment.toFixed(1)} N·m`,
         `Brace height between the spar caps: ${mm(h0)}`,

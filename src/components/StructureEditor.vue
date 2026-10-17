@@ -22,7 +22,7 @@ const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   // The spar position the aerofoil suggests (its thickest point), shown as the placeholder
   autoSpar: { type: Number, default: null },
-  // Brace thicknesses the loads call for, in metres, shown as placeholders
+  // Each dihedral brace and the thickness its loads call for, m ({ name, need }), for its row
   braceNeeds: { type: Array, default: () => [] },
   // Where the ribs are now (distances from the root rib), to start manual spacing from
   ribDistances: { type: Array, default: () => [] },
@@ -334,12 +334,9 @@ const halvesHint = computed(() =>
   st.value.ribs.rootJoint === 'two-piece' ? "Each half starts at the fuselage side and plugs in; the joiner itself isn't designed here." : 'Joined at the centreline.',
 )
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
-const braceHint = computed(() => {
-  const n = props.braceNeeds.filter(Number.isFinite)
-  if (!n.length) return 'No dihedral breaks to brace.'
-  const needs = n.map((v, i) => `B${i + 1} needs at least ${(v * 1000).toFixed(1)} mm at the material strength with the safety factor`)
-  return `Thickness needed: ${needs.join('; ')}. Leave blank to use the next standard ply above that.`
-})
+// A brace's own thickness, else the one older saves set for all
+const braceT = (name) => st.value.braces.thicknesses?.[name] ?? st.value.braces.thickness ?? null
+const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000).toFixed(1)} mm` : 'Too shallow to brace')
 </script>
 
 <template>
@@ -1012,16 +1009,19 @@ const braceHint = computed(() => {
       <template v-if="st.braces.enabled">
         <p v-if="st.spar.type === 'tube'" class="wc-field__hint">A tube spar joins with a bent joiner or sleeve instead, so no plates are drawn.</p>
         <SelectField :id="id('bm')" :model-value="st.braces.material" label="Material" :options="PLY" @update:model-value="set('braces.material', $event)" />
+        <p v-if="!braceNeeds.length" class="wc-field__hint">No dihedral breaks to brace.</p>
         <UnitInput
-          :id="id('bt')"
-          :model-value="st.braces.thickness"
+          v-for="b in braceNeeds"
+          :key="b.name"
+          :id="id(`bt-${b.name}`)"
+          :model-value="braceT(b.name)"
           quantity="thin"
           :system="system"
-          label="Thickness"
-          placeholder="auto"
-          :hint="braceHint"
-          @update:model-value="set('braces.thickness', $event)"
+          :label="`${b.name} thickness`"
+          :placeholder="braceNeedText(b)"
+          @update:model-value="set('braces.thicknesses', { ...(st.braces.thicknesses ?? {}), [b.name]: $event })"
         />
+        <p v-if="braceNeeds.length" class="wc-field__hint">Blank takes the next standard ply above what the loads need.</p>
         <UnitInput
           :id="id('bl')"
           :model-value="st.braces.length"

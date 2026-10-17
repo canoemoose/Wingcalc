@@ -4,7 +4,7 @@ import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
-import { braceSizing } from '../src/lib/ribs.js'
+import { braceSizing, buildParts } from '../src/lib/ribs.js'
 
 // A swept, polyhedral wing: two dihedral breaks (the centreline and the panel joint) to brace
 const swept = (input) => {
@@ -73,5 +73,29 @@ describe('dihedral braces', () => {
       st.braces.thickness = 0.006 // 6 mm, well above what the bending needs
     })
     expect(a.warnings.some((w) => String(w.id).startsWith('brace-'))).toBe(false)
+  })
+
+  it('takes the brace thickness set for it, then the one for all, then the loads', () => {
+    const { a, st } = analyse((st) => {
+      st.braces.thickness = 0.004
+      st.braces.thicknesses = { B2: 0.0015 }
+    })
+    const [b1, b2] = braceSizing(a, st)
+    expect(b1.chosenT).toBe(0.004)
+    expect(b2.chosenT).toBe(0.0015)
+    expect(b2.entered).toBe(true)
+    const { a: a0, st: st0 } = analyse()
+    expect(braceSizing(a0, st0).every((b) => !b.entered)).toBe(true)
+  })
+
+  it('lays the grain along the brace, half way between its arms', () => {
+    const { a, st } = analyse()
+    const braces = braceSizing(a, st)
+    const parts = buildParts(a, a.structure).parts.filter((p) => p.group === 'braces')
+    expect(parts.length).toBe(braces.length)
+    for (const p of parts) {
+      const b = braces.find((x) => x.name === p.name)
+      expect(p.grainAngle).toBeCloseTo((b.dihedralDeg * Math.PI) / 180 / 2, 9)
+    }
   })
 })

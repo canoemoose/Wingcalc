@@ -676,7 +676,8 @@ const ribRows = computed(() => {
   const a = structureResult.value?.a
   return a ? a.ribs.map((rb, i) => ({ name: `R${i + 1}`, d: rb.s - a.rootS, kind: rb.kind, label: rb.label ?? null, manualId: rb.kind === 'manual' ? rb.id : null })) : []
 })
-const braceNeeds = computed(() => structureResult.value?.parts.filter((p) => p.group === 'braces').map((p) => p.need) ?? [])
+// Each dihedral brace by name, with the thickness its loads need (null where it can't be made)
+const braceNeeds = computed(() => (structureResult.value?.a?.braces ?? []).map((b) => ({ name: b.name, need: b.ok ? b.needT : null })))
 const projectFileBase = computed(() => fileName(project.name).replace(/\.wingcalc\.json$/, ''))
 
 const thin = (v) => format(v, 'thin', u('thin'))
