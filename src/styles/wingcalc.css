@@ -1081,6 +1081,22 @@
   fill: var(--wc-text);
   font-variant-numeric: tabular-nums;
 }
+/* A dimension that can be typed: click it for a box over it */
+.wc-plan__dims .wc-plan__dimedit {
+  cursor: text;
+  text-decoration: underline dotted;
+}
+.wc-plan__dims .wc-plan__dimedit:hover {
+  fill: var(--wc-accent);
+}
+.wc-plan__diminput {
+  position: absolute;
+  z-index: 2;
+  width: 7em;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  font-size: 0.8rem;
+}
 .wc-plan__readout {
   font-size: 0.8rem;
   color: var(--wc-muted);

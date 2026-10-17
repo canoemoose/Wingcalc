@@ -5,12 +5,13 @@
 // key points and follow them as the wing changes. Control surfaces are drawn on their panels,
 // to select, add (from the command bar, on the selected panel) and delete. Numeric entry lives
 // in PanelEditor and ControlSurfaceEditor.
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations, wingSampler } from '../lib/wing.js'
 import { resolveSurfaces, surfaceOutline, addSurface, MIN_SURFACE } from '../lib/controlSurfaces.js'
 import { resolveBrakes, brakeOutline, addBrake, brakeKey } from '../lib/airBrakes.js'
 import { dropBay } from '../lib/servos.js'
-import { format, defaultUnit, systemOf } from '../lib/units.js'
+import { format, defaultUnit, systemOf, inputValue, toBase } from '../lib/units.js'
+import { evaluate } from '../lib/expr.js'
 import { MEASURE } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
 
@@ -96,10 +97,49 @@ const surfaceEdit = computed(() => {
     teOut: te(r.s1),
     teMid: te(sm),
     panelInner: pp.inner.s,
+    panelLength: pp.outer.s - pp.inner.s,
   }
 })
 function setSurface(id, patch) {
   controls.value = { ...controls.value, surfaces: controls.value.surfaces.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
+}
+
+// Typing a surface's dimension on the drawing: click one of its numbers and a box opens over it;
+// Enter or leaving the box sets it, Escape leaves it as it was. key is 'depthIn', 'depthOut',
+// 'length' or 'setIn'; at is where the number is drawn, in world (s, x).
+const dimEdit = ref(null)
+const dimInput = ref(null)
+function editDim(key, at) {
+  const e = surfaceEdit.value
+  if (!e) return
+  dimEdit.value = { key, left: (at[0] - view.ox) * view.scale, top: (at[1] - view.oy) * view.scale, text: inputValue(e[key], 'length', lengthUnit.value) }
+  nextTick(() => {
+    dimInput.value?.focus()
+    dimInput.value?.select()
+  })
+}
+function commitDim() {
+  const d = dimEdit.value
+  dimEdit.value = null
+  const e = surfaceEdit.value
+  if (!d || !e) return
+  const n = evaluate(d.text, { quantity: 'length', unit: lengthUnit.value })
+  if (n === null) return
+  const v = toBase(n, 'length', lengthUnit.value)
+  const r = e.r
+  // A depth set by hand fixes both ends' hinge fractions as they are now (no longer parallel)
+  const hingeAt = (s, te) => {
+    const w = sampler.value.at(s)
+    return Math.min(0.97, Math.max(0.05, (te - Math.max(0, v) - w.xl) / w.c))
+  }
+  const from = r.s0 - e.panelInner
+  if (d.key === 'depthIn') setSurface(r.id, { hingeIn: hingeAt(r.s0, e.teIn), hingeOut: r.hingeOut, depth: null })
+  else if (d.key === 'depthOut') setSurface(r.id, { hingeIn: r.hingeIn, hingeOut: hingeAt(r.s1, e.teOut), depth: null })
+  else if (d.key === 'length') setSurface(r.id, { to: Math.min(e.panelLength, from + Math.max(MIN_SURFACE, v)) })
+  else if (d.key === 'setIn') {
+    const at = Math.min(Math.max(0, v), e.panelLength - e.length)
+    setSurface(r.id, { from: at, to: at + e.length })
+  }
 }
 // The air brakes placed on the wing: those that can be drawn, as the box (or plate) in plan
 const brakes = computed(() => {
@@ -1086,14 +1126,42 @@ watch(
           />
 
           <!-- Dimensions for the selected control surface: depth at each end, its length, and how far out it starts -->
+          <!-- Click a number to type it -->
           <g v-if="surfaceEdit && tool === 'select'" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
-            <text :x="surfaceEdit.inner[0] - px(6)" :y="(surfaceEdit.inner[1] + surfaceEdit.teIn) / 2" text-anchor="end" dominant-baseline="middle">
-              {{ fmt(surfaceEdit.depthIn) }}
+            <text
+              :x="surfaceEdit.inner[0] - px(6)"
+              :y="(surfaceEdit.inner[1] + surfaceEdit.teIn) / 2"
+              text-anchor="end"
+              dominant-baseline="middle"
+              class="wc-plan__dimedit"
+              pointer-events="all"
+              @pointerdown.stop
+              @click="editDim('depthIn', [surfaceEdit.inner[0] - px(30), (surfaceEdit.inner[1] + surfaceEdit.teIn) / 2])"
+            >
+              {{ fmt(surfaceEdit.depthIn) }}<title>Depth at the inner end: click to type it</title>
             </text>
-            <text :x="surfaceEdit.outer[0] + px(6)" :y="(surfaceEdit.outer[1] + surfaceEdit.teOut) / 2" dominant-baseline="middle">
-              {{ fmt(surfaceEdit.depthOut) }}
+            <text
+              :x="surfaceEdit.outer[0] + px(6)"
+              :y="(surfaceEdit.outer[1] + surfaceEdit.teOut) / 2"
+              dominant-baseline="middle"
+              class="wc-plan__dimedit"
+              pointer-events="all"
+              @pointerdown.stop
+              @click="editDim('depthOut', [surfaceEdit.outer[0] + px(30), (surfaceEdit.outer[1] + surfaceEdit.teOut) / 2])"
+            >
+              {{ fmt(surfaceEdit.depthOut) }}<title>Depth at the outer end: click to type it</title>
             </text>
-            <text :x="surfaceEdit.mid[0]" :y="surfaceEdit.teMid + px(14)" text-anchor="middle">{{ fmt(surfaceEdit.length) }}</text>
+            <text
+              :x="surfaceEdit.mid[0]"
+              :y="surfaceEdit.teMid + px(14)"
+              text-anchor="middle"
+              class="wc-plan__dimedit"
+              pointer-events="all"
+              @pointerdown.stop
+              @click="editDim('length', [surfaceEdit.mid[0], surfaceEdit.teMid + px(10)])"
+            >
+              {{ fmt(surfaceEdit.length) }}<title>Length along the span: click to type it</title>
+            </text>
             <template v-if="surfaceEdit.setIn > 0.001">
               <line
                 :x1="surfaceEdit.panelInner"
@@ -1102,8 +1170,16 @@ watch(
                 :y2="surfaceEdit.teIn + px(22)"
                 class="wc-plan__dim-line"
               />
-              <text :x="(surfaceEdit.panelInner + surfaceEdit.inner[0]) / 2" :y="surfaceEdit.teIn + px(34)" text-anchor="middle">
-                {{ fmt(surfaceEdit.setIn) }} from the panel's inner end
+              <text
+                :x="(surfaceEdit.panelInner + surfaceEdit.inner[0]) / 2"
+                :y="surfaceEdit.teIn + px(34)"
+                text-anchor="middle"
+                class="wc-plan__dimedit"
+                pointer-events="all"
+                @pointerdown.stop
+                @click="editDim('setIn', [(surfaceEdit.panelInner + surfaceEdit.inner[0]) / 2, surfaceEdit.teIn + px(30)])"
+              >
+                {{ fmt(surfaceEdit.setIn) }} from the panel's inner end<title>Where it starts: click to type it</title>
               </text>
             </template>
           </g>
@@ -1128,6 +1204,20 @@ watch(
             </text>
           </g>
         </svg>
+        <input
+          v-if="dimEdit"
+          ref="dimInput"
+          v-model="dimEdit.text"
+          class="wc-input wc-plan__diminput"
+          type="text"
+          inputmode="decimal"
+          aria-label="Dimension"
+          :style="{ left: `${dimEdit.left}px`, top: `${dimEdit.top}px` }"
+          @keydown.stop
+          @keydown.enter.prevent="commitDim"
+          @keydown.esc.prevent="dimEdit = null"
+          @blur="commitDim"
+        />
         <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Tools">
           <button
             type="button"
