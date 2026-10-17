@@ -21,8 +21,10 @@ const props = defineProps({
   ask: { type: Function, default: null },
   // Index into analyseSection's infls of the curvature warning the side panel is pointing at, or -1
   highlight: { type: Number, default: -1 },
+  // Drawing in millimetres: mm per drawing unit (the chord a unit-chord section stands for), or null for % chord
+  mmPerUnit: { type: Number, default: null },
 })
-const emit = defineEmits(['commit', 'update:selection', 'update:seed', 'dragging'])
+const emit = defineEmits(['commit', 'update:selection', 'update:seed', 'dragging', 'normalised'])
 
 const showComb = ref(false)
 const showCamber = ref(true)
@@ -638,7 +640,18 @@ function mirrorSel() {
 function normaliseSection() {
   pts.value = normalise(pts.value).pts
   emit('commit', 'Normalised to a unit chord')
+  emit('normalised')
   fit()
+}
+// Grid steps in drawing units: { minor, every (minor lines per major), mm (mm per unit, or null in % chord) }
+const MM_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]
+function gridSteps() {
+  const mm = props.mmPerUnit
+  if (!mm) return { minor: 0.025, every: 4, mm: null }
+  const step = MM_STEPS.find((s) => (s / mm) * S.value >= 8) ?? 100
+  // Majors at 1, 5, 10… times a power of ten: five minor steps of 1 or 2, two of 5
+  const lead = Math.round(step / 10 ** Math.floor(Math.log10(step)))
+  return { minor: step / mm, every: lead === 5 ? 2 : 5, mm }
 }
 // What the command bar offers depends on the selection: points win over segments
 const barMode = computed(() => (selPts.value.length ? 'points' : selSegs.value.length ? 'segments' : 'none'))
@@ -699,35 +712,41 @@ const body = computed(() => {
   const v = ve.value
   let o = ''
 
-  // Grid in true units, the same step on both axes: minor every 2.5 % chord, major every 10 %. At 3x the y lines sit
-  // 3x further apart, because they are true distances.
+  // Grid in true units, the same step on both axes. In % chord: minor every 2.5 %, major (and ruler labels) every
+  // 10 %. In millimetres: a round step that keeps the minor lines at least 8 px apart, major every 5 (or 2) of them.
+  // At 3x the y lines sit 3x further apart, because they are true distances.
   const x0 = dx(0)
   const x1 = dx(Wv)
   const yTop = dy(Hv)
   const yBottom = dy(0)
-  for (let k = Math.ceil(x0 / 0.025); k <= x1 / 0.025; k++) {
-    const x = sx(k * 0.025).toFixed(1)
-    o += `<line class="${k % 4 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="${x}" x2="${x}" y1="0" y2="${Hv}"/>`
+  const grid = gridSteps()
+  const minor = grid.minor, every = grid.every
+  for (let k = Math.ceil(x0 / minor); k <= x1 / minor; k++) {
+    const x = sx(k * minor).toFixed(1)
+    o += `<line class="${k % every ? 'wc-sec__minor' : 'wc-sec__major'}" x1="${x}" x2="${x}" y1="0" y2="${Hv}"/>`
   }
-  for (let k = Math.ceil(yTop / 0.025); k <= yBottom / 0.025; k++) {
-    const y = sy(k * 0.025).toFixed(1)
-    o += `<line class="${k % 4 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="0" x2="${Wv}" y1="${y}" y2="${y}"/>`
+  for (let k = Math.ceil(yTop / minor); k <= yBottom / minor; k++) {
+    const y = sy(k * minor).toFixed(1)
+    o += `<line class="${k % every ? 'wc-sec__minor' : 'wc-sec__major'}" x1="0" x2="${Wv}" y1="${y}" y2="${y}"/>`
   }
 
-  // Rulers always read true % chord, whatever the exaggeration. Both axes label every 10 %.
-  for (let k = Math.ceil(yTop / 0.1); k <= yBottom / 0.1; k++) {
-    const y = k * 0.1
+  // Rulers always read true distances, whatever the exaggeration, labelled at every major line on both axes
+  const major = minor * every
+  const label = (q) => (grid.mm ? `${+(q * grid.mm).toFixed(1)} mm` : `${(q * 100).toFixed(0)} %`)
+  for (let k = Math.ceil(yTop / major); k <= yBottom / major; k++) {
+    const y = k * major
     const py = sy(y)
     if (py < 44 || py > Hv - 44) continue
     const sign = y < -1e-9 ? '−' : y > 1e-9 ? '+' : ''
-    o += `<text class="wc-sec__ruler" x="5" y="${(py - 3).toFixed(1)}">${sign}${Math.abs(y * 100).toFixed(0)} %</text>`
+    o += `<text class="wc-sec__ruler" x="5" y="${(py - 3).toFixed(1)}">${sign}${label(Math.abs(y))}</text>`
   }
-  for (let k = Math.ceil(x0 / 0.1); k <= x1 / 0.1; k++) {
-    const px = sx(k * 0.1)
+  for (let k = Math.ceil(x0 / major); k <= x1 / major; k++) {
+    const px = sx(k * major)
     if (px < 30 || px > Wv - 30) continue
-    o += `<text class="wc-sec__ruler" x="${(px + 3).toFixed(1)}" y="${Hv - 32}">${(k * 10).toFixed(0)} %</text>`
+    o += `<text class="wc-sec__ruler" x="${(px + 3).toFixed(1)}" y="${Hv - 32}">${label(k * major)}</text>`
   }
-  o += `<text class="wc-sec__ruler" x="${Wv - 8}" y="${Hv - 44}" text-anchor="end">Vertical ${v}×${v > 1 ? ' (grid 2.5 % chord, rulers true)' : ''}</text>`
+  const gridNote = grid.mm ? `grid ${+(minor * grid.mm).toFixed(1)} mm` : 'grid 2.5 % chord'
+  o += `<text class="wc-sec__ruler" x="${Wv - 8}" y="${Hv - 44}" text-anchor="end">${grid.mm ? 'Millimetres, ' : ''}Vertical ${v}×${v > 1 ? ` (${gridNote}, rulers true)` : ''}</text>`
 
   // Chord line, LE to the TE midpoint
   const te = { x: (P[0].x + P[P.length - 1].x) / 2, y: (P[0].y + P[P.length - 1].y) / 2 }

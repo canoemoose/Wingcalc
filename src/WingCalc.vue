@@ -330,6 +330,8 @@ const history = useHistory(
 const sectionOpen = ref(false)
 const draft = ref([])
 const draftSeed = ref(null)
+// The section editor drawing in millimetres: mm per drawing unit, or null for % chord
+const sectionMm = ref(null)
 let draftStart = ''
 // The history holds the seed too, so undoing a seed reset puts the seed name back
 const sectionHistory = useHistory(
@@ -1388,6 +1390,9 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :lookup="solver.lookup"
             :selection="sectionSel"
             :dragging="sectionDragging"
+            :mm-per-unit="sectionMm"
+            :default-chord-mm="Math.round((geometry.stations?.[0]?.c ?? 0.2) * 1000)"
+            @update:mm-per-unit="sectionMm = $event"
             @jobs="sectionJobs = $event"
             @edit="applySectionEdit"
             @select="focusSection"
@@ -1402,6 +1407,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :seed="draftSeed"
             :ask="ask"
             :highlight="sectionHighlight"
+            :mm-per-unit="sectionMm"
+            @normalised="sectionMm = null"
             @update:seed="draftSeed = $event"
             @update:selection="sectionSel = $event"
             @dragging="sectionDragging = $event"

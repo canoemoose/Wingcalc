@@ -5,11 +5,12 @@
 // The preview solves the outline one second after an edit settles (never during a drag), through the page's polar
 // solver: the jobs go up to the parent, which queues them ahead of the wing's, and `lookup` reads the results back.
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { analyseSection, leIndex, normalise, setPointAt, applyRadius, NOSE_MIN, NOSE_MAX, sectionCoords } from '../lib/sectionSpline.js'
+import { analyseSection, leIndex, normalise, setPointAt, applyRadius, NOSE_MIN, NOSE_MAX, sectionCoords, clampOrder, syncTrailingEdge } from '../lib/sectionSpline.js'
 import { analysePolar } from '../lib/stall.js'
 import { usableComputedPolar } from '../lib/airfoils.js'
 import { XFOIL_SETTINGS, coordsKey, settingsKey, polarSegments } from '../lib/xfoil.js'
 import LiftCurve from './LiftCurve.vue'
+import SegmentedField from './SegmentedField.vue'
 
 const props = defineProps({
   pts: { type: Array, required: true },
@@ -21,8 +22,13 @@ const props = defineProps({
   re: { type: Number, default: 200000 },
   // The page's polar cache: lookup(key) gives { ok, polar } or null
   lookup: { type: Function, default: () => null },
+  // Drawing in millimetres: mm per drawing unit, or null for % chord
+  mmPerUnit: { type: Number, default: null },
+  // The chord offered when switching to millimetres (the wing's root chord, mm)
+  defaultChordMm: { type: Number, default: 200 },
 })
-const emit = defineEmits(['edit', 'select', 'action', 'hover', 'jobs'])
+const emit = defineEmits(['edit', 'select', 'action', 'hover', 'jobs', 'update:mmPerUnit'])
+const mmText = (n) => `${n.toFixed(1)} mm`
 
 const pc = (n, d = 1) => (n * 100).toFixed(d)
 
@@ -39,10 +45,14 @@ const A = computed(() => analyseSection(settled.value))
 
 const readouts = computed(() => {
   const a = A.value
+  // In millimetres, each figure also as a length on the chord as drawn
+  const c = props.mmPerUnit ? normalise(settled.value).chord * props.mmPerUnit : null
+  const mm = (f) => (c ? ` (${mmText(f * c)})` : '')
   return {
-    thick: `${pc(a.tmax)} % at ${pc(a.xt, 0)} %`,
-    camber: `${pc(a.cmax)} % at ${pc(a.xc, 0)} %`,
-    leR: `${pc(a.leR, 2)} %`,
+    chord: c ? mmText(c) : null,
+    thick: `${pc(a.tmax)} %${mm(a.tmax)} at ${pc(a.xt, 0)} %`,
+    camber: `${pc(a.cmax)} %${mm(a.cmax)} at ${pc(a.xc, 0)} %`,
+    leR: `${pc(a.leR, 2)} %${mm(a.leR)}`,
     teA: `${a.teA.toFixed(1)}°`,
   }
 })
@@ -65,6 +75,9 @@ const selPoint = computed(() => {
     label: i === l ? 'Leading edge' : i < l ? `Upper point ${i + 1}` : `Lower point ${i - l}`,
     x: q.x * 100,
     y: q.y * 100,
+    // As drawn, in millimetres (not normalised: the drawing's own frame)
+    xMm: props.mmPerUnit ? props.pts[i].x * props.mmPerUnit : null,
+    yMm: props.mmPerUnit ? props.pts[i].y * props.mmPerUnit : null,
   }
 })
 const multi = computed(() => (props.selection.points?.length ?? 0) > 1)
@@ -157,6 +170,22 @@ function setRadius(v) {
   const clamped = Math.min(NOSE_MAX * 100, Math.max(NOSE_MIN * 100, r))
   emit('edit', { pts: applyRadius(props.pts, clamped / 100), message: 'Set the leading-edge radius' })
 }
+// Moves the selected point to a position typed in millimetres, in the drawing's own frame
+function setPointMm(axis, v) {
+  const p = selPoint.value
+  const n = Number(v)
+  if (!p || p.le || !Number.isFinite(n) || !props.mmPerUnit) return
+  const P = props.pts.map((q) => ({ ...q }))
+  P[p.i] = { ...P[p.i], [axis]: n / props.mmPerUnit }
+  emit('edit', { pts: syncTrailingEdge(props.pts, clampOrder(P, [p.i])), message: 'Moved the point' })
+}
+function setUnits(mm) {
+  emit('update:mmPerUnit', mm ? props.defaultChordMm : null)
+}
+function setChordMm(v) {
+  const n = Number(v)
+  if (Number.isFinite(n) && n > 0) emit('update:mmPerUnit', n)
+}
 function setPoint(axis, v) {
   const p = selPoint.value
   const n = Number(v)
@@ -172,11 +201,32 @@ function setPoint(axis, v) {
     <section aria-label="Readouts">
       <h3 class="wc-side__title">Readouts</h3>
       <dl class="wc-side__readouts">
+        <template v-if="readouts.chord"><dt>Chord as drawn</dt><dd>{{ readouts.chord }}</dd></template>
         <dt>Thickness</dt><dd>{{ readouts.thick }}</dd>
         <dt>Camber</dt><dd>{{ readouts.camber }}</dd>
         <dt>Nose radius, measured</dt><dd>{{ readouts.leR }}</dd>
         <dt>Trailing-edge angle</dt><dd>{{ readouts.teA }}</dd>
       </dl>
+    </section>
+
+    <section aria-label="Drawing units">
+      <SegmentedField
+        label="Drawing in"
+        :model-value="mmPerUnit ? 'mm' : 'chord'"
+        :options="[
+          { value: 'chord', label: '% chord' },
+          { value: 'mm', label: 'Millimetres' },
+        ]"
+        @update:model-value="setUnits($event === 'mm')"
+      />
+      <div v-if="mmPerUnit" class="wc-field">
+        <label class="wc-field__label" for="wc-sec-mm">One unit of the drawing is</label>
+        <div class="wc-field__control">
+          <input id="wc-sec-mm" class="wc-input" type="number" step="1" min="1" :value="mmPerUnit" @change="setChordMm($event.target.value)" />
+          <span class="wc-muted">mm</span>
+        </div>
+        <p class="wc-field__hint">Place points at their real sizes, for example to trace a rib. Normalise scales the drawing to a unit chord and goes back to % chord.</p>
+      </div>
     </section>
 
     <section aria-label="Leading edge">
@@ -195,7 +245,23 @@ function setPoint(axis, v) {
       <h3 class="wc-side__title">Selected point</h3>
       <template v-if="selPoint">
         <p class="wc-muted">{{ selPoint.label }}</p>
-        <template v-if="!selPoint.le">
+        <template v-if="!selPoint.le && mmPerUnit">
+          <div class="wc-field">
+            <label class="wc-field__label" for="wc-sec-pxm">Along, as drawn</label>
+            <div class="wc-field__control">
+              <input id="wc-sec-pxm" class="wc-input" type="number" step="0.1" :value="selPoint.xMm.toFixed(1)" @change="setPointMm('x', $event.target.value)" />
+              <span class="wc-muted">mm</span>
+            </div>
+          </div>
+          <div class="wc-field">
+            <label class="wc-field__label" for="wc-sec-pym">Height, as drawn</label>
+            <div class="wc-field__control">
+              <input id="wc-sec-pym" class="wc-input" type="number" step="0.1" :value="selPoint.yMm.toFixed(1)" @change="setPointMm('y', $event.target.value)" />
+              <span class="wc-muted">mm</span>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="!selPoint.le">
           <div class="wc-field">
             <label class="wc-field__label" for="wc-sec-px">Position along the chord</label>
             <div class="wc-field__control">
