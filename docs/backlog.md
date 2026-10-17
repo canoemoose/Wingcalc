@@ -21,3 +21,10 @@ From Sam's feedback on the structure editor (2026-10-16). Each needs his detail 
 2. **Gussets "seem to have random issues"**: which ribs, and what looks wrong? A saved project file that shows it would be ideal.
 3. **Ribs clash with the TE in the rib diagrams**: which trailing-edge stock is set, and is it every rib or only towards the tip? Suspect: the TE notch doesn't follow the rib's actual depth or washout.
 
+
+## Control surfaces (v8 step 6)
+
+- The bevel is the exact clearance about the middle of the gap, with no allowance for the covering or a stiff tab. Builders often bevel to the full throw; ask Sam which he'd rather see.
+- Mylar thickness is entered in the "thin" unit, shown to 0.1 mm, so 0.13 mm (0.005 in) film shows as 0.1.
+- On a fully sheeted wing the sheeting templates run over the hinge; they should stop at the fixed hinge spar, with the surface sheeted separately.
+- Not yet: XFOIL flap deflection (CLmax and stall speed with flap and crow), dragging hinge ends in the plan, the surface drawn deflected in 3D, hinge moments.

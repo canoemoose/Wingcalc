@@ -47,9 +47,20 @@ In "Chords & panels" mode the results column shows the wing plan: one half of th
 - **Add panel** (in the bar along the top when nothing is selected) appends a new section at the tip, continuing the leading-edge line and dihedral of the last panel at about 40% of its length and 75% of its tip chord.
 - **Insert after** (or + on a panel's fields) puts a new constant-chord panel just outboard of the selected one, so the panels further out keep their shape and the wing gets longer.
 - **← / →** move the selected panel inward or outward. Each panel keeps its own shape; only the order changes.
-- **Undo/Redo** (in the header, or Ctrl+Z / Ctrl+Y) covers the wing shape, the dimensions and the structure: each drag is one step, and typed changes are grouped once they pause. Opening a project starts a fresh history.
+- **Control surfaces**: with a panel selected, **Add control surface** in the bar along the top puts one in the panel's longest free stretch: the wing's first is an aileron in the outer part of it, later ones flaps. Surfaces are drawn tinted from the hinge line (dashed) back to the trailing edge; click one to select it, and Delete (or the bar) removes it. A surface that overlaps another is drawn in the warning colour and isn't used.
+- **Undo/Redo** (in the header, or Ctrl+Z / Ctrl+Y) covers the wing shape, the dimensions, the control surfaces and the structure: each drag is one step, and typed changes are grouped once they pause. Opening a project starts a fresh history.
 
 **Dihedral** can be entered per panel as an angle or as the **rise** of the panel's outer end above its inner end with the wing level (for a polyhedral tip panel, measured from the break). This isn't the "block the tip up X" figure on some plans, where the inner panel is pinned flat: for a tip panel that gives the angle relative to the inner panel, so add the inner panel's angle.
+
+**Control surfaces** are listed under **Control surfaces**, below the panels (in the inputs column and in the wing editor), one foldable section each, named by role and order from the root (A1, A2 for ailerons, F1 for flaps, FA1 for flaperons). Opening one selects it in the plan, and the other way round. Each has:
+
+- **Role**: aileron, flap or flaperon. Changing it sets that role's usual throws.
+- **On**, **From** and **To**: the panel it's on, and where it starts and ends, measured from that panel's inner end. A surface stays on one panel, because a hinge has to be straight; use one each side of a break.
+- **Hinge, inner end** and **outer end**: where the hinge line is, as a percentage of the chord back from the leading edge (75% makes a surface a quarter of the chord). It runs straight between the two, so it can taper.
+- **Most up** and **Most down**: the throws, trailing edge up and down. The surface's hinge spar is bevelled to clear both.
+- **Hinge gap**.
+
+**Add control surface to panel N** adds one to the panel selected in the plan (or the last panel). **Crow** (ailerons up, flaps down together, for steep slow landings) is offered only when the wing has separate ailerons and flaps and no flaperons; tick it to set how far each goes. Each surface goes no further than its own throw. Stall speed and stall character are for the clean wing.
 
 **Washout and thickness taper** are set per panel: washout is the total twist at a panel's outer end relative to the root (nose down), varying evenly across the panel; thickness is the section thickness at the outer end, blank to keep the inner end's. The section drawing shows the tip section dashed over the root.
 
@@ -75,20 +86,23 @@ In "Chords & panels" mode a **Structure and ribs** card sums up the built-up str
 - **Ribs**: material and thickness; streamwise or square to the spar (the root, panel-break and tip ribs always stay streamwise so the panels and fuselage meet cleanly); one-piece wing (a centre rib shared by both halves) or two halves plugging in at the fuselage side. Optional **lightening holes** (not in the root, break or tip ribs) and **jig tabs**.
 - **Rib spacing**: **from loads** (as close as the structure needs, never wider than a maximum set for the covering), **even**, **tapered** from root to tip, or **manual**. **Hard points** add ribs at set distances (servo bays, aileron ends). Switching to manual starts from the ribs as they are; then double-click the wing to add a rib there, or use **Add rib** in the bar along the top (or A) to add one mid-way along the longest bay; drag a rib or hard point along the span (it snaps to the grid; Alt places it freely), Delete removes the selected one and the arrow keys nudge it (Shift for ten steps). The root, panel-break and tip ribs are fixed.
 - **Corner gussets** where ribs meet the leading or trailing edge, on the root, break and tip ribs or on every rib, one side or both, flush with the rib's top edge, bottom edge, or both, chosen separately for each edge. Each is cut to the actual angle between rib and edge. A placement there isn't depth for between the skins is turned off (top and bottom needs twice the gusset's thickness, which a thin trailing edge seldom has), and gussets that don't fit at all are listed in the warnings.
+- **Control surface hinges**: for the surfaces set in the wing editor, a bevelled hinge line with Mylar tabs. Set the widths of the hinge spar on each side of the hinge (the fixed part's, square; the surface's, bevelled to a point at the centre line), their material, the tabs' width along the hinge and length across it, the Mylar's thickness, the most the tabs may be apart and how far in from the surface's ends the end ones go. Each surface gets a full rib at both ends; the ribs between stop at the fixed hinge spar, and the surface has its own ribs behind its hinge spar, an end rib at each end a gap clear of the wing's. Warnings say if a hinge line is too far forward (into the main spar) or back (into the trailing edge stock), if the tabs go deeper than a hinge spar is wide, or if the bevel would take nearly all of the surface's hinge spar.
 - **Dihedral braces**: ply plates on both faces of the spar at every dihedral break, shaped to the dihedral angle with the break engraved on. Left blank, the thickness is the next standard ply thickness above what the bending at the break needs.
 - **Materials**: three grades of balsa, spruce, basswood, birch and lite ply, pultruded carbon strip, rod and tube, and hardwood dowel. Balsa varies two to three times from sheet to sheet, so weigh your wood and pick the grade it matches.
 
 ### Reading the results
 
+The structure card lists the control surfaces built, and whether crow is available or on.
+
 The plan shades bays amber where ribs are too far apart and red where the spar, web or sheeting is short of strength in itself; closer ribs only fix the first. A warning says which part, where, by how much and what would help, including roughly the cap thickness needed. Sheeted areas are hatched.
 
 The **Loads** card plots the bending moment along the span, and below it the margin of safety for each failure mode (spar in compression and tension, sheeting, shear web, web buckling, buckling between ribs), one coloured line each with a legend giving its lowest margin. The lowest of all is marked with a dot, and its line and legend entry are heavier. The shaded band below 0 is short of strength; margins above +3 are drawn at +3.
 
-The **3D** view shows the built-up half wing, built from the same geometry as the cut parts: see-through covering, sheeting and cap strips, ribs, gussets and braces, a rounded tip's block, spar, shear webs, edge stock and stringers, with twist and dihedral true to scale.
+The **3D** view shows the built-up half wing, built from the same geometry as the cut parts: see-through covering, sheeting and cap strips, ribs, gussets and braces, a rounded tip's block, spar, shear webs, edge stock, stringers and control surfaces with their hinge spars (shown undeflected), with twist and dihedral true to scale.
 
 - Drag to turn, right-drag to move, scroll to zoom; − + Fit in the bottom-right corner.
 - Click the view cube (Top, Bottom, Front, Back, Root, Tip) to swing round to that view. The house beside it goes back to the starting angle, and the button under it switches between orthographic (the default, which makes the cube's views true elevations) and perspective.
-- **Layers** (top left): show **Both halves** for the whole wing, hide layers to see inside, and turn **Outlines** (the sharp edges of every part) on or off. Click a rib to select it.
+- **Layers** (top left): show **Both halves** for the whole wing, hide **Control surfaces** (each surface's ribs, hinge spar and trailing edge) to see the fixed hinge spar, hide layers to see inside, and turn **Outlines** (the sharp edges of every part) on or off. Click a rib to select it.
 - **Section** cuts the wing square to the span: everything outboard is hidden and the cut face is filled, coloured by part. A bar along the bottom places the cut: drag along it (the ticks are the ribs; the cut is kept off the ribs themselves), and it shows the distance from the root rib and the bay. **Flip** keeps the outboard part instead, **Look at cut** swings round to face it, and × closes the section.
 
 ## Export
@@ -96,8 +110,8 @@ The **3D** view shows the built-up half wing, built from the same geometry as th
 **Export…** in the structure editor offers four downloads:
 
 - **Parts (DXF)**: every part laid out flat in rows no longer than the sheet length you set, grouped by stock (material and thickness), each group titled. Grain runs left to right along the sheet; shear webs are turned so theirs runs up the web. One copy per piece needed, or one of each.
-- **Plan (DXF)**: full size, to build over: the wing outline, edge stock, spar, stringers and every rib at its true thickness, with rib names and the sheeted areas hatched. Right half, left half (mirrored) or both.
-- **Cut list (CSV)**: every part with quantity, stock and size, and every length of strip, with how many lengths of edge stock to buy.
+- **Plan (DXF)**: full size, to build over: the wing outline, edge stock, spar, stringers and every rib at its true thickness, with rib names and the sheeted areas hatched, and on a HINGE layer each control surface's hinge spars, its ends and every Mylar tab. The surfaces' own ribs are named behind the trailing edge. Right half, left half (mirrored) or both.
+- **Cut list (CSV)**: every part with quantity, stock and size, and every length of strip, with how many lengths of edge stock to buy. Each control surface's hinge spars are listed with their depth, the bevel (top and bottom, from square) and the number of tab slots; the surfaces' ribs (A1-1, A1-2 …) and the Mylar tabs are parts like any other.
 - **Printed templates (PDF, 1:1)**: the parts (true size, no kerf allowance) or the plan, to build over or cut round by hand. On A4, A3, Letter or Tabloid the drawing is split across as few sheets as possible, overlapping by 10 mm, each named (A1, A2 …, rows down the drawing) with its neighbours marked on its edges. Or one sheet sized to the drawing, for a plotter or print shop. Every sheet has a title block and a 50 mm bar to check it printed at 100%.
 
 The DXF is AutoCAD R12 in millimetres, which nearly all laser, router and CAD software reads, as closed polylines or (for older software) separate lines. Layers are cut (red), engrave (blue) and notes (grey), with names you can change. Labels are single-stroke vector lines in a Hershey font, so they engrave the same in any software. A part too small to carry a label at least 2 mm high (a corner gusset, say) has it engraved on the sheet just below it instead, so you can tell the pieces apart as you pick them out.
