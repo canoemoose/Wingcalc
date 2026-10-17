@@ -547,8 +547,35 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
 // Cut a half-ellipse (centre uc on the rib's front face, half-axes ru along the rib and rz
 // up it) out of the front of a rib outline: drop the points inside it and walk round its
 // rear half instead, where it's inside the rib. Null if the notch would take the whole front.
-function notchFront(outline, uc, zc, ru, rz) {
-  const inEllipse = ([u, z]) => ((u - uc) / ru) ** 2 + ((z - zc) / rz) ** 2 < 1 - 1e-9
+// Insert the points where each outline segment crosses the notch ellipse, so a notch that
+// falls between two sparse nose vertices still shows up as a run of points inside it.
+function withEllipseCrossings(outline, uc, zc, ru, rz) {
+  const out = []
+  const n = outline.length
+  for (let i = 0; i < n; i++) {
+    const A = outline[i]
+    const B = outline[(i + 1) % n]
+    out.push(A)
+    const pa = [(A[0] - uc) / ru, (A[1] - zc) / rz]
+    const d = [(B[0] - A[0]) / ru, (B[1] - A[1]) / rz]
+    // Ellipse in normalised coords: |pa + t d|^2 = 1, a t^2 + b t + c = 0
+    const a = d[0] * d[0] + d[1] * d[1]
+    if (a < 1e-18) continue
+    const b = 2 * (pa[0] * d[0] + pa[1] * d[1])
+    const c = pa[0] * pa[0] + pa[1] * pa[1] - 1
+    const disc = b * b - 4 * a * c
+    if (disc <= 0) continue
+    const sq = Math.sqrt(disc)
+    const ts = [(-b - sq) / (2 * a), (-b + sq) / (2 * a)].filter((t) => t > 0 && t < 1)
+    for (const t of ts) out.push([A[0] + t * (B[0] - A[0]), A[1] + t * (B[1] - A[1])])
+  }
+  return out
+}
+
+export function notchFront(outline0, uc, zc, ru, rz) {
+  // Points on the ellipse count as inside, so the inserted crossings join the run
+  const inEllipse = ([u, z]) => ((u - uc) / ru) ** 2 + ((z - zc) / rz) ** 2 < 1 + 1e-9
+  const outline = withEllipseCrossings(outline0, uc, zc, ru, rz)
   const n = outline.length
   // Start the walk at a point outside the notch, so the points inside are one run
   const start = outline.findIndex((p) => !inEllipse(p) && p[0] > uc + ru)
@@ -577,6 +604,8 @@ function notchFront(outline, uc, zc, ru, rz) {
 // --- All parts -------------------------------------------------------------------------------
 
 const PLY = [0.0004, 0.0006, 0.0008, 0.001, 0.0015, 0.002, 0.0025, 0.003, 0.004, 0.005, 0.006]
+// A brace shallower than this (m) cannot be made from ply, so it is reported rather than sized
+const MIN_BRACE_DEPTH = 0.01
 
 // Dihedral angle (degrees) of the wing either side of each rib on a break, keyed by s.
 function dihedralAt(a) {
