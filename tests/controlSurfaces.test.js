@@ -123,6 +123,41 @@ describe('control surface placement', () => {
   })
 })
 
+describe('control surface depth', () => {
+  const s = defaultState()
+  const sampler = wingSampler(s.input, 0.12)
+  // The trailing edge is depth + gap/2 behind the hinge at each end, so the surface is the same
+  // depth in metres from root to tip, whatever the taper
+  const depthAt = (r, s, f) => {
+    const w = sampler.at(s)
+    return (1 - f) * w.c - r.gap / 2
+  }
+
+  it('holds the same depth in metres at both ends of a tapered panel', () => {
+    const surf = { ...aileron, depth: 0.02, hingeIn: 0.5, hingeOut: 0.5 }
+    const r = resolveSurface(sampler, surf)
+    expect(r.ok).toBe(true)
+    expect(sampler.at(r.s0).c).not.toBeCloseTo(sampler.at(r.s1).c, 3)
+    expect(depthAt({ ...r, gap: surf.gap }, r.s0, r.hingeIn)).toBeCloseTo(0.02, 9)
+    expect(depthAt({ ...r, gap: surf.gap }, r.s1, r.hingeOut)).toBeCloseTo(0.02, 9)
+  })
+
+  it('keeps the hinge parallel when the outer end moves', () => {
+    const r = resolveSurface(sampler, { ...aileron, depth: 0.02, to: 0.5 })
+    expect(r.ok).toBe(true)
+    expect(r.s1).toBeCloseTo(0.5, 9)
+    expect(depthAt({ ...r, gap: 0.001 }, r.s1, r.hingeOut)).toBeCloseTo(0.02, 9)
+    expect(depthAt({ ...r, gap: 0.001 }, r.s0, r.hingeIn)).toBeCloseTo(0.02, 9)
+  })
+
+  it('uses the saved hinge fractions when there is no depth', () => {
+    const r = resolveSurface(sampler, { ...aileron, depth: null, hingeIn: 0.7, hingeOut: 0.8 })
+    expect(r.ok).toBe(true)
+    expect(r.hingeIn).toBe(0.7)
+    expect(r.hingeOut).toBe(0.8)
+  })
+})
+
 describe('the hinge', () => {
   it('bevels the moving side by the throw, a little less for the gap', () => {
     // No gap: exactly the deflection

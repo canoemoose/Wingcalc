@@ -11,6 +11,10 @@
 //   from, to  where it starts and ends, m from the panel's inner end (flat, along the panel)
 //   hingeIn, hingeOut  the hinge line as a chord fraction (0 the leading edge, 1 the trailing
 //             edge) at the surface's inner and outer ends; the line is straight between them
+//   depth     optional: how far the surface runs back from the hinge to the trailing edge, m, the
+//             same at both ends. While it's set, the hinge fractions are derived from it at each
+//             end (so the surface stays parallel to the trailing edge as its ends move). Editing a
+//             hinge by hand clears it (depth: null), and the fractions are used as they are.
 //   up, down  the most it deflects each way, degrees (trailing edge up, trailing edge down)
 //   gap       between the fixed part and the moving surface at the hinge, m
 //
@@ -42,8 +46,12 @@ const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1
 // A new surface's numbers: 25% of the chord, the role's usual throws, a 1 mm gap.
 export function newSurface(role, panel, from, to, id = 1) {
   const r = ROLES[role] ?? ROLES.aileron
-  return { id, role: ROLES[role] ? role : 'aileron', panel, from, to, hingeIn: 0.75, hingeOut: 0.75, up: r.up, down: r.down, gap: 0.001 }
+  return { id, role: ROLES[role] ? role : 'aileron', panel, from, to, hingeIn: 0.75, hingeOut: 0.75, depth: null, up: r.up, down: r.down, gap: 0.001 }
 }
+
+// The hinge's chord fraction where the surface is `depth` deep: the gap is half each side of the
+// hinge, so the fixed part's trailing edge is depth + gap/2 behind it. NaN if there's no chord.
+const hingeAtDepth = (depth, c, gap) => (c > 0 ? 1 - (depth + (gap || 0) / 2) / c : NaN)
 
 // The panel a surface is on, by id: { index, inner, outer, panel } from the sampler, or null.
 function panelOf(sampler, id) {
@@ -59,22 +67,32 @@ export function resolveSurface(sampler, surf) {
   const p = panelOf(sampler, surf.panel)
   if (!p) return { ...surf, ok: false, problem: 'panel' }
   const L = p.outer.s - p.inner.s
-  const { from, to, hingeIn, hingeOut } = surf
+  const { from, to } = surf
   if (!Number.isFinite(from) || !Number.isFinite(to) || from < -1e-6 || to > L + 1e-6 || to - from < MIN_SURFACE - 1e-9) {
     return { ...surf, ok: false, problem: 'span', panelIndex: p.index }
   }
-  const okHinge = (f) => Number.isFinite(f) && f > 0.02 && f < 0.99
-  if (!okHinge(hingeIn) || !okHinge(hingeOut)) return { ...surf, ok: false, problem: 'hinge', panelIndex: p.index }
   const s0 = p.inner.s + Math.max(0, from)
   const s1 = p.inner.s + Math.min(L, to)
   const w0 = sampler.at(s0)
   const w1 = sampler.at(s1)
+  // With a depth, the hinge fractions follow from it at each end, so the surface stays parallel
+  // to the trailing edge whatever the wing's taper; without one, they're the saved fractions.
+  const fromDepth = (w) => {
+    const f = hingeAtDepth(surf.depth, w?.c, surf.gap)
+    return Number.isFinite(f) ? Math.min(0.95, Math.max(0.5, f)) : NaN
+  }
+  const hingeIn = surf.depth > 0 ? fromDepth(w0) : surf.hingeIn
+  const hingeOut = surf.depth > 0 ? fromDepth(w1) : surf.hingeOut
+  const okHinge = (f) => Number.isFinite(f) && f > 0.02 && f < 0.99
+  if (!okHinge(hingeIn) || !okHinge(hingeOut)) return { ...surf, ok: false, problem: 'hinge', panelIndex: p.index }
   const x0 = w0.xl + hingeIn * w0.c
   const x1 = w1.xl + hingeOut * w1.c
   const slope = (x1 - x0) / (s1 - s0)
   const hingeX = (s) => x0 + slope * (s - s0)
   return {
     ...surf,
+    hingeIn,
+    hingeOut,
     ok: true,
     panelIndex: p.index,
     s0,
@@ -202,15 +220,20 @@ export function addSurface(sampler, surfaces, i, { depth = null } = {}) {
     to = gap[1]
   }
   const surface = newSurface(role, id, from, to, nextId(surfaces ?? []))
-  if (depth > 0) {
-    // The hinge where the surface is `depth` deep at each end (the gap is half each side of it)
-    const at = (d) => {
-      const w = sampler.at(end.inner.s + d)
-      return w && w.c > 0 ? Math.min(0.95, Math.max(0.5, 1 - (depth + surface.gap / 2) / w.c)) : 0.75
-    }
-    surface.hingeIn = at(from)
-    surface.hingeOut = at(to)
+  // Every new surface gets a depth. Without one asked for, it's a quarter of the chord where the
+  // surface is at its mid-point, held the same at both ends from then on.
+  if (!(depth > 0)) {
+    const wm = sampler.at(end.inner.s + (from + to) / 2)
+    surface.depth = wm && wm.c > 0 ? 0.25 * wm.c : 0.025
+  } else {
+    surface.depth = depth
   }
+  // The hinges follow from the depth at each end (see resolveSurface).
+  const w0 = sampler.at(end.inner.s + from)
+  const w1 = sampler.at(end.inner.s + to)
+  const clampHinge = (f) => (Number.isFinite(f) ? Math.min(0.95, Math.max(0.5, f)) : 0.75)
+  surface.hingeIn = clampHinge(hingeAtDepth(surface.depth, w0?.c, surface.gap))
+  surface.hingeOut = clampHinge(hingeAtDepth(surface.depth, w1?.c, surface.gap))
   return { surfaces: [...(surfaces ?? []), surface], id: surface.id }
 }
 

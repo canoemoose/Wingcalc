@@ -328,11 +328,11 @@ function moveHandle(e) {
     if (d.kind === 'sfHinge') {
       const shift = frac - d.fracMid
       const clamp = (f) => Math.min(0.97, Math.max(0.05, f + shift))
-      setSurface(sf.id, { hingeIn: clamp(d.hingeIn), hingeOut: clamp(d.hingeOut) })
+      setSurface(sf.id, { hingeIn: clamp(d.hingeIn), hingeOut: clamp(d.hingeOut), depth: null })
     } else if (d.kind === 'sfIn') {
-      setSurface(sf.id, { from: Math.max(0, Math.min(s - pp.inner.s, sf.to - MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeIn: frac }) })
+      setSurface(sf.id, { from: Math.max(0, Math.min(s - pp.inner.s, sf.to - MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeIn: frac, depth: null }) })
     } else {
-      setSurface(sf.id, { to: Math.min(L, Math.max(s - pp.inner.s, sf.from + MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeOut: frac }) })
+      setSurface(sf.id, { to: Math.min(L, Math.max(s - pp.inner.s, sf.from + MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeOut: frac, depth: null }) })
     }
     return
   }
