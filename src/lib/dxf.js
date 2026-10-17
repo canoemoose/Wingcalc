@@ -15,10 +15,11 @@ import { strokeText, textWidth } from './strokeFont.js'
 import { MATERIALS, sheetOutline } from './structure.js'
 import { flatPanels } from './wing.js'
 import { bounds, polygonArea } from './ribs.js'
+import { BRAKE } from './airBrakes.js'
 
 export function defaultExportOptions() {
   return {
-    parts: { ribs: true, surfaces: true, hinges: true, servos: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true },
+    parts: { ribs: true, surfaces: true, hinges: true, servos: true, brakes: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true },
     machine: 'laser', // 'laser' | 'router'
     kerf: 0.00015, // m
     toolDiameter: 0.003175, // m
@@ -37,7 +38,7 @@ export function defaultExportOptions() {
 }
 
 const MM = 1000
-const GROUP_TITLES = { ribs: 'Ribs', surfaces: 'Control surface ribs', hinges: 'Hinge tabs', servos: 'Servo bays', gussets: 'Gussets', braces: 'Dihedral braces', webs: 'Shear webs', sheeting: 'Sheeting', tip: 'Tip block' }
+const GROUP_TITLES = { ribs: 'Ribs', surfaces: 'Control surface ribs', hinges: 'Hinge tabs', servos: 'Servo bays', brakes: 'Air brakes', gussets: 'Gussets', braces: 'Dihedral braces', webs: 'Shear webs', sheeting: 'Sheeting', tip: 'Tip block' }
 
 // --- Contour operations -------------------------------------------------------------------------
 
@@ -481,9 +482,10 @@ export function hatchLines(poly, step) {
 // A full-size plan to build over: wing outline, LE and TE stock, spar, stringers and every rib
 // at its thickness, with rib names, and each control surface's hinge spars, ends and tabs.
 // Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
-// Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE, SERVO.
+// Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE, SERVO, BRAKE.
 // SERVO has each servo bay's hatch opening in the lower surface, its servo (case and lugs) and the
-// line its lead takes through the ribs to the root.
+// line its lead takes through the ribs to the root. BRAKE has each air brake's box (or a spoiler's
+// frame and plate), the slots or opening it needs in the covering and a spoiler's hinge line.
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
   const add = (layer, pts, closed = false) => raw.push({ type: 'poly', layer, pts, closed })
@@ -569,6 +571,18 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     add('SERVO', lead)
     texts.push({ s: b.s, x: b.hatch.x1 + 0.008, text: b.name })
   }
+  // Air brakes: the box (its walls, outside) or the spoiler's frame, the slot for each blade or
+  // the plate's opening in the covering, and a spoiler's hinge line
+  for (const r of (a.brakes ?? []).filter((x) => x.ok)) {
+    const box = (x0, x1, s0, s1) => [[s0, x0], [s1, x0], [s1, x1], [s0, x1]]
+    if (r.type === 'blade') add('BRAKE', box(r.bx[0], r.bx[1], r.inner[0], r.inner[1]), true)
+    else {
+      add('BRAKE', box(r.x0 - 0.005 - BRAKE.slot, r.x1 + 0.005 + BRAKE.slot, r.inner[0], r.inner[1]), true)
+      add('BRAKE', [[r.s - r.length / 2, r.x0], [r.s + r.length / 2, r.x0]])
+    }
+    for (const o of r.openings) add('BRAKE', box(o.x0, o.x1, o.s0, o.s1), true)
+    texts.push({ s: r.s, x: r.bx[1] + 0.008, text: r.name })
+  }
   // Ribs, at their thickness, between the stock (or the hinge spars), the control surfaces'
   // own with them
   const t = structure.ribs.thickness
@@ -605,7 +619,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
 
 export function planDxf(a, structure, parts, opts, baseName = 'wing') {
   const ents = planEntities(a, structure, parts, { handedness: opts.handedness })
-  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8, HATCH: 9, HINGE: 6, SERVO: 4 }
+  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8, HATCH: 9, HINGE: 6, SERVO: 4, BRAKE: 2 }
   return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf(ents, { extraLayers, format: opts.format }) }
 }
 

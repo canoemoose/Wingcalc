@@ -18,6 +18,7 @@
 import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
+import { BRAKE, bladeSlots } from './airBrakes.js'
 import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt } from './edgeStock.js'
 
 const RAD = Math.PI / 180
@@ -613,6 +614,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const breaks = dihedralAt(a)
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
   const bays = (a.bays ?? []).filter((x) => x.ok)
+  const brakes = (a.brakes ?? []).filter((x) => x.ok)
   // The servo leads through a rib: every bay outboard of it (or at its inner rib), and the ribs
   // that couldn't take a hole for each
   const leadsAt = (s) => bays.filter((x) => s <= x.sA + 1e-6).map((x) => ({ name: x.name, diameter: x.lead.diameter, offset: x.lead.offset }))
@@ -637,6 +639,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
     if (b.perpendicular && Math.abs(b.angle) > 0.5) notes.push(`Square to the spar, ${Math.abs(b.angle).toFixed(1)}° off streamwise`)
     if (across) notes.push(`Stops at the hinge spar of ${across.label}; its part behind the hinge is cut separately`)
     else if (rb.kind === 'hard' && surfaces.some((x) => Math.abs(x.s0 - rb.s) < 1e-6 || Math.abs(x.s1 - rb.s) < 1e-6)) notes.push('Full rib at the end of a control surface')
+    else if (rb.kind === 'hard' && brakes.some((x) => Math.abs(x.sA - rb.s) < 1e-6 || Math.abs(x.sB - rb.s) < 1e-6)) notes.push('Full rib at the end of an air brake box')
     parts.push({
       id: rb.name,
       name: rb.name,
@@ -745,7 +748,7 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       label: null,
       bay,
       notes: [
-        `${bay.label} (${surfaces.find((x) => x.id === bay.surface)?.label ?? 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued between ${ribNamed(bay.sA)} and ${ribNamed(bay.sB)}, long side along the chord. The servo goes in from below, its lugs screwed up into the plate`,
+        `${bay.label} (${bay.hostLabel || 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued between ${ribNamed(bay.sA)} and ${ribNamed(bay.sB)}, long side along the chord. The servo goes in from below, its lugs screwed up into the plate`,
         `Plate fits the gap between the rib faces (${(len * 1000).toFixed(1)} mm); the cut-out leaves about ${(((len - sv.width) / 2 - cut) * 1000).toFixed(1)} mm of ply down each side`,
       ],
     })
@@ -763,6 +766,86 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
         etch: [],
         label: null,
         notes: [`${bay.label} hatch: cut from the lower sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
+      })
+    }
+  }
+  // Air brakes: a blade brake's two box walls (ply, between the ribs' faces and skin to skin) and
+  // its blades with their lattice slots; a spoiler's plate and the ply frame it sits in, with
+  // the opening for the plate. Parts AB1-F (front wall) and AB1-R (rear wall), AB1-B (blade),
+  // AB1-P (plate) and AB1-F (frame, a spoiler's).
+  const halves = both ? 2 : 1
+  for (const br of brakes) {
+    const len = br.inner[1] - br.inner[0]
+    const between = `between ${ribNamed(br.sA)} and ${ribNamed(br.sB)}`
+    if (br.type === 'blade') {
+      br.walls.forEach((w, k) => {
+        const id = `${br.name}-${k ? 'R' : 'F'}`
+        parts.push({
+          id,
+          name: id,
+          group: 'brakes',
+          material: 'ply-birch',
+          thickness: BRAKE.wall,
+          qty: halves,
+          outline: rect(0, 0, len, Math.max(0.001, w.height)),
+          holes: [],
+          etch: [],
+          label: null,
+          brake: br,
+          notes: [`${br.label}: ${k ? 'rear' : 'front'} wall of the box, glued ${between} from skin to skin; trim to the section if it stands proud`],
+        })
+      })
+      const both2 = br.surface === 'both'
+      const slots = bladeSlots(br.length, br.height)
+      parts.push({
+        id: `${br.name}-B`,
+        name: `${br.name}-B`,
+        group: 'brakes',
+        material: 'ply-birch',
+        thickness: BRAKE.bladeThickness,
+        qty: br.blades * (both2 ? 2 : 1) * halves,
+        outline: rect(0, 0, br.length, br.height),
+        holes: slots.map(([u0, z0, u1, z1]) => rect(u0, z0, u1, z1)),
+        etch: [],
+        label: null,
+        brake: br,
+        notes: [
+          `${br.label}: blade, ${br.blades === 1 ? 'a single blade' : `${br.blades} blades side by side (a lattice)`}${both2 ? ' each through the top and the bottom' : ''}, rising ${(br.height * 1000).toFixed(1)} mm through slots in the covering. The slots lighten it${slots.length ? ` (${slots.length})` : ''}; the solid foot and top bar guide it`,
+        ],
+      })
+    } else {
+      // The frame: the width of the gap between the ribs, with the opening a millimetre clear of
+      // the plate all round and 5 mm of ply fore and aft of it
+      const um = (br.gap - br.length - 2 * BRAKE.slot) / 2
+      const vm = 0.005
+      const opening = rect(um, vm, um + br.length + 2 * BRAKE.slot, vm + br.chord + 2 * BRAKE.slot)
+      parts.push({
+        id: `${br.name}-P`,
+        name: `${br.name}-P`,
+        group: 'brakes',
+        material: 'ply-birch',
+        thickness: BRAKE.plate,
+        qty: halves,
+        outline: rect(0, 0, br.length, br.chord),
+        holes: [],
+        etch: [[[0, 0.002], [br.length, 0.002]]],
+        label: null,
+        brake: br,
+        notes: [`${br.label}: spoiler plate, hinged along its front edge (hinge tape goes along the engraved line, 2 mm in) and opening ${Math.round(br.angle)}° at the back`],
+      })
+      parts.push({
+        id: `${br.name}-F`,
+        name: `${br.name}-F`,
+        group: 'brakes',
+        material: 'ply-birch',
+        thickness: BRAKE.frame,
+        qty: halves,
+        outline: rect(0, 0, br.gap, br.chord + 2 * BRAKE.slot + 2 * vm),
+        holes: [opening],
+        etch: [],
+        label: null,
+        brake: br,
+        notes: [`${br.label}: frame under the top surface, glued ${between}, the opening a millimetre clear of the plate all round`],
       })
     }
   }
@@ -1175,6 +1258,17 @@ function stripCutList(a, structure, parts, both) {
       length: (sf.moving[1] - sf.moving[0]) * k,
       qty: sides,
       note: `Bevel the front to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+    })
+  }
+  // A spoiler's hinge: a strip of hinge tape along its front edge
+  for (const br of (a.brakes ?? []).filter((x) => x.ok && x.type === 'spoiler')) {
+    out.push({
+      item: `Hinge tape, ${br.label}`,
+      material: 'mylar',
+      size: [0.012, 0.0002],
+      length: br.length,
+      qty: sides,
+      note: 'Along the front edge of the plate, half on the plate and half on the frame',
     })
   }
   // A sheeted wing's servo hatch screws to a rail along each of the opening's chordwise edges

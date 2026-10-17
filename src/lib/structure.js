@@ -31,6 +31,7 @@ import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
 import { placeBays, servoMasses, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
+import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -770,11 +771,129 @@ export function surfaceAt(surfaces, s) {
   return (surfaces ?? []).find((r) => r.ok && s > r.s0 + 1e-6 && s < r.s1 - 1e-6) ?? null
 }
 
+// --- Air brakes ---------------------------------------------------------------------------------
+
+// Why a brake isn't built, in a builder's words.
+const BRAKE_PROBLEMS = {
+  panel: 'its panel is gone',
+  size: 'a size or position is missing or out of range',
+  span: 'its ribs would run off its panel or too close to the root or tip rib of it: move it along the span or make it shorter',
+  overlap: 'its ribs would be on top of another air brake',
+  outside: 'it lies outside the ribs',
+}
+
+// Each air brake laid out in the built-up wing (airBrakes.js resolveBrakes places it; this builds
+// it). A brake sits between two ribs, hard points a little further apart than its length. A
+// blade brake is a box: the ribs' faces are its ends, a ply wall along each side runs between
+// them from skin to skin, and the blades slide up through slots in the covering. A spoiler is a
+// plate hinged along its front edge in an opening in the top surface, framed in ply between
+// the ribs. Either fits if the section is deep enough, and its box or frame keeps clear of the
+// main spar, the edge stock and any control surface's hinge spars; where it doesn't it's still
+// built, with a warning saying what's wrong and how far to move it.
+//
+// Returns the brakes in order along the span, each with ok (built) or problem, and for the
+// built ones: inner (the rib faces' s), bx (the box's chord range with its walls), walls (each
+// { x0, x1, height }: the ply wall's chord range and the room between the skins there), room
+// (the least depth between the skins over the box), need (what the blades need when retracted),
+// openings (the slots or opening in the covering, in plan), surfaces ('upper', 'lower' the
+// blades come through) and warnings.
+export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }, controls, surfaces = []) {
+  const t = structure.ribs.thickness || 0
+  const list = resolveBrakes(sampler, controls?.brakes, { ribThickness: t })
+  const [sparFront, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+  // Depth between the skins at plan position x
+  const depthAt = (s, x) => {
+    const sec = section(s)
+    if (!sec || !(sec.c > 1e-4)) return 0
+    const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
+    const f = sec.surf(q)
+    return Math.max(0, f.upper - f.lower - 2 * skinAt(structure, q, 0))
+  }
+  const built = surfaces.filter((x) => x.ok)
+  for (const r of list) {
+    r.warnings = []
+    if (!r.ok) continue
+    if (r.sA < rootS + 0.003 || r.sB > tipS - 0.003) {
+      r.ok = false
+      r.problem = 'outside'
+      continue
+    }
+    const blade = r.type === 'blade'
+    const w = blade ? BRAKE.wall : 0
+    const bx = [r.x0 - w, r.x1 + w]
+    const inner = [r.sA + t / 2, r.sB - t / 2]
+    const ss = Array.from({ length: 7 }, (_, k) => inner[0] + ((inner[1] - inner[0]) * k) / 6)
+    const xs = Array.from({ length: 5 }, (_, k) => r.x0 + ((r.x1 - r.x0) * k) / 4)
+    let room = Infinity
+    for (const s of ss) for (const x of xs) room = Math.min(room, depthAt(s, x))
+    const wallHeight = (x) => Math.min(...ss.map((s) => depthAt(s, x)))
+    const both = blade && r.surface === 'both'
+    // Retracted, a blade stands its height down inside the box: two blades share the depth
+    const need = blade ? (both ? 2 * r.height + 0.004 : r.height + 0.002) : 0
+    Object.assign(r, {
+      inner,
+      bx,
+      room,
+      need,
+      walls: blade ? [{ x0: r.x0 - w, x1: r.x0, height: wallHeight(r.x0) }, { x0: r.x1, x1: r.x1 + w, height: wallHeight(r.x1) }] : [],
+      surfaces: blade ? (both ? ['upper', 'lower'] : ['upper']) : ['upper'],
+      openings: brakeOpenings(r),
+    })
+    if (blade && !(room >= need)) {
+      r.warnings.push(
+        `${r.label} needs ${mm(need)} of depth inside for ${both ? 'blades through both skins' : 'its blades'} ${mm(r.height)} high, and the wing has ${mm(Math.max(0, room))} there: use shorter blades${both ? ', blades through the top only' : ''}, or move it to where the wing is deeper.`,
+      )
+    }
+    // Clear of the main spar: the box has to be wholly ahead of it or behind it
+    const sparBlock = ss.filter((s) => bx[1] > sparFront(s) - 0.001 && bx[0] < sparRear(s) + 0.001)
+    if (sparBlock.length) {
+      const back = Math.max(...ss.map(sparRear)) + 0.002 - bx[0]
+      r.warnings.push(`${r.label} crosses the main spar. Move it about ${mm(Math.max(0, back))} back, or forward of the spar's front face.`)
+    }
+    if (ss.some((s) => bx[0] < section(s).xl + (structure.le.width || 0) + 0.002)) {
+      r.warnings.push(`${r.label} runs into the leading edge stock: move it back.`)
+    }
+    if (ss.some((s) => bx[1] > section(s).xl + section(s).c - (structure.te.width || 0) - 0.002)) {
+      r.warnings.push(`${r.label} runs into the trailing edge stock: move it forward or make it narrower.`)
+    }
+    // Clear of any control surface's hinge spars alongside it
+    for (const sf of built) {
+      const over = ss.filter((s) => s > sf.s0 - 0.001 && s < sf.s1 + 0.001)
+      if (over.length && over.some((s) => bx[1] > sf.faces.fixedFront(s) - 0.002)) {
+        r.warnings.push(`${r.label} runs into the hinge spar of ${sf.label}: move it forward of the hinge line, or out of the surface's length.`)
+      }
+    }
+  }
+  return list
+}
+
+// Warnings that need the servo bays as well: a bay (or its leads' route to the root) in the way
+// of an air brake's box. A bay alongside its own brake shares a rib with it, so only an
+// overlap of the two in plan counts. Adds to each brake's warnings.
+export function brakeBayClashes(brakes, bays, { sparX, structure }) {
+  const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  for (const r of brakes.filter((x) => x.ok)) {
+    for (const b of bays.filter((x) => x.ok)) {
+      const over = b.sA < r.inner[1] - 1e-4 && b.sB > r.inner[0] + 1e-4 && b.plate.x0 < r.bx[1] && b.plate.x1 > r.bx[0]
+      if (over) r.warnings.push(`${r.label} is in the way of ${b.label}: move one of them along the span.`)
+      // The leads from this bay pass every rib inboard of it, this brake's two among them
+      else if (b.lead && r.sB <= b.sA + 1e-6 && b.s > r.s) {
+        const mid = (r.sA + r.sB) / 2
+        const lead = [sparRear(mid) + b.lead.offset, sparRear(mid) + b.lead.offset + b.lead.diameter]
+        if (r.bx[0] < lead[1] + 0.002 && r.bx[1] > lead[0] - 0.002) {
+          r.warnings.push(`The leads for ${b.label} would run through ${r.label}'s box: move the brake back from the main spar.`)
+        }
+      }
+    }
+  }
+}
+
 // --- Servo bays ---------------------------------------------------------------------------------
 
 // Why a bay isn't built, in a builder's words.
 const BAY_PROBLEMS = {
-  surface: "its control surface isn't built",
+  surface: "the control surface or air brake it works isn't built",
   span: 'it would run off its panel or past the root or tip rib: move it along the span',
   overlap: 'it overlaps another servo bay',
   forward: "there's no room between the main spar and the hinge for the servo and the lead holes: use a smaller servo or move the hinge back",
@@ -936,14 +1055,16 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const sheetE = laminatedSheetE(sheet.E, cov.sheetThickness, finishOf(cov).laminate)
   const ms = (allow, actual) => (actual > 0 ? allow / (actual * sf) - 1 : Infinity)
 
-  // Control surfaces, each with a rib at both ends, then the servo bays on them. The servos'
-  // weight is carried by the wing, so each takes load off the spar at its station.
-  const surfaces = surfaceLayouts({ sampler, section, sparX, structure, rootS: s0, tipS: sTip }, controls)
-  const bays = bayLayouts(
-    { sampler, section, sparX, structure, rootS: s0, tipS: sTip },
-    surfaces,
-    placeBays({ sampler, surfaces, controls, mass, ribThickness: structure.ribs.thickness }),
-  )
+  // Control surfaces, each with a rib at both ends, then the air brakes, then the servo bays on
+  // both. The servos' weight is carried by the wing, so each takes load off the spar at its
+  // station.
+  const ctx = { sampler, section, sparX, structure, rootS: s0, tipS: sTip }
+  const surfaces = surfaceLayouts(ctx, controls)
+  const brakes = brakeLayouts(ctx, controls, surfaces)
+  const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
+  const hosts = [...surfaces, ...brakeHosts(brakes, teFront)]
+  const bays = bayLayouts(ctx, hosts, placeBays({ sampler, surfaces: hosts, controls, mass, ribThickness: structure.ribs.thickness }))
+  brakeBayClashes(brakes, bays, { sparX, structure })
   const relief = servoMasses(bays)
   const pos = spanLoads(sampler, spanwise.ll, CL, { mass, n: nPos, relief })
   const neg = nNeg > 0 ? spanLoads(sampler, spanwise.ll, (-CL * nNeg) / nPos, { mass, n: nNeg, relief }) : null
@@ -1027,7 +1148,11 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     { s: b.sA, label: `${b.label}, inner rib` },
     { s: b.sB, label: `${b.label}, outer rib` },
   ])
-  const ribs = ribStations(sampler, structure, limitAt, [...surfaceEnds, ...bayEnds])
+  const brakeEnds = brakes.filter((r) => r.ok).flatMap((r) => [
+    { s: r.sA, label: `${r.label}, inner end` },
+    { s: r.sB, label: `${r.label}, outer end` },
+  ])
+  const ribs = ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds, ...bayEnds])
   // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends
   if (edges.le.round) {
     const f = fitOver(roundItem(edges.le.round.diameter), section, ribs.map((r) => r.s), 'le')
@@ -1158,6 +1283,10 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     if (!r.ok) warnings.push({ id: `surface-${r.id}`, message: `${r.label} isn't built: ${SURFACE_PROBLEMS[r.problem] ?? r.problem}.` })
     for (const [k, m] of (r.warnings ?? []).entries()) warnings.push({ id: `surface-${r.id}-${k}`, message: m })
   }
+  for (const r of brakes) {
+    if (!r.ok) warnings.push({ id: `brake-${r.id}`, message: `${r.label} isn't built: ${BRAKE_PROBLEMS[r.problem] ?? r.problem}.` })
+    for (const [k, m] of (r.warnings ?? []).entries()) warnings.push({ id: `brake-${r.id}-${k}`, message: m })
+  }
   for (const b of bays) {
     if (!b.ok && b.problem !== 'surface') warnings.push({ id: `bay-${b.id}`, message: bayProblem(b) })
     for (const [k, m] of (b.warnings ?? []).entries()) warnings.push({ id: `bay-${b.id}-${k}`, message: m })
@@ -1176,6 +1305,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     stations,
     ribs,
     surfaces,
+    brakes,
     bays,
     relief,
     pos,

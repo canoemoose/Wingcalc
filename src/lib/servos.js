@@ -125,16 +125,19 @@ export function setBay(controls, surfaceId, patch) {
 // controls without the bay settings of a surface that's gone
 export const dropBay = (controls, surfaceId) => ({ ...controls, bays: (controls.bays ?? []).filter((b) => b.surface !== surfaceId) })
 
-// Where each enabled bay goes, one per placed control surface (surfaces: resolveSurfaces
-// output): its servo, its centre s (flat along the span), the two ribs either side (sA, sB,
-// their centres, a rib thickness t out from the servo's width plus its clearance) and the
-// gap between the ribs' faces (width). Named SB1, SB2 … root outward. ok is false, with a
-// problem, if it can't be placed: 'surface' (its control surface isn't built), 'span' (the
-// ribs would be off the panel) or 'overlap' (it clashes with a bay before it). beyond says
-// it sticks out past the ends of its surface. Only the ok ones are built and weighed.
+// Where each enabled bay goes, one per placed host (surfaces: resolveSurfaces output, and
+// air brakes' hosts from airBrakes.js brakeHosts): its servo, its centre s (flat along the
+// span), the two ribs either side (sA, sB, their centres, a rib thickness t out from the
+// servo's width plus its clearance) and the gap between the ribs' faces (width). A control
+// surface's bay is centred on it; an air brake's goes beside its box, its outer rib the box's
+// inner one, or failing that on the box's outer side. Named SB1, SB2 … root outward. ok is
+// false, with a problem, if it can't be placed: 'surface' (its host isn't built), 'span' (the
+// ribs would be off the panel) or 'overlap' (it clashes with a bay before it). beyond says it
+// sticks out past the ends of its surface. Only the ok ones are built and weighed.
 export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.002 }) {
   const out = []
-  const order = [...(surfaces ?? [])].sort((a, b) => (a.s0 ?? Infinity) - (b.s0 ?? Infinity) || (a.id ?? 0) - (b.id ?? 0))
+  const idOrder = (a, b) => (typeof a.id === 'number' && typeof b.id === 'number' ? a.id - b.id : String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true }))
+  const order = [...(surfaces ?? [])].sort((a, b) => (a.s0 ?? Infinity) - (b.s0 ?? Infinity) || idOrder(a, b))
   const t = Math.max(0, ribThickness)
   const placed = []
   for (const r of order) {
@@ -142,7 +145,7 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     if (!cfg.enabled) continue
     const cls = SERVOS[cfg.class] ? cfg.class : defaultServoClass(mass)
     const servo = SERVOS[cls]
-    const bay = { id: r.id, surface: r.id, label: '', name: '', class: cls, auto: !SERVOS[cfg.class], servo, mass: servo.mass, ok: false, problem: null }
+    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !SERVOS[cfg.class], servo, mass: servo.mass, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {
       bay.problem = 'surface'
@@ -151,18 +154,22 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     const p = sampler.ends[r.panelIndex]
     const width = servo.width + 2 * SERVO_CLEARANCE
     const half = width / 2 + t / 2
-    const s = Number.isFinite(cfg.at) ? p.inner.s + cfg.at : (r.s0 + r.s1) / 2
-    Object.assign(bay, { s, sA: s - half, sB: s + half, width, panelIndex: r.panelIndex, rib: t })
-    // Ribs inside the panel, a few millimetres clear of its ends (which have ribs of their own)
-    if (bay.sA < p.inner.s + 0.005 || bay.sB > p.outer.s - 0.005) {
-      bay.problem = 'span'
-      continue
+    const centres = Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - half, r.beside[1] + half] : [(r.s0 + r.s1) / 2]
+    for (const s of centres) {
+      Object.assign(bay, { s, sA: s - half, sB: s + half, width, panelIndex: r.panelIndex, rib: t, problem: null })
+      // Ribs inside the panel, a few millimetres clear of its ends (which have ribs of their own)
+      if (bay.sA < p.inner.s + 0.005 || bay.sB > p.outer.s - 0.005) {
+        bay.problem = 'span'
+        continue
+      }
+      bay.beyond = !r.beside && (bay.sA < r.s0 - 1e-6 || bay.sB > r.s1 + 1e-6)
+      if (placed.some((q) => bay.sA < q.sB + 0.005 && bay.sB > q.sA - 0.005)) {
+        bay.problem = 'overlap'
+        continue
+      }
+      break
     }
-    bay.beyond = bay.sA < r.s0 - 1e-6 || bay.sB > r.s1 + 1e-6
-    if (placed.some((q) => bay.sA < q.sB + 0.005 && bay.sB > q.sA - 0.005)) {
-      bay.problem = 'overlap'
-      continue
-    }
+    if (bay.problem) continue
     bay.ok = true
     placed.push(bay)
   }

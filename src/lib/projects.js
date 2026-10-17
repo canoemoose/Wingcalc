@@ -65,6 +65,7 @@ export function migrate(state) {
   input.controls = fillDefaults(d.input.controls, s.input?.controls)
   if (!Array.isArray(input.controls.surfaces)) input.controls.surfaces = []
   if (!Array.isArray(input.controls.bays)) input.controls.bays = []
+  if (!Array.isArray(input.controls.brakes)) input.controls.brakes = []
   // Edge stock saved before the catalogue keeps its own width, rather than an auto pick
   for (const k of ['le', 'te']) {
     const saved = s.input?.structure?.[k]

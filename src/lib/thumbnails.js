@@ -23,7 +23,7 @@ function framed(lines) {
 
 // The plan: outline, edge stock, spar and ribs, leading edge at the top. In millimetres, so
 // stroke widths are best set non-scaling. Returns { box, lines: [{ kind, d }] } or null.
-const PLAN_LAYERS = { OUTLINE: 'outline', STOCK: 'stock', SPAR: 'spar', RIBS: 'rib', HINGE: 'stock' }
+const PLAN_LAYERS = { OUTLINE: 'outline', STOCK: 'stock', SPAR: 'spar', RIBS: 'rib', HINGE: 'stock', BRAKE: 'stock' }
 export function planThumb(a, structure, parts) {
   const ents = planEntities(a, structure, parts, { handedness: 'right' })
   const lines = ents

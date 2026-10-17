@@ -11,6 +11,7 @@
 import { skinAt, sparWidth, lineFaces, isPlainRib, gussetLayer, gussetEdges } from './structure.js'
 import { gussetSides } from './ribs.js'
 import { isRound, roundFitAt } from './edgeStock.js'
+import { BRAKE, bladeXs } from './airBrakes.js'
 
 const RAD = Math.PI / 180
 
@@ -726,6 +727,39 @@ export function wing3d(a, structure, parts) {
     add('servo', sweep(a, b.s - w, b.s + w, () => rect(b.case.x0, b.case.x1, box.base, box.base + b.servo.height), 1))
     const z = box.base + b.servo.lugHeight
     add('plate', sweep(a, b.plate.s0, b.plate.s1, () => rect(b.plate.x0, b.plate.x1, z, z + b.plate.thickness), 1))
+  }
+
+  // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;
+  // a spoiler's plate drawn open on its front-edge hinge
+  for (const r of (a.brakes ?? []).filter((x) => x.ok)) {
+    const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+    if (r.type === 'blade') {
+      for (const w of r.walls) {
+        const xm = (w.x0 + w.x1) / 2
+        add('brakeBox', sweep(a, r.inner[0], r.inner[1], (s) => rect(w.x0, w.x1, insetHeight(a, st, s, xm, 'lower'), insetHeight(a, st, s, xm, 'upper')), 1))
+      }
+      for (const x of bladeXs(r)) {
+        const hw = BRAKE.bladeThickness / 2
+        for (const which of r.surfaces) {
+          const sec = (s) => {
+            const z = surfaceHeight(a, s, x, which)
+            return which === 'upper' ? rect(x - hw, x + hw, z - 0.3 * r.height, z + r.height) : rect(x - hw, x + hw, z - r.height, z + 0.3 * r.height)
+          }
+          add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, sec, 1))
+        }
+      }
+    } else {
+      const th = Math.max(BRAKE.plate, 0.0015)
+      const ca = Math.cos(r.angle * RAD)
+      const sa = Math.sin(r.angle * RAD)
+      const plate = (s) => {
+        const z = surfaceHeight(a, s, r.x0, 'upper')
+        const p0 = [r.x0, z]
+        const p1 = [r.x0 + r.chord * ca, z + r.chord * sa]
+        return [p0, p1, [p1[0] - th * sa, p1[1] + th * ca], [p0[0] - th * sa, p0[1] + th * ca]]
+      }
+      add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, plate, 1))
+    }
   }
 
   // Stringers, seated in their rib notches
