@@ -1942,6 +1942,64 @@
   width: 100%;
   display: block;
 }
+/* The corner button that opens the charts larger, and the overlay they open in */
+.wc-loads {
+  position: relative;
+}
+.wc-loads > .wc-loads__expand {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+}
+.wc-loads__expand svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wc-loads__panel {
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px 20px;
+  background: var(--wc-bg);
+  color: var(--wc-text);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+}
+.wc-loads__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+/* The crosshair and what it reads; the line keeps its height so the page doesn't jump */
+.wc-loads__cross {
+  stroke: var(--wc-text);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+.wc-loads__readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-height: 2.6em;
+  margin: 4px 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.wc-loads__reading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
 .wc-loads__rib {
   stroke: var(--wc-border);
   stroke-width: 1;

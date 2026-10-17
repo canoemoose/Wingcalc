@@ -1,20 +1,28 @@
 <script setup>
 // Along the span from the root rib: bending moment at the design load, and the margin of
 // safety for each failure mode at each station (0 is just enough), with a legend; the
-// lowest is marked. Rib positions are ticked.
-import { computed } from 'vue'
+// lowest is marked. Rib positions are ticked. Hovering either chart draws a line across both
+// at that span position and reads every curve there. The corner button opens the same charts
+// larger, over the page (the component again, expanded); Escape, Close or the backdrop closes it.
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { MODES, MODE_SLOTS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
+import { EXPAND } from '../lib/icons.js'
+import LoadsChart from './LoadsChart.vue'
 
 const props = defineProps({
   analysis: { type: Object, required: true },
   ribs: { type: Array, required: true }, // parts of group 'ribs'
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
   designG: { type: Number, required: true },
+  // Drawn larger, in the overlay
+  expanded: { type: Boolean, default: false },
 })
+const emit = defineEmits(['close'])
 
-const W = 520
-const H = 130
+// Wider and taller when expanded, so the curves spread out more than the text grows
+const W = props.expanded ? 900 : 520
+const H = props.expanded ? 250 : 130
 const M = { l: 44, r: 10, t: 12, b: 22 }
 const MS_MAX = 3
 const MS_MIN = -1
@@ -73,14 +81,71 @@ const chart = computed(() => {
     worst,
     ribX: props.ribs.map((p) => x(p.s - props.analysis.rootS)),
     spanLabel: format(span, 'length', lengthUnit),
+    span,
   }
 })
-const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
+
+// The crosshair: the span position under the pointer, and every curve's value there
+const hoverD = ref(null)
+function onHover(e) {
+  const r = e.currentTarget.getBoundingClientRect()
+  if (!(r.width > 0)) return
+  const vx = ((e.clientX - r.left) / r.width) * W
+  const f = (vx - M.l) / (W - M.l - M.r)
+  hoverD.value = f < 0 || f > 1 ? null : f * chart.value.span
+}
+// Linear between the stations either side of d, over those where get gives a number
+function valueAt(get, d) {
+  const st = props.analysis.stations.filter((r) => Number.isFinite(get(r)))
+  if (!st.length || d < st[0].d - 1e-9 || d > st.at(-1).d + 1e-9) return null
+  let i = st.findIndex((r) => r.d >= d)
+  if (i <= 0) return get(st[Math.max(0, i)])
+  const a = st[i - 1], b = st[i]
+  const t = b.d - a.d > 1e-12 ? (d - a.d) / (b.d - a.d) : 0
+  return get(a) + (get(b) - get(a)) * t
+}
+const readout = computed(() => {
+  const d = hoverD.value
+  if (d == null) return null
+  const signed = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
+  const M0 = valueAt((r) => r.M, d)
+  const Mn = props.analysis.stations.some((r) => r.Mneg > 0) ? valueAt((r) => r.Mneg, d) : null
+  const items = []
+  if (M0 != null) items.push({ key: 'M', label: 'Bending', value: nm(M0) })
+  if (Mn != null) items.push({ key: 'Mn', label: 'negative', value: nm(Mn) })
+  for (const m of chart.value.modes) {
+    const v = valueAt((r) => r.ms[m.key], d)
+    if (v != null) items.push({ key: m.key, slot: m.slot, label: m.label, value: signed(v) })
+  }
+  return { x: chart.value.x(d), at: format(d, 'length', defaultUnit(props.system, 'length')), items }
+})
+
+// The overlay: Escape or the backdrop closes it
+const big = ref(false)
+function onKey(e) {
+  if (e.key === 'Escape') {
+    e.stopPropagation()
+    if (props.expanded) emit('close')
+    else big.value = false
+  }
+}
+watch(big, (open) => {
+  if (typeof window === 'undefined') return
+  if (open) window.addEventListener('keydown', onKey, true)
+  else window.removeEventListener('keydown', onKey, true)
+})
+onBeforeUnmount(() => typeof window !== 'undefined' && window.removeEventListener('keydown', onKey, true))
+function nm(v) {
+  return `${v.toFixed(v < 10 ? 2 : 1)} N·m`
+}
 </script>
 
 <template>
-  <figure class="wc-figure wc-loads">
-    <svg :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="Bending moment along the span">
+  <figure class="wc-figure wc-loads" :class="{ 'wc-loads--expanded': expanded }">
+    <button v-if="!expanded" type="button" class="wc-iconbtn wc-loads__expand" aria-label="Show the loads charts larger" title="Show larger" @click="big = true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in EXPAND" :key="k" :d="d" /></svg>
+    </button>
+    <svg :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="Bending moment along the span" @pointermove="onHover" @pointerleave="hoverD = null">
       <line v-for="(x, i) in chart.ribX" :key="'r' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__rib" />
       <line :x1="M.l" :x2="W - M.r" :y1="H - M.b" :y2="H - M.b" class="wc-svg-axis" />
       <polyline v-if="chart.momentNeg" :points="chart.momentNeg" class="wc-svg-curve wc-svg-curve--indicative" />
@@ -91,8 +156,9 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
       <text :x="M.l + 4" :y="M.t + 4" class="wc-svg-tick">Bending moment, N·m</text>
       <text :x="M.l" :y="H - 6" class="wc-svg-tick">root rib</text>
       <text :x="W - M.r" :y="H - 6" text-anchor="end" class="wc-svg-tick">tip, {{ chart.spanLabel }}</text>
+      <line v-if="readout" :x1="readout.x" :x2="readout.x" :y1="M.t" :y2="H - M.b" class="wc-loads__cross" />
     </svg>
-    <svg :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="Lowest margin of safety along the span">
+    <svg :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="Lowest margin of safety along the span" @pointermove="onHover" @pointerleave="hoverD = null">
       <rect :x="M.l" :y="chart.zero" :width="W - M.l - M.r" :height="H - M.b - chart.zero" class="wc-loads__bad" />
       <line v-for="(x, i) in chart.ribX" :key="'r' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__rib" />
       <line :x1="M.l" :x2="W - M.r" :y1="chart.zero" :y2="chart.zero" class="wc-svg-axis" />
@@ -114,7 +180,17 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
       <text :x="M.l - 4" :y="chart.zero + 3" text-anchor="end" class="wc-svg-tick">0</text>
       <text :x="M.l - 4" :y="chart.yS(MS_MIN)" text-anchor="end" class="wc-svg-tick">{{ MS_MIN }}</text>
       <text :x="M.l + 4" :y="M.t + 4" class="wc-svg-tick">Margin of safety by failure mode</text>
+      <line v-if="readout" :x1="readout.x" :x2="readout.x" :y1="M.t" :y2="H - M.b" class="wc-loads__cross" />
     </svg>
+    <p class="wc-loads__readout" aria-live="polite">
+      <template v-if="readout">
+        <strong>{{ readout.at }}</strong> from the root rib:
+        <span v-for="it in readout.items" :key="it.key" class="wc-loads__reading">
+          <span v-if="it.slot" :class="['wc-loads__swatch', `wc-loads__mode--${it.slot}`]" aria-hidden="true"></span>{{ it.label }} {{ it.value }}
+        </span>
+      </template>
+      <span v-else class="wc-muted">Point at either chart to read every curve at that place.</span>
+    </p>
     <ul class="wc-loads__legend" aria-label="Failure modes">
       <li v-for="m in chart.modes" :key="m.key" :class="{ 'wc-loads__legend--worst': m.key === chart.worst?.mode }">
         <span :class="['wc-loads__swatch', `wc-loads__mode--${m.slot}`]" aria-hidden="true"></span>
@@ -139,6 +215,16 @@ const nm = (v) => `${v.toFixed(v < 10 ? 2 : 1)} N·m`
         Dashed verticals on the moment chart are the dihedral breaks. Brace markers (B1, B2...) sit at their margin; a
         triangle means the margin is off scale (drawn at the edge of the chart).
       </span>
+      <span>Bending counts the spar, sheeting, any laminate and the stringers; hinge spars, edge stock, servo trays and hard points are left out, on the safe side.</span>
     </figcaption>
+    <div v-if="expanded" class="wc-loads__actions">
+      <button type="button" class="wc-button" @click="emit('close')">Close</button>
+    </div>
+    <!-- Fixed over the page, inside the app so it keeps its theme -->
+    <div v-if="!expanded && big" class="wc-confirm__backdrop" @pointerdown.self="big = false">
+      <div class="wc-loads__panel" role="dialog" aria-modal="true" aria-label="Loads along the span">
+        <LoadsChart :analysis="analysis" :ribs="ribs" :system="system" :design-g="designG" expanded @close="big = false" />
+      </div>
+    </div>
   </figure>
 </template>
