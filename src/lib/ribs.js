@@ -196,7 +196,10 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 // split: across a control surface, { surface, side }: 'fixed' is the part ahead of the hinge,
 // stopping at the fixed hinge spar's front face; 'moving' the moving surface's part, from its
 // hinge spar's rear face to the trailing edge stock (surface from structure.js surfaceLayouts).
-export function buildRib(a, structure, rib, { board = null, split = null } = {}) {
+// leads: the servo leads that pass through this rib, [{ name, diameter, offset }] (a bay's lead,
+// the hole's near edge offset behind the spar's rear face): each gets a hole, kept clear of the
+// rib's edges and of the other holes, or a note and a mention in `leadFails` if there's no room.
+export function buildRib(a, structure, rib, { board = null, split = null, leads = [] } = {}) {
   const r = structure.ribs
   const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
   const prof = cutProfile(a, rib.s, { perpendicular })
@@ -393,6 +396,35 @@ export function buildRib(a, structure, rib, { board = null, split = null } = {})
     return { t, b }
   }
 
+  // Lead holes, in a strip behind the main spar. Each keeps MIN_MATERIAL clear of the rib's edges
+  // and notches, sliding aft a millimetre at a time (up to 2 cm) if the nominal place is too
+  // thin or taken; the label and lightening holes keep clear of them.
+  const leadBlocks = []
+  const leadFails = []
+  if (!movingSide) {
+    for (const ld of leads) {
+      const D = ld.diameter
+      const fx = (s) => sparRearX(clampS(s)) + ld.offset + D / 2
+      const u0 = crossing(fx, uSpar + (fx(rib.s) - xs0) / cs)
+      let placed = null
+      for (let k = 0; k <= 20 && !placed; k++) {
+        const u = u0 + k * 0.001
+        if (u + D / 2 > uB - MIN_MATERIAL) break
+        if (leadBlocks.some(([b0, b1]) => u - D / 2 < b1 + 0.001 && u + D / 2 > b0 - 0.001)) continue
+        const c = clearOver(u - D / 2, u + D / 2, MIN_MATERIAL)
+        if (c.t - c.b >= D) placed = { u, z: (c.t + c.b) / 2 }
+      }
+      if (placed) {
+        holes.push(circle(placed.u, placed.z, D / 2))
+        leadBlocks.push([placed.u - D / 2, placed.u + D / 2])
+      } else {
+        leadFails.push(ld.name)
+        notes.push(`No room for the ${(D * 1000).toFixed(0)} mm lead hole for ${ld.name}: the rib is too thin behind the spar. Use a smaller servo, thinner skins or stringers elsewhere`)
+      }
+    }
+    if (leadBlocks.length) notes.push(`Lead hole${leadBlocks.length === 1 ? '' : 's'} for ${leads.filter((l) => !leadFails.includes(l.name)).map((l) => l.name).join(', ')}`)
+  }
+
   // The label goes first, in the roomiest clear stretch (ahead of the spar if it fits as well
   // there), and the lightening holes keep clear of it
   const name = rib.name ?? ''
@@ -419,6 +451,7 @@ export function buildRib(a, structure, rib, { board = null, split = null } = {})
       if (h < 0.0015) continue
       const u1 = u0 + textWidth(name, h)
       if (u1 > to) continue
+      if (leadBlocks.some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
       const c = clearOver(u0, u1, edge)
       if (c.t - c.b < h) continue
       if (!best || h * pref > best.h * best.pref + 1e-9) best = { u0, u1, h, pref, z: (c.t + c.b) / 2 - h / 2 }
@@ -438,9 +471,11 @@ export function buildRib(a, structure, rib, { board = null, split = null } = {})
       [uA + m, Math.min(uB, uSpar0) - m],
       [Math.max(uA, uSpar1) + m, uB - m],
     ]) {
-      if (labelBox && labelBox[1] + m > from && labelBox[0] - m < to) {
-        stretches.push([from, labelBox[0] - m], [labelBox[1] + m, to])
-      } else stretches.push([from, to])
+      let open = [[from, to]]
+      for (const [b0, b1] of [labelBox, ...leadBlocks].filter(Boolean)) {
+        open = open.flatMap(([f, t2]) => (b1 + m > f && b0 - m < t2 ? [[f, b0 - m], [b1 + m, t2]] : [[f, t2]]))
+      }
+      stretches.push(...open.filter(([f, t2]) => t2 > f))
     }
     for (const [from, to] of stretches) {
       let u = from
@@ -501,6 +536,7 @@ export function buildRib(a, structure, rib, { board = null, split = null } = {})
     etch,
     label,
     notes,
+    leadFails,
     minLower: Math.min(...loIn.filter((_, i) => us[i] >= uA && us[i] <= uB)),
   }
 }
@@ -576,15 +612,21 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
   const ribMat = material(r.material)
   const breaks = dihedralAt(a)
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
+  const bays = (a.bays ?? []).filter((x) => x.ok)
+  // The servo leads through a rib: every bay outboard of it (or at its inner rib), and the ribs
+  // that couldn't take a hole for each
+  const leadsAt = (s) => bays.filter((x) => s <= x.sA + 1e-6).map((x) => ({ name: x.name, diameter: x.lead.diameter, offset: x.lead.offset }))
+  const leadFailed = new Map()
   for (const rb of ribs) {
     const board = r.jigTabs ? boards.get(panelKey(a, rb.s)) : null
     // A rib across a control surface stops at its hinge spar; the moving part comes below
     const across = surfaceAt(surfaces, rb.s)
-    const b = buildRib(a, structure, rb, { board, split: across ? { surface: across, side: 'fixed' } : null })
+    const b = buildRib(a, structure, rb, { board, split: across ? { surface: across, side: 'fixed' } : null, leads: leadsAt(rb.s) })
     if (!b.ok) {
       skipped.push({ name: rb.name, s: rb.s, reason: b.reason })
       continue
     }
+    for (const n of b.leadFails ?? []) leadFailed.set(n, [...(leadFailed.get(n) ?? []), rb.name])
     const brk = breaks.find((x) => Math.abs(x.s - rb.s) < 1e-4)
     const notes = [...b.notes]
     let cant = 0
@@ -672,6 +714,59 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
       ],
     })
   }
+
+  // Servo bays: a ply mount plate between the bay's ribs with a cut-out for the case and pilot
+  // holes for the lug screws (part SB1 …), and on a sheeted wing the hatch cut from the lower
+  // sheeting (SB1-H) with its two rails in the cut list
+  const warnings = []
+  const sheeted = structure.covering.type === 'sheeted' && structure.covering.sheetThickness > 0
+  const ribNamed = (s) => ribs.find((rb) => Math.abs(rb.s - s) < 1e-3)?.name ?? '?'
+  for (const bay of bays) {
+    const sv = bay.servo
+    const len = bay.plate.s1 - bay.plate.s0
+    const wid = bay.plate.x1 - bay.plate.x0
+    const caseV = bay.case.x0 - bay.plate.x0
+    const lugLen = (sv.lugSpan - sv.length) / 2
+    const cut = 0.0005
+    const screws = []
+    for (const v of [bay.lugs.x0 - bay.plate.x0 + lugLen / 2, bay.lugs.x1 - bay.plate.x0 - lugLen / 2]) {
+      for (const k of [-1, 1]) screws.push(circle(len / 2 + (k * sv.width) / 4, v, 0.0006, 12))
+    }
+    parts.push({
+      id: bay.name,
+      name: bay.name,
+      group: 'servos',
+      material: 'ply-birch',
+      thickness: sv.plate,
+      qty: both ? 2 : 1,
+      outline: rect(0, 0, len, wid),
+      holes: [rect(len / 2 - sv.width / 2 - cut, caseV - cut, len / 2 + sv.width / 2 + cut, caseV + sv.length + cut), ...screws],
+      etch: [],
+      label: null,
+      bay,
+      notes: [
+        `${bay.label} (${surfaces.find((x) => x.id === bay.surface)?.label ?? 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued between ${ribNamed(bay.sA)} and ${ribNamed(bay.sB)}, long side along the chord. The servo goes in from below, its lugs screwed up into the plate`,
+        `Plate fits the gap between the rib faces (${(len * 1000).toFixed(1)} mm); the cut-out leaves about ${(((len - sv.width) / 2 - cut) * 1000).toFixed(1)} mm of ply down each side`,
+      ],
+    })
+    if (sheeted) {
+      const th = structure.covering.sheetThickness
+      parts.push({
+        id: `${bay.name}-H`,
+        name: `${bay.name}-H`,
+        group: 'servos',
+        material: structure.covering.sheetMaterial,
+        thickness: th,
+        qty: both ? 2 : 1,
+        outline: rect(0, 0, bay.hatch.s1 - bay.hatch.s0, bay.hatch.x1 - bay.hatch.x0),
+        holes: [],
+        etch: [],
+        label: null,
+        notes: [`${bay.label} hatch: cut from the lower sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
+      })
+    }
+  }
+  for (const [name, list] of leadFailed) warnings.push(`${name}: no room for its lead hole in ${list.join(', ')}. The ribs are too thin behind the spar: use a smaller servo or thinner skins.`)
 
   // Corner gussets where ribs meet the LE and TE stock
   const g = structure.gussets
@@ -885,8 +980,9 @@ export function buildParts(a, structure, { handedness = 'pair' } = {}) {
 
   const cutList = stripCutList(a, structure, parts, both)
   const covered = coveredArea(a, structure)
-  const weight = estimateWeight(parts, cutList, covered, structure, both ? 2 : 1)
-  return { parts, skipped, cutList, weight, covered, boards }
+  const servoMass = bays.reduce((m, x) => m + x.mass, 0)
+  const weight = estimateWeight(parts, cutList, covered, structure, both ? 2 : 1, servoMass)
+  return { parts, skipped, cutList, weight, covered, boards, warnings }
 }
 
 // The sides of a rib that get corner gussets: +1 outboard, -1 inboard. Never outboard of the
@@ -1081,6 +1177,19 @@ function stripCutList(a, structure, parts, both) {
       note: `Bevel the front to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
     })
   }
+  // A sheeted wing's servo hatch screws to a rail along each of the opening's chordwise edges
+  if (structure.covering.type === 'sheeted' && structure.covering.sheetThickness > 0) {
+    for (const bay of (a.bays ?? []).filter((x) => x.ok)) {
+      out.push({
+        item: `Hatch rail, ${bay.label}`,
+        material: 'spruce',
+        size: [0.005, 0.005],
+        length: bay.hatch.s1 - bay.hatch.s0,
+        qty: 2 * sides,
+        note: 'Between the ribs either side at the front and back edges of the hatch opening, flush with the inside of the lower sheeting; the hatch screws to them',
+      })
+    }
+  }
   if (sp.type === 'tube') {
     const L = Number.isFinite(sp.tubeLength) ? Math.min(sp.tubeLength, span) : span
     out.push({ item: 'Spar tube', material: sp.tubeMaterial, size: [sp.tubeDiameter, sp.tubeWall], length: L * (both && structure.ribs.rootJoint !== 'two-piece' ? 2 : 1), qty: both && structure.ribs.rootJoint !== 'two-piece' ? 1 : sides, tube: true })
@@ -1165,8 +1274,9 @@ export function coveredArea(a, structure, n = 40) {
 
 // Rough weight of the structure, kg, by group: every part and strip from its size and
 // density, plus 10% for glue, and the covering over both surfaces (covered from
-// coveredArea, for one half wing; halves: how many are being made).
-function estimateWeight(parts, cutList, covered, structure, halves) {
+// coveredArea, for one half wing; halves: how many are being made), plus the servos
+// (servoMass: those on one half wing).
+function estimateWeight(parts, cutList, covered, structure, halves, servoMass = 0) {
   const by = {}
   const add = (k, v) => (by[k] = (by[k] ?? 0) + v)
   for (const p of parts) {
@@ -1187,5 +1297,7 @@ function estimateWeight(parts, cutList, covered, structure, halves) {
   const bare = Object.values(by).reduce((s, v) => s + v, 0) * 1.1
   const f = finishes(structure.covering)
   by.covering = covered ? (covered.sheeted * f.sheeted.mass + covered.open * f.open.mass) * halves : 0
-  return { total: bare + by.covering, bare, covering: by.covering, by }
+  // The servos themselves, one per bay on each half
+  const servos = servoMass * halves
+  return { total: bare + by.covering + servos, bare, covering: by.covering, servos, by }
 }

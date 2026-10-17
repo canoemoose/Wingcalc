@@ -414,6 +414,21 @@ export function movingSparSection(a, structure, sf, s) {
   return [[xa, mid], meet(sf.bevel.bottom, 'lower'), [xr, lo(xr)], [xr, up(xr)], meet(sf.bevel.top, 'upper')]
 }
 
+// Where a servo stands in its bay: the base height, the highest the lower skin's inside gets
+// under its footprint and along the bay, so it never pokes through the skin, and the room above it.
+export function servoBox(a, structure, b) {
+  let base = -Infinity
+  let ceil = Infinity
+  for (const s of [b.sA, (b.sA + b.sB) / 2, b.sB]) {
+    for (let k = 0; k <= 6; k++) {
+      const x = b.lugs.x0 + ((b.lugs.x1 - b.lugs.x0) * k) / 6
+      base = Math.max(base, insetHeight(a, structure, s, x, 'lower'))
+      ceil = Math.min(ceil, insetHeight(a, structure, s, x, 'upper'))
+    }
+  }
+  return { base, ceil, top: base + b.servo.height }
+}
+
 // Trailing edge stock at s: the section's own tail over its depth.
 export function teSection(a, structure, s, k = 8) {
   const sec = a.section(s)
@@ -701,6 +716,17 @@ export function wing3d(a, structure, parts) {
     add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12))
   }
   add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }))
+
+  // Servo bays: each servo's case, standing on the lower skin's inside, and the mount plate
+  // across the bay under its lugs
+  for (const b of (a.bays ?? []).filter((x) => x.ok)) {
+    const box = servoBox(a, st, b)
+    const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+    const w = b.servo.width / 2
+    add('servo', sweep(a, b.s - w, b.s + w, () => rect(b.case.x0, b.case.x1, box.base, box.base + b.servo.height), 1))
+    const z = box.base + b.servo.lugHeight
+    add('plate', sweep(a, b.plate.s0, b.plate.s1, () => rect(b.plate.x0, b.plate.x1, z, z + b.plate.thickness), 1))
+  }
 
   // Stringers, seated in their rib notches
   for (const str of st.stringers ?? []) {

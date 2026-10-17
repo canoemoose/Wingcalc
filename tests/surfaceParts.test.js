@@ -50,7 +50,8 @@ function build({ surfaces = [aileron, flap], edit = () => {}, wingEdit = () => {
   st.le.stock = 'custom'
   st.te.stock = 'custom'
   edit(st)
-  const controls = { ...defaultControls(), surfaces }
+  // Servo bays are off here: they have their own tests (servoBays.test.js)
+  const controls = { ...defaultControls(), surfaces, bays: surfaces.map((x) => ({ surface: x.id, enabled: false })) }
   const airfoil = resolveAirfoil(s.airfoil)
   const g = wingGeometry({ ...s.input, mode: 'panels' })
   const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))

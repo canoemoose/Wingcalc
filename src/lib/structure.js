@@ -8,7 +8,8 @@
 //  - Loads: the lifting line's spanwise lift distribution at the stall (the design point at
 //    manoeuvring speed, where the full load factor is reached at maximum lift), scaled to
 //    n × weight. Negative g uses the distribution at the matching negative lift. The wing's
-//    own weight is ignored (inertia relief), which errs on the safe side.
+//    own weight is ignored (inertia relief), which errs on the safe side; the servos are the
+//    exception, each relieving the spar by n × its weight at its span station.
 //  - Shear and bending along the span by integrating the load from the tip inward.
 //  - Spar: bending carried by the caps (or the tube, or the solid spar) alone; sheeting is
 //    ignored for strength (safe side) but checked for buckling at the strain it sees.
@@ -29,6 +30,7 @@ import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
+import { placeBays, servoMasses, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -360,8 +362,10 @@ export function ribStations(sampler, structure, strengthLimit = () => Infinity, 
 
 // Shear and bending along the half wing for a load factor n, from the lifting line's lift
 // distribution at wing lift coefficient CL. Returns rows root to tip:
-// { s, w (N/m along the span), V (N), M (N·m) }, plus the half-wing lift.
-export function spanLoads(sampler, ll, CL, { mass, n, steps = 240 }) {
+// { s, w (N/m along the span), V (N), M (N·m) }, plus the half-wing lift. relief: point masses
+// carried by the half wing, [{ s, mass }]: each pulls down n × its weight at s, which takes
+// that force off the shear inboard of it and its moment about each section off the bending.
+export function spanLoads(sampler, ll, CL, { mass, n, steps = 240, relief = [] }) {
   const dist = clDistribution(ll, CL) // stations root to tip by eta
   // Lift per unit projected span ∝ c·cl, looked up by eta = y / semi-span
   const reach = sampler.reach
@@ -407,6 +411,16 @@ export function spanLoads(sampler, ll, CL, { mass, n, steps = 240 }) {
     V += ((a.w + b.w) / 2) * ds
     a.V = V
     a.M = M
+  }
+  for (const sv of relief ?? []) {
+    const F = n * sv.mass * G
+    if (!(F > 0)) continue
+    for (const r of rows) {
+      if (sv.s > r.s) {
+        r.V -= F
+        r.M -= F * (sv.s - r.s)
+      }
+    }
   }
   return { rows: rows.map(({ s, y, w, V, M }) => ({ s, y, w, V, M })), halfLift: half }
 }
@@ -756,6 +770,127 @@ export function surfaceAt(surfaces, s) {
   return (surfaces ?? []).find((r) => r.ok && s > r.s0 + 1e-6 && s < r.s1 - 1e-6) ?? null
 }
 
+// --- Servo bays ---------------------------------------------------------------------------------
+
+// Why a bay isn't built, in a builder's words.
+const BAY_PROBLEMS = {
+  surface: "its control surface isn't built",
+  span: 'it would run off its panel or past the root or tip rib: move it along the span',
+  overlap: 'it overlaps another servo bay',
+  forward: "there's no room between the main spar and the hinge for the servo and the lead holes: use a smaller servo or move the hinge back",
+}
+
+// Each servo bay laid out (servos.js placeBays says where it goes; this builds it). The bay
+// is the gap between two ribs, a servo's width and its clearance across, with a hard point
+// (a full rib) at each end. The servo lies flat with its lugs along the chord, its lugs'
+// span ending a margin ahead of the fixed hinge spar; a ply mount plate spans the bay
+// between the ribs' faces, flush with the underside of the lugs, with a cut-out for the case
+// (the servo goes in from below, the lugs bearing up on the plate). The hatch is the opening
+// in the lower surface under it, the plate's size. The leads leave through a hole in each rib
+// inboard of the bay (the bay's own inner rib included), in a strip just behind the main
+// spar, one hole's width per bay, the outermost bay's nearest the spar.
+//
+// Returns the bays (surfaces: the built ones from surfaceLayouts), each with ok (built) or
+// problem, and for the built ones: plate ({ x0, x1 } chord, { s0, s1 } span, thickness), lugs
+// and case ({ x0, x1 }), hatch ({ x0, x1, s0, s1 }), inner (the rib faces' s), lead ({ diameter,
+// offset }: the hole's near edge's distance behind the spar's rear face), room (the depth there,
+// between the skins, for a flat servo), need and warnings.
+export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, surfaces, bays) {
+  const t = structure.ribs.thickness || 0
+  const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const built = new Map((surfaces ?? []).filter((r) => r.ok).map((r) => [r.id, r]))
+  for (const b of bays) {
+    b.warnings = []
+    if (b.ok && !built.has(b.surface)) {
+      b.ok = false
+      b.problem = 'surface'
+    }
+    if (b.ok && (b.sA < rootS + 0.003 || b.sB > tipS - 0.003)) {
+      b.ok = false
+      b.problem = 'span'
+    }
+  }
+  const live = bays.filter((b) => b.ok).sort((a, b) => b.s - a.s)
+  // Lead holes side by side behind the spar, 2 mm apart, the outermost bay's first
+  let offset = 0.003
+  for (const b of live) {
+    b.lead = { diameter: b.servo.leadHole, offset }
+    offset += b.servo.leadHole + 0.002
+  }
+  const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+  for (const b of live) {
+    const r = built.get(b.surface)
+    const sv = b.servo
+    const ss = Array.from({ length: 9 }, (_, k) => b.sA + ((b.sB - b.sA) * k) / 8)
+    // Between the leads' strip behind the spar and the fixed hinge spar's front face
+    const hingeFront = Math.min(...ss.map((s) => r.faces.fixedFront(s)))
+    const leadsEnd = Math.max(...ss.map(sparRear)) + offset
+    const free = [leadsEnd + 0.002, hingeFront - 0.002]
+    if (free[1] - free[0] < sv.lugSpan + 2 * BAY_MARGIN) {
+      b.ok = false
+      b.problem = 'forward'
+      continue
+    }
+    // Depth for a servo lying flat with its lugs from x to x + lugSpan: from the highest the
+    // lower skin's inside gets to the lowest the upper's does, over that and the bay's length
+    const depthFrom = (x0) => {
+      let base = -Infinity
+      let ceil = Infinity
+      for (let i = 0; i <= 4; i++) {
+        const s = b.sA + ((b.sB - b.sA) * i) / 4
+        const sec = section(s)
+        if (!sec || !(sec.c > 1e-4)) continue
+        const xiRear = (sparRear(s) - sec.xl) / sec.c
+        for (let k = 0; k <= 6; k++) {
+          const x = x0 + (sv.lugSpan * k) / 6
+          const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
+          const f = sec.surf(q)
+          const skin = skinAt(structure, q, xiRear)
+          base = Math.max(base, f.lower + skin)
+          ceil = Math.min(ceil, f.upper - skin)
+        }
+      }
+      return ceil - base
+    }
+    // Where it goes in the free stretch: the deepest place, the rearmost if several are as deep
+    // (a millimetre in hand), so the pushrod to the horn is short
+    const lo = free[0] + BAY_MARGIN
+    const hi = free[1] - BAY_MARGIN - sv.lugSpan
+    let front = hi
+    let room = depthFrom(hi)
+    for (let k = 1; k <= 16; k++) {
+      const x = hi - ((hi - lo) * k) / 16
+      const d = depthFrom(x)
+      if (d > room + 0.001) {
+        room = d
+        front = x
+      }
+    }
+    const rear = front + sv.lugSpan
+    const plateRear = rear + BAY_MARGIN
+    const plateFront = front - BAY_MARGIN
+    const need = sv.height + SERVO_HEADROOM
+    const caseX0 = front + (sv.lugSpan - sv.length) / 2
+    Object.assign(b, {
+      inner: [b.sA + t / 2, b.sB - t / 2],
+      plate: { x0: plateFront, x1: plateRear, s0: b.sA + t / 2, s1: b.sB - t / 2, thickness: sv.plate },
+      lugs: { x0: front, x1: rear },
+      case: { x0: caseX0, x1: caseX0 + sv.length },
+      hatch: { x0: plateFront, x1: plateRear, s0: b.sA + t / 2, s1: b.sB - t / 2 },
+      room,
+      need,
+    })
+    if (!(room >= need)) {
+      b.warnings.push(`${b.label} needs ${mm(need)} of depth for a ${sv.label.toLowerCase()} servo and the wing has ${mm(Math.max(0, room))} there: use a smaller class, or move the bay to where the wing is deeper.`)
+    }
+    if (b.beyond) b.warnings.push(`${b.label} sticks out past the ends of ${r.label}. The ribs beside it are still its hard points.`)
+  }
+  return bays
+}
+
+// Why a bay isn't built, with the bay's name.
+export const bayProblem = (b) => `${b.label} isn't built: ${BAY_PROBLEMS[b.problem] ?? b.problem}.`
+
 // Why a surface couldn't be built, in a builder's words.
 const SURFACE_PROBLEMS = {
   panel: 'its panel is gone',
@@ -784,8 +919,6 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const nPos = loads.designG > 0 ? loads.designG : 6
   const nNeg = loads.negativeG > 0 ? loads.negativeG : 0
   const CL = spanwise.CLmax
-  const pos = spanLoads(sampler, spanwise.ll, CL, { mass, n: nPos })
-  const neg = nNeg > 0 ? spanLoads(sampler, spanwise.ll, (-CL * nNeg) / nPos, { mass, n: nNeg }) : null
 
   const xi = sparFraction(structure, airfoil.params)
   const sparX = sparLine(sampler, xi)
@@ -802,6 +935,18 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   // The sheeting's modulus for buckling between ribs, stiffened by any laminate over it
   const sheetE = laminatedSheetE(sheet.E, cov.sheetThickness, finishOf(cov).laminate)
   const ms = (allow, actual) => (actual > 0 ? allow / (actual * sf) - 1 : Infinity)
+
+  // Control surfaces, each with a rib at both ends, then the servo bays on them. The servos'
+  // weight is carried by the wing, so each takes load off the spar at its station.
+  const surfaces = surfaceLayouts({ sampler, section, sparX, structure, rootS: s0, tipS: sTip }, controls)
+  const bays = bayLayouts(
+    { sampler, section, sparX, structure, rootS: s0, tipS: sTip },
+    surfaces,
+    placeBays({ sampler, surfaces, controls, mass, ribThickness: structure.ribs.thickness }),
+  )
+  const relief = servoMasses(bays)
+  const pos = spanLoads(sampler, spanwise.ll, CL, { mass, n: nPos, relief })
+  const neg = nNeg > 0 ? spanLoads(sampler, spanwise.ll, (-CL * nNeg) / nPos, { mass, n: nNeg, relief }) : null
 
   const stations = []
   for (let k = 0; k <= steps; k++) {
@@ -874,13 +1019,15 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const r = stations[Math.min(stations.length - 1, Math.max(0, k))]
     return r ? r.limit : Infinity
   }
-  // Control surfaces, each with a rib at both ends
-  const surfaces = surfaceLayouts({ sampler, section, sparX, structure, rootS: s0, tipS: sTip }, controls)
   const surfaceEnds = surfaces.filter((r) => r.ok).flatMap((r) => [
     { s: r.s0, label: `${r.label}, inner end` },
     { s: r.s1, label: `${r.label}, outer end` },
   ])
-  const ribs = ribStations(sampler, structure, limitAt, surfaceEnds)
+  const bayEnds = bays.filter((b) => b.ok).flatMap((b) => [
+    { s: b.sA, label: `${b.label}, inner rib` },
+    { s: b.sB, label: `${b.label}, outer rib` },
+  ])
+  const ribs = ribStations(sampler, structure, limitAt, [...surfaceEnds, ...bayEnds])
   // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends
   if (edges.le.round) {
     const f = fitOver(roundItem(edges.le.round.diameter), section, ribs.map((r) => r.s), 'le')
@@ -1011,6 +1158,10 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     if (!r.ok) warnings.push({ id: `surface-${r.id}`, message: `${r.label} isn't built: ${SURFACE_PROBLEMS[r.problem] ?? r.problem}.` })
     for (const [k, m] of (r.warnings ?? []).entries()) warnings.push({ id: `surface-${r.id}-${k}`, message: m })
   }
+  for (const b of bays) {
+    if (!b.ok && b.problem !== 'surface') warnings.push({ id: `bay-${b.id}`, message: bayProblem(b) })
+    for (const [k, m] of (b.warnings ?? []).entries()) warnings.push({ id: `bay-${b.id}-${k}`, message: m })
+  }
   // Each fit drawn where it's worst, for the editor (edge stock, rods and dowels)
   for (const k of ['le', 'te']) {
     const e = edges[k]
@@ -1025,6 +1176,8 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     stations,
     ribs,
     surfaces,
+    bays,
+    relief,
     pos,
     neg,
     sparFraction: xi,
