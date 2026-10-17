@@ -2824,6 +2824,13 @@
 .wc-inspector .wc-param__row {
   gap: 6px;
 }
+/* Segmented choices share the column's width rather than widening it: long labels wrap */
+.wc-inspector .wc-segmented__btn {
+  min-width: 0;
+  padding: 5px 6px;
+  white-space: normal;
+  line-height: 1.2;
+}
 .wc-inspector .wc-structure-editor__check {
   margin: 2px 0 5px;
 }

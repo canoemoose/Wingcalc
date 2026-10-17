@@ -1473,25 +1473,28 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :base-thickness="baseThickness"
             id-prefix="wcx"
           />
-          <ControlSurfaceEditor
-            v-model:controls="input.controls"
-            v-model:selected="selectedSurface"
-            :wing="planWing"
-            :selected-panel="selectedPanel"
-            :surface-depth="surfaceDepth"
-            :mass="input.mass"
-            :system="system"
-            id-prefix="wcx"
-          />
-          <AirBrakeEditor
-            v-model:controls="input.controls"
-            v-model:selected="selectedBrake"
-            :wing="planWing"
-            :selected-panel="selectedPanel"
-            :mass="input.mass"
-            :system="system"
-            id-prefix="wcx"
-          />
+          <!-- Inspector rows like the panels', so the surfaces and brakes fit the column -->
+          <div class="wc-inspector">
+            <ControlSurfaceEditor
+              v-model:controls="input.controls"
+              v-model:selected="selectedSurface"
+              :wing="planWing"
+              :selected-panel="selectedPanel"
+              :surface-depth="surfaceDepth"
+              :mass="input.mass"
+              :system="system"
+              id-prefix="wcx"
+            />
+            <AirBrakeEditor
+              v-model:controls="input.controls"
+              v-model:selected="selectedBrake"
+              :wing="planWing"
+              :selected-panel="selectedPanel"
+              :mass="input.mass"
+              :system="system"
+              id-prefix="wcx"
+            />
+          </div>
           <ul v-if="otherWarnings.length" class="wc-warnings">
             <li v-for="w in otherWarnings" :key="w.field">{{ w.message }}</li>
           </ul>
