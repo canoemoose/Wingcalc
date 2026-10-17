@@ -32,6 +32,7 @@ import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, 
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
 import { placeBays, servoMasses, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
+import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -50,6 +51,8 @@ export const MATERIALS = {
   hardwood: { label: 'Hardwood dowel (beech, ramin)', short: 'hardwood', density: 700, E: 10e9, compression: 40e6, tension: 60e6, shear: 7e6 },
   // Polyester film for hinge tabs: weight only
   mylar: { label: 'Mylar (polyester film)', short: 'Mylar', density: 1390, E: 4e9, compression: 50e6, tension: 150e6, shear: 50e6 },
+  // Foam cores, obechi veneer, carbon tow and template stock (foam.js)
+  ...FOAM_MATERIALS,
 }
 
 export const material = (id) => MATERIALS[id] ?? MATERIALS['balsa-medium']
@@ -115,6 +118,10 @@ export const MIN_MATERIAL = 0.0015
 // spar, for a typical 1.4 m sport model.
 export function defaultStructure() {
   return {
+    // 'built-up' (ribs, spar and covering, as below) | 'foam' (a hot-wire cut core with skins:
+    // foam holds its settings; the edges, finish, hinges, braces and loads are shared)
+    construction: 'built-up',
+    foam: defaultFoam(),
     spar: {
       type: 'caps', // 'caps' (caps + shear web) | 'box' | 'tube' | 'solid'
       position: null, // chord fraction at each panel end; null = the section's thickest point
@@ -1033,6 +1040,10 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const base = airfoil.params.thickness
   const sampler = wingSampler(wing, base)
   if (!sampler) return null
+  // A foam wing is laid out as a fully sheeted wing with no ribs (foam.js), checked as a sandwich
+  const foam = isFoam(structure)
+  if (foam) structure = foamStructure(structure)
+  const core = foam ? (MATERIALS[structure.foam.core] ?? MATERIALS['eps-20']) : null
   const loads = structure.loads
   const sf = loads.safetyFactor >= 1 ? loads.safetyFactor : 1.5
   const nPos = loads.designG > 0 ? loads.designG : 6
@@ -1103,7 +1114,17 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     row.sigma = sigC
     row.ms.compression = ms(sp.mat.compression, sigC)
     row.ms.tension = ms(sp.mat.tension, sigT)
-    if (sp.type === 'caps' || sp.type === 'box') {
+    if (foam) {
+      // Shear: the web between the caps if there is one, else the core between them
+      if (sp.tw > 0) {
+        row.tau = V / (sp.tw * Math.max(1e-6, sp.d))
+        row.ms.webShear = ms(sp.web.shear, row.tau)
+      } else {
+        row.coreTau = coreShearStress(V, { capWidth: sp.b, d: sp.d })
+        row.ms.coreShear = ms(core.shear, row.coreTau)
+      }
+      row.capThicknessNeeded = structure.spar.capThickness * Math.max((sigC * sf) / sp.mat.compression, (sigT * sf) / sp.mat.tension)
+    } else if (sp.type === 'caps' || sp.type === 'box') {
       // Shear web(s) between the caps; the D-box's own shear path is ignored (safe side)
       const tau = V / (sp.webs * sp.tw * Math.max(1e-6, sp.d))
       row.tau = tau
@@ -1122,6 +1143,12 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       const sheetC = strips.reduce((m, e) => Math.max(m, comp(e.E, e.top), comp(e.E, e.bottom)), 0)
       row.sheetStress = sheetC
       row.ms.sheet = ms(sheet.compression, sheetC)
+      if (foam) {
+        // A skin on a foam core doesn't buckle between supports: it wrinkles into the core
+        row.wrinkle = wrinklingStress(sheetE, core)
+        row.ms.wrinkling = ms(row.wrinkle, sheetC)
+        continue
+      }
       for (const surface of ['upper', 'lower']) {
         for (const [x0, x1] of sheetPanels(structure, surface, sparXi, leXi, teXi)) {
           const inPanel = strips.filter((e) => e.surface === surface && e.x >= x0 && e.x <= x1)
@@ -1152,10 +1179,14 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     { s: r.sA, label: `${r.label}, inner end` },
     { s: r.sB, label: `${r.label}, outer end` },
   ])
-  const ribs = ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds, ...bayEnds])
-  // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends
+  // A foam wing has no ribs: its cores run between the panel ends
+  const ribs = foam ? [] : ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds, ...bayEnds])
+  // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends (on a
+  // foam wing, about every 20 mm)
   if (edges.le.round) {
-    const f = fitOver(roundItem(edges.le.round.diameter), section, ribs.map((r) => r.s), 'le')
+    const n = Math.max(2, Math.ceil((sTip - s0) / 0.02))
+    const along = foam ? Array.from({ length: n + 1 }, (_, i) => s0 + ((sTip - s0) * i) / n) : ribs.map((r) => r.s)
+    const f = fitOver(roundItem(edges.le.round.diameter), section, along, 'le')
     if (f.shortfall > edges.le.shortfall) Object.assign(edges.le, { shortfall: f.shortfall, worstS: f.worstS, fits: f.fits })
   }
   const bayAt = (s) => {
@@ -1184,8 +1215,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const m = summary.modes[k]
     if (!m || m.ms >= 0) continue
     const row = stations.find((r) => r.s === m.s)
-    const remedy =
-      sp.type === 'tube'
+    const remedy = foam
+      ? `thicker caps (about ${(Math.ceil((row?.capThicknessNeeded ?? 0) * 20000) / 20).toFixed(2)} mm there), wider caps, or a stiffer, stronger cap material`
+      : sp.type === 'tube'
         ? 'a larger tube or a thicker wall'
         : sp.type === 'solid'
           ? 'a deeper or wider spar, or a stronger wood'
@@ -1193,21 +1225,41 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     warnings.push({
       id: `short-${k}`,
       mode: k,
-      message: `The spar is ${short(k)} short of strength in ${k} ${where(m.d)}. Closer ribs won't help: try ${remedy}.`,
+      message: foam
+        ? `The spar caps are ${short(k)} short of strength in ${k} ${where(m.d)}. Try ${remedy}.`
+        : `The spar is ${short(k)} short of strength in ${k} ${where(m.d)}. Closer ribs won't help: try ${remedy}.`,
     })
   }
   if (summary.modes.webShear?.ms < 0) {
     warnings.push({
       id: 'short-webShear',
       mode: 'webShear',
-      message: `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${sp.type === 'caps' ? ', or a box spar (two webs)' : ''}.`,
+      message: foam
+        ? `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Try a thicker web or a stronger web material.`
+        : `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${sp.type === 'caps' ? ', or a box spar (two webs)' : ''}.`,
     })
   }
   if (summary.modes.sheet?.ms < 0) {
     warnings.push({
       id: 'short-sheet',
       mode: 'sheet',
-      message: `The sheeting is ${short('sheet')} short of strength in compression ${where(summary.modes.sheet.d)}. Closer ribs won't help: try thicker or harder sheeting, or stronger spar caps to take more of the load.`,
+      message: foam
+        ? `The skin is ${short('sheet')} short of strength in compression ${where(summary.modes.sheet.d)}. Try a thicker skin, or bigger spar caps to take more of the load.`
+        : `The sheeting is ${short('sheet')} short of strength in compression ${where(summary.modes.sheet.d)}. Closer ribs won't help: try thicker or harder sheeting, or stronger spar caps to take more of the load.`,
+    })
+  }
+  if (summary.modes.wrinkling?.ms < 0) {
+    warnings.push({
+      id: 'short-wrinkling',
+      mode: 'wrinkling',
+      message: `The compressed skin would wrinkle into the core ${where(summary.modes.wrinkling.d)} (${short('wrinkling')} short). Try a denser foam, a thicker or stiffer skin, or bigger spar caps to take load off the skin.`,
+    })
+  }
+  if (summary.modes.coreShear?.ms < 0) {
+    warnings.push({
+      id: 'short-coreShear',
+      mode: 'coreShear',
+      message: `The foam between the spar caps is ${short('coreShear')} short of strength in shear ${where(summary.modes.coreShear.d)}. Add a shear web between the caps, or use a denser foam or wider caps.`,
     })
   }
   for (const k of ['spacing', 'webBuckling']) {
@@ -1298,8 +1350,20 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const sec = item && section(e.worstS)
     if (sec && sec.c > 1e-4) e.drawing = { ...fitDrawing(item, sec, k), where: whereS(e.worstS), shortfall: e.shortfall, fits: e.fits }
   }
+  // A foam wing's cores: one per panel (and the centre section), root outward
+  const cores = []
+  if (foam) {
+    if (s0 < sampler.half - 1e-6) cores.push({ name: 'centre section', from: s0, to: sampler.half })
+    sampler.ends.forEach((e, i) => {
+      const from = Math.max(s0, e.inner.s)
+      if (e.outer.s - from > 1e-4) cores.push({ name: `panel ${i + 1}`, from, to: e.outer.s })
+    })
+  }
   return {
     wing,
+    construction: foam ? 'foam' : 'built-up',
+    cores,
+    modeLabels: foam ? { ...MODES, ...FOAM_MODE_LABELS } : MODES,
     structure,
     edges,
     stations,
@@ -1334,7 +1398,14 @@ export const MODES = {
   webShear: 'Shear web',
   webBuckling: 'Shear web buckling',
   spacing: 'Buckling between ribs',
+  wrinkling: 'Skin wrinkling',
+  coreShear: 'Core shear',
 }
+// A foam wing's names for the modes it shares with a built-up one
+export const FOAM_MODE_LABELS = { compression: 'Spar caps in compression', tension: 'Spar caps in tension', sheet: 'Skin crushing' }
+// The chart colour slot of each mode (1 to 6). A foam wing's own two never appear with the
+// two rib-spacing modes, so they take those slots.
+export const MODE_SLOTS = { compression: 1, tension: 2, sheet: 3, webShear: 4, webBuckling: 5, spacing: 6, coreShear: 5, wrinkling: 6 }
 
 // Lowest margin per mode, and where.
 export function summarise(stations) {
