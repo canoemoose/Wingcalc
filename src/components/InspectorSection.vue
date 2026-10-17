@@ -21,9 +21,13 @@ function groupOf(parent) {
 //
 // Accordion: sections that share a parent element form a group, and only one is open at a
 // time. Opening one closes the others in its group. Nested sections are their own group, since
-// their parent is the outer section's body. On a reload, if a remembered-open section comes
-// after an open sibling in the document, it starts closed (first open in document order wins),
-// and the closed state is written back so a reload matches what you saw.
+// their parent is the outer section's body. Until anything in a group has been opened or closed
+// in this browser, the group's first section (in document order) opens, whatever its open prop
+// says. After that, the last one opened stays open on reload. Closing the last open section
+// remembers the whole group as closed, so a reload doesn't reopen the first one. On a reload, if
+// a remembered-open section comes after an open sibling in the document, it starts closed (first
+// open in document order wins), and the closed state is written back so a reload matches what
+// you saw.
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({
@@ -48,14 +52,25 @@ function readFolds() {
     return {}
   }
 }
-function writeFold(open) {
+function writeFold(open, keys = [props.foldKey]) {
   try {
     const folds = readFolds()
-    folds[props.foldKey] = open
+    for (const k of keys) folds[k] = open
     globalThis.localStorage?.setItem(KEY, JSON.stringify(folds))
   } catch {
     // not remembered; fine
   }
+}
+
+// The fold sections directly inside a parent, in document order
+function foldsIn(parent) {
+  return [...parent.children].filter((el) => el.classList.contains('wc-fold') && el.dataset.foldKey)
+}
+// Nothing in this group is remembered yet, and this section is its first
+function isFirstDefault(parent) {
+  const folds = readFolds()
+  const sections = foldsIn(parent)
+  return sections[0] === root.value && sections.every((el) => typeof folds[el.dataset.foldKey] !== 'boolean')
 }
 
 const root = ref(null)
@@ -96,6 +111,11 @@ onMounted(() => {
   const parent = root.value?.parentElement
   if (!parent) return
   group = groupOf(parent)
+  if (isFirstDefault(parent)) {
+    // nothing remembered for this group yet: its first section opens, and is remembered as such
+    isOpen.value = true
+    writeFold(true)
+  }
   if (isOpen.value) {
     if (group.value == null) {
       group.value = props.foldKey
@@ -116,15 +136,22 @@ onUnmounted(() => {
 function toggled(e) {
   if (e.target.open === isOpen.value) return
   isOpen.value = e.target.open
-  if (isOpen.value) claim()
-  else release()
+  if (isOpen.value) {
+    claim()
+    writeFold(true)
+  } else {
+    release()
+    // The group is now all closed: remember every section in it, so a reload doesn't reopen the first
+    const parent = root.value?.parentElement
+    const keys = group?.value == null && parent ? foldsIn(parent).map((el) => el.dataset.foldKey) : [props.foldKey]
+    writeFold(false, keys)
+  }
   emit('toggle', isOpen.value)
-  writeFold(isOpen.value)
 }
 </script>
 
 <template>
-  <details ref="root" class="wc-fold" :open="isOpen" @toggle="toggled">
+  <details ref="root" class="wc-fold" :data-fold-key="foldKey" :open="isOpen" @toggle="toggled">
     <summary class="wc-fold__head">
       <span class="wc-fold__title">{{ title }}</span>
       <span v-if="!isOpen && summary" class="wc-fold__sum">{{ summary }}</span>
