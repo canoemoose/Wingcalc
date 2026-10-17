@@ -1312,6 +1312,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           <StructureEditor
             v-model:structure="input.structure"
             :system="system"
+            :root-chord="input.rootChord"
             :auto-spar="autoSpar"
             :brace-needs="braceNeeds"
             :rib-distances="ribDistances"

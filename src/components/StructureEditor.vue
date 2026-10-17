@@ -35,6 +35,8 @@ const props = defineProps({
   gussetFit: { type: Object, default: null },
   // What the covering weighs on this wing, kg (ribs.js estimateWeight), for its hint
   coveringMass: { type: Number, default: null },
+  // The root chord, m: a length typed into a percent-of-chord box is a share of it
+  rootChord: { type: Number, default: null },
   idPrefix: { type: String, default: 'wcs' },
   // Warnings to show in each section, by section (warnings.js bySection): { spar: [{ id, message }], ... }
   warnings: { type: Object, default: () => ({}) },
@@ -471,6 +473,8 @@ const braceHint = computed(() => {
         :id="id('sparpos')"
         :model-value="st.spar.position"
         quantity="percent"
+        :chord="rootChord"
+        chord-name="root chord"
         :system="system"
         label="Position along the chord"
         :placeholder="autoSparText"
@@ -573,6 +577,8 @@ const braceHint = computed(() => {
             :id="id(`dbox-${side}`)"
             :model-value="st.covering.dbox?.[`${side}To`] ?? null"
             quantity="percent"
+            :chord="rootChord"
+            chord-name="root chord"
             :system="system"
             :label="`${side === 'top' ? 'Top' : 'Bottom'} sheeting back to`"
             placeholder="The spar"
@@ -609,6 +615,8 @@ const braceHint = computed(() => {
           :id="id('css')"
           :model-value="st.covering.capStripStart ?? null"
           quantity="percent"
+          :chord="rootChord"
+          chord-name="root chord"
           :system="system"
           label="Cap strips start at"
           placeholder="Behind the LE stock"
@@ -708,6 +716,8 @@ const braceHint = computed(() => {
           :id="id(`str${s.id}p`)"
           :model-value="s.position"
           quantity="percent"
+          :chord="rootChord"
+          chord-name="root chord"
           :system="system"
           label="Position along the chord"
           @update:model-value="updateIn('stringers', s.id, 'position', $event)"
@@ -867,6 +877,8 @@ const braceHint = computed(() => {
                   :id="id(`hp${h.id}cf`)"
                   :model-value="h.chordFrom ?? 0"
                   quantity="percent"
+                  :chord="rootChord"
+                  chord-name="root chord"
                   :system="system"
                   label="Chord from"
                   @update:model-value="updateIn('ribs.hardPoints', h.id, 'chordFrom', $event ?? 0)"
@@ -875,6 +887,8 @@ const braceHint = computed(() => {
                   :id="id(`hp${h.id}ct`)"
                   :model-value="h.chordTo ?? 1"
                   quantity="percent"
+                  :chord="rootChord"
+                  chord-name="root chord"
                   :system="system"
                   label="Chord to"
                   @update:model-value="updateIn('ribs.hardPoints', h.id, 'chordTo', $event ?? 1)"

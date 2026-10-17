@@ -1,10 +1,11 @@
 <script setup>
 // Numeric input bound to a value in SI base units, displayed in the project's unit for its
 // quantity (units.js defaultUnit). Accepts arithmetic and per-number units ("250-12", "12in",
-// "1.2kg"); see src/lib/expr.js.
+// "1.2kg"); see src/lib/expr.js. A percent-of-chord box given its chord takes lengths too
+// ("12mm"), converted to a percentage of that chord when committed.
 import { ref, watch, computed } from 'vue'
 import { UNITS, defaultUnit, toBase, inputValue, format } from '../lib/units.js'
-import { evaluate, isExpression } from '../lib/expr.js'
+import { evaluate, isExpression, hasLength } from '../lib/expr.js'
 
 const props = defineProps({
   modelValue: { type: Number, default: null },
@@ -18,6 +19,9 @@ const props = defineProps({
   // Compact: label kept for screen readers only, for use in tables.
   compact: { type: Boolean, default: false },
   placeholder: { type: String, default: '' },
+  // Percent boxes: the chord (m) a typed length is a share of, and what to call it
+  chord: { type: Number, default: null },
+  chordName: { type: String, default: 'chord' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -37,7 +41,7 @@ watch(
   },
 )
 
-const parse = (t) => evaluate(t, { quantity: props.quantity, unit: unit.value })
+const parse = (t) => evaluate(t, { quantity: props.quantity, unit: unit.value, chord: props.chord })
 
 // Typing only updates the text. The value is committed on Enter or when leaving the box,
 // so the parent never reformats mid-entry.
@@ -76,7 +80,8 @@ const preview = computed(() => {
   if (!focused.value || !isExpression(text.value)) return null
   const n = parse(text.value)
   if (n === null) return { ok: false, text: 'Not a complete sum yet' }
-  return { ok: true, text: `= ${format(toBase(n, props.quantity, unit.value), props.quantity, unit.value)}` }
+  const of = props.chord > 0 && hasLength(text.value) ? ` of the ${format(props.chord, 'length', defaultUnit(props.system, 'length'))} ${props.chordName}` : ''
+  return { ok: true, text: `= ${format(toBase(n, props.quantity, unit.value), props.quantity, unit.value)}${of}` }
 })
 
 function tidy() {

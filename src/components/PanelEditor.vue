@@ -467,6 +467,8 @@ function title(i) {
         :model-value="p.thickness"
         quantity="percent"
         :system="system"
+        :chord="p.tipChord"
+        chord-name="chord at that end"
         :label="i === panels.length - 1 ? 'Section thickness at tip' : 'Section thickness at outer end'"
         :placeholder="inheritedThickness(i)"
         :hint="

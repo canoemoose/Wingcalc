@@ -1,6 +1,7 @@
 // Arithmetic in numeric entry boxes: + - * / (also × ÷), brackets, and an optional unit on
 // any number, converted to the box's unit ("12in" in a millimetre box is 304.8; "300mm + 2in"
-// works too). Commas are thousands separators, as usual in the UK. A small recursive-descent
+// works too). A percent-of-chord box given its chord also takes a length ("12mm" of a 240 mm
+// chord is 5 %). Commas are thousands separators, as usual in the UK. A small recursive-descent
 // parser, so nothing is ever passed to eval.
 
 import { UNITS } from './units.js'
@@ -21,6 +22,7 @@ const ALIASES = {
     sqin: 0.00064516,
     sqft: 0.09290304,
   },
+  percent: { '%': 0.01, pct: 0.01 },
 }
 
 function tokenise(text) {
@@ -40,7 +42,7 @@ function tokenise(text) {
       tokens.push({ t: ch })
       i++
     } else {
-      const m = src.slice(i).match(/^([a-z]+2?|"|')/i)
+      const m = src.slice(i).match(/^([a-z]+2?|"|'|%)/i)
       if (!m) return null
       tokens.push({ t: 'unit', v: m[0].toLowerCase() })
       i += m[0].length
@@ -50,8 +52,9 @@ function tokenise(text) {
 }
 
 // Evaluate text to a number in the box's own unit, or null if it isn't a complete,
-// valid expression. quantity/unit are optional (plain numbers only without them).
-export function evaluate(text, { quantity = null, unit = null } = {}) {
+// valid expression. quantity/unit are optional (plain numbers only without them). chord (m)
+// lets a percent box take lengths, as a share of that chord.
+export function evaluate(text, { quantity = null, unit = null, chord = null } = {}) {
   if (typeof text !== 'string' || !text.trim()) return null
   const tokens = tokenise(text)
   if (!tokens?.length) return null
@@ -66,7 +69,8 @@ export function evaluate(text, { quantity = null, unit = null } = {}) {
       let v = tok.v
       if (peek()?.t === 'unit') {
         const u = next().v
-        const factor = quantity ? ALIASES[quantity]?.[u] : undefined
+        let factor = quantity ? ALIASES[quantity]?.[u] : undefined
+        if (factor === undefined && quantity === 'percent' && chord > 0 && LENGTH[u]) factor = LENGTH[u] / chord
         const own = quantity && unit ? UNITS[quantity]?.[unit]?.factor : undefined
         if (factor === undefined || own === undefined) throw new Error('unit')
         v = (v * factor) / own
@@ -118,6 +122,10 @@ export function evaluate(text, { quantity = null, unit = null } = {}) {
     return null
   }
 }
+
+// True when the text has a length in it ("12mm", '0.5"'), which a percent box takes as a share
+// of its chord
+export const hasLength = (text) => (tokenise(text ?? '') ?? []).some((t) => t.t === 'unit' && LENGTH[t.v])
 
 // True when the text is more than a plain number, so the box can show what it works out to.
 export function isExpression(text) {

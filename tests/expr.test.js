@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluate, isExpression } from '../src/lib/expr.js'
+import { evaluate, isExpression, hasLength } from '../src/lib/expr.js'
 
 describe('arithmetic in entry boxes', () => {
   it('reads plain numbers, with commas as thousands separators', () => {
@@ -40,5 +40,26 @@ describe('arithmetic in entry boxes', () => {
     expect(isExpression('1,250.5')).toBe(false)
     expect(isExpression('250-12')).toBe(true)
     expect(isExpression('12in')).toBe(true)
+  })
+})
+
+describe('lengths in a percent-of-chord box', () => {
+  const pct = { quantity: 'percent', unit: 'pct', chord: 0.24 }
+  it('converts a length to a share of the chord', () => {
+    expect(evaluate('12mm', pct)).toBeCloseTo(5, 9)
+    expect(evaluate('1in', pct)).toBeCloseTo(10.583333, 5)
+    expect(evaluate('60mm + 5', pct)).toBeCloseTo(30, 9)
+  })
+  it('takes a percent sign and plain numbers as before', () => {
+    expect(evaluate('25%', pct)).toBeCloseTo(25, 9)
+    expect(evaluate('25', pct)).toBe(25)
+  })
+  it('refuses a length without a chord', () => {
+    expect(evaluate('12mm', { quantity: 'percent', unit: 'pct' })).toBeNull()
+  })
+  it('spots a length in the text', () => {
+    expect(hasLength('12mm')).toBe(true)
+    expect(hasLength('25%')).toBe(false)
+    expect(hasLength('25')).toBe(false)
   })
 })

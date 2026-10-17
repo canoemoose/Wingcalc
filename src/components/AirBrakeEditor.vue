@@ -134,7 +134,7 @@ const sectionSummary = computed(() => {
           Centre from the panel's inner end, flat along it. A rib goes at each end, a little further apart than the length{{ b.type === 'spoiler' ? ', with room for the frame' : '' }}.
         </p>
         <div class="wc-structure-editor__pair">
-          <UnitInput :id="id(`${b.id}-x`)" :model-value="b.x" quantity="percent" :system="system" label="Position on the chord" @update:model-value="update(b.id, { x: $event })" />
+          <UnitInput :id="id(`${b.id}-x`)" :model-value="b.x" quantity="percent" :system="system" :chord="Number.isFinite(r.s) ? sampler?.at(r.s)?.c ?? null : null" chord-name="chord there" label="Position on the chord" @update:model-value="update(b.id, { x: $event })" />
           <UnitInput :id="id(`${b.id}-chord`)" :model-value="b.chord" quantity="length" :system="system" :label="b.type === 'blade' ? 'Box width' : 'Plate chord'" @update:model-value="update(b.id, { chord: $event })" />
         </div>
         <p class="wc-field__hint">

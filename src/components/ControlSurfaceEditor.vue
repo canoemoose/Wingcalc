@@ -35,6 +35,8 @@ const selected = defineModel('selected', { type: Number, default: null })
 const sampler = computed(() => wingSampler(props.wing))
 const resolved = computed(() => (sampler.value ? resolveSurfaces(sampler.value, controls.value.surfaces) : []))
 // In order along the span, as named (F1, A1 …)
+// The local chord at flat span position s, so a hinge can be typed in millimetres
+const chordAt = (s) => (Number.isFinite(s) ? sampler.value?.at(s)?.c ?? null : null)
 const shown = computed(() => resolved.value.map((r) => ({ r, s: controls.value.surfaces.find((x) => x.id === r.id) })).filter((x) => x.s))
 const crow = computed(() => crowState(controls.value))
 
@@ -148,8 +150,8 @@ function setLanding(v) {
         </div>
         <p class="wc-field__hint">From the panel's inner end, flat along it. A rib goes at each end.</p>
         <div class="wc-structure-editor__pair">
-          <UnitInput :id="id(`${s.id}-hin`)" :model-value="s.hingeIn" quantity="percent" :system="system" label="Hinge, inner end" @update:model-value="update(s.id, { hingeIn: $event })" />
-          <UnitInput :id="id(`${s.id}-hout`)" :model-value="s.hingeOut" quantity="percent" :system="system" label="Hinge, outer end" @update:model-value="update(s.id, { hingeOut: $event })" />
+          <UnitInput :id="id(`${s.id}-hin`)" :model-value="s.hingeIn" quantity="percent" :system="system" :chord="chordAt(r.s0)" chord-name="chord there" label="Hinge, inner end" @update:model-value="update(s.id, { hingeIn: $event })" />
+          <UnitInput :id="id(`${s.id}-hout`)" :model-value="s.hingeOut" quantity="percent" :system="system" :chord="chordAt(r.s1)" chord-name="chord there" label="Hinge, outer end" @update:model-value="update(s.id, { hingeOut: $event })" />
         </div>
         <p class="wc-field__hint">Percent of the chord back from the leading edge; 75% makes a surface a quarter of the chord. The hinge runs straight between its ends.</p>
         <ParamInput :id="id(`${s.id}-up`)" :model-value="s.up" label="Most up" suffix="°" :min="0" :max="60" :step="1" @update:model-value="update(s.id, { up: $event })" />
