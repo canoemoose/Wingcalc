@@ -69,18 +69,39 @@ export const isPlainRib = (kind) => kind === 'normal' || kind === 'manual'
 // How a corner gusset sits at the LE or TE: 'top', 'bottom' or 'both'
 export const gussetLayer = (gussets, edge) => (edge === 'te' ? (gussets.teLayer ?? gussets.layer) : gussets.layer) ?? 'top'
 
-// What the wing is covered with, over the ribs and any sheeting. mass is per unit area
-// covered, in kg/m², at the heavy end of published figures with adhesive or dope (see
-// docs/methods.md). Only glass cloth and epoxy counts in the strength check: a laminate
-// of thickness t and modulus E (spanwise, a plain weave at a wet lay-up's fibre fraction)
-// over the sheeting. It's laid over sheeting only, so any open bays (behind a D-box) take
-// lightweight film.
+// What the wing is covered with, over the ribs and any sheeting. mass is the applied weight
+// per unit area covered, in kg/m²: films from makers' and retailers' published weights;
+// Doculam from film thickness plus adhesive; glass and carbon from cloth weight with a
+// hand-laid epoxy wet-out (about 1.8x cloth for glass, 2.2-2.5x for carbon), no filler.
+// See docs/methods.md. A cloth with a laminate (t, E) counts in the strength check: t is
+// its cured thickness (cloth weight over fibre density at a wet lay-up's fibre fraction),
+// E its spanwise modulus, bonded over the sheeting. Cloth is laid over sheeting only, so
+// any open bays (behind a D-box) take lightweight film.
 export const FINISHES = {
-  'film-light': { label: 'Heat-shrink film, lightweight', short: 'lightweight film', mass: 0.045, examples: 'Oralight, Solarfilm Lite' },
-  film: { label: 'Heat-shrink film', short: 'film', mass: 0.09, examples: 'Oracover, Solarfilm' },
-  fabric: { label: 'Fabric film', short: 'fabric film', mass: 0.13, examples: 'Solartex, Oratex' },
-  tissue: { label: 'Tissue and dope', short: 'tissue and dope', mass: 0.045, examples: 'lightweight tissue, three coats of dope' },
-  glass: { label: 'Glass cloth and epoxy over sheeting', short: 'glass and epoxy', mass: 0.07, examples: '25 g/m² cloth, about as much epoxy, and filler', laminate: { t: 0.00005, E: 10e9 }, sheetedOnly: true },
+  'film-light': { group: 'Generic', label: 'Heat-shrink film, lightweight', short: 'lightweight film', mass: 0.045, examples: 'Generic lightweight heat-shrink film, about 45 g/m² applied' },
+  film: { group: 'Generic', label: 'Heat-shrink film', short: 'film', mass: 0.09, examples: 'Generic heat-shrink film, about 90 g/m² applied' },
+  fabric: { group: 'Generic', label: 'Fabric film', short: 'fabric film', mass: 0.13, examples: 'Solartex, Oratex, about 130 g/m² applied' },
+  tissue: { group: 'Generic', label: 'Tissue and dope', short: 'tissue and dope', mass: 0.045, examples: 'Lightweight tissue, three coats of dope' },
+
+  solarfilm: { group: 'Solarfilm', label: 'Solarfilm', short: 'Solarfilm', mass: 0.060, examples: 'Solarfilm, about 60 g/m² applied' },
+  solalite: { group: 'Solarfilm', label: 'Solalite', short: 'Solalite', mass: 0.022, examples: 'Solalite, about 22 g/m² applied' },
+
+  oracover: { group: 'Oracover', label: 'Oracover', short: 'Oracover', mass: 0.054, examples: 'Oracover, about 54 g/m² applied' },
+  oralight: { group: 'Oracover', label: 'Oralight', short: 'Oralight', mass: 0.036, examples: 'Oralight, about 36 g/m² applied' },
+
+  kavan: { group: 'Kavan', label: 'Kavan film', short: 'Kavan film', mass: 0.066, examples: 'Kavan heat-shrink film, about 66 g/m² applied' },
+
+  'doculam-15': { group: 'Doculam laminating film', label: 'Doculam 15 µm', short: 'Doculam 15 µm', mass: 0.028, examples: 'Doculam 15 µm laminating film with adhesive, about 28 g/m²' },
+  'doculam-30': { group: 'Doculam laminating film', label: 'Doculam 30 µm', short: 'Doculam 30 µm', mass: 0.050, examples: 'Doculam 30 µm laminating film with adhesive, about 50 g/m²' },
+  'doculam-40': { group: 'Doculam laminating film', label: 'Doculam 40 µm', short: 'Doculam 40 µm', mass: 0.065, examples: 'Doculam 40 µm laminating film with adhesive, about 65 g/m²' },
+
+  glass: { group: 'Glass cloth and epoxy, over sheeting', label: 'Glass 0.6 oz and epoxy', short: 'glass 0.6 oz and epoxy', mass: 0.037, examples: '0.6 oz (about 20 g/m²) glass cloth with epoxy, about 37 g/m² applied', laminate: { t: 0.037 / 1600, E: 10e9 }, sheetedOnly: true },
+  'glass-1': { group: 'Glass cloth and epoxy, over sheeting', label: 'Glass 1 oz and epoxy', short: 'glass 1 oz and epoxy', mass: 0.061, examples: '1 oz (about 34 g/m²) glass cloth with epoxy, about 61 g/m² applied', laminate: { t: 0.061 / 1600, E: 10e9 }, sheetedOnly: true },
+  'glass-1-5': { group: 'Glass cloth and epoxy, over sheeting', label: 'Glass 1.5 oz and epoxy', short: 'glass 1.5 oz and epoxy', mass: 0.092, examples: '1.5 oz (about 51 g/m²) glass cloth with epoxy, about 92 g/m² applied', laminate: { t: 0.092 / 1600, E: 10e9 }, sheetedOnly: true },
+
+  'carbon-10': { group: 'Carbon cloth and epoxy, over sheeting', label: 'Carbon 10 g/m² and epoxy', short: 'carbon 10 g/m² and epoxy', mass: 0.025, examples: 'Light carbon cloth (about 10 g/m²) with epoxy, about 25 g/m² applied', laminate: { t: 0.025 / 1500, E: 8e9 }, sheetedOnly: true },
+  'carbon-30': { group: 'Carbon cloth and epoxy, over sheeting', label: 'Carbon 30 g/m² and epoxy', short: 'carbon 30 g/m² and epoxy', mass: 0.070, examples: 'Carbon cloth (about 30 g/m²) with epoxy, about 70 g/m² applied', laminate: { t: 0.070 / 1500, E: 30e9 }, sheetedOnly: true },
+  'carbon-50': { group: 'Carbon cloth and epoxy, over sheeting', label: 'Carbon 50 g/m² and epoxy', short: 'carbon 50 g/m² and epoxy', mass: 0.110, examples: 'Carbon cloth (about 50 g/m²) with epoxy, about 110 g/m² applied', laminate: { t: 0.110 / 1500, E: 30e9 }, sheetedOnly: true },
 }
 export const finishOf = (cov) => FINISHES[cov?.finish] ?? FINISHES.film
 // The finish over open bays and over sheeting: glass only goes on sheeting

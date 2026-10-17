@@ -3,7 +3,7 @@ import { defaultState, migrate } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure, FINISHES, laminatedSheetE, sheetBuckling } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, FINISHES, finishOf, laminatedSheetE, sheetBuckling } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
 
 function build(edit = () => {}) {
@@ -98,5 +98,32 @@ describe('covering', () => {
     const NcrRatio = D / ((E * t ** 3) / 12) // panel load at buckling, relative to the plain sheet's
     const sheetStress = (sigmaPlain * t * NcrRatio) / (t + (lam.E / E) * lam.t)
     expect(sheetBuckling(Ee, t, b, a)).toBeCloseTo(sheetStress, 0)
+  })
+})
+
+describe('the covering list', () => {
+  it('describes every finish, grouped by maker', () => {
+    for (const f of Object.values(FINISHES)) {
+      expect(f.label).toBeTruthy()
+      expect(f.short).toBeTruthy()
+      expect(f.group).toBeTruthy()
+      expect(f.mass).toBeGreaterThan(0.01)
+      expect(f.mass).toBeLessThan(0.2)
+    }
+  })
+
+  it('lays every glass and carbon cloth over sheeting only, as a laminate', () => {
+    const cloths = Object.entries(FINISHES).filter(([k]) => k.startsWith('glass') || k.startsWith('carbon'))
+    expect(cloths.length).toBe(6)
+    for (const [, f] of cloths) {
+      expect(f.sheetedOnly).toBe(true)
+      expect(f.laminate.t).toBeGreaterThan(0)
+      expect(f.laminate.E).toBeGreaterThan(1e9)
+    }
+  })
+
+  it('still reads a project saved with the old glass finish', () => {
+    expect(finishOf({ finish: 'glass' })).toBe(FINISHES.glass)
+    expect(finishOf({ finish: 'no-such-finish' })).toBe(FINISHES.film)
   })
 })

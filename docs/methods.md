@@ -153,17 +153,22 @@ Implementation: `src/lib/structure.js`. A first-order sizing check, and the app 
 - **Rib spacing from loads**: the buckling checks (spar cap or sheeting between ribs, and the shear web) give the largest spacing allowed at each station. Each interval between hard points (root, fuselage side, panel breaks, tip, your hard points) gets the fewest bays that keep every bay within that limit along its whole length, never wider than the covering maximum. They're spaced out from the root taking the largest bay allowed each time, then evened out so there's no stub of a bay at the end. Rib spacing from loads never leaves a negative spacing margin.
 - **Materials** are typical values along the grain, on the conservative side.
 
-**Covering.** The finish over the ribs and sheeting is an explicit choice. Its weight is its mass per area times the area covered: both surfaces measured along the section from the root rib to the tip rib, plus both faces of a rounded tip's block taken as its plan area. The figures are at the heavy end of what makers and builders publish, including adhesive or dope:
+**Covering.** The finish over the ribs and sheeting is an explicit choice. Its weight is its mass per area times the area covered: both surfaces measured along the section from the root rib to the tip rib, plus both faces of a rounded tip's block taken as its plan area. The generic figures are at the heavy end of what makers and builders publish; the named products are the applied weights the editor lists, including adhesive or dope. All are estimates until weighed.
 
 | Covering | g/m² | Basis |
 |---|---|---|
-| Heat-shrink film, lightweight (Oralight, Solarfilm Lite) | 45 | listed 30 to 45 g/m² |
-| Heat-shrink film (Oracover, Solarfilm) | 90 | listed 70 to 90 g/m² |
-| Fabric film (Solartex, Oratex) | 130 | listed 95 to 130 g/m² |
+| Lightweight heat-shrink film | 45 | generic, listed 30 to 45 g/m² |
+| Heat-shrink film | 90 | generic, listed 70 to 90 g/m² |
+| Fabric film | 130 | generic, listed 95 to 130 g/m² |
 | Tissue and dope | 45 | lightweight tissue about 12 to 20 g/m², plus three coats of dope |
-| Glass cloth and epoxy over sheeting | 70 | 25 g/m² cloth, about as much epoxy, plus filler |
+| Solarfilm / Solalite | 60 / 22 | applied, per product |
+| Oracover / Oralight | 54 / 36 | applied, per product |
+| Kavan film | 66 | applied, per product |
+| Doculam 15 / 30 / 40 µm | 28 / 50 / 65 | laminating film with adhesive, applied |
+| Glass cloth and epoxy, 0.6 / 1 / 1.5 oz | 37 / 61 / 92 | about 20, 34 and 51 g/m² of cloth, hand laid with epoxy (about 1.8 times the cloth), no filler |
+| Carbon cloth and epoxy, 10 / 30 / 50 g/m² | 25 / 70 / 110 | hand laid with epoxy (2.2 to 2.5 times the cloth), no filler |
 
-Films, fabric and tissue are counted as weight only: no strength or stiffness, on the safe side. Glass cloth and epoxy is laid over the sheeting only (the open bays behind a D-box take lightweight film); it is modelled as a 0.05 mm laminate of modulus 10 GPa spanwise (a plain weave at a wet lay-up's fibre fraction, about a third fibre by volume, half of it running spanwise; conservative) on the outside of the sheeting, top and bottom. It enters the bending section with the sheeting, which lowers the stress in the spar and sheeting, and it stiffens each sheet panel against buckling between ribs: the panel buckles at the sheet stress a plain sheet of modulus E′ = E (1 + β) / (1 + η) would, where β is the bending stiffness the laminate adds about the pair's neutral axis and η the axial stiffness it adds, each as a fraction of the sheet's own (it stiffens the panel but also takes a share of its load). The laminate's own compressive stress, about three times the sheeting's for the same strain, stays far below its strength, so it isn't checked. Its benefit in torsion, which is where glass over a D-box matters most, isn't credited, since torsion isn't checked.
+Films, fabric and tissue are counted as weight only: no strength or stiffness, on the safe side. Glass and carbon cloth with epoxy are laid over the sheeting only (the open bays behind a D-box take lightweight film). Each is modelled as a laminate on the outside of the sheeting, top and bottom, with a thickness that gives its applied weight at a density of 1600 kg/m³ for glass and 1500 kg/m³ for carbon, and a spanwise modulus of 10 GPa for glass, 8 GPa for the lightest carbon and 30 GPa for the heavier carbon. These are for a cloth at a wet lay-up's fibre fraction with about half the fibre running spanwise: conservative. The laminate enters the bending section with the sheeting, which lowers the stress in the spar and sheeting, and it stiffens each sheet panel against buckling between ribs: the panel buckles at the sheet stress a plain sheet of modulus E′ = E (1 + β) / (1 + η) would, where β is the bending stiffness the laminate adds about the pair's neutral axis and η the axial stiffness it adds, each as a fraction of the sheet's own (it stiffens the panel but also takes a share of its load). The laminate's own compressive stress, about three times the sheeting's for the same strain, stays far below its strength, so it isn't checked. Its benefit in torsion, which is where glass over a D-box matters most, isn't credited, since torsion isn't checked.
 
 **Not covered**: torsion, flutter and divergence, glue joints, the wing joiner of a two-piece wing (the root bending moment is shown for sizing it), and local loads at fittings.
 
