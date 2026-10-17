@@ -92,12 +92,14 @@ describe('servoOptions', () => {
     expect(opts.length).toBe(SERVO_CLASSES.length + HITEC.length)
     expect(new Set(opts.map((o) => o.value)).size).toBe(opts.length)
     expect(opts.filter((o) => o.group === 'Generic').map((o) => o.value)).toEqual(SERVO_CLASSES)
-    expect(opts.filter((o) => o.group === 'Hitec').map((o) => o.value)).toEqual(HITEC.map((s) => s.id))
+    expect(opts.filter((o) => o.group.startsWith('Hitec')).map((o) => o.value)).toEqual(HITEC.map((s) => s.id))
+    // Thin wing servos in a group of their own
+    expect(opts.filter((o) => /wing servos/.test(o.group)).every((o) => HITEC.find((s) => s.id === o.value).thin)).toBe(true)
   })
 
-  it('labels a Hitec servo by its model and a generic class by its size', () => {
+  it('labels a Hitec servo by its model, weight and torque, and a generic class by its size', () => {
     const opts = servoOptions()
-    expect(opts.find((o) => o.value === 'hitec-hs-85mg').label).toBe('HS-85MG')
+    expect(opts.find((o) => o.value === 'hitec-hs-85mg').label).toBe('HS-85MG, 22 g, 3.5 kg·cm')
     expect(opts.find((o) => o.value === 'micro').label).toBe(`${SERVOS.micro.label} (${SERVOS.micro.size})`)
   })
 })

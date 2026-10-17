@@ -202,13 +202,15 @@ export function defaultStructure() {
     // on each side at its centre line. fixedWidth and movingWidth are the hinge spars' widths
     // across the hinge (the fixed part's, square; the moving surface's, bevelled); tabs are
     // tabWidth along the hinge by tabLength across it, no more than tabSpacing apart, the end
-    // ones tabInset in from the ends of the moving surface.
+    // ones tabInset in from the ends of the moving surface. The tabs are cut from 25 mm Mylar
+    // roll, 0.2 mm thick: the roll's width goes across the hinge (12.5 mm into each spar, so
+    // the spars are 13 mm wide), and each tab is cut 25 mm long along it unless set otherwise.
     hinges: {
-      fixedWidth: 0.008,
-      movingWidth: 0.01,
+      fixedWidth: 0.013,
+      movingWidth: 0.013,
       material: 'balsa-medium',
-      tabWidth: 0.012,
-      tabLength: 0.015,
+      tabWidth: 0.025,
+      tabLength: 0.025,
       tabThickness: 0.0002,
       tabSpacing: 0.075,
       tabInset: 0.02,

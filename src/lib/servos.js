@@ -156,7 +156,11 @@ export function servoById(id) {
 export function servoOptions() {
   return [
     ...SERVO_CLASSES.map((cls) => ({ value: cls, label: `${SERVOS[cls].label} (${SERVOS[cls].size})`, group: 'Generic' })),
-    ...HITEC.map((s) => ({ value: s.id, label: s.model, group: 'Hitec' })),
+    ...HITEC.map((s) => ({
+      value: s.id,
+      label: `${s.model}, ${Math.round(s.mass * 1000)} g, ${(s.torque / KG_CM).toFixed(1)} kg·cm`,
+      group: s.thin ? 'Hitec wing servos (thin)' : `Hitec ${SERVOS[s.class].label.toLowerCase()}`,
+    })),
   ]
 }
 // Gap kept between ribs and plate rim, hatch margin and the like, m

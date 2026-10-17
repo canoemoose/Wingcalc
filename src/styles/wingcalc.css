@@ -1749,6 +1749,10 @@
   font-weight: 600;
   margin-bottom: 4px;
 }
+.wc-structure-editor__subhead {
+  display: block;
+  margin-top: 10px;
+}
 .wc-structure-editor__sub {
   margin: 4px 0 10px;
 }

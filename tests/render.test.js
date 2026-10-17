@@ -91,6 +91,7 @@ describe('app render', () => {
     const { default: StructureEditor } = await import('../src/components/StructureEditor.vue')
     const { default: StructurePlan } = await import('../src/components/StructurePlan.vue')
     const { default: ControlSurfaceEditor } = await import('../src/components/ControlSurfaceEditor.vue')
+    const { default: SurfaceStructure } = await import('../src/components/SurfaceStructure.vue')
     const structure = defaultStructure()
     const airfoil = resolveAirfoil(s.airfoil)
     const g = wingGeometry({ ...s.input, mode: 'panels' })
@@ -101,20 +102,23 @@ describe('app render', () => {
     const parts2 = await renderToString(
       createSSRApp({
         render: () => [
-          h(StructureEditor, { structure, system: 'metric', edges: a.edges }),
+          // The surfaces' hinge gaps and servo bays sit in the structure editor's Control surfaces section
+          h(StructureEditor, { structure, system: 'metric', edges: a.edges }, { surfaces: () => h(SurfaceStructure, { controls: s.input.controls, wing: s.input, mass: s.input.mass, system: 'metric' }) }),
           h(StructurePlan, { structure, analysis: a, parts, selected: 'A1-2', system: 'metric' }),
           h(ControlSurfaceEditor, { controls: s.input.controls, selected: 1, wing: s.input, system: 'metric' }),
         ],
       }),
     )
-    expect(parts2).toContain('Control surface hinges')
+    expect(parts2).toContain('Control surfaces')
     expect(parts2).toContain('wc-sp__hinge')
     expect(parts2).toContain('Aileron A1 rib')
     expect(parts2).toContain('Crow braking')
     expect(parts2).toContain('Landing flap')
     // The servo bays: settings in the editor, drawn on the structure plan, in the weight
-    expect(parts2).toContain('A bay for this surface')
+    expect(parts2).toContain('A servo bay for this surface')
     expect(parts2).toContain('Mini (the 17 g class)')
+    expect(parts2).toContain('HS-65MG, 12 g')
+    expect(parts2).toContain('On its side')
     expect(parts2).toContain('wc-sp__servo')
     expect(parts2).toContain('wc-sp__lead')
     expect(parts.some((p) => p.group === 'servos')).toBe(true)

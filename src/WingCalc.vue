@@ -7,6 +7,7 @@ import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
 import ControlSurfaceEditor from './components/ControlSurfaceEditor.vue'
+import SurfaceStructure from './components/SurfaceStructure.vue'
 import AirBrakeEditor from './components/AirBrakeEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
@@ -1296,7 +1297,11 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :gusset-fit="gussetRoom"
             :covering-mass="structureResult?.weight.covering"
             :warnings="placedWarnings.sections"
-          />
+          >
+            <template #surfaces>
+              <SurfaceStructure v-model:controls="input.controls" :wing="planWing" :mass="input.mass" :system="system" />
+            </template>
+          </StructureEditor>
           <ul v-if="placedWarnings.rest.length" class="wc-warnings">
             <li v-for="(w, i) in placedWarnings.rest" :key="i">{{ w.message }}</li>
           </ul>

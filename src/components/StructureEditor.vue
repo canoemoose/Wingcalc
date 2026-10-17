@@ -873,18 +873,20 @@ const braceHint = computed(() => {
       </template>
     </InspectorSection>
 
-    <InspectorSection title="Control surface hinges" fold-key="structure:hinges" :warnings="warnIn('hinges')" :summary="summaries.hinges">
+    <InspectorSection title="Control surfaces" fold-key="structure:hinges" :warnings="warnIn('hinges')" :summary="summaries.hinges">
       <p v-if="foam" class="wc-field__hint">
         For the ailerons and flaps set in the wing editor. The core is cut and skinned whole, then each surface is sawn off
         along its hinge line, and both cut faces are capped with a hinge spar: the surface's bevelled to a point at the
         centre line so it can swing through its throws. Mylar tabs are slotted into both at the centre line.
       </p>
       <p v-else class="wc-field__hint">
-        For the ailerons and flaps set in the wing editor. A hinge spar each side of the hinge line: the fixed part's ribs
+        For the ailerons and flaps drawn in the wing editor. A hinge spar each side of the hinge line: the fixed part's ribs
         stop at the front of one, and the surface's own ribs start at the back of the other, which is bevelled to a point
         at the centre line so the surface can swing through its throws. Mylar tabs are slotted into both at the centre
         line.
       </p>
+      <slot name="surfaces" />
+      <span class="wc-field__label wc-structure-editor__subhead">Hinges, on every surface</span>
       <div class="wc-structure-editor__pair">
         <UnitInput :id="id('hfw')" :model-value="st.hinges.fixedWidth" quantity="thin" :system="system" label="Fixed hinge spar" @update:model-value="set('hinges.fixedWidth', $event)" />
         <UnitInput :id="id('hmw')" :model-value="st.hinges.movingWidth" quantity="thin" :system="system" label="Surface hinge spar" @update:model-value="set('hinges.movingWidth', $event)" />
@@ -892,10 +894,10 @@ const braceHint = computed(() => {
       <p class="wc-field__hint">Widths across the hinge line; the depth follows the section.</p>
       <SelectField :id="id('hm')" :model-value="st.hinges.material" label="Hinge spar material" :options="WOOD" @update:model-value="set('hinges.material', $event)" />
       <div class="wc-structure-editor__pair">
-        <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab width" @update:model-value="set('hinges.tabWidth', $event)" />
-        <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabLength', $event)" />
+        <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
+        <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
       </div>
-      <p class="wc-field__hint">Width along the hinge, length across it: half of it (less half the gap) goes into each spar.</p>
+      <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, and each tab is cut this long along the hinge.</p>
       <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
       <div class="wc-structure-editor__pair">
         <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />

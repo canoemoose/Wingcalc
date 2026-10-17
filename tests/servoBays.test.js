@@ -316,8 +316,9 @@ describe('built servo bays', () => {
     const tall = build({
       bays: [{ surface: 1, class: 'standard' }, ...noBays([flap])],
       wingEdit: (i) => {
-        i.rootChord = 0.25
-        i.panels = normalisePanels([{ id: 1, length: 0.9, tipChord: 0.2, dihedral: 0 }])
+        // Chord enough for a standard servo between the spar and the hinge, not depth enough for its height
+        i.rootChord = 0.3
+        i.panels = normalisePanels([{ id: 1, length: 0.9, tipChord: 0.26, dihedral: 0 }])
         i.mass = 3
       },
     })
