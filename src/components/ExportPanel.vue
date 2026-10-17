@@ -34,6 +34,8 @@ function set(path, value) {
 
 const GROUPS = [
   { id: 'ribs', label: 'Ribs' },
+  { id: 'surfaces', label: 'Control surface ribs' },
+  { id: 'hinges', label: 'Mylar hinge tabs' },
   { id: 'gussets', label: 'Corner gussets' },
   { id: 'braces', label: 'Dihedral braces' },
   { id: 'webs', label: 'Shear webs' },

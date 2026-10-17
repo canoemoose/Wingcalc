@@ -1,6 +1,6 @@
 <script setup>
 // The half wing seen from above, flat as built, with its structure: leading and trailing
-// edge stock, the spar, stringers and every rib. Bays where a margin falls below zero are
+// edge stock, the spar, stringers, every rib, and the control surfaces' hinge spars and ribs. Bays where a margin falls below zero are
 // shaded. Click a rib to select it.
 //
 // It navigates like the wing plan editor: scroll to zoom about the pointer, drag empty space
@@ -31,6 +31,8 @@ const structure = defineModel('structure', { type: Object, required: true })
 const a = computed(() => props.analysis)
 const flat = computed(() => flatPanels(a.value.wing))
 const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs'))
+// The control surfaces' own ribs, behind their hinges
+const surfaceRibs = computed(() => props.parts.filter((p) => p.group === 'surfaces'))
 const lengthUnit = computed(() => defaultUnit(props.system, 'length'))
 const fmt = (v) => format(v, 'length', lengthUnit.value)
 
@@ -65,7 +67,25 @@ const geom = computed(() => {
   // D-box or sheeting area, hatched
   const outline = sheetOutline(an, st, n)
   const sheet = outline && outline.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+  // Control surfaces: each hinge spar as a band, and the moving surface's outline
+  const hinges = []
+  for (const sf of (an.surfaces ?? []).filter((x) => x.ok)) {
+    const band = (from, to, x0, x1) => {
+      const ss = Array.from({ length: 9 }, (_, i) => from + ((to - from) * i) / 8)
+      return [...ss.map((s) => [s, x0(s)]), ...[...ss].reverse().map((s) => [s, x1(s)])].map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+    }
+    const f = sf.faces
+    const te = (s) => sec(s).xl + sec(s).c
+    hinges.push({
+      id: sf.id,
+      label: sf.label,
+      fixed: band(sf.fixed[0], sf.fixed[1], f.fixedFront, f.fixedRear),
+      moving: band(sf.moving[0], sf.moving[1], f.apex, f.movingRear),
+      outline: band(sf.moving[0], sf.moving[1], f.apex, te),
+    })
+  }
   return {
+    hinges,
     le: line((s) => sec(s).xl + st.le.width),
     te: line((s) => sec(s).xl + sec(s).c - st.te.width),
     spar: band.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' '),
@@ -79,7 +99,7 @@ const movable = (p) => props.editable && (p.kind === 'manual' || p.kind === 'har
 
 // Each rib as a line in plan, from the LE stock to the TE stock
 const ribLines = computed(() =>
-  ribs.value.map((p) => {
+  [...ribs.value, ...surfaceRibs.value].map((p) => {
     const r = p.rib
     const ang = (r.angle * Math.PI) / 180
     const d = [Math.sin(ang), Math.cos(ang)]
@@ -87,7 +107,7 @@ const ribLines = computed(() =>
     const at = (u) => [P[0] + d[0] * (u - r.sparU), P[1] + d[1] * (u - r.sparU)]
     const [x1, y1] = at(r.uA)
     const [x2, y2] = at(r.uB)
-    return { id: p.id, name: p.name, kind: p.kind, x1, y1, x2, y2, movable: movable(p) }
+    return { id: p.id, name: p.name, kind: p.kind, x1, y1, x2, y2, movable: movable(p), surface: p.group === 'surfaces' }
   }),
 )
 
@@ -238,7 +258,7 @@ const snap = (d, e) => (snapOn.value && !e?.altKey ? Math.round(d / step.value) 
 
 // --- Editing ---------------------------------------------------------------------------------
 
-const partFor = (id) => ribs.value.find((p) => p.id === id)
+const partFor = (id) => ribs.value.find((p) => p.id === id) ?? surfaceRibs.value.find((p) => p.id === id)
 const selectedPart = computed(() => partFor(props.selected))
 const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1
 
@@ -357,19 +377,25 @@ const preview = computed(() => {
   const sec = a.value.section(s)
   return { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width }
 })
-const KINDS = { root: 'Root rib', break: 'Panel break', tip: 'Tip rib', hard: 'Hard point', manual: 'Manual rib', normal: 'Rib' }
+const KINDS = { root: 'Root rib', break: 'Panel break', tip: 'Tip rib', hard: 'Hard point', manual: 'Manual rib', normal: 'Rib', surface: 'Control surface end rib' }
 const readout = computed(() => {
   const p = selectedPart.value
   if (!p) return null
   const list = ribs.value
   const s = preview.value ? preview.value.s : p.s
+  // A control surface's rib: which surface, no bays (it sits behind the wing's ribs)
+  if (p.group === 'surfaces') {
+    const sf = (a.value.surfaces ?? []).find((x) => x.id === p.surface)
+    return { name: p.name, kind: `${sf?.label ?? 'Control surface'} rib`, d: fmt(s - a.value.rootS), bays: '', movable: false }
+  }
   const i = list.indexOf(p)
   const before = i > 0 ? s - list[i - 1].s : null
   const after = i < list.length - 1 ? list[i + 1].s - s : null
   const hp = p.kind === 'hard' ? (structure.value.ribs.hardPoints ?? []).find((h) => h.id === p.sourceId) : null
+  const end = p.kind === 'hard' && !hp ? (a.value.surfaces ?? []).find((x) => x.ok && (Math.abs(x.s0 - p.s) < 1e-6 || Math.abs(x.s1 - p.s) < 1e-6)) : null
   return {
     name: p.name,
-    kind: hp?.label ? `${KINDS.hard}: ${hp.label}` : KINDS[p.kind] ?? 'Rib',
+    kind: hp?.label ? `${KINDS.hard}: ${hp.label}` : end ? `End of ${end.label}` : KINDS[p.kind] ?? 'Rib',
     d: fmt(s - a.value.rootS),
     bays: [before, after].filter((v) => v !== null).map(fmt).join(' and '),
     movable: movable(p),
@@ -452,6 +478,11 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           <polyline :points="geom.te" class="wc-sp__stock" />
           <polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" />
           <polygon :points="geom.spar" class="wc-sp__spar" />
+          <template v-for="h in geom.hinges" :key="'h' + h.id">
+            <polygon :points="h.outline" class="wc-sp__surface" />
+            <polygon :points="h.fixed" class="wc-sp__hinge" />
+            <polygon :points="h.moving" class="wc-sp__hinge" />
+          </template>
         </g>
         <g
           v-for="(r, i) in ribLines"
@@ -459,7 +490,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           class="wc-sp__rib"
           :class="{
             'wc-sp__rib--selected': r.id === selected,
-            'wc-sp__rib--hard': r.kind !== 'normal' && r.kind !== 'manual',
+            'wc-sp__rib--hard': r.kind !== 'normal' && r.kind !== 'manual' && r.kind !== 'surface',
             'wc-sp__rib--movable': r.movable,
             'wc-sp__rib--dragging': drag?.moved && drag.part.id === r.id,
           }"
@@ -469,7 +500,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
             <title>{{ r.name }}{{ r.movable ? ': drag to move' : '' }}</title>
           </line>
           <text
-            v-if="i % labelEvery === 0 || r.id === selected"
+            v-if="(!r.surface && i % labelEvery === 0) || r.id === selected"
             :x="r.x1"
             :y="r.y1 - font * 0.6"
             :font-size="font"
@@ -502,6 +533,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
     <figcaption class="wc-figure__caption">
       One side, flat as built, leading edge at the top. Spar in accent colour<template v-if="geom.sheet">,
         sheeted area hatched</template
+      ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
       ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to

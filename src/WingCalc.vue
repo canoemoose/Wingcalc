@@ -5,6 +5,7 @@ import AirfoilPicker from './components/AirfoilPicker.vue'
 import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
+import ControlSurfaceEditor from './components/ControlSurfaceEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
 import UnitsMenu from './components/UnitsMenu.vue'
@@ -58,6 +59,7 @@ import {
 } from './lib/projects.js'
 import { RATINGS } from './lib/stall.js'
 import { panelSections, wingSampler, projectedSampler } from './lib/wing.js'
+import { crowState } from './lib/controlSurfaces.js'
 import { scaleThickness } from './lib/airfoilGeom.js'
 
 const props = defineProps({
@@ -139,6 +141,7 @@ function applyState(state) {
   Object.assign(input, state.input)
   airfoilSel.value = state.airfoil
   selectedPanel.value = null
+  selectedSurface.value = null
   // Opening a project shouldn't be undoable back into the previous one.
   queueMicrotask(() => history.reset())
 }
@@ -279,8 +282,12 @@ onMounted(() => {
     .catch(() => (catalogueError.value = true))
 })
 
-// Selected panel, shared by the numeric panel editor and the plan editor.
+// Selected panel, shared by the numeric panel editor and the plan editor; likewise the
+// selected control surface (by id).
 const selectedPanel = ref(null)
+const selectedSurface = ref(null)
+// The wing the control surface editor places surfaces on
+const planWing = computed(() => ({ fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }))
 
 // The expanded wing editor renders beside the calculator (see WingWorkspace), once mounted.
 const rootEl = ref(null)
@@ -298,6 +305,7 @@ const history = useHistory(
     panels: input.panels,
     tip: input.tip,
     dimensions: input.dimensions,
+    controls: input.controls,
     structure: input.structure,
   }),
   (v) => Object.assign(input, v),
@@ -437,7 +445,7 @@ const structureResult = computed(() => {
   const spanwise = results.value.perf?.spanwise
   if (!planform.value || !spanwise) return null
   const wing = { fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }
-  const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise })
+  const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise, controls: input.controls })
   if (!a) return null
   return { a, ...buildParts(a, a.structure, { handedness: input.exportOptions.handedness }) }
 })
@@ -498,6 +506,15 @@ const ribSummary = computed(() => {
   const lu = u('length')
   const spread = hi - lo < 0.002 ? format(hi, 'length', lu) : `${format(lo, 'length', lu)} to ${format(hi, 'length', lu)}`
   return `${r.length} per side, ${spread} apart`
+})
+// The control surfaces built, and whether crow is available, for the structure card
+const surfaceSummary = computed(() => {
+  const list = structureResult.value?.a.surfaces ?? []
+  if (!list.length) return ''
+  const built = list.filter((r) => r.ok).map((r) => r.name)
+  const crow = crowState(input.controls)
+  const crowText = crow.available ? (crow.enabled ? 'crow on' : 'crow available') : 'no crow'
+  return `${built.length ? built.join(', ') : 'none built'}, Mylar-tab hinges; ${crowText}`
 })
 const worstMargin = computed(() => {
   const w = structureResult.value?.a.summary.worst
@@ -648,6 +665,14 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           :system="system"
           :warn-fields="warnFields"
           :base-thickness="baseThickness"
+        />
+        <ControlSurfaceEditor
+          v-if="input.geometryMode === 'panels'"
+          v-model:controls="input.controls"
+          v-model:selected="selectedSurface"
+          :wing="planWing"
+          :selected-panel="selectedPanel"
+          :system="system"
         />
         <UnitInput
           v-else
@@ -865,6 +890,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:tip="input.tip"
             v-model:dimensions="input.dimensions"
             v-model:selected="selectedPanel"
+            v-model:controls="input.controls"
+            v-model:selected-surface="selectedSurface"
             :system="system"
             @commit="history.commit"
           />
@@ -901,6 +928,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               <div>
                 <dt>Ribs</dt>
                 <dd>{{ ribSummary }}</dd>
+              </div>
+              <div v-if="surfaceSummary">
+                <dt>Control surfaces</dt>
+                <dd>{{ surfaceSummary }}</dd>
               </div>
               <div v-if="worstMargin">
                 <dt>Lowest margin at {{ input.structure.loads.designG }} g</dt>
@@ -1141,6 +1172,14 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :base-thickness="baseThickness"
             id-prefix="wcx"
           />
+          <ControlSurfaceEditor
+            v-model:controls="input.controls"
+            v-model:selected="selectedSurface"
+            :wing="planWing"
+            :selected-panel="selectedPanel"
+            :system="system"
+            id-prefix="wcx"
+          />
           <ul v-if="warnings.length" class="wc-warnings">
             <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
           </ul>
@@ -1153,6 +1192,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:tip="input.tip"
             v-model:dimensions="input.dimensions"
             v-model:selected="selectedPanel"
+            v-model:controls="input.controls"
+            v-model:selected-surface="selectedSurface"
             :system="system"
             fill
             @commit="history.commit"

@@ -1,6 +1,6 @@
 <script setup>
 // Numeric entry for the wing's structure: design loads, spar, covering, edges, stringers,
-// ribs, gussets and dihedral braces. Every change replaces the whole structure object, so
+// ribs, gussets, dihedral braces and control-surface hinges. Every change replaces the whole structure object, so
 // undo/redo and autosave see it.
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
@@ -177,6 +177,7 @@ const summaries = computed(() => {
     ribs: `${mm(r.thickness)} ${mat(r.material)}, ${spacing}${r.orientation === 'perpendicular' ? ', square to spar' : ''}`,
     gussets,
     braces: !x.braces.enabled ? 'Off' : `${mat(x.braces.material)}, ${len(x.braces.length)} each side`,
+    hinges: `Mylar tabs, ${size(x.hinges.tabWidth, x.hinges.tabLength)}, ${len(x.hinges.tabSpacing)} apart at most`,
   }
 })
 
@@ -703,6 +704,32 @@ const braceHint = computed(() => {
         </div>
         <SelectField :id="id('gm')" :model-value="st.gussets.material" label="Material" :options="SHEET" @update:model-value="set('gussets.material', $event)" />
       </template>
+    </InspectorSection>
+
+    <InspectorSection title="Control surface hinges" fold-key="structure:hinges" :summary="summaries.hinges">
+      <p class="wc-field__hint">
+        For the ailerons and flaps set in the wing editor. A hinge spar each side of the hinge line: the fixed part's ribs
+        stop at the front of one, and the surface's own ribs start at the back of the other, which is bevelled to a point
+        at the centre line so the surface can swing through its throws. Mylar tabs are slotted into both at the centre
+        line.
+      </p>
+      <div class="wc-structure-editor__pair">
+        <UnitInput :id="id('hfw')" :model-value="st.hinges.fixedWidth" quantity="thin" :system="system" label="Fixed hinge spar" @update:model-value="set('hinges.fixedWidth', $event)" />
+        <UnitInput :id="id('hmw')" :model-value="st.hinges.movingWidth" quantity="thin" :system="system" label="Surface hinge spar" @update:model-value="set('hinges.movingWidth', $event)" />
+      </div>
+      <p class="wc-field__hint">Widths across the hinge line; the depth follows the section.</p>
+      <SelectField :id="id('hm')" :model-value="st.hinges.material" label="Hinge spar material" :options="WOOD" @update:model-value="set('hinges.material', $event)" />
+      <div class="wc-structure-editor__pair">
+        <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab width" @update:model-value="set('hinges.tabWidth', $event)" />
+        <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabLength', $event)" />
+      </div>
+      <p class="wc-field__hint">Width along the hinge, length across it: half of it (less half the gap) goes into each spar.</p>
+      <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
+      <div class="wc-structure-editor__pair">
+        <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
+        <UnitInput :id="id('hti')" :model-value="st.hinges.tabInset" quantity="length" :system="system" label="In from the ends" @update:model-value="set('hinges.tabInset', $event)" />
+      </div>
+      <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones this far in from the surface's ends.</p>
     </InspectorSection>
 
     <InspectorSection title="Dihedral braces" fold-key="structure:braces" :summary="summaries.braces">

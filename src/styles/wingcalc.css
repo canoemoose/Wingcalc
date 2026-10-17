@@ -990,6 +990,33 @@
   stroke-width: 1;
   stroke-dasharray: 4 3;
 }
+/* Control surfaces on the plan: tinted from the hinge line (dashed) back to the trailing edge */
+.wc-plan__surface {
+  fill: color-mix(in srgb, var(--wc-moderate) 22%, transparent);
+  stroke: var(--wc-moderate);
+  stroke-width: 1;
+  cursor: pointer;
+}
+.wc-plan__surface:hover {
+  fill: color-mix(in srgb, var(--wc-moderate) 32%, transparent);
+}
+.wc-plan__surface--selected {
+  fill: color-mix(in srgb, var(--wc-moderate) 40%, transparent);
+  stroke-width: 2;
+}
+.wc-plan__surface--bad {
+  fill: color-mix(in srgb, var(--wc-warn) 18%, transparent);
+  stroke: var(--wc-warn);
+  stroke-dasharray: 3 2;
+}
+.wc-plan__hinge {
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+  stroke-dasharray: 6 3;
+}
+.wc-plan__svg--measure .wc-plan__surface {
+  cursor: crosshair;
+}
 .wc-plan__ctrl-lines line {
   stroke: var(--wc-moderate);
   stroke-width: 1;
@@ -1799,6 +1826,16 @@
 }
 .wc-sp__weak {
   fill: color-mix(in srgb, var(--wc-sharp) 12%, transparent);
+}
+.wc-sp__surface {
+  fill: color-mix(in srgb, var(--wc-moderate) 14%, transparent);
+  stroke: var(--wc-moderate);
+  stroke-width: 1;
+}
+.wc-sp__hinge {
+  fill: color-mix(in srgb, var(--wc-moderate) 45%, transparent);
+  stroke: var(--wc-moderate);
+  stroke-width: 1;
 }
 .wc-sp__weak--spacing {
   fill: color-mix(in srgb, var(--wc-moderate) 18%, transparent);

@@ -34,11 +34,12 @@ const emit = defineEmits(['select'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-const show = ref({ skin: true, sheeting: true, ribs: true, joints: true, spar: true, edges: true, tip: true, stringers: true, outlines: true, mirror: false })
+const show = ref({ skin: true, sheeting: true, ribs: true, surfaces: true, joints: true, spar: true, edges: true, tip: true, stringers: true, outlines: true, mirror: false })
 const LAYERS = [
   { id: 'skin', label: 'Covering' },
   { id: 'sheeting', label: 'Sheeting and cap strips' },
   { id: 'ribs', label: 'Ribs' },
+  { id: 'surfaces', label: 'Control surfaces' },
   { id: 'joints', label: 'Gussets and braces' },
   { id: 'spar', label: 'Spar and webs' },
   { id: 'edges', label: 'Leading/Trailing edges' },
@@ -73,6 +74,7 @@ const hasSheeting = computed(() => {
 })
 const hasJoints = computed(() => props.parts.some((p) => p.group === 'gussets' || p.group === 'braces'))
 const hasTip = computed(() => props.parts.some((p) => p.group === 'tip'))
+const hasSurfaces = computed(() => props.parts.some((p) => p.group === 'surfaces'))
 const shown = (l) =>
   l.id === 'stringers'
     ? hasStringers.value
@@ -82,7 +84,9 @@ const shown = (l) =>
         ? hasJoints.value
         : l.id === 'tip'
           ? hasTip.value
-          : true
+          : l.id === 'surfaces'
+            ? hasSurfaces.value
+            : true
 
 // Section
 const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s))
@@ -174,8 +178,13 @@ const COLOURS = {
   gusset: 0xe8cc94,
   tip: 0xeedcb4,
   brace: 0xa8794a,
+  hinge: 0xc49a5e,
+  hingeMoving: 0xd1a868,
+  teMoving: 0xe3c48f,
 }
-const GROUPS = ['skin', 'sheeting', 'ribs', 'joints', 'spar', 'edges', 'tip', 'stringers']
+// Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
+// hidden to see the fixed part's hinge spar
+const GROUPS = ['skin', 'sheeting', 'ribs', 'surfaces', 'joints', 'spar', 'edges', 'tip', 'stringers']
 const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
 const FILM = 0.0003 // m: how far the covering stands off the surface
 
@@ -339,7 +348,9 @@ function build() {
   for (const s of model.solids) {
     const colour = s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
     const group =
-      s.kind === 'spar' || s.kind === 'web'
+      s.kind === 'hingeMoving' || s.kind === 'teMoving'
+        ? groups.surfaces
+        : s.kind === 'spar' || s.kind === 'web' || s.kind === 'hinge'
         ? groups.spar
         : s.kind === 'stringer'
           ? groups.stringers
@@ -360,13 +371,13 @@ function build() {
     const mesh = new THREE.Mesh(geo, behind(COLOURS.rib))
     mesh.userData.partId = r.id
     mesh.userData.centre = r.centre
-    groups.ribs.add(outlined(mesh))
+    ;(r.surface ? groups.surfaces : groups.ribs).add(outlined(mesh))
   }
   for (const c of model.capStrips) {
     const shape = new THREE.Shape(c.outline.map(([u, z]) => new THREE.Vector2(u, z)))
     const geo = new THREE.ExtrudeGeometry(shape, { depth: c.thickness, bevelEnabled: false, curveSegments: 1 })
     geo.applyMatrix4(new THREE.Matrix4().fromArray(c.matrix))
-    groups.sheeting.add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
+    ;(c.surface ? groups.surfaces : groups.sheeting).add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
   }
   mirror = root.clone()
   mirror.scale.x = -1
@@ -465,7 +476,7 @@ function applyVisibility() {
 function highlight() {
   const accent = new THREE.Color(cssColour('--wc-accent', '#1f6feb'))
   for (const g of [root, mirror]) {
-    g.getObjectByName('ribs').children.forEach((m) => {
+    ;[...g.getObjectByName('ribs').children, ...g.getObjectByName('surfaces').children.filter((m) => m.userData.partId)].forEach((m) => {
       const on = m.userData.partId === props.selected
       m.material.color.set(on ? accent : COLOURS.rib)
       m.material.emissive?.set(on ? accent.clone().multiplyScalar(0.25) : 0x000000)
@@ -690,8 +701,11 @@ function onUp(e) {
   const p = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1)
   const ray = new THREE.Raycaster()
   ray.setFromCamera(p, camera)
-  const targets = [root, ...(show.value.mirror ? [mirror] : [])].flatMap((g) => g.getObjectByName('ribs').children)
-  const hits = show.value.ribs ? ray.intersectObjects(targets, false) : []
+  const targets = [root, ...(show.value.mirror ? [mirror] : [])].flatMap((g) => [
+    ...(show.value.ribs ? g.getObjectByName('ribs').children : []),
+    ...(show.value.surfaces ? g.getObjectByName('surfaces').children.filter((m) => m.userData.partId) : []),
+  ])
+  const hits = ray.intersectObjects(targets, false)
   // Ignore anything the section has cut away
   const hit = hits.find((h) => !section.value.on || clip.distanceToPoint(h.point) >= -1e-6)
   if (hit?.object.userData.partId) emit('select', hit.object.userData.partId)

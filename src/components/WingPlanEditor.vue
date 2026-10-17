@@ -2,9 +2,12 @@
 // CAD-style plan editor for the half wing, drawn flat (as built). Drag the handles to change
 // root chord, fuselage width, each panel's length, sweep and tip chord, curved edges, chord
 // stations and the rounded tip. The measure tool places dimensions, which snap to the wing's
-// key points and follow them as the wing changes. Numeric entry lives in PanelEditor.
+// key points and follow them as the wing changes. Control surfaces are drawn on their panels,
+// to select, add (from the command bar, on the selected panel) and delete. Numeric entry lives
+// in PanelEditor and ControlSurfaceEditor.
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations } from '../lib/wing.js'
+import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations, wingSampler } from '../lib/wing.js'
+import { resolveSurfaces, surfaceOutline, addSurface } from '../lib/controlSurfaces.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import { MEASURE } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
@@ -21,6 +24,9 @@ const panels = defineModel('panels', { type: Array, required: true })
 const tip = defineModel('tip', { type: Object, default: null })
 const dimensions = defineModel('dimensions', { type: Array, default: () => [] })
 const selected = defineModel('selected', { type: Number, default: null })
+// Control surfaces (controlSurfaces.js) and the selected one's id
+const controls = defineModel('controls', { type: Object, default: null })
+const selectedSurface = defineModel('selectedSurface', { type: Number, default: null })
 
 const FIXED_HEIGHT = 360
 const height = ref(FIXED_HEIGHT)
@@ -47,6 +53,19 @@ const wingState = () => ({
   tip: tip.value,
 })
 const plan = computed(() => flatPanels(wingState()))
+// The control surfaces placed on the wing, those that can be drawn
+const sampler = computed(() => wingSampler(wingState()))
+const surfaces = computed(() => {
+  if (!sampler.value || !controls.value) return []
+  return resolveSurfaces(sampler.value, controls.value.surfaces)
+    .filter((r) => r.ok || r.problem === 'overlap')
+    .map((r) => {
+      // An overlapping one isn't built, but it's drawn (in the warning colour) so it can be found
+      const placed = r.ok ? r : { ...r, ok: true }
+      return { ...r, outline: pts(surfaceOutline(sampler.value, placed)), hinge: [r.s0, r.x0, r.s1, r.x1] }
+    })
+})
+const selSurface = computed(() => surfaces.value.find((r) => r.id === selectedSurface.value) ?? null)
 const points = computed(() => keyPoints(wingState()))
 const pointMap = computed(() => new Map(points.value.map((p) => [p.id, p])))
 const half = computed(() => Math.max(0, fuselageWidth.value || 0) / 2)
@@ -292,6 +311,7 @@ function endHandle() {
     if (!d.moved && d.deselect) {
       selected.value = null
       selectedDim.value = null
+      selectedSurface.value = null
     }
     return
   }
@@ -311,13 +331,15 @@ function endHandle() {
   emit('commit')
 }
 
-function startPan(e, { deselect = false, select = null } = {}) {
+function startPan(e, { deselect = false, select = null, surface = null } = {}) {
   if (tool.value === 'measure') return startMeasure(e)
   if (e.button !== 0 && e.button !== 1) return
   wrapEl.value?.focus({ preventScroll: true })
   if (select !== null) {
     selected.value = select
     selectedDim.value = null
+    // Clicking a surface selects it (and its panel); clicking the panel itself, just the panel
+    selectedSurface.value = surface
   }
   e.currentTarget.setPointerCapture?.(e.pointerId)
   drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false, deselect }
@@ -333,6 +355,7 @@ function selectDim(e, id) {
   e.stopPropagation()
   selectedDim.value = id
   selected.value = null
+  selectedSurface.value = null
 }
 
 // --- Commands --------------------------------------------------------------------------
@@ -372,6 +395,23 @@ function newStation() {
   own(() => (panels.value = addStation(wingState(), selected.value)))
 }
 
+// A control surface on the selected panel, in its longest free stretch (controlSurfaces.js)
+const surfaceToAdd = computed(() => (selected.value !== null && sampler.value && controls.value ? addSurface(sampler.value, controls.value.surfaces, selected.value) : null))
+function newSurface() {
+  const res = surfaceToAdd.value
+  if (!res) return
+  emit('commit')
+  controls.value = { ...controls.value, surfaces: res.surfaces }
+  selectedSurface.value = res.id
+}
+
+function deleteSurface() {
+  if (selectedSurface.value === null || !controls.value) return
+  emit('commit')
+  controls.value = { ...controls.value, surfaces: controls.value.surfaces.filter((x) => x.id !== selectedSurface.value) }
+  selectedSurface.value = null
+}
+
 function deleteDim() {
   if (selectedDim.value === null) return
   emit('commit')
@@ -400,6 +440,7 @@ const toggleMeasure = () => setTool(tool.value === 'measure' ? 'select' : 'measu
 const cmd = computed(() => {
   if (tool.value === 'measure') return dimensions.value.length ? { kind: 'measure', label: 'Dimensions' } : null
   if (selectedDim.value !== null) return { kind: 'dim', label: 'Dimension' }
+  if (selSurface.value) return { kind: 'surface', label: selSurface.value.label }
   if (selected.value !== null) return { kind: 'panel', label: `Panel ${selected.value + 1}` }
   return { kind: 'wing', label: '' }
 })
@@ -425,9 +466,11 @@ function onKey(e) {
     else {
       selected.value = null
       selectedDim.value = null
+      selectedSurface.value = null
     }
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     if (selectedDim.value !== null) deleteDim()
+    else if (selSurface.value) deleteSurface()
     else if (selected.value !== null) deletePanel()
     else return
   } else if (selected.value !== null && e.key.startsWith('Arrow')) {
@@ -579,6 +622,7 @@ const hint = computed(() => {
   if (tool.value === 'measure')
     return 'Measure: drag between two points. Ends snap to wing corners and stations (and follow them); Shift for a spanwise or chordwise dimension, Alt to ignore snapping. Esc to finish.'
   if (selectedDim.value !== null) return 'Dimension selected. Delete removes it.'
+  if (selSurface.value) return `${selSurface.value.label} selected: hinge line dashed. Edit its numbers under Control surfaces; Delete removes it.`
   if (selected.value !== null) {
     const mode = selShape.value?.mode
     if (mode === 'stations') return `Panel ${selected.value + 1} selected. Drag a station's leading-edge handle to move it, its trailing-edge handle to change its chord.`
@@ -622,6 +666,14 @@ watch(
     if (ownEdit) return
     clearTimeout(fitTimer)
     fitTimer = setTimeout(fit, 250)
+  },
+)
+
+// Drop the surface selection when that surface goes (deleted elsewhere, or undone)
+watch(
+  () => controls.value?.surfaces.map((x) => x.id).join(','),
+  () => {
+    if (selectedSurface.value !== null && !controls.value?.surfaces.some((x) => x.id === selectedSurface.value)) selectedSurface.value = null
   },
 )
 
@@ -707,6 +759,19 @@ watch(
             @pointerdown="startPan($event, { deselect: true })"
           />
           <polyline v-for="p in shapes" :key="'q' + p.panel.id" :points="p.quarter" class="wc-plan__quarter" pointer-events="none" />
+
+          <!-- Control surfaces, from the hinge line (dashed) to the trailing edge -->
+          <g v-for="r in surfaces" :key="'cs' + r.id">
+            <polygon
+              :points="r.outline"
+              class="wc-plan__surface"
+              :class="{ 'wc-plan__surface--selected': selectedSurface === r.id, 'wc-plan__surface--bad': r.problem === 'overlap' }"
+              @pointerdown.stop="startPan($event, { select: r.panelIndex, surface: r.id })"
+            >
+              <title>{{ r.label }}{{ r.problem === 'overlap' ? ': overlaps another surface, so it isn’t used' : '' }}</title>
+            </polygon>
+            <line :x1="r.hinge[0]" :y1="r.hinge[1]" :x2="r.hinge[2]" :y2="r.hinge[3]" class="wc-plan__hinge" pointer-events="none" />
+          </g>
 
           <!-- Chord station ribs -->
           <g pointer-events="none">
@@ -904,10 +969,21 @@ watch(
             <button type="button" class="wc-cmd__btn" :disabled="selected === 0" title="Move this panel inward" aria-label="Move panel inward" @click="moveSelected(-1)">←</button>
             <button type="button" class="wc-cmd__btn" :disabled="selected === panels.length - 1" title="Move this panel outward" aria-label="Move panel outward" @click="moveSelected(1)">→</button>
             <button v-if="selShape?.mode === 'stations'" type="button" class="wc-cmd__btn" @click="newStation">Add station</button>
+            <button
+              v-if="controls"
+              type="button"
+              class="wc-cmd__btn"
+              :disabled="!surfaceToAdd"
+              :title="surfaceToAdd ? 'Add an aileron or flap to this panel, in its longest free stretch' : 'No room left on this panel'"
+              @click="newSurface"
+            >
+              Add control surface
+            </button>
             <span class="wc-cmd__sep" />
             <button type="button" class="wc-cmd__btn" :disabled="panels.length < 2" title="Delete this panel (Delete)" @click="deletePanel">Delete</button>
           </template>
           <button v-else-if="cmd.kind === 'dim'" type="button" class="wc-cmd__btn" title="Delete this dimension (Delete)" @click="deleteDim">Delete</button>
+          <button v-else-if="cmd.kind === 'surface'" type="button" class="wc-cmd__btn" title="Delete this control surface (Delete)" @click="deleteSurface">Delete</button>
           <button v-else-if="cmd.kind === 'measure'" type="button" class="wc-cmd__btn" @click="clearDims">Clear dimensions</button>
           <button v-else-if="cmd.kind === 'wing'" type="button" class="wc-cmd__btn" title="Add a panel at the tip" @click="addPanel">Add panel</button>
         </div>

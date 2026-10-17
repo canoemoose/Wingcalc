@@ -62,6 +62,57 @@ describe('app render', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('renders a wing with ailerons and flaps, crow and their hinges', async () => {
+    const s = defaultState()
+    s.input.controls = {
+      surfaces: [
+        { id: 1, role: 'aileron', panel: 1, from: 0.35, to: 0.65, hingeIn: 0.75, hingeOut: 0.78, up: 20, down: 15, gap: 0.001 },
+        { id: 2, role: 'flap', panel: 1, from: 0.05, to: 0.3, hingeIn: 0.75, hingeOut: 0.75, up: 5, down: 45, gap: 0.001 },
+        // Overlaps the flap, so it's drawn but not built, with a warning
+        { id: 3, role: 'flap', panel: 1, from: 0.25, to: 0.32, hingeIn: 0.75, hingeOut: 0.75, up: 5, down: 45, gap: 0.001 },
+      ],
+      crow: { enabled: true, aileronUp: 25, flapDown: 45 },
+    }
+    const html = await render(s)
+    expect(html).toContain('Control surfaces')
+    expect(html).toContain('F1, A1, Mylar-tab hinges; crow on')
+    expect(html).toContain("Flap F2 isn&#39;t built")
+    expect(html).toContain('wc-plan__surface')
+    expect(html).toContain('wc-plan__hinge')
+    expect(warn).not.toHaveBeenCalled()
+
+    // The structure editor's hinge settings, and the plan with the surfaces drawn
+    const { default: StructureEditor } = await import('../src/components/StructureEditor.vue')
+    const { default: StructurePlan } = await import('../src/components/StructurePlan.vue')
+    const { default: ControlSurfaceEditor } = await import('../src/components/ControlSurfaceEditor.vue')
+    const structure = defaultStructure()
+    const airfoil = resolveAirfoil(s.airfoil)
+    const g = wingGeometry({ ...s.input, mode: 'panels' })
+    const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+    const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+    const a = analyseStructure({ wing: s.input, airfoil, structure, mass: s.input.mass, spanwise: perf.spanwise, controls: s.input.controls })
+    const { parts } = buildParts(a, a.structure)
+    const parts2 = await renderToString(
+      createSSRApp({
+        render: () => [
+          h(StructureEditor, { structure, system: 'metric', edges: a.edges }),
+          h(StructurePlan, { structure, analysis: a, parts, selected: 'A1-2', system: 'metric' }),
+          h(ControlSurfaceEditor, { controls: s.input.controls, selected: 1, wing: s.input, system: 'metric' }),
+        ],
+      }),
+    )
+    expect(parts2).toContain('Control surface hinges')
+    expect(parts2).toContain('wc-sp__hinge')
+    expect(parts2).toContain('Aileron A1 rib')
+    expect(parts2).toContain('Crow braking')
+    expect(parts2).toContain('overlaps another surface')
+    // Without separate flaps, crow isn't offered
+    const flaperons = { ...s.input.controls, surfaces: [{ ...s.input.controls.surfaces[0], role: 'flaperon' }] }
+    const alone = await renderToString(createSSRApp({ render: () => h(ControlSurfaceEditor, { controls: flaperons, wing: s.input, system: 'metric' }) }))
+    expect(alone).toContain('A flaperon is both at once')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   // The structure editor's window isn't rendered on the server (it's teleported), so its
   // parts are rendered on their own
   it('renders the structure editor and charts for each leading edge type', async () => {
