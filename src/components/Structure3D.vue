@@ -54,9 +54,24 @@ const LAYERS = [
   { id: 'outlines', label: 'Outlines' },
   { id: 'mirror', label: 'Both halves' },
 ]
-// The Layers menu (after Screenvision's): open until its button or Esc closes it
+// The Layers menu (after Screenvision's): open until its button, Esc or a press elsewhere closes it
 const menu = ref(null) // 'layers' | null
 const toggleMenu = (m) => (menu.value = menu.value === m ? null : m)
+const menuEl = ref(null)
+function closeMenuIfOutside(target) {
+  if (menu.value && target && !menuEl.value?.contains(target)) menu.value = null
+}
+function onMenuPointer(e) {
+  closeMenuIfOutside(e.target)
+}
+function onMenuFocusOut(e) {
+  closeMenuIfOutside(e.relatedTarget)
+}
+watch(menu, (m) => {
+  if (typeof document === 'undefined') return
+  if (m) document.addEventListener('pointerdown', onMenuPointer, true)
+  else document.removeEventListener('pointerdown', onMenuPointer, true)
+})
 function onKeydown(e) {
   if (e.key === 'Escape' && menu.value) menu.value = null
 }
@@ -874,6 +889,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   swinging++
+  if (typeof document !== 'undefined') document.removeEventListener('pointerdown', onMenuPointer, true)
   window.removeEventListener('keydown', onKeydown)
   resizeObs?.disconnect()
   trackObs?.disconnect()
@@ -908,7 +924,7 @@ watch(projection, setProjection)
     >
       <p v-if="status" class="wc-3d__status wc-muted">{{ status }}</p>
       <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Show">
-        <div class="wc-3d__menu">
+        <div ref="menuEl" class="wc-3d__menu" @focusout="onMenuFocusOut">
           <button
             type="button"
             class="wc-button wc-stage__btn"
@@ -919,7 +935,7 @@ watch(projection, setProjection)
           >
             Layers
           </button>
-          <!-- Stays open while you work in the view; the button or Esc closes it -->
+          <!-- Closes on Esc, its button, or a press or focus outside the menu and its button -->
           <div v-if="menu === 'layers'" id="wc-3d-layers" class="wc-layers" :style="{ maxHeight: menuMax }" role="group" aria-label="Layers">
             <h4 class="wc-layers__head">Show</h4>
             <ul class="wc-layers__rows">
