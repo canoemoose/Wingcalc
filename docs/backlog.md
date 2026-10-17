@@ -27,7 +27,15 @@ From Sam's feedback on the structure editor (2026-10-16). Each needs his detail 
 - The bevel is the exact clearance about the middle of the gap, with no allowance for the covering or a stiff tab. Builders often bevel to the full throw; ask Sam which he'd rather see.
 - Mylar thickness is entered in the "thin" unit, shown to 0.1 mm, so 0.13 mm (0.005 in) film shows as 0.1.
 - On a fully sheeted wing the sheeting templates run over the hinge; they should stop at the fixed hinge spar, with the surface sheeted separately.
-- Not yet: XFOIL flap deflection (CLmax and stall speed with flap and crow), dragging hinge ends in the plan, the surface drawn deflected in 3D, hinge moments.
+- Not yet: dragging hinge ends in the plan, the surface drawn deflected in 3D, hinge moments.
+
+## Flaps and crow aerodynamics (v8 step 6, deferred part)
+
+- Wing CLmax with flaps rests on the 3° progressive-stall allowance (`PROGRESSIVE_STALL_DEG`): it decides the flapped and crow CLmax whenever the clean part of the wing doesn't reach its own stall first, which is usual. Chosen from the XFOIL flapped polars' post-stall plateau; worth checking against a flown model's flapped stall speed.
+- The empirical fallback (flap correction 0.8 to 0.4, Clmax ratio 0.45, cap 0.9) is fitted to XFOIL on NACA 2412 at Re 200k and checked against DATCOM and Raymer only in outline; the DATCOM chart values weren't to hand. XFOIL rarely gives a usable polar for an aileron well up, so crow's ailerons are nearly always the estimate.
+- Increments are solved once, at the clean polar's Re, on the root section at the hinge's mid-span chord fraction; a thickness-tapered tip or a tapering hinge uses the same increment along the surface.
+- The Configuration choice isn't saved with the project, and the editor strips' stall speed stays clean.
+- The lift curve and the section stall rating stay the clean section's in every configuration.
 
 ## Air brakes (v8 step 7)
 
