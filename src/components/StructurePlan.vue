@@ -102,9 +102,26 @@ const geom = computed(() => {
         lead: pts(lead),
       }
     })
+  // Air brakes: the box (blades) or frame (spoiler), the slots or opening in the covering, and
+  // a spoiler's hinge line
+  const brakes = (an.brakes ?? [])
+    .filter((r) => r.ok)
+    .map((r) => {
+      const box = (x0, x1, s0, s1) => pts([[s0, x0], [s1, x0], [s1, x1], [s0, x1]])
+      const pad = r.type === 'blade' ? r.bx : [r.x0 - 0.005, r.x1 + 0.005]
+      return {
+        id: r.id,
+        label: r.label,
+        type: r.type,
+        box: box(pad[0], pad[1], r.inner[0], r.inner[1]),
+        openings: r.openings.map((o) => box(o.x0, o.x1, o.s0, o.s1)),
+        hinge: r.type === 'spoiler' ? pts([[r.s - r.length / 2, r.x0], [r.s + r.length / 2, r.x0]]) : null,
+      }
+    })
   return {
     hinges,
     servos,
+    brakes,
     le: line((s) => sec(s).xl + st.le.width),
     te: line((s) => sec(s).xl + sec(s).c - st.te.width),
     spar: band.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' '),
@@ -411,7 +428,11 @@ const readout = computed(() => {
   const before = i > 0 ? s - list[i - 1].s : null
   const after = i < list.length - 1 ? list[i + 1].s - s : null
   const hp = p.kind === 'hard' ? (structure.value.ribs.hardPoints ?? []).find((h) => h.id === p.sourceId) : null
-  const end = p.kind === 'hard' && !hp ? (a.value.surfaces ?? []).find((x) => x.ok && (Math.abs(x.s0 - p.s) < 1e-6 || Math.abs(x.s1 - p.s) < 1e-6)) : null
+  const end =
+    p.kind === 'hard' && !hp
+      ? (a.value.surfaces ?? []).find((x) => x.ok && (Math.abs(x.s0 - p.s) < 1e-6 || Math.abs(x.s1 - p.s) < 1e-6)) ??
+        (a.value.brakes ?? []).find((x) => x.ok && (Math.abs(x.sA - p.s) < 1e-6 || Math.abs(x.sB - p.s) < 1e-6))
+      : null
   return {
     name: p.name,
     kind: hp?.label ? `${KINDS.hard}: ${hp.label}` : end ? `End of ${end.label}` : KINDS[p.kind] ?? 'Rib',
@@ -502,6 +523,11 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
             <polygon :points="h.fixed" class="wc-sp__hinge" />
             <polygon :points="h.moving" class="wc-sp__hinge" />
           </template>
+          <template v-for="r in geom.brakes" :key="'ab' + r.id">
+            <polygon :points="r.box" class="wc-sp__brake"><title>{{ r.label }}: {{ r.type === 'blade' ? 'box between its ribs' : 'frame under the top surface' }}</title></polygon>
+            <polygon v-for="(o, k) in r.openings" :key="k" :points="o" class="wc-sp__slot" />
+            <polyline v-if="r.hinge" :points="r.hinge" class="wc-sp__brake-hinge" />
+          </template>
           <template v-for="b in geom.servos" :key="'b' + b.id">
             <polyline :points="b.lead" class="wc-sp__lead" />
             <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: hatch in the lower surface</title></polygon>
@@ -558,6 +584,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       One side, flat as built, leading edge at the top. Spar in accent colour<template v-if="geom.sheet">,
         sheeted area hatched</template
       ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
+      ><template v-if="geom.brakes.length">; air brakes outlined, with the slots or opening in the covering</template
       ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root</template
       ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template

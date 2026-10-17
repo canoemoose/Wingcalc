@@ -8,6 +8,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations, wingSampler } from '../lib/wing.js'
 import { resolveSurfaces, surfaceOutline, addSurface } from '../lib/controlSurfaces.js'
+import { resolveBrakes, brakeOutline, addBrake, brakeKey } from '../lib/airBrakes.js'
 import { dropBay } from '../lib/servos.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import { MEASURE } from '../lib/icons.js'
@@ -28,6 +29,7 @@ const selected = defineModel('selected', { type: Number, default: null })
 // Control surfaces (controlSurfaces.js) and the selected one's id
 const controls = defineModel('controls', { type: Object, default: null })
 const selectedSurface = defineModel('selectedSurface', { type: Number, default: null })
+const selectedBrake = defineModel('selectedBrake', { type: Number, default: null })
 
 const FIXED_HEIGHT = 360
 const height = ref(FIXED_HEIGHT)
@@ -67,6 +69,18 @@ const surfaces = computed(() => {
     })
 })
 const selSurface = computed(() => surfaces.value.find((r) => r.id === selectedSurface.value) ?? null)
+// The air brakes placed on the wing: those that can be drawn, as the box (or plate) in plan
+const brakes = computed(() => {
+  if (!sampler.value || !controls.value) return []
+  return resolveBrakes(sampler.value, controls.value.brakes ?? [])
+    .filter((r) => r.ok || r.problem === 'overlap')
+    .map((r) => {
+      // One on top of another isn't built, but it's drawn (in the warning colour) so it can be found
+      const placed = r.ok ? r : { ...r, ok: true }
+      return { ...r, outline: pts(brakeOutline(placed)) }
+    })
+})
+const selBrake = computed(() => brakes.value.find((r) => r.id === selectedBrake.value) ?? null)
 const points = computed(() => keyPoints(wingState()))
 const pointMap = computed(() => new Map(points.value.map((p) => [p.id, p])))
 const half = computed(() => Math.max(0, fuselageWidth.value || 0) / 2)
@@ -332,7 +346,7 @@ function endHandle() {
   emit('commit')
 }
 
-function startPan(e, { deselect = false, select = null, surface = null } = {}) {
+function startPan(e, { deselect = false, select = null, surface = null, brake = null } = {}) {
   if (tool.value === 'measure') return startMeasure(e)
   if (e.button !== 0 && e.button !== 1) return
   wrapEl.value?.focus({ preventScroll: true })
@@ -341,6 +355,7 @@ function startPan(e, { deselect = false, select = null, surface = null } = {}) {
     selectedDim.value = null
     // Clicking a surface selects it (and its panel); clicking the panel itself, just the panel
     selectedSurface.value = surface
+    selectedBrake.value = brake
   }
   e.currentTarget.setPointerCapture?.(e.pointerId)
   drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false, deselect }
@@ -357,6 +372,7 @@ function selectDim(e, id) {
   selectedDim.value = id
   selected.value = null
   selectedSurface.value = null
+  selectedBrake.value = null
 }
 
 // --- Commands --------------------------------------------------------------------------
@@ -413,6 +429,23 @@ function deleteSurface() {
   selectedSurface.value = null
 }
 
+// An air brake on the selected panel, near its middle (airBrakes.js)
+const brakeToAdd = computed(() => (selected.value !== null && sampler.value && controls.value ? addBrake(sampler.value, controls.value.brakes ?? [], selected.value, 'blade') : null))
+function newBrake(type) {
+  const res = sampler.value && controls.value && addBrake(sampler.value, controls.value.brakes ?? [], selected.value, type)
+  if (!res) return
+  emit('commit')
+  controls.value = { ...controls.value, brakes: res.brakes }
+  selectedBrake.value = res.id
+}
+
+function deleteBrake() {
+  if (selectedBrake.value === null || !controls.value) return
+  emit('commit')
+  controls.value = dropBay({ ...controls.value, brakes: (controls.value.brakes ?? []).filter((x) => x.id !== selectedBrake.value) }, brakeKey(selectedBrake.value))
+  selectedBrake.value = null
+}
+
 function deleteDim() {
   if (selectedDim.value === null) return
   emit('commit')
@@ -442,6 +475,7 @@ const cmd = computed(() => {
   if (tool.value === 'measure') return dimensions.value.length ? { kind: 'measure', label: 'Dimensions' } : null
   if (selectedDim.value !== null) return { kind: 'dim', label: 'Dimension' }
   if (selSurface.value) return { kind: 'surface', label: selSurface.value.label }
+  if (selBrake.value) return { kind: 'brake', label: selBrake.value.label }
   if (selected.value !== null) return { kind: 'panel', label: `Panel ${selected.value + 1}` }
   return { kind: 'wing', label: '' }
 })
@@ -468,10 +502,12 @@ function onKey(e) {
       selected.value = null
       selectedDim.value = null
       selectedSurface.value = null
+      selectedBrake.value = null
     }
   } else if (e.key === 'Delete' || e.key === 'Backspace') {
     if (selectedDim.value !== null) deleteDim()
     else if (selSurface.value) deleteSurface()
+    else if (selBrake.value) deleteBrake()
     else if (selected.value !== null) deletePanel()
     else return
   } else if (selected.value !== null && e.key.startsWith('Arrow')) {
@@ -624,6 +660,7 @@ const hint = computed(() => {
     return 'Measure: drag between two points. Ends snap to wing corners and stations (and follow them); Shift for a spanwise or chordwise dimension, Alt to ignore snapping. Esc to finish.'
   if (selectedDim.value !== null) return 'Dimension selected. Delete removes it.'
   if (selSurface.value) return `${selSurface.value.label} selected: hinge line dashed. Edit its numbers under Control surfaces; Delete removes it.`
+  if (selBrake.value) return `${selBrake.value.label} selected. Edit its numbers under Air brakes; Delete removes it.`
   if (selected.value !== null) {
     const mode = selShape.value?.mode
     if (mode === 'stations') return `Panel ${selected.value + 1} selected. Drag a station's leading-edge handle to move it, its trailing-edge handle to change its chord.`
@@ -675,6 +712,14 @@ watch(
   () => controls.value?.surfaces.map((x) => x.id).join(','),
   () => {
     if (selectedSurface.value !== null && !controls.value?.surfaces.some((x) => x.id === selectedSurface.value)) selectedSurface.value = null
+  },
+)
+
+// Likewise the brake selection
+watch(
+  () => (controls.value?.brakes ?? []).map((x) => x.id).join(','),
+  () => {
+    if (selectedBrake.value !== null && !(controls.value?.brakes ?? []).some((x) => x.id === selectedBrake.value)) selectedBrake.value = null
   },
 )
 
@@ -772,6 +817,22 @@ watch(
               <title>{{ r.label }}{{ r.problem === 'overlap' ? ': overlaps another surface, so it isn’t used' : '' }}</title>
             </polygon>
             <line :x1="r.hinge[0]" :y1="r.hinge[1]" :x2="r.hinge[2]" :y2="r.hinge[3]" class="wc-plan__hinge" pointer-events="none" />
+          </g>
+
+          <!-- Air brakes: the box (blades) or plate (spoiler) -->
+          <g v-for="r in brakes" :key="'ab' + r.id">
+            <polygon
+              :points="r.outline"
+              class="wc-plan__brake"
+              :class="{
+                'wc-plan__brake--selected': selectedBrake === r.id,
+                'wc-plan__brake--spoiler': r.type === 'spoiler',
+                'wc-plan__brake--bad': r.problem === 'overlap',
+              }"
+              @pointerdown.stop="startPan($event, { select: r.panelIndex, brake: r.id })"
+            >
+              <title>{{ r.label }}{{ r.problem === 'overlap' ? ': on top of another air brake, so it isn’t used' : '' }}</title>
+            </polygon>
           </g>
 
           <!-- Chord station ribs -->
@@ -980,11 +1041,22 @@ watch(
             >
               Add control surface
             </button>
+            <button
+              v-if="controls"
+              type="button"
+              class="wc-cmd__btn"
+              :disabled="!brakeToAdd"
+              :title="brakeToAdd ? 'Add an air brake to this panel: lattice blades rising from a box, or a pop-up spoiler' : 'No room left on this panel'"
+              @click="newBrake('blade')"
+            >
+              Add air brake
+            </button>
             <span class="wc-cmd__sep" />
             <button type="button" class="wc-cmd__btn" :disabled="panels.length < 2" title="Delete this panel (Delete)" @click="deletePanel">Delete</button>
           </template>
           <button v-else-if="cmd.kind === 'dim'" type="button" class="wc-cmd__btn" title="Delete this dimension (Delete)" @click="deleteDim">Delete</button>
           <button v-else-if="cmd.kind === 'surface'" type="button" class="wc-cmd__btn" title="Delete this control surface (Delete)" @click="deleteSurface">Delete</button>
+          <button v-else-if="cmd.kind === 'brake'" type="button" class="wc-cmd__btn" title="Delete this air brake (Delete)" @click="deleteBrake">Delete</button>
           <button v-else-if="cmd.kind === 'measure'" type="button" class="wc-cmd__btn" @click="clearDims">Clear dimensions</button>
           <button v-else-if="cmd.kind === 'wing'" type="button" class="wc-cmd__btn" title="Add a panel at the tip" @click="addPanel">Add panel</button>
         </div>

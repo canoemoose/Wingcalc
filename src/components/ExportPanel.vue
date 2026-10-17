@@ -37,6 +37,7 @@ const GROUPS = [
   { id: 'surfaces', label: 'Control surface ribs' },
   { id: 'hinges', label: 'Mylar hinge tabs' },
   { id: 'servos', label: 'Servo mount plates and hatches' },
+  { id: 'brakes', label: 'Air brake boxes, blades and spoilers' },
   { id: 'gussets', label: 'Corner gussets' },
   { id: 'braces', label: 'Dihedral braces' },
   { id: 'webs', label: 'Shear webs' },

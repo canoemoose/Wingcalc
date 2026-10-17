@@ -6,6 +6,7 @@ import SectionView from './components/SectionView.vue'
 import PlanformView from './components/PlanformView.vue'
 import PanelEditor from './components/PanelEditor.vue'
 import ControlSurfaceEditor from './components/ControlSurfaceEditor.vue'
+import AirBrakeEditor from './components/AirBrakeEditor.vue'
 import WingPlanEditor from './components/WingPlanEditor.vue'
 import ProjectBar from './components/ProjectBar.vue'
 import UnitsMenu from './components/UnitsMenu.vue'
@@ -142,6 +143,7 @@ function applyState(state) {
   airfoilSel.value = state.airfoil
   selectedPanel.value = null
   selectedSurface.value = null
+  selectedBrake.value = null
   // Opening a project shouldn't be undoable back into the previous one.
   queueMicrotask(() => history.reset())
 }
@@ -286,6 +288,10 @@ onMounted(() => {
 // selected control surface (by id).
 const selectedPanel = ref(null)
 const selectedSurface = ref(null)
+const selectedBrake = ref(null)
+// A surface and a brake aren't selected together
+watch(selectedSurface, (v) => v !== null && (selectedBrake.value = null))
+watch(selectedBrake, (v) => v !== null && (selectedSurface.value = null))
 // The wing the control surface editor places surfaces on
 const planWing = computed(() => ({ fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }))
 
@@ -518,6 +524,12 @@ const surfaceSummary = computed(() => {
   const bayText = bays ? `${bays} servo bay${bays === 1 ? '' : 's'} per side` : 'no servo bays'
   return `${built.length ? built.join(', ') : 'none built'}, Mylar-tab hinges; ${bayText}; ${crowText}`
 })
+// The air brakes built, for the structure card
+const brakeSummary = computed(() => {
+  const list = (structureResult.value?.a.brakes ?? []).filter((r) => r.ok)
+  if (!list.length) return ''
+  return list.map((r) => `${r.name} (${r.type === 'blade' ? (r.blades === 1 ? 'blade' : `${r.blades} blades`) : 'spoiler'})`).join(', ')
+})
 const worstMargin = computed(() => {
   const w = structureResult.value?.a.summary.worst
   if (!w) return null
@@ -672,6 +684,15 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           v-if="input.geometryMode === 'panels'"
           v-model:controls="input.controls"
           v-model:selected="selectedSurface"
+          :wing="planWing"
+          :selected-panel="selectedPanel"
+          :mass="input.mass"
+          :system="system"
+        />
+        <AirBrakeEditor
+          v-if="input.geometryMode === 'panels'"
+          v-model:controls="input.controls"
+          v-model:selected="selectedBrake"
           :wing="planWing"
           :selected-panel="selectedPanel"
           :mass="input.mass"
@@ -895,6 +916,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:selected="selectedPanel"
             v-model:controls="input.controls"
             v-model:selected-surface="selectedSurface"
+            v-model:selected-brake="selectedBrake"
             :system="system"
             @commit="history.commit"
           />
@@ -935,6 +957,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               <div v-if="surfaceSummary">
                 <dt>Control surfaces</dt>
                 <dd>{{ surfaceSummary }}</dd>
+              </div>
+              <div v-if="brakeSummary">
+                <dt>Air brakes</dt>
+                <dd>{{ brakeSummary }}</dd>
               </div>
               <div v-if="worstMargin">
                 <dt>Lowest margin at {{ input.structure.loads.designG }} g</dt>
@@ -1184,6 +1210,15 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :system="system"
             id-prefix="wcx"
           />
+          <AirBrakeEditor
+            v-model:controls="input.controls"
+            v-model:selected="selectedBrake"
+            :wing="planWing"
+            :selected-panel="selectedPanel"
+            :mass="input.mass"
+            :system="system"
+            id-prefix="wcx"
+          />
           <ul v-if="warnings.length" class="wc-warnings">
             <li v-for="w in warnings" :key="w.field">{{ w.message }}</li>
           </ul>
@@ -1198,6 +1233,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:selected="selectedPanel"
             v-model:controls="input.controls"
             v-model:selected-surface="selectedSurface"
+            v-model:selected-brake="selectedBrake"
             :system="system"
             fill
             @commit="history.commit"

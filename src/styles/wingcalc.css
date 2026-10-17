@@ -1009,6 +1009,31 @@
   stroke: var(--wc-warn);
   stroke-dasharray: 3 2;
 }
+/* Air brakes on the plan: the box or plate, a little darker than a control surface */
+.wc-plan__brake {
+  fill: color-mix(in srgb, var(--wc-text) 18%, transparent);
+  stroke: var(--wc-text);
+  stroke-width: 1;
+  cursor: pointer;
+}
+.wc-plan__brake:hover {
+  fill: color-mix(in srgb, var(--wc-text) 28%, transparent);
+}
+.wc-plan__brake--spoiler {
+  stroke-dasharray: 5 2;
+}
+.wc-plan__brake--selected {
+  fill: color-mix(in srgb, var(--wc-text) 36%, transparent);
+  stroke-width: 2;
+}
+.wc-plan__brake--bad {
+  fill: color-mix(in srgb, var(--wc-warn) 18%, transparent);
+  stroke: var(--wc-warn);
+  stroke-dasharray: 3 2;
+}
+.wc-plan__svg--measure .wc-plan__brake {
+  cursor: crosshair;
+}
 .wc-plan__hinge {
   stroke: var(--wc-text);
   stroke-width: 1.2;
@@ -1725,6 +1750,11 @@
 .wc-structure-editor__add {
   margin-bottom: 10px;
 }
+.wc-structure-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
 
 /* Plan, 3D, loads and part as cards. A half wing is long and thin, so the plan and 3D run
    the full width; loads and part go two across when there's room. */
@@ -1841,6 +1871,21 @@
   fill: none;
   stroke: var(--wc-text);
   stroke-width: 1.2;
+}
+.wc-sp__brake {
+  fill: color-mix(in srgb, var(--wc-text) 12%, transparent);
+  stroke: var(--wc-text);
+  stroke-width: 1;
+}
+.wc-sp__slot {
+  fill: color-mix(in srgb, var(--wc-text) 55%, transparent);
+  stroke: var(--wc-text);
+  stroke-width: 0.8;
+}
+.wc-sp__brake-hinge {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.6;
 }
 .wc-sp__servo {
   fill: color-mix(in srgb, var(--wc-text) 30%, transparent);

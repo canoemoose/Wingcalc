@@ -122,6 +122,59 @@ describe('app render', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('renders a wing with a blade brake, a spoiler and their servo bays', async () => {
+    const s = defaultState()
+    s.input.rootChord = 0.45
+    s.input.panels = [{ id: 1, length: 0.9, tipChord: 0.4, sweep: 0, dihedral: 0, washout: 0 }]
+    s.input.mass = 2
+    s.input.controls = {
+      surfaces: [],
+      crow: { enabled: false, aileronUp: 25, flapDown: 45 },
+      bays: [{ surface: 'b2', class: 'mini' }],
+      brakes: [
+        { id: 1, type: 'blade', panel: 1, at: 0.3, length: 0.08, x: 0.6, chord: 0.03, height: 0.012, blades: 3, surface: 'both', angle: 60 },
+        { id: 2, type: 'spoiler', panel: 1, at: 0.65, length: 0.1, x: 0.6, chord: 0.04, height: 0.012, blades: 1, surface: 'top', angle: 60 },
+        // Its ribs sit on the spoiler's, so it's drawn but not built, with a warning
+        { id: 3, type: 'blade', panel: 1, at: 0.67, length: 0.08, x: 0.6, chord: 0.03, height: 0.012, blades: 1, surface: 'top', angle: 60 },
+      ],
+    }
+    const html = await render(s)
+    expect(html).toContain('Air brakes')
+    expect(html).toContain('AB1 (3 blades), AB2 (spoiler)')
+    expect(html).toContain('wc-plan__brake')
+    expect(html).toContain('Blade brake AB1')
+    expect(html).toContain('Spoiler AB2')
+    expect(html).toContain('A bay for this brake')
+    expect(html).toContain('Mini (the 17 g class)')
+    expect(html).toContain('on top of another air brake')
+    expect(warn).not.toHaveBeenCalled()
+
+    const { default: StructurePlan } = await import('../src/components/StructurePlan.vue')
+    const { default: AirBrakeEditor } = await import('../src/components/AirBrakeEditor.vue')
+    const structure = defaultStructure()
+    const airfoil = resolveAirfoil(s.airfoil)
+    const g = wingGeometry({ ...s.input, mode: 'panels' })
+    const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+    const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+    const a = analyseStructure({ wing: s.input, airfoil, structure, mass: s.input.mass, spanwise: perf.spanwise, controls: s.input.controls })
+    const { parts } = buildParts(a, a.structure)
+    const out = await renderToString(
+      createSSRApp({
+        render: () => [
+          h(StructurePlan, { structure, analysis: a, parts, selected: null, system: 'metric' }),
+          h(AirBrakeEditor, { controls: s.input.controls, selected: 1, wing: s.input, system: 'metric', mass: 2 }),
+        ],
+      }),
+    )
+    expect(out).toContain('wc-sp__brake')
+    expect(out).toContain('wc-sp__slot')
+    expect(out).toContain('wc-sp__brake-hinge')
+    expect(out).toContain('Blades')
+    expect(out).toContain('Add spoiler to panel 1')
+    expect(parts.some((p) => p.group === 'brakes')).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   // The structure editor's window isn't rendered on the server (it's teleported), so its
   // parts are rendered on their own
   it('renders the structure editor and charts for each leading edge type', async () => {
