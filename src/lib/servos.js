@@ -285,6 +285,28 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
   return out
 }
 
+// Servo trays between the wing's own ribs: for each built control-surface bay, the two ribs of
+// `ribs` (rib stations, { s }, laid out without the bays) either side of its servo, when the
+// servo and its clearance fit between their faces with no rib in the way. Returns a Map of bay
+// id -> { sA, sB, width } for the bays that fit; the others keep ribs of their own. An air
+// brake's bay shares the brake's box rib, so it's left as it is.
+export function fitBaysToRibs(bays, ribs, ribThickness = 0) {
+  const out = new Map()
+  const t = Math.max(0, ribThickness)
+  const sorted = [...(ribs ?? [])].sort((p, q) => p.s - q.s)
+  for (const b of bays ?? []) {
+    if (!b.ok || b.brake) continue
+    const half = b.servo.width / 2 + SERVO_CLEARANCE + t / 2
+    const inner = [...sorted].reverse().find((r) => r.s <= b.s - half + 1e-9)
+    const outer = sorted.find((r) => r.s >= b.s + half - 1e-9)
+    if (!inner || !outer) continue
+    // Only between neighbouring ribs: a rib between them would run through the servo
+    if (sorted.some((r) => r.s > inner.s + 1e-6 && r.s < outer.s - 1e-6)) continue
+    out.set(b.id, { sA: inner.s, sB: outer.s, width: outer.s - inner.s - t })
+  }
+  return out
+}
+
 // The servos' masses and where they hang along the half wing, for the bending check:
 // [{ s, mass, name }] for the bays that are built (ok).
 export const servoMasses = (bays) => (bays ?? []).filter((b) => b.ok).map((b) => ({ s: b.s, mass: b.mass, name: b.name }))

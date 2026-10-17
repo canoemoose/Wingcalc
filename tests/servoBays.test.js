@@ -183,18 +183,30 @@ describe('built servo bays', () => {
   const res = build()
   const [b1, b2] = res.a.bays
 
-  it('puts a hard point at each end of the bay', () => {
+  it("sits each tray between two of the wing's own ribs when the servo fits, with none between", () => {
     for (const b of res.a.bays) {
       expect(b.ok).toBe(true)
+      // The default spacing leaves room for a micro servo in a rib bay, so the tray uses the wing's ribs
+      expect(b.onRibs).toBe(true)
       for (const s of [b.sA, b.sB]) {
         const rib = res.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)
         expect(rib, `rib at ${s}`).toBeTruthy()
-        expect(rib.kind).toBe('hard')
       }
       // And no rib between them
       expect(res.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
     }
     expect(res.skipped).toEqual([])
+  })
+
+  it('gives a servo too wide for the rib spacing a pair of hard-point ribs of its own', () => {
+    const close = build({
+      bays: [{ surface: 1, class: 'standard' }, ...noBays([flap])],
+      edit: (st) => Object.assign(st.ribs, { spacing: 'even', pitch: 0.02 }),
+    })
+    const b = close.a.bays[0]
+    expect(b.onRibs).toBeFalsy()
+    for (const s of [b.sA, b.sB]) expect(close.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)?.kind).toBe('hard')
+    expect(close.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
   })
 
   it('lays the servo between the main spar and the hinge, deep enough', () => {

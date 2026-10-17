@@ -30,7 +30,7 @@ import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
-import { placeBays, servoMasses, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
+import { placeBays, servoMasses, fitBaysToRibs, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
 import { braceSizing } from './ribs.js'
@@ -1200,8 +1200,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const brakes = brakeLayouts(ctx, controls, surfaces)
   const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
   const hosts = [...surfaces, ...brakeHosts(brakes, teFront)]
-  const bays = bayLayouts(ctx, hosts, placeBays({ sampler, surfaces: hosts, controls, mass, ribThickness: structure.ribs.thickness }))
-  brakeBayClashes(brakes, bays, { sparX, structure })
+  const placement = () => placeBays({ sampler, surfaces: hosts, controls, mass, ribThickness: structure.ribs.thickness })
+  let bays = bayLayouts(ctx, hosts, placement())
+  // The servos hang where they are placed, whichever ribs their trays end up between
   const relief = servoMasses(bays)
   const pos = spanLoads(sampler, spanwise.ll, CL, { mass, n: nPos, relief })
   const neg = nNeg > 0 ? spanLoads(sampler, spanwise.ll, (-CL * nNeg) / nPos, { mass, n: nNeg, relief }) : null
@@ -1297,16 +1298,34 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     { s: r.s0, label: `${r.label}, inner end` },
     { s: r.s1, label: `${r.label}, outer end` },
   ])
-  const bayEnds = bays.filter((b) => b.ok).flatMap((b) => [
-    { s: b.sA, label: `${b.label}, inner rib` },
-    { s: b.sB, label: `${b.label}, outer rib` },
-  ])
   const brakeEnds = brakes.filter((r) => r.ok).flatMap((r) => [
     { s: r.sA, label: `${r.label}, inner end` },
     { s: r.sB, label: `${r.label}, outer end` },
   ])
+  // Servo trays: a bay whose servo fits between two of the wing's own ribs (laid out without the
+  // bays) spans that rib bay; the rest get a pair of ribs of their own a servo's width apart
+  if (!foam && bays.some((b) => b.ok)) {
+    const plain = ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds])
+    const trays = fitBaysToRibs(bays, plain, structure.ribs.thickness)
+    if (trays.size) {
+      const again = placement()
+      for (const b of again) if (trays.has(b.id)) Object.assign(b, trays.get(b.id), { onRibs: true })
+      bays = bayLayouts(ctx, hosts, again)
+    }
+  }
+  brakeBayClashes(brakes, bays, { sparX, structure })
+  const bayEnds = bays.filter((b) => b.ok && !b.onRibs).flatMap((b) => [
+    { s: b.sA, label: `${b.label}, inner rib` },
+    { s: b.sB, label: `${b.label}, outer rib` },
+  ])
   // A foam wing has no ribs: its cores run between the panel ends
-  const ribs = foam ? [] : ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds, ...bayEnds])
+  // (never a plain rib through a bay that has ribs of its own: the servo is there)
+  const ownBays = bays.filter((b) => b.ok && !b.onRibs)
+  const ribs = foam
+    ? []
+    : ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds, ...bayEnds]).filter(
+        (r) => !((r.kind === 'normal' || r.kind === 'manual') && ownBays.some((b) => r.s > b.sA + 1e-4 && r.s < b.sB - 1e-4)),
+      )
   // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends (on a
   // foam wing, about every 20 mm)
   if (edges.le.round) {
