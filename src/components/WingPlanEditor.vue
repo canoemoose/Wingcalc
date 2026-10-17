@@ -7,7 +7,7 @@
 // in PanelEditor and ControlSurfaceEditor.
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations, wingSampler } from '../lib/wing.js'
-import { resolveSurfaces, surfaceOutline, addSurface } from '../lib/controlSurfaces.js'
+import { resolveSurfaces, surfaceOutline, addSurface, MIN_SURFACE } from '../lib/controlSurfaces.js'
 import { resolveBrakes, brakeOutline, addBrake, brakeKey } from '../lib/airBrakes.js'
 import { dropBay } from '../lib/servos.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
@@ -69,6 +69,35 @@ const surfaces = computed(() => {
     })
 })
 const selSurface = computed(() => surfaces.value.find((r) => r.id === selectedSurface.value) ?? null)
+// The selected surface's handles and dimensions: each end of the hinge line (span and depth there),
+// the hinge's middle (the depth along its whole length), and the depths, length and set-in as text
+const surfaceEdit = computed(() => {
+  const r = selSurface.value
+  const pp = r && plan.value.panels[r.panelIndex]
+  if (!r || !pp || !sampler.value) return null
+  const te = (q) => {
+    const w = sampler.value.at(q)
+    return w.xl + w.c
+  }
+  const sm = (r.s0 + r.s1) / 2
+  return {
+    r,
+    inner: [r.s0, r.x0],
+    outer: [r.s1, r.x1],
+    mid: [sm, (r.x0 + r.x1) / 2],
+    depthIn: te(r.s0) - r.x0,
+    depthOut: te(r.s1) - r.x1,
+    length: r.s1 - r.s0,
+    setIn: r.s0 - pp.inner.s,
+    teIn: te(r.s0),
+    teOut: te(r.s1),
+    teMid: te(sm),
+    panelInner: pp.inner.s,
+  }
+})
+function setSurface(id, patch) {
+  controls.value = { ...controls.value, surfaces: controls.value.surfaces.map((x) => (x.id === id ? { ...x, ...patch } : x)) }
+}
 // The air brakes placed on the wing: those that can be drawn, as the box (or plate) in plan
 const brakes = computed(() => {
   if (!sampler.value || !controls.value) return []
@@ -281,6 +310,27 @@ function moveHandle(e) {
     if (!base) return
     const peak = base.c > 0 ? (snap(w.x, e) - base.x) / base.c : 0.5
     own(() => (tip.value = { extension: Math.max(0.005, snap(w.s, e) - base.s), peak: Math.min(1, Math.max(0, peak)) }))
+    return
+  }
+  if (d.kind === 'sfIn' || d.kind === 'sfOut' || d.kind === 'sfHinge') {
+    // A control surface: an end moves along the span and sets the hinge there (Shift: span only); the hinge's
+    // middle moves the whole hinge line along the chord, keeping its slant
+    const sf = controls.value?.surfaces.find((x) => x.id === d.surface)
+    const pp = plan.value.panels[d.i]
+    if (!sf || !pp || !sampler.value) return
+    const L = pp.outer.s - pp.inner.s
+    const s = Math.min(pp.inner.s + L, Math.max(pp.inner.s, snap(w.s, e)))
+    const at = sampler.value.at(d.kind === 'sfHinge' ? d.sMid : s)
+    const frac = Math.min(0.97, Math.max(0.05, (snap(w.x, e) - at.xl) / at.c))
+    if (d.kind === 'sfHinge') {
+      const shift = frac - d.fracMid
+      const clamp = (f) => Math.min(0.97, Math.max(0.05, f + shift))
+      setSurface(sf.id, { hingeIn: clamp(d.hingeIn), hingeOut: clamp(d.hingeOut) })
+    } else if (d.kind === 'sfIn') {
+      setSurface(sf.id, { from: Math.max(0, Math.min(s - pp.inner.s, sf.to - MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeIn: frac }) })
+    } else {
+      setSurface(sf.id, { to: Math.min(L, Math.max(s - pp.inner.s, sf.from + MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeOut: frac }) })
+    }
     return
   }
   const p = plan.value.panels[d.i]
@@ -661,7 +711,7 @@ const hint = computed(() => {
   if (tool.value === 'measure')
     return 'Measure: drag between two points. Ends snap to wing corners and stations (and follow them); Shift for a spanwise or chordwise dimension, Alt to ignore snapping. Esc to finish.'
   if (selectedDim.value !== null) return 'Dimension selected. Delete removes it.'
-  if (selSurface.value) return `${selSurface.value.label} selected: hinge line dashed. Edit its numbers under Control surfaces; Delete removes it.`
+  if (selSurface.value) return `${selSurface.value.label} selected: drag its ends along the span and chord, or the middle of the hinge line for its depth (Shift: span only). Delete removes it.`
   if (selBrake.value) return `${selBrake.value.label} selected. Edit its numbers under Air brakes; Delete removes it.`
   if (selected.value !== null) {
     const mode = selShape.value?.mode
@@ -932,6 +982,44 @@ watch(
             >
               <title>Wingtip: drag out for extension, along the chord for where it reaches furthest</title>
             </circle>
+            <!-- The selected control surface: its ends and the middle of its hinge line -->
+            <template v-if="surfaceEdit">
+              <circle
+                :cx="surfaceEdit.inner[0]"
+                :cy="surfaceEdit.inner[1]"
+                :r="px(HANDLE_PX)"
+                class="wc-plan__handle"
+                @pointerdown="startHandle($event, 'sfIn', surfaceEdit.r.panelIndex, { surface: surfaceEdit.r.id })"
+              >
+                <title>{{ surfaceEdit.r.label }}, inner end: drag along the span, and along the chord for its depth (Shift: span only)</title>
+              </circle>
+              <circle
+                :cx="surfaceEdit.outer[0]"
+                :cy="surfaceEdit.outer[1]"
+                :r="px(HANDLE_PX)"
+                class="wc-plan__handle"
+                @pointerdown="startHandle($event, 'sfOut', surfaceEdit.r.panelIndex, { surface: surfaceEdit.r.id })"
+              >
+                <title>{{ surfaceEdit.r.label }}, outer end: drag along the span, and along the chord for its depth (Shift: span only)</title>
+              </circle>
+              <circle
+                :cx="surfaceEdit.mid[0]"
+                :cy="surfaceEdit.mid[1]"
+                :r="px(HANDLE_PX)"
+                class="wc-plan__handle wc-plan__handle--curve"
+                @pointerdown="
+                  startHandle($event, 'sfHinge', surfaceEdit.r.panelIndex, {
+                    surface: surfaceEdit.r.id,
+                    sMid: surfaceEdit.mid[0],
+                    fracMid: surfaceEdit.r.hingeFraction(surfaceEdit.mid[0]),
+                    hingeIn: surfaceEdit.r.hingeIn,
+                    hingeOut: surfaceEdit.r.hingeOut,
+                  })
+                "
+              >
+                <title>{{ surfaceEdit.r.label }}, hinge line: drag along the chord for the depth</title>
+              </circle>
+            </template>
             <!-- Station handles on the selected panel -->
             <template v-if="selShape?.mode === 'stations'">
               <template v-for="r in selShape.ribs" :key="'sh' + r.id">
@@ -993,6 +1081,29 @@ watch(
             class="wc-plan__snap"
             pointer-events="none"
           />
+
+          <!-- Dimensions for the selected control surface: depth at each end, its length, and how far out it starts -->
+          <g v-if="surfaceEdit && tool === 'select'" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
+            <text :x="surfaceEdit.inner[0] - px(6)" :y="(surfaceEdit.inner[1] + surfaceEdit.teIn) / 2" text-anchor="end" dominant-baseline="middle">
+              {{ fmt(surfaceEdit.depthIn) }}
+            </text>
+            <text :x="surfaceEdit.outer[0] + px(6)" :y="(surfaceEdit.outer[1] + surfaceEdit.teOut) / 2" dominant-baseline="middle">
+              {{ fmt(surfaceEdit.depthOut) }}
+            </text>
+            <text :x="surfaceEdit.mid[0]" :y="surfaceEdit.teMid + px(14)" text-anchor="middle">{{ fmt(surfaceEdit.length) }}</text>
+            <template v-if="surfaceEdit.setIn > 0.001">
+              <line
+                :x1="surfaceEdit.panelInner"
+                :y1="surfaceEdit.teIn + px(22)"
+                :x2="surfaceEdit.inner[0]"
+                :y2="surfaceEdit.teIn + px(22)"
+                class="wc-plan__dim-line"
+              />
+              <text :x="(surfaceEdit.panelInner + surfaceEdit.inner[0]) / 2" :y="surfaceEdit.teIn + px(34)" text-anchor="middle">
+                {{ fmt(surfaceEdit.setIn) }} from the panel's inner end
+              </text>
+            </template>
+          </g>
 
           <!-- Dimensions for the selected panel -->
           <g v-if="selShape && tool === 'select'" class="wc-plan__dims" pointer-events="none" :font-size="px(11)">
