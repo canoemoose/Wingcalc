@@ -4,7 +4,6 @@ import { structureSection, bySection } from '../src/lib/warnings.js'
 describe('where a structure warning is shown', () => {
   it('puts each warning beside the settings that fix it', () => {
     expect(structureSection('short-compression')).toBe('spar')
-    expect(structureSection('short-compression', true)).toBe('foamcaps')
     expect(structureSection('short-sheet')).toBe('covering')
     expect(structureSection('short-spacing')).toBe('ribs')
     expect(structureSection('le-stock')).toBe('edges')

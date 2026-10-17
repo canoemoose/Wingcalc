@@ -664,10 +664,8 @@ const isFoamWing = computed(() => input.structure.construction === 'foam')
 const sparSummary = computed(() => {
   const sp = input.structure.spar
   const mat = (id) => MATERIALS[id]?.label.toLowerCase() ?? id
-  if (isFoamWing.value) {
-    const f = input.structure.foam
-    return `${thin(f.caps.width)} × ${thin(f.caps.thickness)} ${mat(f.caps.material)} caps${f.web.enabled ? `, ${thin(f.web.thickness)} web` : ', no web'}`
-  }
+  // A foam wing has no spar: the skins carry the bending
+  if (isFoamWing.value) return 'None: the skins carry the bending'
   if (sp.type === 'tube') return `${thin(sp.tubeDiameter)} ${mat(sp.tubeMaterial)}`
   if (sp.type === 'solid') return `${thin(sp.solidWidth)} × ${thin(sp.solidDepth)} ${mat(sp.solidMaterial)}`
   return `${sp.type === 'box' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} web${sp.type === 'box' ? 's' : ''}`

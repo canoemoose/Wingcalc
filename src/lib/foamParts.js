@@ -21,7 +21,7 @@
 // Parts follow ribs.js: { id, name, group, material, thickness, qty, outline, holes, etch,
 // guide (lines on the notes layer: the wire's lead-in and lead-out), label, notes }, metres.
 
-import { MATERIALS, sparSection, lineFaces, sparWidth } from './structure.js'
+import { MATERIALS } from './structure.js'
 import { skinSheet, TEMPLATE_THICKNESS, MIN_CORE } from './foam.js'
 import { insetHeight } from './wing3d.js'
 import { offsetContour } from './dxf.js'
@@ -95,8 +95,7 @@ export function pairDatum(pIn, pOut) {
 }
 
 // One template: the core's section at s grown by half the kerf, in the pair's frame, with the
-// level line, the vertical mark, chord ticks every tenth, the spar cap slots, the shear web,
-// any hinge line, and the wire's lead-in (at the trailing edge) and lead-out (at the front) on
+// level line, the vertical mark, chord ticks every tenth, any hinge line, and the wire's lead-in (at the trailing edge) and lead-out (at the front) on
 // the notes layer.
 function template(a, structure, p, datum, { kerf, leadIn, s, surfaces }) {
   const x0 = datum.x ?? (p.x0 + p.x1) / 2
@@ -126,24 +125,6 @@ function template(a, structure, p, datum, { kerf, leadIn, s, surfaces }) {
     if (!h || h.up - h.lo < 0.006) continue
     line([[x, h.up], [x, h.up - 0.002]])
     line([[x, h.lo], [x, h.lo + 0.002]])
-  }
-  // The spar caps' slots under each skin, and the web's slot between them
-  const sp = structure.spar
-  const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
-  const cf = front(s)
-  const cr = rear(s)
-  const hf = heightsAt(p, cf)
-  const hr = heightsAt(p, cr)
-  if (hf && hr) {
-    const tc = sp.capThickness
-    const top = Math.min(hf.up, hr.up)
-    const bot = Math.max(hf.lo, hr.lo)
-    line([[cf, hf.up], [cf, top - tc], [cr, top - tc], [cr, hr.up]])
-    line([[cf, hf.lo], [cf, bot + tc], [cr, bot + tc], [cr, hr.lo]])
-    if (sp.webThickness > 0 && top - bot > 2 * tc) {
-      line([[cf, bot + tc], [cf, top - tc]])
-      line([[cf + sp.webThickness, bot + tc], [cf + sp.webThickness, top - tc]])
-    }
   }
   // Hinge lines that reach this end (extended along their straight line)
   const hinges = []
@@ -192,7 +173,7 @@ export function hotWireTemplates(a, structure, { kerf = WIRE_KERF, leadIn = LEAD
         datum.common
           ? `Set both templates of the pair with the engraved level line the same height above the block's base and the vertical marks on one line square across the block: the core's front is ${mmText(-t.front)} ahead of the mark here`
           : `The two ends of ${c.name} hardly overlap along the chord, so each template's marks are its own: the outer end's core starts ${mmText(pOut.x0 - pIn.x0)} aft of the inner end's, and the level lines are the chord's mid-height at each mark`,
-        `Twist ${twist.toFixed(1)}° here, built into the profile's angle. Ticks every tenth of the chord top and bottom, to call out the wire's progress at each end; the spar cap slots are engraved under each skin`,
+        `Twist ${twist.toFixed(1)}° here, built into the profile's angle. Ticks every tenth of the chord top and bottom, to call out the wire's progress at each end`,
         'One pair cuts both halves: turn the block over, and the templates with it, for the other side',
       ]
       if (brk) notes.push(`Dihedral joint here: sand the core's end ${brk.angle.toFixed(1)}° off square to meet the next panel`)
@@ -327,39 +308,6 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
       buy: true,
       note: 'Sheets to buy for the skins (parts K), each cut from whole sheets with no nesting; joins taped and glued edge to edge before skinning',
     })
-  }
-  // A shear web per core, through a slot cut in the core at the caps' front face
-  const sp = structure.spar
-  if (sp.webThickness > 0) {
-    for (const c of a.cores ?? []) {
-      const gap = (s) => {
-        const sec = a.section(s)
-        const q = Math.min(0.95, Math.max(0.02, (a.sparX(s) - sec.xl) / sec.c))
-        const ss = sparSection(structure, sec.depth(q), s - a.rootS)
-        return Math.max(0, ss.d - sp.capThickness)
-      }
-      const L = Math.hypot(c.to - c.from, a.sparX(c.to) - a.sparX(c.from))
-      const name = `W${parts.filter((p) => p.group === 'webs').length + 1}`
-      parts.push({
-        id: name,
-        name,
-        group: 'webs',
-        material: sp.webMaterial,
-        thickness: sp.webThickness,
-        qty: sides,
-        grainAngle: Math.PI / 2,
-        outline: [
-          [0, 0],
-          [L, 0],
-          [L, gap(c.to)],
-          [0, gap(c.from)],
-        ],
-        holes: [],
-        etch: [],
-        label: null,
-        notes: [`Shear web, ${c.name}: grain vertical, glued into a slot cut through the core along the caps' front face before skinning, between the caps`],
-      })
-    }
   }
   // Routing templates for the pockets: each servo bay's (routed from below, the hatch cut from
   // the bottom skin over it) and each air brake's box or frame

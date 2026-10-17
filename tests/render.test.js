@@ -197,7 +197,6 @@ describe('app render', () => {
     ]
     s.input.mass = 2
     s.input.structure.construction = 'foam'
-    s.input.structure.foam.web.enabled = true
     s.input.controls = {
       surfaces: [{ id: 1, role: 'aileron', panel: 2, from: 0.05, to: 0.25, hingeIn: 0.75, hingeOut: 0.75, up: 20, down: 15, gap: 0.001 }],
       crow: { enabled: false, aileronUp: 25, flapDown: 45 },
@@ -232,8 +231,9 @@ describe('app render', () => {
       }),
     )
     expect(out).toContain('Foam core and skins')
-    expect(out).toContain('Spar caps')
-    expect(out).toContain('Shear web between the caps')
+    // No spar on a foam wing: no spar settings, and no spar on the plan
+    expect(out).not.toContain('Spar caps')
+    expect(out).not.toContain('wc-sp__spar')
     expect(out).not.toContain('Corner gussets')
     expect(out).toContain('Skin wrinkling')
     expect(out).toContain('Wire kerf')

@@ -176,23 +176,21 @@ Films, fabric and tissue are counted as weight only: no strength or stiffness, o
 
 Implementation: `src/lib/foam.js` (materials, settings, the sandwich formulas), `analyseStructure` in `src/lib/structure.js` (the check), `src/lib/foamParts.js` (templates, skins, pockets, weight).
 
-**Layout.** A foam wing is a core of foam for each panel, skinned top and bottom, with a spar cap under each skin at the spar line (let into a slot in the core, flush with its surface), an optional shear web through the core between the caps, and leading and trailing edge stock as on a built-up wing. Geometrically that's a fully sheeted wing with a caps spar and no ribs, and it's laid out as one: the skins follow the section from the leading edge stock to the trailing edge stock, the caps sit under them, and the control surfaces, servo bays and air brakes are placed exactly as on a built-up wing (with no rib thickness).
+**Layout.** A foam wing is a core of foam for each panel, skinned top and bottom, with leading and trailing edge stock as on a built-up wing, and no spar. Geometrically that's a fully sheeted wing with no spar and no ribs, and it's laid out as one: the skins follow the section from the leading edge stock to the trailing edge stock, and the control surfaces, servo bays and air brakes are placed exactly as on a built-up wing (with no rib thickness), against the line of the section's thickest point (or the spar position, if one is set) where a built-up wing would have its spar.
 
 **Loads** are the same as a built-up wing's: the lifting line's distribution at the stall, scaled to the design load factor, with each servo's inertia relief.
 
-**Bending.** Modulus-weighted, as for a built-up wing: the skins (in strips across the chord, following the section), the caps and any glass and epoxy over the skins carry the bending; the foam (a few MPa) and the edge stock are left out, on the safe side.
+**Bending.** Modulus-weighted, as for a built-up wing: the skins (in strips across the chord, following the section) and any glass and epoxy over them carry the bending; the foam (a few MPa) and the edge stock are left out, on the safe side.
 
 **Margins of safety**, allowable ÷ (stress × safety factor) − 1:
 
-- **spar caps** in compression and tension, at their outer faces;
 - **skin crushing**: the skin's compressive strength against the most compressed skin;
 - **skin wrinkling**: a thin skin on a soft core fails in compression by wrinkling into the core long before it buckles as a plate. The wrinkling stress is σ<sub>w</sub> = Q (E<sub>f</sub> E<sub>c</sub> G<sub>c</sub>)<sup>1/3</sup> (Hoff and Mautner 1945), with E<sub>f</sub> the skin's modulus along the span (stiffened as for sheet buckling when glass and epoxy is laid over it), E<sub>c</sub> and G<sub>c</sub> the foam's compressive and shear moduli, and Q = 0.5, the usual design value (the theory gives 0.825; the lower figure covers imperfect bonding and core variation: Allen, *Analysis and Design of Structural Sandwich Panels*, 1969; Zenkert, *An Introduction to Sandwich Construction*, 1995). It's checked against the most compressed skin stress;
-- **core shear**, with no web: the thin-face sandwich result τ = V / (b d), with d the distance between the caps' centroids and b an effective width, the cap width plus d (the shear spreading into the core at 45° from each cap as far as the mid-depth). The closed skin round the section carries much of the shear in practice; leaving it out errs on the safe side;
-- **shear web**, with one: τ = V / (t d) against the web's shear strength. The foam supports it on both faces, so web buckling isn't checked.
+- **core shear**: the thin-face sandwich result τ = V / (b d), with b the core's width (its chord, from the leading edge stock to the trailing edge stock) and d its mean depth between the skins over that chord. The closed skin round the section carries much of the shear in practice; leaving it out errs on the safe side.
 
 There are no ribs, so nothing is checked between ribs.
 
-**Materials.** Foam figures are conservative indicative values for the EN 13163 (EPS) and EN 13164 (XPS) product classes, as published in manufacturers' technical data (BASF Styropor, Dow Styrofoam); the shear modulus is taken as 0.4 E. Obechi (*Triplochiton scleroxylon*) is from the USDA Forest Products Laboratory *Wood Handbook* (FPL-GTR-190) and the Wood Database (about 380 kg/m³, modulus 6.9 GPa, crushing strength 27 MPa, rupture 51 MPa), taken down. Wet-laid carbon tow is at a hand lay-up's fibre fraction (about 45%).
+**Materials.** Foam figures are conservative indicative values for the EN 13163 (EPS) and EN 13164 (XPS) product classes, as published in manufacturers' technical data (BASF Styropor, Dow Styrofoam); the shear modulus is taken as 0.4 E. Obechi (*Triplochiton scleroxylon*) is from the USDA Forest Products Laboratory *Wood Handbook* (FPL-GTR-190) and the Wood Database (about 380 kg/m³, modulus 6.9 GPa, crushing strength 27 MPa, rupture 51 MPa), taken down.
 
 | Material | Density, kg/m³ | E | G | Compression | Shear |
 |---|---|---|---|---|---|
@@ -201,9 +199,8 @@ There are no ribs, so nothing is checked between ribs.
 | EPS 30 (EPS 200) | 30 | 7 MPa | 2.8 MPa | 200 kPa | 135 kPa |
 | XPS (blue or pink foam) | 33 | 10 MPa | 4 MPa | 250 kPa | 200 kPa |
 | Obechi veneer | 380 | 6 GPa | | 22 MPa | 4 MPa (tension 35 MPa) |
-| Carbon tow, wet laid | 1500 | 80 GPa | | 300 MPa | 30 MPa (tension 700 MPa) |
 
-Balsa skins and spruce or carbon strip caps use the same figures as on a built-up wing.
+Balsa skins use the same figures as on a built-up wing.
 
 **Weight.** The core is the foam's density times its volume: the area of its section (between the skins, from the leading edge stock to the trailing edge stock) integrated along each panel by Simpson's rule. The skins are weighed from their developed outlines (the surface's length round the section along the span) at their thickness, plus the glue allowance per square metre of skin (100 g/m² by default, typical of epoxy laid up thin and vacuum bagged; set it to suit), without the 10% glue allowance the other parts get. Caps, edge stock, hinge spars, servo plates, braces and the finish are weighed as on a built-up wing, and the servos added. The foam blocks, skin sheets and templates in the cut list aren't part of the wing.
 

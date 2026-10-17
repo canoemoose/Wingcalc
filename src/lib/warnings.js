@@ -7,7 +7,7 @@
 // the list under the editor. A foam wing has its own sections for the spar caps and the skins.
 export function structureSection(id, foam = false) {
   if (!id) return null
-  const spar = foam ? 'foamcaps' : 'spar'
+  const spar = 'spar'
   if (/^short-(compression|tension|webShear|webBuckling)$/.test(id) || id === 'spar-fit' || id === 'tube-short') return spar
   if (id === 'short-sheet') return foam ? 'foamcore' : 'covering'
   if (/^short-(wrinkling|core|coreShear)$/.test(id)) return 'foamcore'

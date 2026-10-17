@@ -291,6 +291,7 @@ export function stringerBox(a, structure, str, s, which) {
 // their notches top and bottom, a tube or slotted spar centred between the inset surfaces.
 export function sparBoxes(a, structure, s) {
   const sp = structure.spar
+  if (sp.type === 'none') return []
   const x = a.sparX(s)
   // Faces of the stock at its own width, square to the spar, as the rib notches are cut
   const [front, rear] = lineFaces(a.sparX, sparWidth(sp))

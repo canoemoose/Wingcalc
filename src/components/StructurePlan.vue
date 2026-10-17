@@ -534,7 +534,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           <polyline :points="geom.le" class="wc-sp__stock" />
           <polyline :points="geom.te" class="wc-sp__stock" />
           <polyline v-for="(s, i) in geom.stringers" :key="'s' + i" :points="s" class="wc-sp__stringer" />
-          <polygon :points="geom.spar" class="wc-sp__spar" />
+          <polygon v-if="analysis.structure?.spar.type !== 'none'" :points="geom.spar" class="wc-sp__spar" />
           <template v-for="h in geom.hinges" :key="'h' + h.id">
             <polygon :points="h.outline" class="wc-sp__surface" />
             <polygon :points="h.fixed" class="wc-sp__hinge" />
@@ -598,7 +598,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       <template v-if="readout.movable"> Drag it, or nudge with the arrow keys; Delete removes it.</template>
     </p>
     <figcaption class="wc-figure__caption">
-      One side, flat as built, leading edge at the top. Spar in accent colour<template v-if="geom.sheet">,
+      One side, flat as built, leading edge at the top.{{ analysis.structure?.spar.type === 'none' ? ' No spar' : ' Spar in accent colour' }}<template v-if="geom.sheet">,
         sheeted area hatched</template
       ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
       ><template v-if="geom.brakes.length">; air brakes outlined, with the slots or opening in the covering</template

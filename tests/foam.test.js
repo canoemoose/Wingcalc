@@ -106,11 +106,11 @@ describe('foam settings', () => {
     expect(MATERIALS['eps-20'].E).toBeGreaterThan(MATERIALS['eps-15'].E)
   })
 
-  it('lays a foam wing out as a fully sheeted wing on caps, with no ribs', () => {
+  it('lays a foam wing out as a fully sheeted wing with no spar and no ribs', () => {
     const st = foamStructure({ ...defaultStructure(), construction: 'foam' })
     expect(st.covering.type).toBe('sheeted')
     expect(st.covering.sheetMaterial).toBe('obechi')
-    expect(st.spar).toMatchObject({ type: 'caps', capMaterial: 'carbon', capWidth: 0.006, capThickness: 0.0005, webThickness: 0 })
+    expect(st.spar).toMatchObject({ type: 'none', webThickness: 0 })
     expect(st.ribs.thickness).toBe(0)
     expect(st.stringers).toEqual([])
     expect(st.construction).toBe('foam')
@@ -134,22 +134,22 @@ describe('sandwich formulas', () => {
     expect(wrinklingStress(6e9, { E: 0, G: 1 })).toBe(0)
   })
 
-  it('works out the core shear over the cap width plus the depth', () => {
-    // 40 N over (6 + 20) mm by 20 mm
-    expect(coreShearStress(40, { capWidth: 0.006, d: 0.02 })).toBeCloseTo(40 / (0.026 * 0.02), 6)
-    expect(coreShearStress(-40, { capWidth: 0.006, d: 0.02 })).toBeGreaterThan(0)
-    expect(coreShearStress(40, { capWidth: 0.006, d: 0 })).toBe(Infinity)
+  it('works out the core shear as V over the core width by its depth', () => {
+    // 40 N over 200 mm by 20 mm
+    expect(coreShearStress(40, { width: 0.2, d: 0.02 })).toBeCloseTo(40 / (0.2 * 0.02), 6)
+    expect(coreShearStress(-40, { width: 0.2, d: 0.02 })).toBeGreaterThan(0)
+    expect(coreShearStress(40, { width: 0.2, d: 0 })).toBe(Infinity)
   })
 })
 
 describe('foam wing structure check', () => {
-  it('checks caps, skin crushing, wrinkling and core shear, and none of the rib modes', () => {
+  it('checks skin crushing, wrinkling and core shear, and none of the spar or rib modes', () => {
     const { a } = build()
     expect(a.construction).toBe('foam')
     expect(a.ribs).toEqual([])
     expect(a.cores).toEqual([{ name: 'panel 1', from: 0, to: 0.7 }])
     const modes = Object.keys(a.summary.modes)
-    expect(modes.sort()).toEqual(['compression', 'coreShear', 'sheet', 'tension', 'wrinkling'])
+    expect(modes.sort()).toEqual(['coreShear', 'sheet', 'wrinkling'])
     expect(a.modeLabels.sheet).toBe('Skin crushing')
     // The default foam wing is sound
     expect(a.summary.worst.ms).toBeGreaterThan(0)
@@ -157,14 +157,12 @@ describe('foam wing structure check', () => {
 
   it('matches a hand calculation of the sandwich at the root', () => {
     // Symmetrical 12% section, no edge stock, no servo or brakes: the neutral axis is the chord
-    // line, and thin-face theory gives EI from the caps and skins alone
+    // line, and thin-face theory gives EI from the skins alone
     const { a, st } = build({ airfoil: { camberPct: 0, thicknessPct: 12 }, edit: plain })
     const row = a.stations[0]
     const sec = a.section(row.s)
     const t = st.covering.sheetThickness
     const Es = MATERIALS.obechi.E
-    const cap = st.spar
-    const Ec = MATERIALS.carbon.E
     // Skins: strips across the chord at the mid-thickness of each skin, both surfaces
     let EI = 0
     const n = 400
@@ -173,14 +171,8 @@ describe('foam wing structure check', () => {
       const f = sec.surf(q)
       EI += Es * t * (sec.c / n) * ((f.upper - t / 2) ** 2 + (f.lower + t / 2) ** 2)
     }
-    // Caps under the skins at the spar
-    const up = sec.surf(row.sparXi).upper - t
-    const zc = up - cap.capThickness / 2
-    EI += 2 * Ec * cap.capWidth * cap.capThickness * zc ** 2
     expect(row.EI).toBeGreaterThan(EI * 0.97)
     expect(row.EI).toBeLessThan(EI * 1.03)
-    // The cap's compression at its outer face, positive g
-    expect(Math.abs(row.sigma / ((Ec * row.M * up) / EI) - 1)).toBeLessThan(0.03)
     // Skin crushing and wrinkling against the stress in the skin at the top of the section
     const sf = a.safetyFactor
     const zTop = Math.max(...Array.from({ length: 101 }, (_, i) => sec.surf(i / 100).upper))
@@ -191,33 +183,28 @@ describe('foam wing structure check', () => {
     expect(row.wrinkle).toBeCloseTo(wr, 0)
     expect(row.ms.wrinkling).toBeCloseTo(wr / (row.sheetStress * sf) - 1, 9)
     expect(row.ms.sheet).toBeCloseTo(MATERIALS.obechi.compression / (row.sheetStress * sf) - 1, 9)
-    // Core shear: V over (cap width + d) by d, d between the caps' centroids
-    const d = 2 * zc
-    expect(row.coreTau).toBeCloseTo(row.V / ((cap.capWidth + d) * d), 3)
+    // Core shear: V over the core's chord by its mean depth between the skins
+    let depth = 0
+    for (let i = 0; i < n; i++) depth += sec.depth((i + 0.5) / n)
+    const d = depth / n - 2 * t
+    expect(row.coreTau / (Math.abs(row.V) / (sec.c * d))).toBeCloseTo(1, 2)
     expect(row.ms.coreShear).toBeCloseTo(core.shear / (row.coreTau * sf) - 1, 9)
-  })
-
-  it('carries the shear in a web when there is one', () => {
-    const { a, st } = build({ edit: (s) => (s.foam.web.enabled = true) })
-    const row = a.stations[0]
-    expect(row.ms.coreShear).toBeUndefined()
-    const sp = sparSection(st, row.h, 0)
-    expect(row.tau).toBeCloseTo(row.V / (st.foam.web.thickness * sp.d), 6)
-    expect(row.ms.webShear).toBeCloseTo(MATERIALS['balsa-medium'].shear / (row.tau * a.safetyFactor) - 1, 9)
+    // No spar, so no spar modes
+    expect(row.ms.compression).toBeUndefined()
+    expect(row.ms.tension).toBeUndefined()
   })
 
   it('warns, with a remedy, when the skin wrinkles or the core shears', () => {
     const { a } = build({
       edit: (s) => {
         s.foam.core = 'eps-15'
-        s.foam.caps = { material: 'spruce', width: 0.003, thickness: 0.001 }
         s.foam.skin = { ...s.foam.skin, material: 'balsa-light', thickness: 0.001 }
-        s.loads.designG = 12
+        s.loads.designG = 40
       },
     })
     const ids = a.warnings.map((w) => w.id)
     expect(ids).toContain('short-coreShear')
-    expect(a.warnings.find((w) => w.id === 'short-coreShear').message).toMatch(/shear web/)
+    expect(a.warnings.find((w) => w.id === 'short-coreShear').message).toMatch(/denser foam/)
     expect(ids).toContain('short-wrinkling')
     expect(a.warnings.find((w) => w.id === 'short-wrinkling').message).toMatch(/denser foam/)
   })
@@ -227,8 +214,8 @@ describe('foam wing structure check', () => {
     const dense = build({ edit: (s) => (s.foam.core = 'eps-30') }).a.summary.modes
     expect(dense.coreShear.ms).toBeGreaterThan(light.coreShear.ms)
     expect(dense.wrinkling.ms).toBeGreaterThan(light.wrinkling.ms)
-    // The caps and skin are the same
-    expect(dense.compression.ms).toBeCloseTo(light.compression.ms, 9)
+    // The skin is the same
+    expect(dense.sheet.ms).toBeCloseTo(light.sheet.ms, 9)
   })
 
   it('leaves a built-up wing as it was', () => {
@@ -408,7 +395,7 @@ describe('hot-wire templates', () => {
 
   it('marks the hinge line of a control surface on the panel, and its own core in 3D', () => {
     const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.35, 0.65, 1)], bays: [{ surface: 1, enabled: false }] }
-    const { a, st, parts } = build({ controls })
+    const { a, st, parts, cutList } = build({ controls })
     const sf = a.surfaces[0]
     expect(sf.ok).toBe(true)
     const t = parts.find((p) => p.name === 'HW1-O')
@@ -421,11 +408,11 @@ describe('hot-wire templates', () => {
     expect(model.ribs).toHaveLength(0)
     const cut = sectionAt(a, st, parts, 0.2).pieces
     expect(cut.some((p) => p.kind === 'core')).toBe(true)
-    // The spar is the two caps under the skins; with no shear web turned on there's no web, not
-    // even a sliver of no thickness (which the section once drew as a line through the core)
-    expect(cut.filter((p) => p.kind === 'spar')).toHaveLength(2)
-    expect(cut.some((p) => p.kind === 'web')).toBe(false)
-    expect(model.solids.some((x) => x.kind === 'web')).toBe(false)
+    // A foam wing has no spar: nothing of one in the section or the model, not even a web of no
+    // thickness (which the section once drew as a line through the core)
+    expect(cut.some((p) => p.kind === 'spar' || p.kind === 'web')).toBe(false)
+    expect(model.solids.some((x) => x.kind === 'spar' || x.kind === 'web')).toBe(false)
+    expect(cutList.some((c) => /^Spar/.test(c.item))).toBe(false)
   })
 
   it('makes routing templates for the servo and air brake pockets', () => {

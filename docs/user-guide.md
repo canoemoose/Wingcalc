@@ -133,19 +133,18 @@ In "Chords & panels" mode a **Structure and ribs** card sums up the structure: s
 
 ### Foam-core wings
 
-A foam-core wing is a hot-wire cut core for each panel (EPS or XPS foam), skinned top and bottom with obechi veneer or balsa sheet, with a spar cap let into the core under each skin at the spar line and no ribs. The edge stock, the finish over the skins, the control-surface hinges, servo bays, air brakes, dihedral braces and design loads are set as for a built-up wing; the spar, covering, stringers, ribs and gussets give way to:
+A foam-core wing is a hot-wire cut core for each panel (EPS or XPS foam), skinned top and bottom with obechi veneer or balsa sheet, with no spar and no ribs: the skins carry the bending and the core the shear. The edge stock, the finish over the skins, the control-surface hinges, servo bays, air brakes, dihedral braces and design loads are set as for a built-up wing; the spar, covering, stringers, ribs and gussets give way to:
 
 - **Foam core and skins**: the foam (EPS at 15, 20 or 30 kg/m³, or XPS "blue foam"), the skin material and thickness (obechi veneer is usually 0.6 mm; balsa 1, 1.5 or 2 mm), the size of the sheets it comes in (blank for the usual: obechi about 300 mm by 1 m, balsa 100 by 915 mm), the glue for the skins in g/m² of skin (100 g/m² by default, for the weight), and whether the wing is one piece or two halves.
-- **Spar caps**: their position along the chord (as for a built-up spar), width, thickness and material (pultruded carbon strip, wet-laid carbon tow or spruce), and an optional **shear web** of vertical-grain balsa or ply between the caps, through a slot in the core.
 - **Finish**: what goes over the skins (film, glass or carbon cloth with epoxy, and so on). Glass or carbon cloth with epoxy counts in the check as a stiffer skin.
 
-The check takes the bending in the caps and skins, so the margins are the caps in compression and tension, **skin crushing**, **skin wrinkling** (the compressed skin buckling into the foam, which a denser foam or a stiffer skin resists) and **core shear** (the foam between the caps carrying the shear), or the shear web's strength if there is one. There's no rib spacing to check. Warnings say what's short, where, and what would help.
+The check takes the bending in the skins, so the margins are **skin crushing**, **skin wrinkling** (the compressed skin buckling into the foam, which a denser foam or a stiffer skin resists) and **core shear** (the foam carrying the shear across the whole chord). There's no rib spacing to check. Warnings say what's short, where, and what would help.
 
-The weight is the foam core by its volume, the skins and their glue, the caps, edge stock, hinge spars and the rest as on a built-up wing, the finish over the skins, and the servos.
+The weight is the foam core by its volume, the skins and their glue, the edge stock, hinge spars and the rest as on a built-up wing, the finish over the skins, and the servos.
 
 Control surfaces are cut from the core after skinning: the core is cut and skinned whole, then each surface is sawn off along its hinge line and both cut faces capped with the hinge spars set under **Control surface hinges**. The hinge line is engraved on the hot-wire templates where it reaches the panel's ends. Servo bays and air brakes are pockets in the core: the plan outlines them, and each gets a routing template.
 
-The 3D view shows the core as a solid between the skins (layer **Foam core**; turn it off to see the caps and web let into it), each control surface's core with the surface, and the section cut fills the core too. The structure card shows the foam, the number of cores and the skins in place of the covering and ribs.
+The 3D view shows the core as a solid between the skins (layer **Foam core**; turn it off to see the servos and pockets in it), each control surface's core with the surface, and the section cut fills the core too. The structure card shows the foam, the number of cores and the skins in place of the covering and ribs.
 
 ### Reading the results
 

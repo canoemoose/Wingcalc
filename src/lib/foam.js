@@ -2,14 +2,13 @@
 // structure check uses for a veneered foam wing (structure.js analyseStructure).
 //
 // A foam wing is a hot-wire cut core of expanded or extruded polystyrene, skinned top and
-// bottom with obechi veneer or balsa sheet, with spar caps (carbon or spruce) let into the core
-// just under the skins at the spar line, an optional shear web through the core between them,
-// and leading and trailing edge stock as on a built-up wing. There are no ribs.
+// bottom with obechi veneer or balsa sheet, and leading and trailing edge stock as on a built-up
+// wing. There are no ribs and no spar: the skins carry the bending and the core the shear.
 //
-// For everything that follows the section (spar caps seated under the skin, the skin's place
-// in bending, the hinge spars, servo bays, air brakes, the 3D view) a foam wing is laid out as
-// a fully sheeted built-up wing with no ribs: foamStructure() makes that equivalent structure,
-// and the check swaps the rib-dependent modes for the sandwich ones (face wrinkling and core
+// For everything that follows the section (the skin's place in bending, the hinge spars, servo
+// bays, air brakes, the 3D view) a foam wing is laid out as a fully sheeted built-up wing with
+// no ribs and no spar: foamStructure() makes that equivalent structure, and the check swaps the
+// spar and rib-dependent modes for the sandwich ones (skin crushing, face wrinkling and core
 // shear). All values SI: metres, pascals, kg/m³.
 //
 // No imports from structure.js, which imports this (its MATERIALS take these in).
@@ -32,7 +31,6 @@ export const FOAM_MATERIALS = {
 
 export const FOAMS = ['eps-15', 'eps-20', 'eps-30', 'xps']
 export const SKIN_MATERIALS = ['obechi', 'balsa-light', 'balsa-medium']
-export const FOAM_CAP_MATERIALS = ['carbon', 'carbon-tow', 'spruce']
 
 // The size of a sheet of skin material as it's sold, when the settings don't give one: obechi
 // veneer about 300 mm by 1 m, balsa sheet 100 mm by 915 mm (36 in)
@@ -61,30 +59,20 @@ export function defaultFoam() {
     // sheetWidth, sheetLength: the sheets the skin is cut from, null for the material's usual size
     skin: { material: 'obechi', thickness: 0.0006, sheetWidth: null, sheetLength: null },
     glue: 0.1, // kg/m² of skin: the epoxy bonding it to the core
-    caps: { material: 'carbon', width: 0.006, thickness: 0.0005 },
-    // A shear web through the core between the caps, at their front face
-    web: { enabled: false, material: 'balsa-medium', thickness: 0.0015 },
   }
 }
 
 export const isFoam = (structure) => structure?.construction === 'foam'
 
-// The built-up structure a foam wing is laid out as: caps under a full-chord skin, no ribs,
-// stringers, cap strips or gussets. construction and foam are kept, so anything downstream can
+// The built-up structure a foam wing is laid out as: a full-chord skin with no spar, ribs,
+// stringers, cap strips or gussets. The spar's position is kept as the reference line servo
+// bays and air brakes are placed against. construction and foam are kept, so anything downstream can
 // still tell.
 export function foamStructure(structure) {
   const f = structure.foam ?? defaultFoam()
   return {
     ...structure,
-    spar: {
-      ...structure.spar,
-      type: 'caps',
-      capWidth: f.caps.width,
-      capThickness: f.caps.thickness,
-      capMaterial: f.caps.material,
-      webThickness: f.web.enabled ? f.web.thickness : 0,
-      webMaterial: f.web.material,
-    },
+    spar: { ...structure.spar, type: 'none', webThickness: 0 },
     covering: { ...structure.covering, type: 'sheeted', sheetThickness: f.skin.thickness, sheetMaterial: f.skin.material, capStrips: false },
     stringers: [],
     ribs: { ...structure.ribs, thickness: 0, spacing: 'uniform', manual: [], hardPoints: [], lightening: false, jigTabs: false },
@@ -101,13 +89,9 @@ export function wrinklingStress(Ef, core, Q = WRINKLE_Q) {
   return Q * Math.cbrt(Ef * core.E * core.G)
 }
 
-// Shear stress in the core between the caps with no web, from the thin-face sandwich result τ =
-// V / (b d) (d between the caps' centroids), over an effective width b: the cap width plus half
-// the depth each side, the load spreading into the core at 45° from each cap as far as the
-// mid-depth, b = w + d. The skins' own share of the shear (the closed skin around the section)
-// is left out, on the safe side.
-export function coreShearStress(V, { capWidth, d }) {
-  if (!(d > 0)) return Infinity
-  const b = capWidth + d
-  return Math.abs(V) / (b * d)
+// Shear stress in a sandwich's core carrying shear force V across a width b, its depth d between
+// the faces (thin-face theory): tau = V / (b d).
+export function coreShearStress(V, { width, d }) {
+  if (!(d > 0) || !(width > 0)) return Infinity
+  return Math.abs(V) / (width * d)
 }

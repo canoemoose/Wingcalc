@@ -15,7 +15,7 @@ import EdgeFit from './EdgeFit.vue'
 import EdgeStockPicker from './EdgeStockPicker.vue'
 import { format, defaultUnit } from '../lib/units.js'
 import { MATERIALS, gussetLayer, FINISHES, finishOf } from '../lib/structure.js'
-import { FOAMS, SKIN_MATERIALS, FOAM_CAP_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
+import { FOAMS, SKIN_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter, customLe } from '../lib/edgeStock.js'
 
 const props = defineProps({
@@ -68,7 +68,6 @@ const PLY = materials(['ply-birch', 'ply-lite', 'balsa-hard'])
 const TUBE = materials(['carbon-tube'])
 const FOAM_OPTIONS = FOAMS.map((k) => ({ value: k, label: MATERIALS[k].label, title: `${(MATERIALS[k].E / 1e6).toFixed(1)} MPa modulus, ${Math.round(MATERIALS[k].shear / 1000)} kPa shear strength` }))
 const SKINS = materials(SKIN_MATERIALS)
-const FOAM_CAPS = materials(FOAM_CAP_MATERIALS)
 
 const CONSTRUCTIONS = [
   { value: 'built-up', label: 'Built-up', title: 'Ribs, a spar and covering' },
@@ -203,7 +202,6 @@ const summaries = computed(() => {
   return {
     construction: x.construction === 'foam' ? 'Foam core' : 'Built-up',
     core: `${MATERIALS[f.core]?.short ?? f.core}, ${mm(f.skin.thickness)} ${mat(f.skin.material)} skins`,
-    caps: `${size(f.caps.width, f.caps.thickness)} ${mat(f.caps.material)}${f.web.enabled ? ', web' : ''}`,
     finish: finishOf(cov).short.replace(/^./, (c) => c.toUpperCase()),
     loads: `${x.loads.designG} g, −${x.loads.negativeG} g, ×${x.loads.safetyFactor}`,
     spar,
@@ -289,11 +287,6 @@ const roundHint = computed(() => {
 const halvesHint = computed(() =>
   st.value.ribs.rootJoint === 'two-piece' ? "Each half starts at the fuselage side and plugs in; the joiner itself isn't designed here." : 'Joined at the centreline.',
 )
-const webHint = computed(() =>
-  fm.value.web.enabled
-    ? "Grain vertical, in a slot cut through the core along the caps' front face before skinning. It carries the shear instead of the foam."
-    : 'Without a web, the foam between the caps carries the shear.',
-)
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 const braceHint = computed(() => {
   const n = props.braceNeeds.filter(Number.isFinite)
@@ -378,34 +371,6 @@ const braceHint = computed(() => {
           :hint="halvesHint"
           @update:model-value="set('ribs.rootJoint', $event)"
         />
-      </InspectorSection>
-
-      <InspectorSection title="Spar caps" fold-key="structure:foamcaps" :warnings="warnIn('foamcaps')" :summary="summaries.caps">
-        <UnitInput
-          :id="id('fsparpos')"
-          :model-value="st.spar.position"
-          quantity="percent"
-          :system="system"
-          label="Position along the chord"
-          :placeholder="autoSparText"
-          hint="Kept at this fraction of the chord at every panel end, and straight between them. Blank puts it at the section's thickest point."
-          @update:model-value="set('spar.position', $event)"
-        />
-        <div class="wc-structure-editor__pair">
-          <UnitInput :id="id('fcapw')" :model-value="fm.caps.width" quantity="thin" :system="system" label="Cap width" @update:model-value="set('foam.caps.width', $event)" />
-          <UnitInput :id="id('fcapt')" :model-value="fm.caps.thickness" quantity="thin" :system="system" label="Cap thickness" @update:model-value="set('foam.caps.thickness', $event)" />
-        </div>
-        <SelectField :id="id('fcapm')" :model-value="fm.caps.material" label="Cap material" :options="FOAM_CAPS" @update:model-value="set('foam.caps.material', $event)" />
-        <p class="wc-field__hint">One under each skin, let into a slot in the core so it's flush with the core's surface.</p>
-        <label class="wc-check wc-structure-editor__check">
-          <input type="checkbox" :checked="fm.web.enabled" @change="set('foam.web.enabled', $event.target.checked)" />
-          Shear web between the caps
-        </label>
-        <template v-if="fm.web.enabled">
-          <UnitInput :id="id('fwebt')" :model-value="fm.web.thickness" quantity="thin" :system="system" label="Web thickness" @update:model-value="set('foam.web.thickness', $event)" />
-          <SelectField :id="id('fwebm')" :model-value="fm.web.material" label="Web material" :options="SHEET" @update:model-value="set('foam.web.material', $event)" />
-        </template>
-        <p class="wc-field__hint">{{ webHint }}</p>
       </InspectorSection>
 
       <InspectorSection title="Finish" fold-key="structure:finish" :warnings="warnIn('finish')" :summary="summaries.finish">
@@ -984,7 +949,7 @@ const braceHint = computed(() => {
       <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones this far in from the surface's ends.</p>
     </InspectorSection>
 
-    <InspectorSection title="Dihedral braces" fold-key="structure:braces" :warnings="warnIn('braces')" :summary="summaries.braces">
+    <InspectorSection v-if="!foam" title="Dihedral braces" fold-key="structure:braces" :warnings="warnIn('braces')" :summary="summaries.braces">
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.braces.enabled" @change="set('braces.enabled', $event.target.checked)" />
         Brace plates on the spar at each dihedral break

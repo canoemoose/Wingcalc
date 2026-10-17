@@ -649,7 +649,7 @@ function dihedralAt(a) {
 // The centreline break has one plate each side; a polyhedral break has two. Pure: no Vue imports.
 export function braceSizing(a, structure, { both = true } = {}) {
   const br = structure.braces
-  if (!br?.enabled || structure.spar.type === 'tube') return []
+  if (!br?.enabled || structure.spar.type === 'tube' || structure.spar.type === 'none') return []
   const r = structure.ribs
   const m = material(br.material)
   const sigma = Math.min(m.compression, m.tension)
