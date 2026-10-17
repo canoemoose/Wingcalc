@@ -150,8 +150,12 @@ function setSelection(points, segs) {
   emit('update:selection', { points: [...selPts.value], segments: [...selSegs.value] })
 }
 
-// Wheel zooms about the cursor. Registered directly so it can be non-passive (preventDefault).
+// Wheel zooms about the cursor, but only while the stage has focus (a click or key press focuses it). Otherwise the
+// wheel is left alone so the page scrolls. Registered directly so it can be non-passive (preventDefault).
 function onWheel(e) {
+  const el = stageEl.value
+  const active = document.activeElement
+  if (!el || !(active === el || el.contains(active))) return
   e.preventDefault()
   const p = local(e)
   zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0015))
@@ -273,6 +277,9 @@ function onDown(e) {
   }
   if (e.button !== 0 || !geo.value) return
   const g = geo.value, P = g.P, l = g.l
+  // Stop the browser starting a native text selection over the SVG labels during a box drag. Focus is set above.
+  e.preventDefault()
+  stageEl.value?.focus({ preventScroll: true })
   capture(e)
   notice.value = ''
   const add = e.shiftKey || e.ctrlKey || e.metaKey
@@ -692,24 +699,24 @@ const body = computed(() => {
   const v = ve.value
   let o = ''
 
-  // Grid in true units: x major every 10 % chord, minor every 5 %; y minor 2.5 %, major 10 %. At 3x the y lines sit
+  // Grid in true units, the same step on both axes: minor every 2.5 % chord, major every 10 %. At 3x the y lines sit
   // 3x further apart, because they are true distances.
   const x0 = dx(0)
   const x1 = dx(Wv)
   const yTop = dy(Hv)
   const yBottom = dy(0)
-  for (let k = Math.ceil(x0 / 0.05); k <= x1 / 0.05; k++) {
-    const x = sx(k * 0.05).toFixed(1)
-    o += `<line class="${k % 2 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="${x}" x2="${x}" y1="0" y2="${Hv}"/>`
+  for (let k = Math.ceil(x0 / 0.025); k <= x1 / 0.025; k++) {
+    const x = sx(k * 0.025).toFixed(1)
+    o += `<line class="${k % 4 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="${x}" x2="${x}" y1="0" y2="${Hv}"/>`
   }
   for (let k = Math.ceil(yTop / 0.025); k <= yBottom / 0.025; k++) {
     const y = sy(k * 0.025).toFixed(1)
     o += `<line class="${k % 4 ? 'wc-sec__minor' : 'wc-sec__major'}" x1="0" x2="${Wv}" y1="${y}" y2="${y}"/>`
   }
 
-  // Rulers always read true % chord, whatever the exaggeration
-  for (let k = Math.ceil(yTop / 0.05); k <= yBottom / 0.05; k++) {
-    const y = k * 0.05
+  // Rulers always read true % chord, whatever the exaggeration. Both axes label every 10 %.
+  for (let k = Math.ceil(yTop / 0.1); k <= yBottom / 0.1; k++) {
+    const y = k * 0.1
     const py = sy(y)
     if (py < 44 || py > Hv - 44) continue
     const sign = y < -1e-9 ? '−' : y > 1e-9 ? '+' : ''

@@ -73,6 +73,12 @@ function onViewKey(e) {
 function focusView(e) {
   if (!e.target.closest('button, input, select, label')) wrapEl.value?.focus({ preventScroll: true })
 }
+// The wheel zooms this view only while focus is inside it; otherwise the page scrolls.
+// OrbitControls ignores the wheel (and doesn't preventDefault) when enableZoom is off.
+function onZoomFocus(e) {
+  const inside = e.type === 'focusin' || wrapEl.value?.contains(e.relatedTarget)
+  if (controls) controls.enableZoom = !!inside
+}
 const foam = computed(() => props.structure.construction === 'foam')
 // A foam wing's sheeting is its skins
 const layerLabel = (l) => (l.id === 'sheeting' && foam.value ? 'Skins' : l.label)
@@ -794,6 +800,7 @@ onMounted(async () => {
     sun.position.set(-1, 3, -2)
     scene.add(sun)
     controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableZoom = false
     controls.addEventListener('change', render)
     // Turning, panning or scrolling the view by hand: it's no longer as framed
     controls.addEventListener('start', () => {
@@ -804,6 +811,8 @@ onMounted(async () => {
     renderer.domElement.addEventListener('pointerdown', onDown)
     renderer.domElement.addEventListener('pointerup', onUp)
     window.addEventListener('keydown', onKeydown)
+    wrapEl.value.addEventListener('focusin', onZoomFocus)
+    wrapEl.value.addEventListener('focusout', onZoomFocus)
     resizeObs = new ResizeObserver(size)
     resizeObs.observe(wrapEl.value)
     size()

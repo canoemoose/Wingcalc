@@ -158,6 +158,8 @@ function zoomAt(factor, sx, sy) {
 const zoomBy = (k) => zoomAt(k, width.value / 2, height.value / 2)
 
 function onWheel(e) {
+  // Zoom only while the view has focus; otherwise let the page scroll
+  if (!wrapEl.value?.contains(document.activeElement)) return
   e.preventDefault()
   const r = svgEl.value.getBoundingClientRect()
   zoomAt(Math.exp(-e.deltaY * 0.0015), ((e.clientX - r.left) / r.width) * width.value, ((e.clientY - r.top) / r.height) * height.value)

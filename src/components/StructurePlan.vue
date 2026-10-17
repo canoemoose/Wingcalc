@@ -200,6 +200,8 @@ onMounted(() => {
   // resizes and whenever the pointer comes over the plan
   window.addEventListener('resize', measure)
   svgEl.value.addEventListener('pointerenter', measure)
+  // Non-passive so the wheel can be stopped from scrolling the page while the view has focus
+  svgEl.value.addEventListener('wheel', onWheel, { passive: false })
   remeasure = measure
 })
 let remeasure = () => {}
@@ -256,6 +258,9 @@ function zoomBy(f) {
 }
 
 function onWheel(e) {
+  // Zoom only while the view has focus; otherwise let the page scroll
+  if (!svgEl.value?.contains(document.activeElement)) return
+  e.preventDefault()
   const before = toWorld(e)
   const v = vb.value
   // Zoom out past the fitted view as well as in, like the wing plan editor
@@ -345,6 +350,7 @@ const drag = ref(null) // { part, d, moved, startX, startY }
 const pan = ref(null) // { x, y, cx, cy }
 function onRibDown(e, line) {
   emit('select', line.id)
+  svgEl.value.focus({ preventScroll: true })
   if (!line.movable) return
   e.stopPropagation()
   svgEl.value.setPointerCapture(e.pointerId)
@@ -352,6 +358,7 @@ function onRibDown(e, line) {
   drag.value = { part: p, d: p.s - a.value.rootS, moved: false, startX: e.clientX, startY: e.clientY }
 }
 function onBackgroundDown(e) {
+  svgEl.value.focus({ preventScroll: true })
   svgEl.value.setPointerCapture(e.pointerId)
   const v = vb.value
   pan.value = { x: e.clientX, y: e.clientY, cx: v.x + v.w / 2, cy: v.y + v.h / 2, moved: false }
@@ -469,7 +476,6 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         tabindex="0"
         role="img"
         aria-label="Wing structure seen from above, one side"
-        @wheel.prevent="onWheel"
         @pointerdown="onBackgroundDown"
         @pointermove="onMove"
         @pointerup="onUp"
