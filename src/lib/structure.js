@@ -28,6 +28,7 @@ import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES } from './edgeStock.js'
+import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
 
 // Typical properties along the grain. E modulus, strengths in Pa, density kg/m³. Balsa
 // scales roughly with density; these are on the conservative side of published data.
@@ -44,6 +45,8 @@ export const MATERIALS = {
   'carbon-rod': { label: 'Carbon rod (pultruded)', short: 'carbon rod', density: 1550, E: 110e9, compression: 550e6, tension: 1000e6, shear: 40e6 },
   // Beech or ramin dowel
   hardwood: { label: 'Hardwood dowel (beech, ramin)', short: 'hardwood', density: 700, E: 10e9, compression: 40e6, tension: 60e6, shear: 7e6 },
+  // Polyester film for hinge tabs: weight only
+  mylar: { label: 'Mylar (polyester film)', short: 'Mylar', density: 1390, E: 4e9, compression: 50e6, tension: 150e6, shear: 50e6 },
 }
 
 export const material = (id) => MATERIALS[id] ?? MATERIALS['balsa-medium']
@@ -163,6 +166,21 @@ export function defaultStructure() {
     // edge, null to follow layer (as saves from before it did)
     gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both', layer: 'top', teLayer: null },
     braces: { enabled: true, material: 'ply-birch', thickness: null, length: 0.08 },
+    // Control-surface hinges: a bevelled hinge line with Mylar tabs slotted into a hinge spar
+    // on each side at its centre line. fixedWidth and movingWidth are the hinge spars' widths
+    // across the hinge (the fixed part's, square; the moving surface's, bevelled); tabs are
+    // tabWidth along the hinge by tabLength across it, no more than tabSpacing apart, the end
+    // ones tabInset in from the ends of the moving surface.
+    hinges: {
+      fixedWidth: 0.008,
+      movingWidth: 0.01,
+      material: 'balsa-medium',
+      tabWidth: 0.012,
+      tabLength: 0.015,
+      tabThickness: 0.0002,
+      tabSpacing: 0.075,
+      tabInset: 0.02,
+    },
     loads: { designG: 6, negativeG: 3, safetyFactor: 1.5 },
   }
 }
@@ -231,8 +249,9 @@ export function tipRibS(sampler) {
 const round = (v, step = 0.0005) => Math.round(v / step) * step
 
 // Ribs that must be there: the root, the fuselage side (one-piece wing with a fuselage),
-// each panel break, the tip, and the user's hard points.
-export function hardPoints(sampler, structure) {
+// each panel break, the tip, the user's hard points, and any extra ({ s, label }: each end
+// of a control surface).
+export function hardPoints(sampler, structure, extra = []) {
   const s0 = rootRibS(sampler, structure)
   const tip = tipRibS(sampler)
   const pts = [{ s: s0, kind: 'root', label: s0 === 0 && structure.ribs.rootJoint !== 'two-piece' ? 'Centre' : 'Root' }]
@@ -246,6 +265,7 @@ export function hardPoints(sampler, structure) {
     const s = s0 + h.d
     if (s > s0 + 1e-4 && s < tip - 1e-4) pts.push({ s, kind: 'hard', label: h.label || 'Hard point', id: h.id })
   }
+  for (const h of extra) if (h.s > s0 + 1e-4 && h.s < tip - 1e-4) pts.push({ s: h.s, kind: 'hard', label: h.label })
   return mergeClose(pts.sort((a, b) => a.s - b.s))
 }
 
@@ -315,17 +335,17 @@ export function spacedRibs(points, limit) {
 
 // The wing's rib stations for the chosen spacing mode. strengthLimit(s) is the structural
 // spacing limit from the loads (Infinity where nothing limits it); see analyseStructure.
-export function ribStations(sampler, structure, strengthLimit = () => Infinity) {
+export function ribStations(sampler, structure, strengthLimit = () => Infinity, extra = []) {
   const r = structure.ribs
-  const hard = hardPoints(sampler, structure)
+  const hard = hardPoints(sampler, structure, extra)
   const s0 = hard[0].s
   const s1 = hard.at(-1).s
   const pitch = Math.max(MIN_SPACING, r.pitch || 0.075)
   if (r.spacing === 'manual') {
-    const extra = (r.manual ?? [])
+    const manual = (r.manual ?? [])
       .filter((m) => Number.isFinite(m.d) && s0 + m.d > s0 + 1e-4 && s0 + m.d < s1 - 1e-4)
       .map((m) => ({ s: s0 + m.d, kind: 'manual', id: m.id }))
-    return mergeClose([...hard, ...extra].sort((a, b) => a.s - b.s))
+    return mergeClose([...hard, ...manual].sort((a, b) => a.s - b.s))
   }
   if (r.spacing === 'tapered') {
     const a = Math.max(MIN_SPACING, r.rootPitch || pitch)
@@ -648,13 +668,113 @@ export function sheetOutline(a, structure, n = 80) {
   return [...ss.map((s) => [s, sec(s).xl + structure.le.width]), ...[...ss].reverse().map((s) => [s, back(s)])]
 }
 
+// --- Control surfaces and their hinges ---------------------------------------------------------
+
+// A line a fixed distance d (+ aft) from a straight hinge line, as x(s): the distance is
+// square to the hinge, as the hinge spars' widths are.
+const offsetLine = (r, d) => {
+  const f = Math.sqrt(1 + r.slope * r.slope)
+  return (s) => r.hingeX(s) + d * f
+}
+
+// Each control surface laid out in the built-up wing (controlSurfaces.js places it; this
+// builds it). At each end of a surface there's a full rib (a hard point, at s0 and s1); the
+// fixed part's hinge spar runs between those ribs' faces, behind the main spar, and the
+// fixed part's ribs stop at its front face. Across the gap, the moving surface's own hinge
+// spar is bevelled to a point at the centre line, and the moving surface runs a gap clear of
+// the end ribs, with an end rib of its own at each end and the wing's other ribs (cut at the
+// hinge) between. The Mylar tabs are slotted into both hinge spars at the centre line.
+//
+// Returns the surfaces in order along the span, each with ok (built) or problem, and for the
+// built ones: faces (plan lines x(s): fixedFront, fixedRear, apex, movingRear), fixed (the
+// fixed hinge spar's span [s, s]), moving (the moving surface's span), endRibs (the moving
+// surface's end rib stations), depth (the deepest each hinge spar gets, between the skins),
+// bevel ({ top, bottom }, degrees from square: the top face clears the down throw), tabs (s
+// of each tab's centre), slot (how deep each tab goes into each spar) and warnings.
+export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS }, controls) {
+  const list = resolveSurfaces(sampler, controls?.surfaces)
+  const h = structure.hinges
+  const t = structure.ribs.thickness || 0
+  const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
+  // Depth between the skins at plan position x
+  const depthAt = (s, x) => {
+    const sec = section(s)
+    if (!sec || !(sec.c > 1e-4)) return 0
+    const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
+    const f = sec.surf(q)
+    const skin = skinAt(structure, q, 0)
+    return Math.max(0, f.upper - f.lower - 2 * skin)
+  }
+  const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+  for (const r of list) {
+    r.warnings = []
+    if (!r.ok) continue
+    const g = Math.max(0, r.gap || 0)
+    const faces = {
+      fixedFront: offsetLine(r, -(g / 2 + h.fixedWidth)),
+      fixedRear: offsetLine(r, -g / 2),
+      apex: offsetLine(r, g / 2),
+      movingRear: offsetLine(r, g / 2 + h.movingWidth),
+    }
+    const ss = Array.from({ length: 9 }, (_, k) => r.s0 + ((r.s1 - r.s0) * k) / 8)
+    let problem = null
+    if (r.s0 < rootS - 1e-6 || r.s1 > tipS + 1e-6) problem = 'outside'
+    // Room for both hinge spars between the main spar and the trailing edge stock
+    else if (ss.some((s) => faces.fixedFront(s) < sparRear(s) + 0.002)) problem = 'forward'
+    else if (ss.some((s) => faces.movingRear(s) > teFront(s) - 0.005)) problem = 'aft'
+    const fixed = [r.s0 + t / 2, r.s1 - t / 2]
+    const moving = [r.s0 + t / 2 + g, r.s1 - t / 2 - g]
+    if (!problem && !(moving[1] - moving[0] > 2 * t + 0.005)) problem = 'short'
+    if (problem) {
+      r.ok = false
+      r.problem = problem
+      continue
+    }
+    const fixedDepth = Math.max(...ss.map((s) => depthAt(s, faces.fixedFront(s))), ...ss.map((s) => depthAt(s, faces.fixedRear(s))))
+    const movingDepth = Math.max(...ss.map((s) => depthAt(s, faces.apex(s))))
+    const bevel = { top: bevelAngle(r.down, g, movingDepth / 2), bottom: bevelAngle(r.up, g, movingDepth / 2) }
+    // Tabs along the moving surface's span, measured along the hinge
+    const k = Math.sqrt(1 + r.slope * r.slope)
+    const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: h.tabInset, width: h.tabWidth }).map((d) => moving[0] + d / k)
+    const slot = Math.max(0, (h.tabLength - g) / 2)
+    const narrow = Math.min(h.fixedWidth, h.movingWidth)
+    if (slot > narrow + 1e-9) {
+      r.warnings.push(`The hinge tabs on ${r.label} go ${mm(slot)} into each hinge spar, deeper than the narrower spar is wide (${mm(narrow)}): use shorter tabs or wider hinge spars.`)
+    }
+    const run = (movingDepth / 2) * Math.tan(Math.max(bevel.top, bevel.bottom) * (Math.PI / 180))
+    if (run > h.movingWidth - 0.001) {
+      r.warnings.push(`The bevel on ${r.label}'s hinge spar runs ${mm(run)} back, nearly all of its ${mm(h.movingWidth)} width: use a wider hinge spar on the moving side, or less throw.`)
+    }
+    Object.assign(r, { faces, fixed, moving, endRibs: [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot })
+  }
+  return list
+}
+
+// The built surface whose span (between its end ribs) contains s, strictly, or null.
+export function surfaceAt(surfaces, s) {
+  return (surfaces ?? []).find((r) => r.ok && s > r.s0 + 1e-6 && s < r.s1 - 1e-6) ?? null
+}
+
+// Why a surface couldn't be built, in a builder's words.
+const SURFACE_PROBLEMS = {
+  panel: 'its panel is gone',
+  span: 'its ends are back to front, less than 20 mm apart, or off the end of its panel',
+  hinge: 'its hinge line is outside the chord',
+  overlap: 'it overlaps another surface on the same panel',
+  outside: 'it lies outside the ribs',
+  forward: "its hinge line is too far forward: the hinge spar on the fixed side would run into the main spar. Move the hinge line back",
+  aft: "its hinge line is too far back: there's no room for the moving side's hinge spar ahead of the trailing edge stock. Move the hinge line forward",
+  short: 'it is too short to build between its end ribs',
+}
+
 // --- The analysis ---------------------------------------------------------------------------
 
 // Everything Stage A works out, for a wing, its aerofoil and structure, at the lifting
 // line's stall (perf.spanwise). Returns null if the wing or stall can't be resolved.
 // The result's structure has the edge stock resolved to widths (and edges says which
 // stock); pass that one, not the input, to buildParts and the views.
-export function analyseStructure({ wing, airfoil, structure, mass, spanwise, steps = 160 }) {
+export function analyseStructure({ wing, airfoil, structure, mass, spanwise, controls = null, steps = 160 }) {
   if (!airfoil?.valid || !spanwise?.ll || !(mass > 0)) return null
   const base = airfoil.params.thickness
   const sampler = wingSampler(wing, base)
@@ -754,7 +874,13 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     const r = stations[Math.min(stations.length - 1, Math.max(0, k))]
     return r ? r.limit : Infinity
   }
-  const ribs = ribStations(sampler, structure, limitAt)
+  // Control surfaces, each with a rib at both ends
+  const surfaces = surfaceLayouts({ sampler, section, sparX, structure, rootS: s0, tipS: sTip }, controls)
+  const surfaceEnds = surfaces.filter((r) => r.ok).flatMap((r) => [
+    { s: r.s0, label: `${r.label}, inner end` },
+    { s: r.s1, label: `${r.label}, outer end` },
+  ])
+  const ribs = ribStations(sampler, structure, limitAt, surfaceEnds)
   // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends
   if (edges.le.round) {
     const f = fitOver(roundItem(edges.le.round.diameter), section, ribs.map((r) => r.s), 'le')
@@ -881,6 +1007,10 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
       message: `The ${name} stock (${it.code} ${KIND_LABELS[it.kind]}) is too small to carve ${part} from ${whereS(e.worstS)}: it falls about ${mmText(e.shortfall)} short of the section, so the carved edge would sit below the wing's surface there. ${fix}`,
     })
   }
+  for (const r of surfaces) {
+    if (!r.ok) warnings.push({ id: `surface-${r.id}`, message: `${r.label} isn't built: ${SURFACE_PROBLEMS[r.problem] ?? r.problem}.` })
+    for (const [k, m] of (r.warnings ?? []).entries()) warnings.push({ id: `surface-${r.id}-${k}`, message: m })
+  }
   // Each fit drawn where it's worst, for the editor (edge stock, rods and dowels)
   for (const k of ['le', 'te']) {
     const e = edges[k]
@@ -894,6 +1024,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, ste
     edges,
     stations,
     ribs,
+    surfaces,
     pos,
     neg,
     sparFraction: xi,

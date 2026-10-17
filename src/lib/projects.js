@@ -6,6 +6,7 @@ import { normalisePanels } from './wing.js'
 import { defaultStructure } from './structure.js'
 import { defaultExportOptions } from './dxf.js'
 import { normaliseUnits } from './units.js'
+import { defaultControls } from './controlSurfaces.js'
 
 export const FORMAT_VERSION = 1
 const PROJECTS_KEY = 'wingcalc.projects.v1'
@@ -25,6 +26,7 @@ export function defaultState() {
       panels: normalisePanels([{ length: 0.7, tipChord: 0.18, dihedral: 0 }]),
       tip: null,
       dimensions: [],
+      controls: defaultControls(), // control surfaces and crow (controlSurfaces.js)
       meanChord: 0.215,
       area: 0.301,
       structure: defaultStructure(),
@@ -59,6 +61,9 @@ export function migrate(state) {
   input.panels = normalisePanels(Array.isArray(input.panels) && input.panels.length ? input.panels : d.input.panels)
   input.dimensions = Array.isArray(input.dimensions) ? input.dimensions : []
   input.structure = fillDefaults(d.input.structure, s.input?.structure)
+  // Control surfaces: none on a wing saved before them
+  input.controls = fillDefaults(d.input.controls, s.input?.controls)
+  if (!Array.isArray(input.controls.surfaces)) input.controls.surfaces = []
   // Edge stock saved before the catalogue keeps its own width, rather than an auto pick
   for (const k of ['le', 'te']) {
     const saved = s.input?.structure?.[k]
