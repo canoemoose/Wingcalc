@@ -20,3 +20,5 @@ export const ORTHO = ['M12 3l8 4.5v9l-8 4.5l-8 -4.5v-9z', 'M12 12l8 -4.5', 'M12 
 export const PERSPECTIVE = ['M3 9h11v11h-11z', 'M15 4h5v5h-5z', 'M3 9l12 -5', 'M14 9l6 -5', 'M14 20l6 -11']
 // A blade across a bar: the section cut
 export const CUT = ['M3 15h18', 'M3 9h18', 'M14 3l-4 18']
+// A bin with its lid: delete
+export const TRASH = ['M4 7h16', 'M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3', 'M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2 -2l1 -12', 'M10 11v6', 'M14 11v6']

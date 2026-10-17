@@ -4,6 +4,7 @@
 // hinges. A foam wing shows its core, skins and spar caps instead of the spar, covering,
 // stringers, ribs and gussets (which are kept, for switching back). Every change replaces the
 // whole structure object, so undo/redo and autosave see it.
+import { TRASH } from '../lib/icons.js'
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
@@ -80,7 +81,7 @@ const COVERINGS = [
   { value: 'dbox', label: 'D-box', title: 'Sheeted from the leading edge back to the spar' },
   { value: 'sheeted', label: 'Fully sheeted' },
 ]
-const FINISH_OPTIONS = Object.entries(FINISHES).map(([value, f]) => ({ value, label: f.label, title: `For example ${f.examples}` }))
+const FINISH_OPTIONS = Object.entries(FINISHES).map(([value, f]) => ({ value, label: f.label, group: f.group, title: f.examples }))
 // What the strength check and the weight assume about the covering, in a sentence or two
 const finishHint = computed(() => {
   const cov = st.value.covering
@@ -634,7 +635,7 @@ const braceHint = computed(() => {
       <div v-for="(s, k) in st.stringers" :key="s.id" class="wc-structure-editor__item">
         <div class="wc-structure-editor__itemhead">
           <span>Stringer {{ k + 1 }}</span>
-          <button type="button" class="wc-stations__remove" :aria-label="`Remove stringer ${k + 1}`" @click="removeFrom('stringers', s.id)">×</button>
+          <button type="button" class="wc-stations__remove" :aria-label="`Remove stringer ${k + 1}`" @click="removeFrom('stringers', s.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
         </div>
         <UnitInput
           :id="id(`str${s.id}p`)"
@@ -737,7 +738,7 @@ const braceHint = computed(() => {
             :label="`Rib ${k + 1}`"
             @update:model-value="updateIn('ribs.manual', m.id, 'd', $event)"
           />
-          <button type="button" class="wc-stations__remove" :aria-label="`Remove rib ${k + 1}`" @click="removeFrom('ribs.manual', m.id)">×</button>
+          <button type="button" class="wc-stations__remove" :aria-label="`Remove rib ${k + 1}`" @click="removeFrom('ribs.manual', m.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
         </div>
         <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.manual', { d: null })">Add rib</button>
       </template>
@@ -765,7 +766,7 @@ const braceHint = computed(() => {
               @change="updateIn('ribs.hardPoints', h.id, 'label', $event.target.value)"
             />
           </div>
-          <button type="button" class="wc-stations__remove" aria-label="Remove hard point" @click="removeFrom('ribs.hardPoints', h.id)">×</button>
+          <button type="button" class="wc-stations__remove" aria-label="Remove hard point" @click="removeFrom('ribs.hardPoints', h.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
         </div>
         <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '' })">
           Add hard point

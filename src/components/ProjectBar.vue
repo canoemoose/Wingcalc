@@ -1,6 +1,7 @@
 <script setup>
 // Project controls: a File menu (new, open with delete, save as copy, export and import as a
 // file), then the name and Save. Storage itself lives in WingCalc; this only presents it.
+import { TRASH } from '../lib/icons.js'
 import { ref } from 'vue'
 import { useMenuDismiss } from '../composables/useMenuDismiss.js'
 
@@ -57,9 +58,7 @@ function onFile(e) {
               <strong>{{ p.name }}</strong>
               <span class="wc-muted">{{ when(p.savedAt) }}</span>
             </button>
-            <button type="button" class="wc-project__delete" :aria-label="`Delete ${p.name}`" title="Delete" @click="emit('delete', p.id)">
-              ×
-            </button>
+            <button type="button" class="wc-project__delete" :aria-label="`Delete ${p.name}`" title="Delete" @click="emit('delete', p.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
           </li>
         </ul>
         <div class="wc-project__actions wc-project__actions--foot">

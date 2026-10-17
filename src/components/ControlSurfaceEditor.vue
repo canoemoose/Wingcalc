@@ -4,6 +4,7 @@
 // selects it, and selecting one in the plan opens it. Every change replaces the whole controls
 // object, so undo/redo and autosave see it. Each surface also carries its servo bay's settings
 // (servos.js): on or off, the class, and where along the span.
+import { TRASH } from '../lib/icons.js'
 import { computed } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
@@ -148,7 +149,7 @@ function setLanding(v) {
         @toggle="(o) => o && (selected = s.id)"
       >
         <div class="wc-panelset__actions">
-          <button type="button" class="wc-iconbtn wc-iconbtn--danger" :aria-label="`Delete ${r.label}`" title="Delete this surface" @click="remove(s.id)">×</button>
+          <button type="button" class="wc-iconbtn wc-iconbtn--danger" :aria-label="`Delete ${r.label}`" title="Delete this surface" @click="remove(s.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
         </div>
         <p v-if="!r.ok && PROBLEMS[r.problem]" class="wc-field__hint wc-text-warn">{{ PROBLEMS[r.problem] }}</p>
         <SegmentedField :model-value="s.role" label="Role" :options="ROLE_OPTIONS" @update:model-value="setRole(s, $event)" />

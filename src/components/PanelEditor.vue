@@ -3,6 +3,7 @@
 // from the fuselage side. The same values can be dragged in the wing plan editor; the two
 // share the selected panel: each panel is a foldable section, and opening one selects its
 // panel, while selecting a panel in the plan opens its section.
+import { TRASH } from '../lib/icons.js'
 import { computed, ref, nextTick } from 'vue'
 import UnitInput from './UnitInput.vue'
 import InspectorSection from './InspectorSection.vue'
@@ -386,9 +387,7 @@ function title(i) {
           :aria-label="`Delete panel ${i + 1}`"
           title="Delete this panel"
           @click="remove(i)"
-        >
-          ×
-        </button>
+        ><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
       </div>
       <UnitInput
         :id="`${idPrefix}-panel-${i}-length`"
@@ -642,9 +641,7 @@ function title(i) {
                 :aria-label="`Remove station ${k + 1}`"
                 title="Remove this station"
                 @click="removeStation(i, st.id)"
-              >
-                ×
-              </button>
+              ><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
               <p
                 v-if="ignoredReasons(p).has(st.id)"
                 class="wc-stations__why"
