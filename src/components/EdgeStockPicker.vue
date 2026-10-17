@@ -21,6 +21,23 @@ const active = ref(-1)
 const root = ref(null)
 const list = ref(null)
 const button = ref(null)
+// The open list is fixed to the viewport, so it can be wider than its field and run over the
+// view beside the column instead of being clipped by the column's scroll box
+const place = ref({})
+function position() {
+  const r = button.value?.getBoundingClientRect()
+  if (!r) return
+  const vw = window.innerWidth, vh = window.innerHeight
+  const below = vh - r.bottom - 8, above = r.top - 8
+  const up = below < 200 && above > below
+  place.value = {
+    left: `${r.left}px`,
+    minWidth: `${r.width}px`,
+    maxWidth: `${Math.max(r.width, vw - r.left - 8)}px`,
+    maxHeight: `${Math.min(320, up ? above : below)}px`,
+    ...(up ? { bottom: `${vh - r.top + 2}px` } : { top: `${r.bottom + 2}px` }),
+  }
+}
 
 // Thumbnail box in px, and one scale for every item: the largest fits the box
 const BOX_W = 40, BOX_H = 26
@@ -53,6 +70,7 @@ const runs = computed(() => {
 })
 
 async function show() {
+  position()
   open.value = true
   active.value = Math.max(0, props.options.findIndex((o) => o.value === props.modelValue))
   await nextTick()
@@ -95,8 +113,20 @@ function onListKey(e) {
 function onOutside(e) {
   if (open.value && !root.value?.contains(e.target)) hide(false)
 }
-onMounted(() => document.addEventListener('pointerdown', onOutside))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
+// Scrolling anything but the list itself moves the field, so the list follows it
+function onScroll(e) {
+  if (open.value && e.target !== list.value) position()
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', onOutside)
+  document.addEventListener('scroll', onScroll, true)
+  window.addEventListener('resize', onScroll)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onOutside)
+  document.removeEventListener('scroll', onScroll, true)
+  window.removeEventListener('resize', onScroll)
+})
 </script>
 
 <template>
@@ -125,6 +155,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
         :id="`${id}-list`"
         ref="list"
         class="wc-stockpick__list"
+        :style="place"
         role="listbox"
         tabindex="-1"
         :aria-label="label"

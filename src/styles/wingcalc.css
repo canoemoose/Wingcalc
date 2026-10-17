@@ -3232,12 +3232,12 @@
   width: 30px;
   height: 20px;
 }
+/* Fixed, placed under (or over) the field by the picker: as wide as its longest entry, at least
+   the field's width, so entries stay on one line */
 .wc-stockpick__list {
-  position: absolute;
+  position: fixed;
   z-index: 30;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
+  width: max-content;
   max-height: 320px;
   overflow: auto;
   margin: 0;
@@ -3279,6 +3279,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  white-space: nowrap;
 }
 .wc-stockpick__title {
   font-size: 0.75rem;
