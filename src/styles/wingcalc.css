@@ -2204,6 +2204,138 @@
   stroke: var(--wc-accent);
   stroke-width: 1;
 }
+/* The part list: a button as wide as its name, the list opening over the page with a thumbnail
+   of each part */
+.wc-part__picker {
+  position: relative;
+}
+.wc-part__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 64px;
+  max-width: 160px;
+  cursor: pointer;
+  text-align: left;
+}
+.wc-part__pick > span:first-child {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-part__caret {
+  color: var(--wc-muted);
+  font-size: 0.7rem;
+}
+.wc-part__list {
+  position: fixed;
+  z-index: 30;
+  width: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--wc-bg);
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.wc-part__list:focus-visible {
+  outline: 2px solid var(--wc-accent);
+  outline-offset: 1px;
+}
+.wc-part__group {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  padding: 6px 10px 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--wc-muted);
+  background: var(--wc-bg);
+}
+.wc-part__opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 10px 3px 14px;
+  cursor: pointer;
+}
+.wc-part__opt--active {
+  background: var(--wc-surface);
+}
+.wc-part__opt[aria-selected='true'] {
+  color: var(--wc-accent);
+  font-weight: 600;
+}
+.wc-part__thumb {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 30px;
+}
+.wc-part__thumb path {
+  fill: color-mix(in srgb, var(--wc-moderate) 22%, transparent);
+  fill-rule: evenodd;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.wc-part__opt-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.wc-part__opt-size {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Flat or 3D, at the head's right */
+.wc-part__mode {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.wc-part__modebtn {
+  height: 26px;
+  min-width: 34px;
+  padding: 0 8px;
+  font-size: 0.78rem;
+}
+.wc-part__modebtn[aria-pressed='true'] {
+  color: var(--wc-accent);
+  border-color: color-mix(in srgb, var(--wc-accent) 60%, var(--wc-border));
+  background: color-mix(in srgb, var(--wc-accent) 10%, var(--wc-bg));
+}
+/* The 3D view: as tall as the flat drawing's greatest height */
+.wc-part__solid {
+  position: relative;
+  height: 240px;
+  border-radius: 6px;
+  outline: none;
+}
+.wc-part__solid:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--wc-accent) 50%, transparent);
+}
+.wc-part__solid canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.wc-part__status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--wc-muted);
+}
 
 /* Export: a large dialog over the structure editor */
 /* The app's own confirmation, over everything including the full-window editors */
