@@ -47,7 +47,7 @@ Saved with the bay in `controls.bays` (anything new also in the defaults, so old
 
 ## Steps
 
-1. **Catalogue schema and data** (1½ rounds). New fields on the Hitec entries. Futaba: the S3001 and every current analogue and digital standard, mini, micro and wing servo, read from Futaba's drawings the same way as the Hitec set, one request at a time with the same etiquette as the aerofoil fetch. Every arm each model is offered with. Generic horns. A backlog entry lists every model or arm whose figures couldn't be found. Tests: every servo has the fields and at least one arm, and every arm it lists exists and matches its spline.
+1. **Catalogue schema and data** (1½ rounds). *Done 18 October 2026, except hole positions: see below.* New fields on the Hitec entries. Futaba: the S3001 and every current analogue and digital standard, mini, micro and wing servo, read from Futaba's drawings the same way as the Hitec set, one request at a time with the same etiquette as the aerofoil fetch. Every arm each model is offered with. Generic horns. A backlog entry lists every model or arm whose figures couldn't be found. Tests: every servo has the fields and at least one arm, and every arm it lists exists and matches its spline.
 2. **Linkage geometry** (½ round, pure, in `linkage.js`). Arm hole and horn hole positions in 3D from the placement; pushrod length at neutral; achieved surface angle for a given servo angle (closed form for the four-bar linkage, not a small-angle ratio), so up and down throws, differential and mm at the trailing edge; mechanical advantage; the servo angle needed for each designed throw, its midpoint and the travel needed each way (decision 4); squareness at the midpoint; mirrored side by reflection. Horn height is measured from the centre-line pivot. Tests against hand-worked cases.
 3. **Configurator** (1 round). A centred dialogue from the bay (`ServoConfigurator.vue`), laid out in columns like a Finder column view: Servo › Arm › Horn, each filtering the next (the servo's own arms). Travel (±45° or ±60°) is a switch beside the linkage type. Linkage type is a small switch, not a column, while there's only pushrod. Below the columns, a side-on drawing of the assembly (SVG, from the same geometry):
    - holes are picked by clicking them on the arm or horn, and the arm is dragged round to choose which way it faces; its angle at surface neutral is shown, from the throws;
@@ -60,6 +60,14 @@ Saved with the bay in `controls.bays` (anything new also in the defaults, so old
 6. **Docs** (with each step). `docs/methods.md` for the linkage geometry, the midpoint and travel; `docs/user-guide.md` for the configurator and placement; `THIRD_PARTY_NOTICES.md` if any maker data or drawing is bundled.
 
 About 5½ rounds in all.
+
+### Step 1 as built
+
+- `src/lib/servoCatalogue.js` holds the published figures; `servos.js` builds `HITEC`, `FUTABA` and `CATALOGUE` from them, each entry with `ratings`, `gears`, `digital`, `spline` ({ type, teeth }) and `current`. 29 Hitec and 31 Futaba servos.
+- Futaba publishes no dimensioned drawings, so Futaba entries carry `estimated: ['lugs', 'output', 'lead']` and take those from their class (`servoFrame`).
+- `src/lib/linkage.js` holds `ARMS` (27, Hitec and Futaba), `HORNS` (9 control horns) and `armsFor(servo)`. Compatibility is by the maker's spline name, or by a horn set naming the servo, rather than a stored list per servo: one rule, and a new arm reaches every servo it fits.
+- **No hole positions anywhere**: no maker publishes them. Step 2's geometry needs them measured (backlog, "Servo catalogue"). Until then, step 3 could take an arm's and a horn's hole positions as typed-in figures.
+- Generic horns were not added: with no published heights to base them on, they'd be invented.
 
 ## Out of scope
 
