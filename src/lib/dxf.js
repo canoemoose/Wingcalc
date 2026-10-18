@@ -19,6 +19,7 @@ import { MATERIALS, sheetOutline } from './structure.js'
 import { flatPanels } from './wing.js'
 import { bounds, polygonArea } from './ribs.js'
 import { BRAKE } from './airBrakes.js'
+import { hingeTabOutline } from './controlSurfaces.js'
 
 export function defaultExportOptions() {
   return {
@@ -596,7 +597,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   const sheet = sheetOutline(a, structure)
   if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('HATCH', seg)
   // Control surfaces: both hinge spars' faces, the moving surface's ends (the gap clear of the
-  // end ribs), and each tab as its rectangle centred on the hinge line
+  // end ribs), and each tab as its rectangle centred on and square to the hinge line
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
     const along = (from, to, fx) => Array.from({ length: 9 }, (_, i) => from + ((to - from) * i) / 8).map((s) => [s, fx(s)])
     const f = sf.faces
@@ -604,12 +605,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     for (const fx of [f.apex, f.movingRear]) add('HINGE', along(sf.moving[0], sf.moving[1], fx))
     for (const s of sf.moving) add('HINGE', [[s, f.apex(s)], [s, sec(s).xl + sec(s).c]])
     const h = structure.hinges
-    for (const s of sf.tabs) {
-      const x = sf.hingeX(s)
-      const hw = h.tabWidth / 2
-      const hl = h.tabLength / 2
-      add('HINGE', [[s - hw, x - hl], [s + hw, x - hl], [s + hw, x + hl], [s - hw, x + hl]], true)
-    }
+    for (const s of sf.tabs) add('HINGE', hingeTabOutline(sf, s, h.tabWidth, h.tabLength), true)
   }
   // Servo bays: the hatch opening (the mount plate's outline), the case and the span of its
   // lugs, and the lead's route from the bay's inner rib to the root, behind the main spar

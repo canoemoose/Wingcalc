@@ -110,6 +110,19 @@ export function resolveSurface(sampler, surf) {
   }
 }
 
+// A hinge tab's outline in plan, as [s, x] corners: a rectangle centred on the hinge line at
+// span station s, `width` along the hinge and `length` square across it.
+export function hingeTabOutline(sf, s, width, length) {
+  const k = Math.hypot(1, sf.slope)
+  const along = [1 / k, sf.slope / k]
+  const across = [-sf.slope / k, 1 / k]
+  const x = sf.hingeX(s)
+  const at = (a, b) => [s + along[0] * a + across[0] * b, x + along[1] * a + across[1] * b]
+  const hw = width / 2
+  const hl = length / 2
+  return [at(-hw, -hl), at(hw, -hl), at(hw, hl), at(-hw, hl)]
+}
+
 // Every surface placed, in order along the span, with names (A1, A2, F1 … by role, root
 // outward) and problems: those that can't be placed, and any that overlaps one before it
 // on the same panel ('overlap'). Only ok ones go on to be built.

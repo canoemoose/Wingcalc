@@ -17,6 +17,7 @@
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { EYE, EYE_OFF } from '../lib/icons.js'
 import { flatPanels } from '../lib/wing.js'
+import { hingeTabOutline } from '../lib/controlSurfaces.js'
 import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan } from '../lib/structure.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import StageZoom from './StageZoom.vue'
@@ -92,11 +93,10 @@ const geom = computed(() => {
       fixed: band(sf.fixed[0], sf.fixed[1], f.fixedFront, f.fixedRear),
       moving: band(sf.moving[0], sf.moving[1], f.apex, f.movingRear),
       outline: band(sf.moving[0], sf.moving[1], f.apex, te),
-      // The Mylar tabs, each a rectangle centred on the hinge line
-      tabs: (sf.tabs ?? []).map((s) => {
-        const x = sf.hingeX(s), hw = st.hinges.tabWidth / 2, hl = st.hinges.tabLength / 2
-        return [[s - hw, x - hl], [s + hw, x - hl], [s + hw, x + hl], [s - hw, x + hl]].map(([p, q]) => `${p.toFixed(5)},${q.toFixed(5)}`).join(' ')
-      }),
+      // The Mylar tabs, each a rectangle centred on and square to the hinge line
+      tabs: (sf.tabs ?? []).map((s) =>
+        hingeTabOutline(sf, s, st.hinges.tabWidth, st.hinges.tabLength).map(([p, q]) => `${p.toFixed(5)},${q.toFixed(5)}`).join(' '),
+      ),
     })
   }
   // Servo bays: the hatch opening, the servo's case, and its lead's route in to the root

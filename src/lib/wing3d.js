@@ -17,6 +17,7 @@ import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
 import { placeServo } from './servos.js'
+import { hingeTabOutline } from './controlSurfaces.js'
 
 const RAD = Math.PI / 180
 
@@ -833,8 +834,8 @@ export function gussetPrisms(a, structure, parts) {
   return out
 }
 
-// The Mylar hinge tabs as thin flat plates, each tabWidth along the hinge by tabLength across
-// it, centred on the hinge line at its centre line (midway between the skins), half into each
+// The Mylar hinge tabs as thin flat plates, each tabWidth along the hinge by tabLength square
+// across it, centred on the hinge line at its centre line (midway between the skins), half into each
 // hinge spar.
 export function hingeTabPlates(a, structure) {
   const h = structure.hinges
@@ -845,14 +846,7 @@ export function hingeTabPlates(a, structure) {
     for (const s of sf.tabs ?? []) {
       const x = sf.hingeX(s)
       const mid = (insetHeight(a, structure, s, x, 'upper', false) + insetHeight(a, structure, s, x, 'lower', false)) / 2
-      const hw = h.tabWidth / 2
-      const hl = h.tabLength / 2
-      const corners = [
-        [s - hw, x - hl],
-        [s + hw, x - hl],
-        [s + hw, x + hl],
-        [s - hw, x + hl],
-      ]
+      const corners = hingeTabOutline(sf, s, h.tabWidth, h.tabLength)
       const ring = (hh) => corners.map(([cs, cx]) => worldPoint(a, Math.min(a.tipS, Math.max(a.rootS, cs)), cx, hh))
       out.push({ kind: 'tab', surface: sf.id, ...loft([ring(mid - t / 2), ring(mid + t / 2)], { closed: true, caps: 'fan' }) })
     }

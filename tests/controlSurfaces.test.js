@@ -15,6 +15,7 @@ import {
   newSurface,
   surfaceOutline,
   defaultControls,
+  hingeTabOutline,
 } from '../src/lib/controlSurfaces.js'
 
 // Two segments properly cross (touching at ends doesn't count)
@@ -313,5 +314,26 @@ describe('a surface cut from the trailing edge stock', () => {
     expect(parts.some((p) => p.group === 'surfaces')).toBe(false)
     expect(cutList.some((c) => c.item === `Trailing edge stock as ${sf.label}`)).toBe(true)
     expect(cutList.some((c) => c.item.startsWith('Hinge spar, moving side'))).toBe(false)
+  })
+})
+
+describe('hingeTabOutline', () => {
+  it('lies square to a raked hinge line, centred on it', () => {
+    const sf = { slope: 0.25, hingeX: (s) => 0.1 + 0.25 * s }
+    const [p0, p1, p2, p3] = hingeTabOutline(sf, 0.4, 0.025, 0.015)
+    const d = (a, b) => [b[0] - a[0], b[1] - a[1]]
+    const along = d(p0, p1)
+    const across = d(p1, p2)
+    // Along the hinge: parallel to (1, slope), tab width long
+    expect(along[1] / along[0]).toBeCloseTo(0.25, 9)
+    expect(Math.hypot(...along)).toBeCloseTo(0.025, 9)
+    // Across it: square to the hinge, tab length long
+    expect(along[0] * across[0] + along[1] * across[1]).toBeCloseTo(0, 12)
+    expect(Math.hypot(...across)).toBeCloseTo(0.015, 9)
+    // Centred on the hinge at s
+    const c = [(p0[0] + p2[0]) / 2, (p0[1] + p2[1]) / 2]
+    expect(c[0]).toBeCloseTo(0.4, 12)
+    expect(c[1]).toBeCloseTo(sf.hingeX(0.4), 12)
+    expect(p3).toHaveLength(2)
   })
 })
