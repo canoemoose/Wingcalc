@@ -10,7 +10,7 @@ import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
 import { wing3d, servoBox } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo } from '../src/lib/servos.js'
 
 function inside(poly, [x, y]) {
   let c = false
@@ -511,8 +511,13 @@ describe('servo bays in the exports and the 3D view', () => {
 
   it('builds a servo and a mount plate in 3D, the servo standing inside the skins', () => {
     const m = wing3d(res.a, res.st, res.parts)
-    expect(m.solids.filter((s) => s.kind === 'servo')).toHaveLength(2)
-    expect(m.solids.filter((s) => s.kind === 'plate')).toHaveLength(2)
+    // Per bay: the case and its two lugs, the output boss and the lead; the plate in four strips
+    // round the case's cut-out
+    const n = res.a.bays.length
+    expect(m.solids.filter((s) => s.kind === 'servo')).toHaveLength(3 * n)
+    expect(m.solids.filter((s) => s.kind === 'servoOutput')).toHaveLength(n)
+    expect(m.solids.filter((s) => s.kind === 'servoLead')).toHaveLength(n)
+    expect(m.solids.filter((s) => s.kind === 'plate')).toHaveLength(4 * n)
     for (const b of res.a.bays) {
       const box = servoBox(res.a, res.st, b)
       expect(box.top).toBeCloseTo(box.base + b.servo.height, 9)
@@ -521,5 +526,91 @@ describe('servo bays in the exports and the 3D view', () => {
     const r = build({ bays: noBays() })
     const none = wing3d(r.a, r.st, r.parts)
     expect(none.solids.some((s) => s.kind === 'servo' || s.kind === 'plate')).toBe(false)
+  })
+})
+
+describe('a Hitec servo in its bay, drawn from its drawing', () => {
+  const at = (b, base = 0) => ({ x: (b.lugs.x0 + b.lugs.x1) / 2, s: b.s, base })
+  const boxes = (parts, kind) => parts.filter((p) => p.kind === kind && p.box).map((p) => p.box)
+
+  it('stands upright with its lugs at their height, along the bay, and its output on top', () => {
+    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-85mg' }, { surface: flap.id, enabled: false }] })
+    const b = res.a.bays.find((x) => x.ok)
+    expect(b.servo.lugHeight).toBeCloseTo(0.0192, 9)
+    expect(b.servo.lugThickness).toBeCloseTo(0.002, 9)
+    const parts = placeServo(b.servo, at(b))
+    const [kase, ...lugs] = boxes(parts, 'servo')
+    // The case is the drawing's, centred on the bay, between the lugs
+    expect(kase.x[1] - kase.x[0]).toBeCloseTo(0.029, 9)
+    expect(kase.s[1] - kase.s[0]).toBeCloseTo(0.013, 9)
+    expect((kase.s[0] + kase.s[1]) / 2).toBeCloseTo(b.s, 9)
+    expect(kase.x[0]).toBeCloseTo(b.case.x0, 9)
+    expect(kase.z).toEqual([0, 0.0294])
+    // The lugs reach the bay's lug run and sit at their height, 2 mm thick
+    expect(Math.min(...lugs.map((l) => l.x[0]))).toBeCloseTo(b.lugs.x0, 9)
+    expect(Math.max(...lugs.map((l) => l.x[1]))).toBeCloseTo(b.lugs.x1, 9)
+    for (const l of lugs) {
+      expect(l.z[0]).toBeCloseTo(0.0192, 9)
+      expect(l.z[1]).toBeCloseTo(0.0212, 9)
+    }
+    // The output boss stands on the case's top, aft of centre, up to the horn seat
+    const out = parts.find((p) => p.kind === 'servoOutput').cylinder
+    expect(out.axis).toBe('z')
+    expect(out.from).toBeCloseTo(0.0294, 9)
+    expect(out.to).toBeCloseTo(0.0335, 9)
+    expect(out.x - (kase.x[0] + kase.x[1]) / 2).toBeCloseTo(0.00785, 9)
+    // The lead leaves the aft end near the base
+    const lead = boxes(parts, 'servoLead')[0]
+    expect(lead.x[0]).toBeCloseTo(kase.x[1], 9)
+    expect((lead.z[0] + lead.z[1]) / 2).toBeCloseTo(0.004, 9)
+  })
+
+  it('lays a wing servo flat, its lugs across the span and the bay as wide as them', () => {
+    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-125mg', mounting: 'flat' }, { surface: flap.id, enabled: false }] })
+    const b = res.a.bays.find((x) => x.ok)
+    expect(b).toBeTruthy()
+    // 42 mm across the lugs and 1.5 mm clear each side; along the chord its 34 mm and the 6 mm tab
+    expect(b.servo.width).toBeCloseTo(0.042, 9)
+    expect(b.width).toBeCloseTo(0.042 + 2 * SERVO_CLEARANCE, 9)
+    expect(b.lugs.x1 - b.lugs.x0).toBeCloseTo(0.04, 9)
+    expect(b.servo.height).toBeCloseTo(0.01, 9)
+    const parts = placeServo(b.servo, at(b, 0.01))
+    const all = boxes(parts, 'servo')
+    // Every case and lug part inside the bay across the span and the lug run along the chord,
+    // and within its 10 mm thickness above the base
+    for (const p of all) {
+      expect(p.s[0]).toBeGreaterThanOrEqual(b.sA + res.st.ribs.thickness / 2 - 1e-9)
+      expect(p.s[1]).toBeLessThanOrEqual(b.sB - res.st.ribs.thickness / 2 + 1e-9)
+      expect(p.x[0]).toBeGreaterThanOrEqual(b.lugs.x0 - 1e-9)
+      expect(p.x[1]).toBeLessThanOrEqual(b.lugs.x1 + 1e-9)
+      expect(p.z[0]).toBeGreaterThanOrEqual(0.01 - 1e-9)
+      expect(p.z[1]).toBeLessThanOrEqual(0.02 + 1e-9)
+    }
+    // The lugs lie in the wing's plane, mid-thickness, 2 mm thick
+    const lugs = all.slice(1)
+    for (const l of lugs) expect(l.z[1] - l.z[0]).toBeCloseTo(0.002, 9)
+    // The output boss points aft along the chord
+    const out = parts.find((p) => p.kind === 'servoOutput').cylinder
+    expect(out.axis).toBe('x')
+    expect(out.from).toBeCloseTo(b.lugs.x1, 9)
+    expect(out.to).toBeGreaterThan(out.from)
+    // In 3D: the case, its upper pair of lugs and its tab, the boss and the lead
+    const m = wing3d(res.a, res.st, res.parts)
+    expect(m.solids.filter((s) => s.kind === 'servo')).toHaveLength(4)
+    expect(m.solids.filter((s) => s.kind === 'servoOutput')).toHaveLength(1)
+  })
+
+  it('gives a feather servo its gear tower, and lies a servo on its side across the span', () => {
+    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-65mg', mounting: 'side' }, { surface: flap.id, enabled: false }] })
+    const b = res.a.bays.find((x) => x.ok)
+    const parts = placeServo(b.servo, at(b))
+    const tower = parts.find((p) => p.kind === 'servo' && p.cylinder).cylinder
+    // On its side the servo's height runs across the span: the tower from 20 to 26 mm of it
+    expect(tower.axis).toBe('s')
+    expect(tower.from - (b.s - 0.013)).toBeCloseTo(0.02, 9)
+    expect(tower.to - (b.s - 0.013)).toBeCloseTo(0.026, 9)
+    // and its width is the depth
+    const kase = parts[0].box
+    expect(kase.z).toEqual([0, 0.0116])
   })
 })

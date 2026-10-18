@@ -235,6 +235,8 @@ const COLOURS = {
   hinge: 0xc49a5e,
   hingeMoving: 0xd1a868,
   servo: 0x3a3f45,
+  servoOutput: 0xf2f2ee,
+  servoLead: 0xd9a400,
   brakeBox: 0xc9a46a,
   blade: 0x7f8c97,
   plate: 0xa8794a,
@@ -390,7 +392,7 @@ function build() {
         ? groups.surfaces
         : s.kind === 'core'
         ? groups.core
-        : s.kind === 'servo' || s.kind === 'plate'
+        : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead' || s.kind === 'plate'
         ? groups.servos
         : s.kind === 'brakeBox' || s.kind === 'blade'
         ? groups.brakes

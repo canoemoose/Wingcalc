@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest'
 import {
   SERVOS, SERVO_CLASSES, HITEC, MOUNTINGS,
   servoEnvelope, servoById, servoOptions, defaultServoClass, bayOf, setBay, dropBay, installedServo,
+  servoFrame, servoParts,
 } from '../src/lib/servos.js'
 
 describe('Hitec catalogue', () => {
@@ -47,6 +48,104 @@ describe('Hitec catalogue', () => {
     // each once, with a sensible case and lugs wider than it
     expect(new Set(models).size).toBe(models.length)
     for (const s of HITEC) expect(s.lugSpan).toBeGreaterThan(s.body[0])
+  })
+})
+
+describe('Hitec drawings', () => {
+  it('gives every entry its drawn lugs, output and lead, none estimated', () => {
+    for (const s of HITEC) {
+      expect(s.lugEstimated, s.model).toBeUndefined()
+      const [l, , h] = s.body
+      expect(s.lugThickness, s.model).toBeGreaterThan(0.0005)
+      expect(s.lugThickness, s.model).toBeLessThan(0.003)
+      // The lugs sit part way up the case, their top below its top
+      expect(s.lugHeight, s.model).toBeGreaterThan(0)
+      expect(s.lugHeight + s.lugThickness, s.model).toBeLessThanOrEqual(h + 1e-9)
+      // A gear tower stands on the case, never the other way round
+      expect(s.caseHeight, s.model).toBeLessThanOrEqual(h)
+      expect(s.caseHeight, s.model).toBeGreaterThan(s.lugHeight)
+      // The output is on the case, towards the lead end, and stands above it
+      expect(s.output.offset, s.model).toBeGreaterThan(0)
+      expect(s.output.offset, s.model).toBeLessThan(l / 2)
+      expect(s.output.top, s.model).toBeGreaterThan(h)
+      expect(s.output.diameter, s.model).toBeGreaterThan(0.003)
+      expect(['end', 'base'], s.model).toContain(s.lead.exit)
+      if (s.lead.exit === 'end') expect(s.lead.at, s.model).toBeLessThan(h)
+      else expect(Math.abs(s.lead.at), s.model).toBeLessThan(l / 2)
+    }
+  })
+
+  it('holds the figures printed on the drawings, in metres', () => {
+    const by = (m) => HITEC.find((s) => s.model === m)
+    const hs85 = by('HS-85MG')
+    expect(hs85.body).toEqual([0.029, 0.013, 0.0294])
+    expect(hs85.lugSpan).toBe(0.0398)
+    expect(hs85.lugHeight).toBe(0.0192)
+    expect(hs85.lugThickness).toBe(0.002)
+    expect(hs85.output.top).toBe(0.0335)
+    const hs65 = by('HS-65MG')
+    expect(hs65.caseHeight).toBe(0.02)
+    expect(hs65.body[2]).toBe(0.026)
+    expect(by('HS-645MG').lugSpan).toBe(0.0534)
+    expect(by('HS-77BB').lugThickness).toBe(0.0025)
+    // Families share a case
+    expect(by('HS-5625MG').body).toEqual(by('HS-645MG').body)
+    expect(by('HS-322HD').lugSpan).toBe(by('HS-311').lugSpan)
+  })
+
+  it('gives the wing servos their standing lugs: a tab at the bottom or a second pair', () => {
+    const wing = HITEC.filter((s) => s.wingLugs)
+    expect(wing.map((s) => s.model).sort()).toEqual(['D141SW', 'D145SW', 'HS-125MG', 'HS-5125MG', 'HS-7115TH'])
+    for (const s of wing) {
+      expect(s.thin).toBe(true)
+      // The upper pair's lower edge is the lug height
+      expect(s.lugHeight + s.wingLugs.length).toBeCloseTo(s.body[2], 9)
+      if (s.wingLugs.bottom === 'tab') expect(s.wingLugs.tab.every((v) => v > 0)).toBe(true)
+      else expect(s.wingLugs.bottom).toBe('lugs')
+    }
+    expect(HITEC.find((s) => s.model === 'D141SW').drawing).toBe('D141SH')
+  })
+})
+
+describe('servo shapes', () => {
+  const extent = (parts, i) => [Math.min(...parts.filter((p) => p.box).map((p) => p.box[i][0])), Math.max(...parts.filter((p) => p.box).map((p) => p.box[i][1]))]
+
+  it('builds an upright servo: case, lugs either side at their height, output boss and lead', () => {
+    const f = servoFrame(servoById('hitec-hs-645mg'))
+    const parts = servoParts(f)
+    expect(parts[0]).toEqual({ kind: 'servo', box: [[-0.0204, 0.0204], [-0.01, 0.01], [0, 0.0378]] })
+    const lugs = parts.slice(1).filter((p) => p.kind === 'servo')
+    expect(lugs).toHaveLength(2)
+    for (const l of lugs) expect(l.box[2]).toEqual([0.027, 0.0295])
+    expect(extent(lugs, 0)).toEqual([-0.0267, 0.0267])
+    const out = parts.find((p) => p.kind === 'servoOutput').cylinder
+    expect(out).toMatchObject({ x: 0.01, y: 0, r: 0.006, z: [0.0378, 0.0428] })
+    expect(parts.filter((p) => p.kind === 'servoLead')).toHaveLength(1)
+  })
+
+  it('gives a generic class a shape from its sizes', () => {
+    const f = servoFrame({ id: 'micro', ...SERVOS.micro })
+    expect(f.length).toBe(SERVOS.micro.length)
+    expect(f.lugHeight).toBe(SERVOS.micro.lugHeight)
+    expect(f.output.top).toBeGreaterThan(f.height)
+    const parts = servoParts(f)
+    expect(parts.filter((p) => p.kind === 'servo')).toHaveLength(3)
+    expect(extent(parts.filter((p) => p.kind === 'servo'), 0)).toEqual([-SERVOS.micro.lugSpan / 2, SERVOS.micro.lugSpan / 2])
+  })
+
+  it('stands a wing servo\'s lugs in its middle plane, with the tab below its base', () => {
+    const parts = servoParts(servoFrame(servoById('hitec-hs-125mg')))
+    const lugs = parts.filter((p) => p.kind === 'servo').slice(1)
+    expect(lugs).toHaveLength(3)
+    for (const l of lugs) expect(l.box[1]).toEqual([-0.001, 0.001])
+    const tab = lugs.find((l) => l.box[2][1] === 0)
+    expect(tab.box[2]).toEqual([-0.006, 0])
+    // D145SW has a second pair at the bottom instead
+    const d145 = servoParts(servoFrame(servoById('hitec-d145sw'))).filter((p) => p.kind === 'servo')
+    expect(d145).toHaveLength(5)
+    // and its lead leaves through the base
+    const lead = servoParts(servoFrame(servoById('hitec-d145sw'))).find((p) => p.kind === 'servoLead').box
+    expect(lead[2][1]).toBe(0)
   })
 })
 

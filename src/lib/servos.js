@@ -94,60 +94,119 @@ export const SERVO_CLEARANCE = 0.0015
 export const SERVO_HEADROOM = 0.002
 
 // ---------------------------------------------------------------------------------------------
-// Hitec catalogue. Figures are NOT yet checked against Hitec's datasheets: they were entered
-// from memory and need confirming before the entries are relied on. Each entry is a real
-// servo; the generic classes above remain the fallback. Units are converted here: mm to m,
-// g to kg, kg·cm to N·m.
+// Hitec catalogue. Each entry is a real servo; the generic classes above remain the fallback.
+// The case, lug and output figures are read from the dimensioned drawing on the servo's
+// hitecrcd.com product page (October 2026); masses and torques from the same pages. Units are
+// converted here: mm to m, g to kg, kg·cm to N·m.
 //
 //   id, model, maker   the picker's id ('hitec-' + the model), the model name, 'Hitec'
 //   class              the generic class it's sized as, for plate and lead hole
-//   body               [length, width, height] of the case, m: length along the chord,
-//                      width across the span, height from base to top (the order printed
-//                      on Hitec's pages, assumed; check against a drawing)
-//   lugSpan            the mounting lugs' overall length, m. Hitec publishes no tab span, so
-//                      this is the body length plus 2 x 4 mm (sub-micro and micro), 5 mm (mini)
-//                      or 7 mm (standard); lugEstimated says so
+//   body               [length, width, height] of the case, m: length along the lugs (and the
+//                      chord, upright), width across, height from the base to the top of the
+//                      case or its gear tower, not counting the output spline
+//   lugSpan            the mounting lugs' overall length, m
+//   lugThickness       the lugs' thickness, m
+//   lugHeight          from the base to the underside of the lugs, m (a wing servo's: to the
+//                      lower edge of its upper pair)
+//   caseHeight         the top of the case's main block where a gear tower stands above it, m
+//                      (the tower is the rest of body's height); the height itself without one
+//   output             the output spline's boss: offset (its centre from the case's centre,
+//                      along the length towards the lead end), top (the horn seat, from the
+//                      base) and diameter, m
+//   lead               where the lead leaves: exit 'end' (the end nearer the output, at a
+//                      height above the base) or 'base' (through the base, at an offset along
+//                      the length from the centre); at, m
+//   wingLugs           a wing servo's lugs, which stand in the length-height plane, centred on
+//                      the case's thickness, rather than lying across it: a pair at the top,
+//                      length long, and at the bottom either a second pair or a single tab
+//                      ([width, length] below the base), m
+//   drawing            the drawing the figures come from, where it's another model's
 //   mass               with its lead, kg
 //   torque             stall torque at about 4.8 to 6 V, N·m
 //   thin               a thin wing servo, the kind that lies flat in a thin wing
 //   plate, leadHole    from the generic class above
 //
+// Every dimension is a figure printed on the drawing except the output boss's diameter and the
+// lead's place, which are scaled off it (to about half a millimetre).
+//
 // Dropped: HS-422, discontinued. HS-75BB is a retract servo, so it isn't listed; HS-50, HS-82MG
-// and HS-325HB had no published figures to hand. Body sizes and torques checked against
-// hitecrcd.com in October 2026 (torque the higher, 6 V, figure where both are given).
+// and HS-325HB had no published figures to hand. Torque is the higher, 6 V, figure where both
+// are given. D141SW is no longer on hitecrcd.com: its figures are from the D141SH, which Hitec
+// lists in the same case.
 const KG_CM = 0.0980665
 const fromClass = (cls) => ({ plate: SERVOS[cls].plate, leadHole: SERVOS[cls].leadHole })
 
+// A drawing's figures in mm, as an entry's fields in m
+function drawn({ body, case: caseHeight, lugs, wing, output, lead, drawing }) {
+  const m = (v) => Math.round(v * 1e4) / 1e7
+  const [span, thickness, height] = lugs
+  const out = {
+    body: body.map(m),
+    lugSpan: m(span),
+    lugThickness: m(thickness),
+    lugHeight: m(height),
+    caseHeight: m(caseHeight ?? body[2]),
+    output: { offset: m(output[0]), top: m(output[1]), diameter: m(output[2]) },
+    lead: { exit: lead[0], at: m(lead[1]) },
+  }
+  if (wing) out.wingLugs = { length: m(wing.length), bottom: wing.tab ? 'tab' : 'lugs', ...(wing.tab ? { tab: wing.tab.map(m) } : {}) }
+  if (drawing) out.drawing = drawing
+  return out
+}
+
+// The shared cases, mm. lugs: [span, thickness, underside height]; output: [offset, top,
+// diameter]; lead: [exit, at]
+const FEATHER_65 = { body: [23.6, 11.6, 26.0], case: 20.0, lugs: [32.3, 2.0, 17.0], output: [5.7, 28.6, 6], lead: ['end', 3.5] }
+const FEATHER_55 = { body: [22.8, 11.6, 24.0], case: 20.8, lugs: [32.6, 1.0, 16.7], output: [5.3, 26.8, 5], lead: ['end', 3.5] }
+const MICRO_85 = { body: [29.0, 13.0, 29.4], lugs: [39.8, 2.0, 19.2], output: [7.85, 33.5, 9.5], lead: ['end', 4.0] }
+const MINI_225 = { body: [32.2, 16.8, 31.0], lugs: [44.0, 2.2, 23.8], output: [7.4, 36.1, 10], lead: ['end', 4.5] }
+const WING_125 = { body: [30.0, 10.0, 34.0], lugs: [42.0, 2.0, 24.0], wing: { length: 10.0, tab: [10.0, 6.0] }, output: [8.7, 37.1, 6], lead: ['end', 7.5] }
+const STD_311 = { body: [40.0, 20.0, 36.5], lugs: [52.8, 2.5, 26.5], output: [10.0, 41.0, 12], lead: ['end', 3.0] }
+const STD_485 = { body: [40.0, 20.0, 38.0], lugs: [53.0, 2.5, 28.0], output: [10.0, 42.5, 12], lead: ['end', 6.0] }
+const STD_645 = { body: [40.8, 20.0, 37.8], lugs: [53.4, 2.5, 27.0], output: [10.0, 42.8, 12], lead: ['end', 5.0] }
+
+const hitec = (model, cls, mass, torque, thin, d) => ({
+  id: `hitec-${model.toLowerCase()}`,
+  model,
+  maker: 'Hitec',
+  class: cls,
+  ...drawn(d),
+  mass: mass / 1000,
+  torque: torque * KG_CM,
+  thin,
+  ...fromClass(cls),
+})
+
 export const HITEC = [
-  { id: 'hitec-hs-65mg', model: 'HS-65MG', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.024], lugSpan: 0.0316, lugEstimated: true, mass: 0.0119, torque: 2.2 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-5070mh', model: 'HS-5070MH', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.03], lugSpan: 0.0316, lugEstimated: true, mass: 0.0127, torque: 3.1 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-5085mg', model: 'HS-5085MG', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.0294], lugSpan: 0.037, lugEstimated: true, mass: 0.0219, torque: 4.3 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-85mg', model: 'HS-85MG', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.03], lugSpan: 0.037, lugEstimated: true, mass: 0.0219, torque: 3.5 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-d89mw', model: 'D89MW', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.03], lugSpan: 0.037, lugEstimated: true, mass: 0.025, torque: 8.5 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-81', model: 'HS-81', maker: 'Hitec', class: 'micro', body: [0.0298, 0.012, 0.0296], lugSpan: 0.0378, lugEstimated: true, mass: 0.0166, torque: 3.0 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-5125mg', model: 'HS-5125MG', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.034], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 3.5 * KG_CM, thin: true, ...fromClass('mini') },
-  { id: 'hitec-hs-125mg', model: 'HS-125MG', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.034], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 3.5 * KG_CM, thin: true, ...fromClass('mini') },
-  { id: 'hitec-d131mw', model: 'D131MW', maker: 'Hitec', class: 'micro', body: [0.022, 0.0085, 0.0232], lugSpan: 0.03, lugEstimated: true, mass: 0.0098, torque: 2.9 * KG_CM, thin: true, ...fromClass('micro') },
-  { id: 'hitec-d141sw', model: 'D141SW', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.0295], lugSpan: 0.04, lugEstimated: true, mass: 0.026, torque: 7.0 * KG_CM, thin: true, ...fromClass('mini') },
-  { id: 'hitec-d145sw', model: 'D145SW', maker: 'Hitec', class: 'mini', body: [0.03, 0.01, 0.037], lugSpan: 0.04, lugEstimated: true, mass: 0.024, torque: 6.0 * KG_CM, thin: true, ...fromClass('mini') },
-  { id: 'hitec-hs-7115th', model: 'HS-7115TH', maker: 'Hitec', class: 'mini', body: [0.026, 0.008, 0.038], lugSpan: 0.036, lugEstimated: true, mass: 0.02, torque: 3.9 * KG_CM, thin: true, ...fromClass('mini') },
-  { id: 'hitec-hs-225mg', model: 'HS-225MG', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.031], lugSpan: 0.0424, lugEstimated: true, mass: 0.031, torque: 4.8 * KG_CM, thin: false, ...fromClass('mini') },
-  { id: 'hitec-hs-5245mg', model: 'HS-5245MG', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.0308], lugSpan: 0.0424, lugEstimated: true, mass: 0.032, torque: 5.5 * KG_CM, thin: false, ...fromClass('mini') },
-  { id: 'hitec-hs-55', model: 'HS-55', maker: 'Hitec', class: 'micro', body: [0.0228, 0.0116, 0.024], lugSpan: 0.0308, lugEstimated: true, mass: 0.008, torque: 1.5 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-65hb', model: 'HS-65HB', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.024], lugSpan: 0.0316, lugEstimated: true, mass: 0.0112, torque: 1.9 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-5055mg', model: 'HS-5055MG', maker: 'Hitec', class: 'micro', body: [0.0228, 0.0116, 0.024], lugSpan: 0.0308, lugEstimated: true, mass: 0.0095, torque: 1.6 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-5065mg', model: 'HS-5065MG', maker: 'Hitec', class: 'micro', body: [0.0236, 0.0116, 0.03], lugSpan: 0.0316, lugEstimated: true, mass: 0.0119, torque: 2.2 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-85bb', model: 'HS-85BB', maker: 'Hitec', class: 'micro', body: [0.029, 0.013, 0.03], lugSpan: 0.037, lugEstimated: true, mass: 0.0192, torque: 3.5 * KG_CM, thin: false, ...fromClass('micro') },
-  { id: 'hitec-hs-225bb', model: 'HS-225BB', maker: 'Hitec', class: 'mini', body: [0.0324, 0.0168, 0.031], lugSpan: 0.0424, lugEstimated: true, mass: 0.027, torque: 4.8 * KG_CM, thin: false, ...fromClass('mini') },
-  { id: 'hitec-hs-77bb', model: 'HS-77BB', maker: 'Hitec', class: 'standard', body: [0.044, 0.023, 0.025], lugSpan: 0.058, lugEstimated: true, mass: 0.035, torque: 5.5 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-311', model: 'HS-311', maker: 'Hitec', class: 'standard', body: [0.04, 0.02, 0.0365], lugSpan: 0.054, lugEstimated: true, mass: 0.043, torque: 3.7 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-322hd', model: 'HS-322HD', maker: 'Hitec', class: 'standard', body: [0.04, 0.02, 0.0365], lugSpan: 0.054, lugEstimated: true, mass: 0.043, torque: 3.7 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-485hb', model: 'HS-485HB', maker: 'Hitec', class: 'standard', body: [0.0398, 0.0198, 0.038], lugSpan: 0.0538, lugEstimated: true, mass: 0.045, torque: 6.0 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-5485hb', model: 'HS-5485HB', maker: 'Hitec', class: 'standard', body: [0.0398, 0.0198, 0.038], lugSpan: 0.0538, lugEstimated: true, mass: 0.045, torque: 6.4 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-625mg', model: 'HS-625MG', maker: 'Hitec', class: 'standard', body: [0.0406, 0.0198, 0.0378], lugSpan: 0.0546, lugEstimated: true, mass: 0.0552, torque: 6.8 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-645mg', model: 'HS-645MG', maker: 'Hitec', class: 'standard', body: [0.0406, 0.0198, 0.0378], lugSpan: 0.0546, lugEstimated: true, mass: 0.0552, torque: 9.6 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-5625mg', model: 'HS-5625MG', maker: 'Hitec', class: 'standard', body: [0.0408, 0.02, 0.0378], lugSpan: 0.0548, lugEstimated: true, mass: 0.06, torque: 9.4 * KG_CM, thin: false, ...fromClass('standard') },
-  { id: 'hitec-hs-5645mg', model: 'HS-5645MG', maker: 'Hitec', class: 'standard', body: [0.04, 0.02, 0.0378], lugSpan: 0.054, lugEstimated: true, mass: 0.06, torque: 12.1 * KG_CM, thin: false, ...fromClass('standard') },
+  hitec('HS-65MG', 'micro', 11.9, 2.2, false, FEATHER_65),
+  hitec('HS-5070MH', 'micro', 12.7, 3.1, false, { body: [23.6, 11.6, 30.0], case: 24.0, lugs: [32.3, 2.0, 21.0], output: [5.7, 32.6, 6], lead: ['end', 1.5] }),
+  hitec('HS-5085MG', 'micro', 21.9, 4.3, false, { ...MICRO_85, output: [7.95, 33.5, 9.5] }),
+  hitec('HS-85MG', 'micro', 21.9, 3.5, false, MICRO_85),
+  hitec('D89MW', 'micro', 25, 8.5, false, { body: [29.0, 13.0, 30.0], lugs: [39.8, 2.0, 19.5], output: [7.9, 33.9, 9.5], lead: ['end', 3.0] }),
+  hitec('HS-81', 'micro', 16.6, 3.0, false, { body: [30.0, 12.0, 29.6], case: 26.0, lugs: [40.8, 2.0, 19.9], output: [4.6, 32.7, 8], lead: ['end', 6.0] }),
+  hitec('HS-5125MG', 'mini', 24, 3.5, true, WING_125),
+  hitec('HS-125MG', 'mini', 24, 3.5, true, WING_125),
+  hitec('D131MW', 'micro', 9.8, 2.9, true, { body: [22.0, 8.5, 23.2], case: 19.0, lugs: [28.0, 1.5, 16.8], output: [6.4, 25.9, 8], lead: ['end', 9.0] }),
+  hitec('D141SW', 'mini', 26, 7.0, true, { body: [30.0, 10.0, 29.5], lugs: [42.0, 1.8, 19.8], wing: { length: 9.7, tab: [10.1, 6.5] }, output: [8.4, 32.7, 6], lead: ['end', 8.5], drawing: 'D141SH' }),
+  hitec('D145SW', 'mini', 24, 6.0, true, { body: [30.0, 10.0, 37.0], lugs: [42.0, 2.0, 27.0], wing: { length: 10.0 }, output: [8.7, 38.5, 7], lead: ['base', 10.0] }),
+  hitec('HS-7115TH', 'mini', 20, 3.9, true, { body: [26.0, 8.0, 38.0], lugs: [38.0, 2.0, 28.0], wing: { length: 10.0 }, output: [5.4, 40.8, 5], lead: ['base', 7.0] }),
+  hitec('HS-225MG', 'mini', 31, 4.8, false, MINI_225),
+  hitec('HS-5245MG', 'mini', 32, 5.5, false, { ...MINI_225, lead: ['end', 5.0] }),
+  hitec('HS-55', 'micro', 8, 1.5, false, FEATHER_55),
+  hitec('HS-65HB', 'micro', 11.2, 1.9, false, FEATHER_65),
+  hitec('HS-5055MG', 'micro', 9.5, 1.6, false, { ...FEATHER_55, output: [5.3, 26.7, 5] }),
+  hitec('HS-5065MG', 'micro', 11.9, 2.2, false, { ...FEATHER_65, output: [5.7, 28.5, 6] }),
+  hitec('HS-85BB', 'micro', 19.2, 3.5, false, MICRO_85),
+  hitec('HS-225BB', 'mini', 27, 4.8, false, MINI_225),
+  hitec('HS-77BB', 'standard', 35, 5.5, false, { body: [44.1, 23.0, 24.8], lugs: [56.0, 2.5, 16.7], output: [10.5, 27.4, 11], lead: ['end', 5.5] }),
+  hitec('HS-311', 'standard', 43, 3.7, false, STD_311),
+  hitec('HS-322HD', 'standard', 43, 3.7, false, STD_311),
+  hitec('HS-485HB', 'standard', 45, 6.0, false, STD_485),
+  hitec('HS-5485HB', 'standard', 45, 6.4, false, STD_485),
+  hitec('HS-625MG', 'standard', 55.2, 6.8, false, STD_645),
+  hitec('HS-645MG', 'standard', 55.2, 9.6, false, STD_645),
+  hitec('HS-5625MG', 'standard', 60, 9.4, false, STD_645),
+  hitec('HS-5645MG', 'standard', 60, 12.1, false, STD_645),
 ]
 
 // The mounting a servo goes in, and the envelope it takes up in the wing: chord (along the
@@ -204,22 +263,118 @@ export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 export function installedServo(id, mounting = 'upright', mass = 0) {
   const found = servoById(id) ?? { id: defaultServoClass(mass), ...SERVOS[defaultServoClass(mass)] }
   const cls = SERVOS[found.class] ?? SERVOS[found.id] ?? SERVOS.micro
-  const [l, w, h] = found.body ?? [found.length, found.width, found.height]
+  const frame = servoFrame(found)
   const base = {
     ...cls,
     ...found,
     label: found.model ?? cls.label,
-    length: l,
-    width: w,
-    height: h,
-    lugSpan: found.lugSpan ?? cls.lugSpan,
-    lugThickness: cls.lugThickness,
-    lugHeight: found.body ? (h * cls.lugHeight) / cls.height : cls.lugHeight,
+    length: frame.length,
+    width: frame.width,
+    height: frame.height,
+    lugSpan: frame.lugSpan,
+    lugThickness: frame.lugThickness,
+    lugHeight: frame.lugHeight,
+    frame,
   }
   const mount = MOUNTINGS[mounting] ? mounting : 'upright'
   if (mount === 'upright') return { ...base, mounting: mount }
   const e = servoEnvelope(found, mount)
-  return { ...base, length: e.chord, width: e.span, height: e.depth, lugHeight: Math.max(0, e.depth / 2 - base.lugThickness / 2), mounting: mount }
+  const lugHeight = Math.max(0, e.depth / 2 - base.lugThickness / 2)
+  if (mount === 'side') return { ...base, length: e.chord, width: e.span, height: e.depth, lugHeight, mounting: mount }
+  // Flat, the case's length lies across the span and its lugs with it, so the bay is the lugs'
+  // span wide; along the chord the servo is its height, and a wing servo's tab below its base
+  return { ...base, length: e.chord, width: Math.max(e.span, frame.lugSpan), height: e.depth, lugSpan: e.chord + (frame.wingLugs?.tab?.[1] ?? 0), lugHeight, mounting: mount }
+}
+
+// A servo's shape in its own frame, upright: x along its length from the case's centre
+// (positive towards the lead end), y across its width from the centre, z up from its base.
+// From a Hitec entry's drawn figures, or for a generic class from its sizes, with the output
+// boss a quarter of the length from the centre, a third of the width across and an eighth of
+// the height above the case, and the lead out of the end near the base.
+export function servoFrame(servo) {
+  const cls = SERVOS[servo.class] ?? SERVOS[servo.id] ?? SERVOS.micro
+  const [length, width, height] = servo.body ?? [servo.length ?? cls.length, servo.width ?? cls.width, servo.height ?? cls.height]
+  const out = {
+    length,
+    width,
+    height,
+    caseHeight: servo.caseHeight ?? height,
+    lugSpan: servo.lugSpan ?? cls.lugSpan,
+    lugThickness: servo.lugThickness ?? cls.lugThickness,
+    lugHeight: servo.lugHeight ?? (height * cls.lugHeight) / cls.height,
+    output: servo.output ?? { offset: length / 4, top: height * 1.125, diameter: width / 3 },
+    lead: servo.lead ?? { exit: 'end', at: Math.min(0.004, height / 5) },
+  }
+  if (servo.wingLugs) out.wingLugs = servo.wingLugs
+  return out
+}
+
+// How thick a servo's lead is drawn, and how far it's drawn out of the case, m
+const LEAD = { thickness: 0.0025, stub: 0.006 }
+
+// The solids a servo is drawn with, in its frame (servoFrame): { kind, box } with box
+// [[x0, x1], [y0, y1], [z0, z1]], or { kind, cylinder } with cylinder { x, y, r, z: [z0, z1] }
+// standing on the z axis. kind is 'servo' for the case, gear tower and lugs, 'servoOutput' for
+// the output boss and 'servoLead' for the lead's stub. The case comes first.
+export function servoParts(frame) {
+  const { length: l, width: w, height: h, caseHeight, lugSpan, lugThickness: t, lugHeight, output, lead, wingLugs } = frame
+  const parts = [{ kind: 'servo', box: [[-l / 2, l / 2], [-w / 2, w / 2], [0, caseHeight]] }]
+  if (h > caseHeight + 1e-6) parts.push({ kind: 'servo', cylinder: { x: output.offset, y: 0, r: w / 2, z: [caseHeight, h] } })
+  // The lugs either end, beyond the case: lying across its width at their height, or a wing
+  // servo's standing in its middle, a pair at the top and a pair or a tab at the bottom
+  const ends = [[-lugSpan / 2, -l / 2], [l / 2, lugSpan / 2]]
+  if (wingLugs) {
+    const thin = [-t / 2, t / 2]
+    for (const x of ends) parts.push({ kind: 'servo', box: [x, thin, [h - wingLugs.length, h]] })
+    if (wingLugs.bottom === 'tab') parts.push({ kind: 'servo', box: [[-wingLugs.tab[0] / 2, wingLugs.tab[0] / 2], thin, [-wingLugs.tab[1], 0]] })
+    else for (const x of ends) parts.push({ kind: 'servo', box: [x, thin, [0, wingLugs.length]] })
+  } else {
+    for (const x of ends) parts.push({ kind: 'servo', box: [x, [-w / 2, w / 2], [lugHeight, lugHeight + t]] })
+  }
+  parts.push({ kind: 'servoOutput', cylinder: { x: output.offset, y: 0, r: output.diameter / 2, z: [h, Math.max(h, output.top)] } })
+  const d = LEAD.thickness / 2
+  if (lead.exit === 'base') parts.push({ kind: 'servoLead', box: [[lead.at - d, lead.at + d], [-d, d], [-LEAD.stub, 0]] })
+  else parts.push({ kind: 'servoLead', box: [[l / 2, l / 2 + LEAD.stub], [-d, d], [lead.at - d, lead.at + d]] })
+  return parts
+}
+
+// A bay's servo drawn in the wing: servoParts turned to the bay's mounting and placed, as
+// { kind, box } with box { x: [x0, x1], s: [s0, s1], z: [z0, z1] } (plan x along the chord,
+// flat s along the span, z the height in the section), or { kind, cylinder } with cylinder
+// { axis: 'x' | 's' | 'z', x, s, z (the centre, the axis's own one unused), r, from, to }.
+// at: { x, s, base }, the centre of the lugs' run along the chord, the bay's centre across the
+// span and the height the servo stands on. Upright, its length runs along the chord with the
+// lead end aft; on its side, the same with its height across the span; flat, its height runs
+// along the chord, output aft, and its length across the span.
+export function placeServo(servo, at) {
+  const f = servo.frame ?? servoFrame(servo)
+  const mount = servo.mounting ?? 'upright'
+  const tab = f.wingLugs?.tab?.[1] ?? 0
+  // Frame (x, y, z) to wing (x, s, z)
+  const map =
+    mount === 'side'
+      ? { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
+      : mount === 'flat'
+      ? { x: ['z', -(f.height - tab) / 2], s: ['x', 0], z: ['y', f.width / 2] }
+      : { x: ['x', 0], s: ['y', 0], z: ['z', 0] }
+  const origin = { x: at.x, s: at.s, z: at.base }
+  const idx = { x: 0, y: 1, z: 2 }
+  const range = (axis, box) => {
+    const [from, by] = map[axis]
+    return box[idx[from]].map((v) => origin[axis] + by + v)
+  }
+  const point = (axis, p) => {
+    const [from, by] = map[axis]
+    return origin[axis] + by + p[from]
+  }
+  return servoParts(f).map((p) => {
+    if (p.box) return { kind: p.kind, box: { x: range('x', p.box), s: range('s', p.box), z: range('z', p.box) } }
+    const c = p.cylinder
+    const axis = Object.keys(map).find((k) => map[k][0] === 'z')
+    const centre = { x: c.x, y: c.y, z: 0 }
+    const [from, to] = c.z.map((v) => origin[axis] + map[axis][1] + v)
+    return { kind: p.kind, cylinder: { axis, x: point('x', centre), s: point('s', centre), z: point('z', centre), r: c.r, from, to } }
+  })
 }
 
 // The settings for a surface's bay: the saved ones over the defaults.

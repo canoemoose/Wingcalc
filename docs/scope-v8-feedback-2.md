@@ -57,7 +57,7 @@ Status: ☐ to do, ◐ in progress, ☑ done.
 - ☑ Every servo can take every orientation (upright, side, flat), not only thin ones; the depth check decides if it fits. `servos.js`, `SurfaceStructure.vue`.
 - ☑ Bay position dimensioned from the inner end of its surface. `servos.js`, `SurfaceStructure.vue`, `projects.js` (migrate).
 - ☑ Add the missing Hitec models (list above), with dimensions from Hitec's drawings rather than order-of-print guesses, and the lug spans where the drawings give them.
-- ◐ Better servo 3D models: Hitec's CAD where it exists, otherwise built from the dimensioned drawings on hitec.uk and hitecrcd.com (case, lugs, output boss, lead exit). Tray outlines checked against Phoenix's wing servo mounts. `wing3d.js`, `servos.js`.
+- ☑ Better servo 3D models: no CAD found, so built from the dimensioned drawings on hitecrcd.com (case, gear tower, lugs, output boss, lead exit; wing servos' standing lugs and tab). Tray outlines checked against Phoenix's wing servo mounts: theirs are side-profile cheeks with no published sizes, noted in the backlog. `wing3d.js`, `servos.js`.
 
 ### Wave 6: 3D view, layers, foam, loads chart
 - ☑ No covering (film, tissue, cloth) in 3D; sheeting stays. `wing3d.js`, `Structure3D.vue`.

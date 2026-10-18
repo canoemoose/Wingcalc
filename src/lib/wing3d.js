@@ -16,6 +16,7 @@ import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, ha
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
+import { placeServo } from './servos.js'
 
 const RAD = Math.PI / 180
 
@@ -460,6 +461,22 @@ export function servoBox(a, structure, b) {
   return { base, ceil, top: base + b.servo.height }
 }
 
+// One of a servo's solids (servos.js placeServo) as a mesh: a box swept across the span, or a
+// cylinder: round in section along the span, or swept across it as the chord (or height) the
+// circle has at each station when it stands on the chord or the height.
+function servoSolid(a, { box, cylinder: c }) {
+  const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+  if (box) return sweep(a, box.s[0], box.s[1], () => rect(box.x[0], box.x[1], box.z[0], box.z[1]), 1)
+  if (!(c.r > 0) || !(c.to > c.from)) return null
+  if (c.axis === 's') {
+    const ring = Array.from({ length: 16 }, (_, i) => [c.x + c.r * Math.cos((2 * Math.PI * i) / 16), c.z + c.r * Math.sin((2 * Math.PI * i) / 16)])
+    return sweep(a, c.from, c.to, () => ring, 1)
+  }
+  const half = (s) => Math.max(1e-5, Math.sqrt(Math.max(0, c.r * c.r - (s - c.s) ** 2)))
+  if (c.axis === 'x') return sweep(a, c.s - c.r, c.s + c.r, (s) => rect(c.from, c.to, c.z - half(s), c.z + half(s)), 12)
+  return sweep(a, c.s - c.r, c.s + c.r, (s) => rect(c.x - half(s), c.x + half(s), c.from, c.to), 12)
+}
+
 // A foam wing's core at s, from x0 to x1 (plan x): between the skins' inner faces, top surface
 // front to back then the bottom back to front, n + 1 points each; where the skins meet the two
 // surfaces close up rather than cross.
@@ -850,15 +867,26 @@ export function wing3d(a, structure, parts) {
     if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40))
   }
 
-  // Servo bays: each servo's case, standing on the lower skin's inside, and the mount plate
-  // across the bay under its lugs
+  // Servo bays: each servo, standing on the lower skin's inside, drawn from its maker's drawing
+  // (servos.js placeServo: case, lugs, output boss, lead), and the mount plate across the bay on
+  // its lugs, with the cut-out for the case
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const box = servoBox(a, st, b)
     const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
-    const w = b.servo.width / 2
-    add('servo', sweep(a, b.s - w, b.s + w, () => rect(b.case.x0, b.case.x1, box.base, box.base + b.servo.height), 1))
-    const z = box.base + b.servo.lugHeight
-    add('plate', sweep(a, b.plate.s0, b.plate.s1, () => rect(b.plate.x0, b.plate.x1, z, z + b.plate.thickness), 1))
+    const parts = placeServo(b.servo, { x: (b.lugs.x0 + b.lugs.x1) / 2, s: b.s, base: box.base })
+    for (const p of parts) add(p.kind, servoSolid(a, p))
+    const z = box.base + b.servo.lugHeight + b.servo.lugThickness
+    const cut = parts[0].box
+    const gap = 0.0005
+    const strips = [
+      [b.plate.x0, cut.x[0] - gap, b.plate.s0, b.plate.s1],
+      [cut.x[1] + gap, b.plate.x1, b.plate.s0, b.plate.s1],
+      [cut.x[0] - gap, cut.x[1] + gap, b.plate.s0, cut.s[0] - gap],
+      [cut.x[0] - gap, cut.x[1] + gap, cut.s[1] + gap, b.plate.s1],
+    ]
+    for (const [x0, x1, s0, s1] of strips) {
+      if (x1 - x0 > 1e-4 && s1 - s0 > 1e-4) add('plate', sweep(a, s0, s1, () => rect(x0, x1, z, z + b.plate.thickness), 1))
+    }
   }
 
   // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;
