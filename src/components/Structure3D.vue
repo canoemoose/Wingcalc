@@ -1,7 +1,9 @@
 <script setup>
 // The built-up half wing in 3D: see-through covering, sheeting and cap strips, ribs at their
 // thickness, spar, webs, edge stock and stringers. Drag to orbit, right-drag or Shift-drag to
-// pan, scroll to zoom; click a rib to select it (shared with the plan and the part preview).
+// pan, scroll to zoom; click a part to select it (shared with the plan and the part preview):
+// a rib, gusset, web, brace, plate, sheet and so on, whatever the parts list has. Spars, edge
+// stock, stringers and the like are strip stock, not parts, and select nothing.
 //
 // Top right, a view cube with labelled faces: click a face to swing round to that view.
 //
@@ -21,7 +23,7 @@
 // A foam wing has no ribs: its core is a solid between the skins (its own layer), each control
 // surface's core with the surface.
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
-import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, faceView, orbitLerp } from '../lib/wing3d.js'
+import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, faceView, orbitLerp, partFor, spanOf } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { EYE, EYE_OFF, HOME, ORTHO, PERSPECTIVE, CUT } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
@@ -39,7 +41,7 @@ const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
 // The covering (film, tissue, cloth) is never drawn: a skin that thin over thicker parts
 // renders badly, and the structure is what the view is for. Sheeting is structure, so it is.
-const show = ref({ core: true, sheeting: true, capStrips: true, ribs: true, surfaces: true, hinges: true, gussets: true, braces: true, spar: true, edges: true, tip: true, stringers: true, servos: true, brakes: true, outlines: true, mirror: false })
+const show = ref({ core: true, sheeting: true, capStrips: true, ribs: true, surfaces: true, hinges: true, gussets: true, braces: true, spar: true, edges: true, tip: true, stringers: true, servos: true, servoPlates: true, brakes: true, outlines: true, mirror: false })
 const LAYERS = [
   { id: 'core', label: 'Foam core' },
   { id: 'sheeting', label: 'Sheeting' },
@@ -47,7 +49,8 @@ const LAYERS = [
   { id: 'ribs', label: 'Ribs' },
   { id: 'surfaces', label: 'Control surfaces' },
   { id: 'hinges', label: 'Hinge spars' },
-  { id: 'servos', label: 'Servo bays' },
+  { id: 'servos', label: 'Servos' },
+  { id: 'servoPlates', label: 'Servo plates' },
   { id: 'brakes', label: 'Air brakes' },
   { id: 'gussets', label: 'Gussets' },
   { id: 'braces', label: 'Dihedral braces' },
@@ -247,7 +250,7 @@ const COLOURS = {
 }
 // Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
 // hidden to see the fixed part's hinge spar
-const GROUPS = ['core', 'sheeting', 'capStrips', 'ribs', 'surfaces', 'hinges', 'servos', 'brakes', 'gussets', 'braces', 'spar', 'edges', 'tip', 'stringers']
+const GROUPS = ['core', 'sheeting', 'capStrips', 'ribs', 'surfaces', 'hinges', 'servos', 'servoPlates', 'brakes', 'gussets', 'braces', 'spar', 'edges', 'tip', 'stringers']
 const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
 
 function cssColour(name, fallback) {
@@ -392,8 +395,10 @@ function build() {
         ? groups.surfaces
         : s.kind === 'core'
         ? groups.core
-        : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead' || s.kind === 'plate'
+        : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead'
         ? groups.servos
+        : s.kind === 'plate'
+        ? groups.servoPlates
         : s.kind === 'brakeBox' || s.kind === 'blade'
         ? groups.brakes
         : s.kind === 'hinge' || s.kind === 'tab'
@@ -411,7 +416,15 @@ function build() {
               : s.kind === 'tip'
                 ? groups.tip
                 : groups.edges
-    group.add(outlined(meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour))))
+    const mesh = meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour))
+    mesh.userData.colour = colour
+    // The part it stands for: fixed for most, found from where it's clicked for a sheet or core
+    // that runs over several parts
+    if (s.pick) {
+      mesh.userData.pick = s.pick
+      if (!s.pick.groups) mesh.userData.partId = partFor(props.parts, s.pick, 0)
+    }
+    group.add(outlined(mesh))
   }
   for (const r of model.ribs) {
     const shape = new THREE.Shape(r.outline.map(([u, z]) => new THREE.Vector2(u, z)))
@@ -420,6 +433,7 @@ function build() {
     geo.applyMatrix4(new THREE.Matrix4().fromArray(r.matrix))
     const mesh = new THREE.Mesh(geo, behind(COLOURS.rib))
     mesh.userData.partId = r.id
+    mesh.userData.colour = COLOURS.rib
     mesh.userData.centre = r.centre
     ;(r.surface ? groups.surfaces : groups.ribs).add(outlined(mesh))
   }
@@ -430,6 +444,13 @@ function build() {
     ;(c.surface ? groups.surfaces : groups.capStrips).add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
   }
   mirror = root.clone()
+  // The centre rib's gussets in the other half are the ones on its other face: their own part,
+  // and their own material so they highlight apart
+  mirror.traverse((m) => {
+    if (!m.isMesh || !m.userData.pick?.mirrorMember) return
+    m.material = m.material.clone()
+    m.userData.partId = partFor(props.parts, m.userData.pick, 0, { mirrored: true })
+  })
   mirror.scale.x = -1
   // The centre rib belongs to both halves: draw it once
   const ribsOther = mirror.getObjectByName('ribs')
@@ -527,9 +548,10 @@ function applyVisibility() {
 function highlight() {
   const accent = new THREE.Color(cssColour('--wc-accent', '#1f6feb'))
   for (const g of [root, mirror]) {
-    ;[...g.getObjectByName('ribs').children, ...g.getObjectByName('surfaces').children.filter((m) => m.userData.partId)].forEach((m) => {
+    g.traverse((m) => {
+      if (!m.isMesh || !m.userData.partId) return
       const on = m.userData.partId === props.selected
-      m.material.color.set(on ? accent : COLOURS.rib)
+      m.material.color.set(on ? accent : m.userData.colour)
       m.material.emissive?.set(on ? accent.clone().multiplyScalar(0.25) : 0x000000)
     })
   }
@@ -743,7 +765,7 @@ function swingTo(position, target) {
 
 // --- Pointer -------------------------------------------------------------------------------
 
-// Click (not drag): the view cube first, then a rib
+// Click (not drag): the view cube first, then a part
 let down = null
 function onDown(e) {
   down = { x: e.clientX, y: e.clientY }
@@ -755,14 +777,25 @@ function onUp(e) {
   const p = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1)
   const ray = new THREE.Raycaster()
   ray.setFromCamera(p, camera)
-  const targets = [root, ...(show.value.mirror ? [mirror] : [])].flatMap((g) => [
-    ...(show.value.ribs ? g.getObjectByName('ribs').children : []),
-    ...(show.value.surfaces ? g.getObjectByName('surfaces').children.filter((m) => m.userData.partId) : []),
-  ])
+  // Every solid on a layer that's shown (the outlines don't take clicks)
+  const targets = []
+  for (const g of [root, ...(show.value.mirror ? [mirror] : [])]) {
+    for (const id of GROUPS) if (show.value[id]) g.getObjectByName(id).traverse((o) => o.isMesh && targets.push(o))
+  }
   const hits = ray.intersectObjects(targets, false)
   // Ignore anything the section has cut away
   const hit = hits.find((h) => !section.value.on || clip.distanceToPoint(h.point) >= -1e-6)
-  if (hit?.object.userData.partId) emit('select', hit.object.userData.partId)
+  if (!hit) return
+  const o = hit.object
+  let inMirror = false
+  for (let q = o; q; q = q.parent) if (q === mirror) inMirror = true
+  let id = inMirror && o.userData.pick?.mirrorMember ? null : o.userData.partId
+  if (!id && o.userData.pick) {
+    // Where along the span, in this half's own coordinates (the other half is mirrored in x)
+    const p = hit.point
+    id = partFor(props.parts, o.userData.pick, spanOf(props.analysis, [inMirror ? -p.x : p.x, p.y, p.z]), { mirrored: inMirror })
+  }
+  if (id) emit('select', id)
 }
 
 // Home: the starting angle, framed

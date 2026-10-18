@@ -1148,8 +1148,9 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       const angle = gussetAngle(a, p.s, edge, p.rib)
       const ang = side > 0 ? angle : 180 - angle
       const key = `${edge}:${Math.round(ang * 2) / 2}`
-      const cur = gussetGroups.get(key) ?? { edge, angle: Math.round(ang * 2) / 2, count: 0 }
+      const cur = gussetGroups.get(key) ?? { edge, angle: Math.round(ang * 2) / 2, count: 0, members: [] }
       cur.count += p.qty * (gussetLayer(g, edge) === 'both' ? 2 : 1)
+      cur.members.push(`${p.id}:${edge}:${side}`)
       gussetGroups.set(key, cur)
     }
     let k = 1
@@ -1173,6 +1174,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         holes: [],
         etch: [],
         label: null,
+        // Which gussets these are, rib:edge:side, for picking one in the 3D view
+        members: grp.members,
         notes: [
           `${grp.edge === 'le' ? 'Leading' : 'Trailing'}-edge corner, ${grp.angle}° between rib and edge, flush with the ${
             { both: 'top and bottom', bottom: 'bottom', top: 'top' }[gussetLayer(g, grp.edge)]
@@ -1283,6 +1286,9 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           holes: [],
           etch: [],
           label: null,
+          // Where it goes, for picking it in the 3D view
+          span: [s0, widths.at(-1).s],
+          surface,
           notes: [`${surface === 'upper' ? 'Top' : 'Bottom'} sheeting, ${key}, developed from the ribs; approximate, cut oversize and trim`],
         })
         k++

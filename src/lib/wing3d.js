@@ -921,7 +921,8 @@ export function wing3d(a, structure, parts) {
   const s0 = a.rootS
   const s1 = a.tipS
   const solids = []
-  const add = (kind, mesh) => mesh && solids.push({ kind, ...mesh })
+  // pick: which part a solid stands for, for selecting it in the view (see partFor)
+  const add = (kind, mesh, pick = null) => mesh && solids.push({ kind, ...mesh, ...(pick ? { pick } : {}) })
 
   // Spar, then the shear webs: separate pieces between the ribs, as they're fitted
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(s1, s0 + sp.tubeLength) : s1
@@ -940,19 +941,19 @@ export function wing3d(a, structure, parts) {
     const to = ribList[i].s - ribList[i].thickness / 2
     if (to - from < 0.001) continue
     const n = webBoxes(a, st, from).length
-    for (let k = 0; k < n; k++) add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4))
+    for (let k = 0; k < n; k++) add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [`W${i}`] })
   }
 
   // Sheeting, then the leading and trailing edge stock
   const cov = st.covering
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
-    for (const which of ['upper', 'lower']) add('sheet', sweep(a, s0, s1, (s) => sheetSection(a, st, s, which), 40, { extend: ends, caps: 'strip' }))
+    for (const which of ['upper', 'lower']) add('sheet', sweep(a, s0, s1, (s) => sheetSection(a, st, s, which), 40, { extend: ends, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which })
   }
   // Sheeted hard points, over the ribs at their ends and the bays between
   for (const h of hardPatches(st, a.rootS)) {
     for (const side of h.sides) {
       const which = side === 'top' ? 'upper' : 'lower'
-      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }))
+      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] })
     }
   }
   add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }))
@@ -980,14 +981,16 @@ export function wing3d(a, structure, parts) {
     const sec = (s) => a.section(s)
     const front = (s) => sec(s).xl + Math.min(st.le.width || 0, sec(s).c / 2)
     const teFront = (s) => sec(s).xl + sec(s).c - Math.min(st.te.width || 0, sec(s).c / 2)
+    // A core is picked as its nearer hot-wire template
+    const templates = { groups: ['templates'] }
     let at = s0
     for (const sf of surfaces) {
-      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40))
-      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12))
-      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12))
+      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates)
+      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12), templates)
+      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12), templates)
       at = sf.s1
     }
-    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40))
+    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates)
     if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40))
   }
 
@@ -997,8 +1000,10 @@ export function wing3d(a, structure, parts) {
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
     const { parts: sp, plate } = servoBayParts(a, st, b)
-    for (const p of sp) add(p.kind, servoSolid(a, p))
-    for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1))
+    // The servo and its plate are picked as the plate (a foam wing's: the pocket's template)
+    const pick = { ids: [b.name, `${b.name}-T`] }
+    for (const p of sp) add(p.kind, servoSolid(a, p), pick)
+    for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1), pick)
   }
 
   // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;
@@ -1006,10 +1011,10 @@ export function wing3d(a, structure, parts) {
   for (const r of (a.brakes ?? []).filter((x) => x.ok)) {
     const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
     if (r.type === 'blade') {
-      for (const w of r.walls) {
+      r.walls.forEach((w, k) => {
         const xm = (w.x0 + w.x1) / 2
-        add('brakeBox', sweep(a, r.inner[0], r.inner[1], (s) => rect(w.x0, w.x1, insetHeight(a, st, s, xm, 'lower'), insetHeight(a, st, s, xm, 'upper')), 1))
-      }
+        add('brakeBox', sweep(a, r.inner[0], r.inner[1], (s) => rect(w.x0, w.x1, insetHeight(a, st, s, xm, 'lower'), insetHeight(a, st, s, xm, 'upper')), 1), { ids: [`${r.name}-${k ? 'R' : 'F'}`, `${r.name}-T`] })
+      })
       for (const x of bladeXs(r)) {
         const hw = BRAKE.bladeThickness / 2
         for (const which of r.surfaces) {
@@ -1017,7 +1022,7 @@ export function wing3d(a, structure, parts) {
             const z = surfaceHeight(a, s, x, which)
             return which === 'upper' ? rect(x - hw, x + hw, z - 0.3 * r.height, z + r.height) : rect(x - hw, x + hw, z - r.height, z + 0.3 * r.height)
           }
-          add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, sec, 1))
+          add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, sec, 1), { ids: [`${r.name}-B`, `${r.name}-T`] })
         }
       }
     } else {
@@ -1030,7 +1035,7 @@ export function wing3d(a, structure, parts) {
         const p1 = [r.x0 + r.chord * ca, z + r.chord * sa]
         return [p0, p1, [p1[0] - th * sa, p1[1] + th * ca], [p0[0] - th * sa, p0[1] + th * ca]]
       }
-      add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, plate, 1))
+      add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, plate, 1), { ids: [`${r.name}-P`, `${r.name}-T`] })
     }
   }
 
@@ -1100,10 +1105,64 @@ export function wing3d(a, structure, parts) {
       hi[k] = Math.max(hi[k], sk.positions[i + k])
     }
   }
-  solids.push(...gussetPrisms(a, st, parts), ...bracePlates(a, st, parts), ...hingeTabPlates(a, st))
+  // A centre rib's gusset seen in the other half is the one on its other face
+  const centreRib = (id) => parts.some((p) => p.id === id && p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece')
+  for (const g of gussetPrisms(a, st, parts)) {
+    const pick = { member: `${g.rib}:${g.edge}:${g.side}` }
+    if (centreRib(g.rib)) pick.mirrorMember = `${g.rib}:${g.edge}:${-g.side}`
+    solids.push({ ...g, pick })
+  }
+  for (const b of bracePlates(a, st, parts)) solids.push({ ...b, pick: { ids: [b.part] } })
+  for (const t of hingeTabPlates(a, st)) solids.push({ ...t, pick: { ids: ['H1'] } })
   const tip = tipBlock(a, st)
-  if (tip) solids.push({ kind: 'tip', ...tip })
+  if (tip) solids.push({ kind: 'tip', ...tip, pick: { ids: ['T1'] } })
   return { skin: sk, solids, ribs, capStrips, bounds: { min: lo, max: hi } }
+}
+
+// The part a solid of the 3D view stands for (its pick, from wing3d), where it's picked at span
+// s, as the part's id, or null: one of a list of ids (the first that's a part), the part a gusset
+// is one of (its members; mirrored, in the other half, its mirrorMember if it has one), or of
+// the parts in some groups (on the same surface, if they say), the one whose span is nearest s,
+// and of those the one whose station s is nearest (a core's two hot-wire templates).
+export function partFor(parts, pick, s, { mirrored = false } = {}) {
+  if (!pick) return null
+  if (pick.ids) return pick.ids.find((id) => parts.some((p) => p.id === id)) ?? null
+  if (pick.member) {
+    const m = mirrored && pick.mirrorMember ? pick.mirrorMember : pick.member
+    return parts.find((p) => p.members?.includes(m))?.id ?? null
+  }
+  let best = null
+  let bestD = [Infinity, Infinity]
+  for (const p of parts) {
+    if (!pick.groups?.includes(p.group)) continue
+    if (pick.surface && p.surface && p.surface !== pick.surface) continue
+    const [lo, hi] = p.span ?? (Number.isFinite(p.s) ? [p.s, p.s] : [-Infinity, Infinity])
+    const d = [s < lo ? lo - s : s > hi ? s - hi : 0, Number.isFinite(p.s) ? Math.abs(s - p.s) : 0]
+    if (d[0] < bestD[0] - 1e-12 || (Math.abs(d[0] - bestD[0]) <= 1e-12 && d[1] < bestD[1])) {
+      best = p.id
+      bestD = d
+    }
+  }
+  return best
+}
+
+// The flat span station s of a point in the half wing's world coordinates: where the span
+// plane through it is (bisection on spanPlane between the root and the wing's reach).
+export function spanOf(a, point) {
+  const side = (s) => {
+    const { point: q, normal: n } = spanPlane(a, s)
+    return (point[0] - q[0]) * n[0] + (point[1] - q[1]) * n[1] + (point[2] - q[2]) * n[2]
+  }
+  let lo = a.rootS
+  let hi = Math.max(a.tipS, a.sampler.reach ?? a.tipS)
+  const f0 = side(lo)
+  if (Math.sign(side(hi)) === Math.sign(f0)) return Math.abs(f0) < Math.abs(side(hi)) ? lo : hi
+  for (let i = 0; i < 50; i++) {
+    const m = (lo + hi) / 2
+    if (Math.sign(side(m)) === Math.sign(f0)) lo = m
+    else hi = m
+  }
+  return (lo + hi) / 2
 }
 
 // Apply a column-major 4×4 matrix to a point (the tests, and the wireframe thumbnail).

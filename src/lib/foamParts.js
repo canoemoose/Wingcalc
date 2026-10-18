@@ -193,6 +193,8 @@ export function hotWireTemplates(a, structure, { kerf = WIRE_KERF, leadIn = LEAD
         core: c.name,
         end,
         s,
+        // The core it cuts, for picking it in the 3D view
+        span: [c.from, c.to],
         notes,
       })
     }
@@ -291,6 +293,9 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
         holes: [],
         etch: [],
         label: null,
+        // Where it goes, for picking it in the 3D view
+        span: [c.from, c.to],
+        surface,
         notes: [
           `${surface === 'upper' ? 'Top' : 'Bottom'} skin, ${c.name}, developed from the section, the straight edge at the leading edge: approximate, cut oversize and trim`,
           `${across > 1 ? `${across} sheets joined edge to edge across the width` : 'One sheet wide'}${along > 1 ? `, ${along} lengths joined end to end` : ''} (${mmText(sheet.width, 0)} × ${mmText(sheet.length, 0)} sheets)`,

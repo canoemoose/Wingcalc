@@ -273,6 +273,7 @@ export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 // to its mounting, sized by everything drawn of it (servoParts: case, tower, lugs, output boss and
 // lead stub), so a bay that fits these fits the whole servo:
 //   length         the case along the chord
+//   caseWidth      the case across the span
 //   run            the whole servo along the chord, symmetric about the case's centre (the bay's
 //                  lug run, what the stretch between the spar and the hinge must hold)
 //   width          the whole servo across the span, symmetric about the bay's centre
@@ -310,6 +311,7 @@ export function installedServo(id, mounting = 'upright', mass = 0) {
   return {
     ...base,
     length: kase.x[1] - kase.x[0],
+    caseWidth: kase.s[1] - kase.s[0],
     run: 2 * Math.max(-ext.x[0], ext.x[1]),
     width: 2 * Math.max(-ext.s[0], ext.s[1]),
     height: ext.z[1] - ext.z[0],

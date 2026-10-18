@@ -113,7 +113,7 @@ const geom = computed(() => {
         id: b.id,
         label: b.label,
         hatch: box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1),
-        body: box(b.case.x0, b.case.x1, b.s - b.servo.width / 2, b.s + b.servo.width / 2),
+        body: box(b.case.x0, b.case.x1, b.s - (b.servo.caseWidth ?? b.servo.width) / 2, b.s + (b.servo.caseWidth ?? b.servo.width) / 2),
         lead: pts(lead),
       }
     })
@@ -227,7 +227,7 @@ onBeforeUnmount(() => {
 })
 // Space kept clear of the rail (when editing) and the controls along the top and bottom, px
 // Layers: what's drawn
-const show = reactive({ sheeting: true, edges: true, stringers: true, spar: true, surfaces: true, hinges: true, brakes: true, servos: true, ribs: true })
+const show = reactive({ sheeting: true, edges: true, stringers: true, spar: true, surfaces: true, hinges: true, brakes: true, servos: true, servoPlates: true, ribs: true })
 const LAYERS = [
   { id: 'sheeting', label: 'Sheeting' },
   { id: 'edges', label: 'Leading/Trailing edges' },
@@ -236,7 +236,8 @@ const LAYERS = [
   { id: 'ribs', label: 'Ribs' },
   { id: 'surfaces', label: 'Control surfaces' },
   { id: 'hinges', label: 'Hinge spars and tabs' },
-  { id: 'servos', label: 'Servo bays' },
+  { id: 'servos', label: 'Servos' },
+  { id: 'servoPlates', label: 'Servo plates and hatches' },
   { id: 'brakes', label: 'Air brakes' },
 ]
 const present = computed(() => ({
@@ -248,6 +249,7 @@ const present = computed(() => ({
   surfaces: geom.value.hinges.length > 0,
   hinges: geom.value.hinges.length > 0,
   servos: geom.value.servos.length > 0,
+  servoPlates: geom.value.servos.length > 0,
   brakes: geom.value.brakes.length > 0,
 }))
 const layersOpen = ref(false)
@@ -601,9 +603,11 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
             <polygon v-for="(o, k) in r.openings" :key="k" :points="o" class="wc-sp__slot" />
             <polyline v-if="r.hinge" :points="r.hinge" class="wc-sp__brake-hinge" />
           </template>
+          <template v-for="b in show.servoPlates ? geom.servos : []" :key="'bp' + b.id">
+            <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: mount plate, and the hatch in the lower surface under it</title></polygon>
+          </template>
           <template v-for="b in show.servos ? geom.servos : []" :key="'b' + b.id">
             <polyline :points="b.lead" class="wc-sp__lead" />
-            <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: hatch in the lower surface</title></polygon>
             <polygon :points="b.body" class="wc-sp__servo" />
           </template>
         </g>

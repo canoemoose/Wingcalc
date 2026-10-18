@@ -619,7 +619,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     const box = (x0, x1, s0, s1) => [[s0, x0], [s1, x0], [s1, x1], [s0, x1]]
     add('SERVO', box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1), true)
     add('SERVO', box(b.lugs.x0, b.lugs.x1, b.s - b.servo.width / 2, b.s + b.servo.width / 2), true)
-    add('SERVO', box(b.case.x0, b.case.x1, b.s - b.servo.width / 2, b.s + b.servo.width / 2), true)
+    add('SERVO', box(b.case.x0, b.case.x1, b.s - (b.servo.caseWidth ?? b.servo.width) / 2, b.s + (b.servo.caseWidth ?? b.servo.width) / 2), true)
     const lead = []
     for (let i = 0; i <= 12; i++) {
       const s = s0 + ((b.sA - s0) * i) / 12
