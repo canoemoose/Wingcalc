@@ -777,6 +777,8 @@ const placedWarnings = computed(() => bySection(structureWarnings.value, input.s
 // and every piece of the wing in it, for selecting and inspecting one on its own
 const model3d = computed(() => (structureResult.value ? wing3d(structureResult.value.a, structureResult.value.a.structure, structureResult.value.parts) : null))
 const pieces = computed(() => (model3d.value ? wingPieces(model3d.value, structureResult.value.parts) : []))
+// The way the 3D view looks at the wing, so the Part card shows a piece the same way round
+const view3d = shallowRef(null)
 // The part shown in the preview: the first rib, or a foam wing's first template
 const firstParts = computed(() => (ribParts.value.length ? ribParts.value : (structureResult.value?.parts.filter((p) => p.group === 'templates') ?? [])))
 watch(
@@ -1396,6 +1398,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 :system="system"
                 :selected="selectedPart"
                 @select="selectedPart = $event"
+                @view="view3d = $event"
               />
             </article>
             <article class="wc-card">
@@ -1404,7 +1407,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             </article>
             <article class="wc-card">
               <h3 class="wc-card__label">Part</h3>
-              <PartPreview :parts="structureResult.parts" :pieces="pieces" :model="model3d" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
+              <PartPreview :parts="structureResult.parts" :pieces="pieces" :model="model3d" :analysis="structureResult.a" :view-dir="view3d" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
             </article>
           </div>
         </template>

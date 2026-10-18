@@ -34,7 +34,7 @@ export const LEAD_IN = 0.02
 // Margin of stock round a pocket's opening on its routing template
 const POCKET_MARGIN = 0.025
 // Foam block allowance beyond the core all round
-const BLOCK_MARGIN = 0.01
+export const BLOCK_MARGIN = 0.01
 
 const mmText = (v, dp = 1) => `${Number((v * 1000).toFixed(dp))} mm`
 const cosine = (n) => Array.from({ length: n + 1 }, (_, i) => 0.5 * (1 - Math.cos((Math.PI * i) / n)))

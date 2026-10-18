@@ -934,11 +934,11 @@ export function wing3d(a, structure, parts) {
   if (sp.type === 'tube' && tubeBore(a, st, s0)) {
     const outer = sweepRings(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[0], 40, sparEnds)
     const inner = sweepRings(a, s0, sparEnd, (s) => tubeBore(a, st, s), 40, sparEnds)
-    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner), null, { id: 'spar', name: 'Spar tube', material: sp.tubeMaterial })
+    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner), null, { id: 'spar', name: 'Spar tube', material: sp.tubeMaterial, section: { outline: sparBoxes(a, st, (s0 + sparEnd) / 2)[0], holes: [tubeBore(a, st, (s0 + sparEnd) / 2)].filter(Boolean) } })
   } else {
     const caps = sp.type === 'caps' || sp.type === 'box'
     for (let k = 0; k < nSpar; k++) {
-      const piece = caps ? { id: `spar-${k ? 'bottom' : 'top'}`, name: `Spar cap, ${k ? 'bottom' : 'top'}`, material: sp.capMaterial } : { id: 'spar', name: 'Spar', material: sp.solidMaterial }
+      const piece = caps ? { id: `spar-${k ? 'bottom' : 'top'}`, name: `Spar cap, ${k ? 'bottom' : 'top'}`, material: sp.capMaterial, section: { outline: sparBoxes(a, st, (s0 + sparEnd) / 2)[k] } } : { id: 'spar', name: 'Spar', material: sp.solidMaterial, section: { outline: sparBoxes(a, st, (s0 + sparEnd) / 2)[k] } }
       add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }), null, piece)
     }
   }
@@ -974,7 +974,7 @@ export function wing3d(a, structure, parts) {
       add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st).material })
     }
   }
-  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), null, { id: 'le', name: 'Leading edge', material: st.le.material })
+  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), null, { id: 'le', name: 'Leading edge', material: st.le.material, section: { outline: leSection(a, st, (s0 + s1) / 2) } })
   // The trailing edge: the wing's, broken where each control surface's own runs, between the
   // surface's end ribs' outer faces
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok).sort((p, q) => p.s0 - q.s0)
@@ -983,17 +983,17 @@ export function wing3d(a, structure, parts) {
   let fromName = 'the root'
   const teMat = st.te.material
   for (const sf of surfaces) {
-    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }), null, { id: `te-${sf.id}`, name: `Trailing edge, ${fromName} to ${sf.label}`, material: teMat })
+    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }), null, { id: `te-${sf.id}`, name: `Trailing edge, ${fromName} to ${sf.label}`, material: teMat, section: { outline: teSection(a, st, (from + sf.s0) / 2) } })
     fromName = sf.label
     from = sf.s1
     fromExt = halfRib
-    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20), null, { id: `teMoving-${sf.id}`, name: sf.stock ? `${sf.label}, cut from the trailing edge stock` : `Trailing edge, ${sf.label}`, material: teMat })
+    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20), null, { id: `teMoving-${sf.id}`, name: sf.stock ? `${sf.label}, cut from the trailing edge stock` : `Trailing edge, ${sf.label}`, material: teMat, section: { outline: sf.stock ? stockSurfaceSection(a, st, sf, (sf.moving[0] + sf.moving[1]) / 2) : teSection(a, st, (sf.moving[0] + sf.moving[1]) / 2) } })
     // The hinge spars: the fixed side's between the end ribs' faces, the moving side's across
     // the moving surface
-    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12), null, { id: `hinge-${sf.id}`, name: `Hinge spar, fixed side, ${sf.label}`, material: st.hinges.material })
-    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12), null, { id: `hingeMoving-${sf.id}`, name: `Hinge spar, moving side, ${sf.label}`, material: st.hinges.material })
+    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12), null, { id: `hinge-${sf.id}`, name: `Hinge spar, fixed side, ${sf.label}`, material: st.hinges.material, section: { outline: hingeSparSection(a, st, sf, (sf.fixed[0] + sf.fixed[1]) / 2) } })
+    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12), null, { id: `hingeMoving-${sf.id}`, name: `Hinge spar, moving side, ${sf.label}`, material: st.hinges.material, section: { outline: movingSparSection(a, st, sf, (sf.moving[0] + sf.moving[1]) / 2) } })
   }
-  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }), null, { id: 'te', name: surfaces.length ? `Trailing edge, ${fromName} to the tip` : 'Trailing edge', material: teMat })
+  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }), null, { id: 'te', name: surfaces.length ? `Trailing edge, ${fromName} to the tip` : 'Trailing edge', material: teMat, section: { outline: teSection(a, st, (from + s1) / 2) } })
 
   // A foam wing's core: from the leading edge stock to the trailing edge stock, stopping at the
   // fixed hinge spar along each control surface, whose own core runs from its hinge spar back;
@@ -1006,15 +1006,15 @@ export function wing3d(a, structure, parts) {
     const templates = { groups: ['templates'] }
     let at = s0
     let k = 0
-    const core = (id, name) => ({ id: `core-${id}`, name, material: st.foam?.core })
+    const core = (id, name, coreAt) => ({ id: `core-${id}`, name, material: st.foam?.core, coreAt })
     for (const sf of surfaces) {
-      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates, core(k++, 'Foam core, inboard of ' + sf.label))
-      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12), templates, core(k++, `Foam core, ahead of ${sf.label}`))
-      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12), templates, core(`${sf.id}-moving`, `Foam core, ${sf.label}`))
+      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates, core(k++, 'Foam core, inboard of ' + sf.label, (at + sf.s0) / 2))
+      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12), templates, core(k++, `Foam core, ahead of ${sf.label}`, (sf.s0 + sf.s1) / 2))
+      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12), templates, core(`${sf.id}-moving`, `Foam core, ${sf.label}`, (sf.moving[0] + sf.moving[1]) / 2))
       at = sf.s1
     }
-    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates, core(k++, surfaces.length ? 'Foam core, outboard' : 'Foam core'))
-    if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40), null, { id: 'web', name: 'Shear web', material: sp.webMaterial })
+    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates, core(k++, surfaces.length ? 'Foam core, outboard' : 'Foam core', (at + s1) / 2))
+    if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40), null, { id: 'web', name: 'Shear web', material: sp.webMaterial, section: { outline: webBoxes(a, st, (s0 + s1) / 2)[0] } })
   }
 
   // Servo bays: each servo, standing on the lower skin's inside, drawn from its maker's drawing
@@ -1023,11 +1023,11 @@ export function wing3d(a, structure, parts) {
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
     const { parts: sp, plate } = servoBayParts(a, st, b)
-    // The servo and its plate are picked as the plate (a foam wing's: the pocket's template)
+    // The plate is cut as the bay's plate part (a foam wing's: the pocket's template); the servo is bought
     const pick = { ids: [b.name, `${b.name}-T`] }
-    const servo = { id: `servo-${b.name}`, name: `${b.servo.label} servo, ${b.name}` }
+    const servo = { id: `servo-${b.name}`, name: `${b.servo.label} servo, ${b.name}`, servo: b.servo }
     const platePiece = { id: `plate-${b.name}`, name: `Servo plate, ${b.name}`, material: 'ply-birch' }
-    for (const p of sp) add(p.kind, servoSolid(a, p), pick, servo)
+    for (const p of sp) add(p.kind, servoSolid(a, p), null, servo)
     for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1), pick, platePiece)
   }
 
@@ -1069,7 +1069,7 @@ export function wing3d(a, structure, parts) {
     if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
     for (const which of ['upper', 'lower']) {
       if (str.surface !== 'both' && str.surface !== which) continue
-      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), null, { id: `stringer-${str.id}-${which}`, name: `Stringer at ${Math.round(str.position * 100)}% chord, ${which === 'upper' ? 'top' : 'bottom'}`, material: str.material })
+      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), null, { id: `stringer-${str.id}-${which}`, name: `Stringer at ${Math.round(str.position * 100)}% chord, ${which === 'upper' ? 'top' : 'bottom'}`, material: str.material, section: { outline: stringerBox(a, st, str, (s0 + s1) / 2, which) } })
     }
   }
 
@@ -1208,7 +1208,7 @@ export function wingPieces(model, parts) {
     let p = byId.get(s.piece.id)
     if (!p) {
       const part = s.pick ? partFor(parts, s.pick, s.piece.at ?? 0) : null
-      p = { id: s.piece.id, name: s.piece.name, kind: s.kind, material: s.piece.material ?? null, part, solids: [] }
+      p = { id: s.piece.id, name: s.piece.name, kind: s.kind, material: s.piece.material ?? null, part, solids: [], section: s.piece.section ?? null, coreAt: s.piece.coreAt ?? null, servo: s.piece.servo ?? null }
       byId.set(p.id, p)
       out.push(p)
     }

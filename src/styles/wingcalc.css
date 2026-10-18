@@ -2278,6 +2278,46 @@
   stroke: var(--wc-accent);
   stroke-width: 1;
 }
+/* A piece's drawing: outlines inside it (a core's sections) and its dimension lines */
+.wc-part__line,
+.wc-part__dash {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+.wc-part__dash {
+  stroke-dasharray: 5 3;
+}
+.wc-part__dimline,
+.wc-part__dimext {
+  fill: none;
+  stroke: var(--wc-muted);
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+.wc-part__dimext {
+  stroke-dasharray: 2 2;
+}
+.wc-part__dimtext {
+  fill: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* A cross-section: hatched, as a drawing shows a cut, and labelled */
+.wc-part__section {
+  stroke: none;
+}
+/* Its width is in the drawing's units, like the plan's sheeting hatch, so not non-scaling */
+.wingcalc svg .wc-part__hatch {
+  stroke: var(--wc-sharp);
+  stroke-opacity: 0.55;
+  vector-effect: none;
+}
+.wc-part__sectionlabel {
+  fill: var(--wc-text);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 /* The part list: a button as wide as its name, the list opening over the page with a thumbnail
    of each part */
 .wc-part__picker {

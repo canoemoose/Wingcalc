@@ -39,7 +39,9 @@ const props = defineProps({
   selected: { type: String, default: null },
   system: { type: [String, Object], default: 'metric' }, // a units setting (units.js normaliseUnits) or system name
 })
-const emit = defineEmits(['select'])
+// select: a piece's id; view: the direction the camera looks from (target to camera, world,
+// this half), a moment after it settles, so the Part card can show a piece the same way round
+const emit = defineEmits(['select', 'view'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
@@ -770,6 +772,17 @@ function swingTo(position, target) {
   moveTo({ target, offset: position.clone().sub(target) })
 }
 
+// Tell the page which way the view looks, once it has stopped moving
+let viewTimer = null
+function reportView() {
+  clearTimeout(viewTimer)
+  viewTimer = setTimeout(() => {
+    if (!camera || !controls) return
+    const d = camera.position.clone().sub(controls.target).normalize()
+    emit('view', [d.x, d.y, d.z])
+  }, 150)
+}
+
 // --- Pointer -------------------------------------------------------------------------------
 
 // Click (not drag): the view cube first, then a part
@@ -852,6 +865,7 @@ onMounted(async () => {
     controls = new OrbitControls(camera, renderer.domElement)
     controls.enableZoom = false
     controls.addEventListener('change', render)
+    controls.addEventListener('change', reportView)
     // Turning, panning or scrolling the view by hand: it's no longer as framed
     controls.addEventListener('start', () => {
       swinging++
@@ -882,6 +896,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(viewTimer)
   swinging++
   if (typeof document !== 'undefined') document.removeEventListener('pointerdown', onMenuPointer, true)
   window.removeEventListener('keydown', onKeydown)

@@ -3,7 +3,9 @@
 // cap strip's outline placed by its matrix), or a part that isn't drawn in the wing as a solid
 // of its thickness with its engraved lines on the face. Drag to turn it, right-drag to move it, and while the view has focus scroll, + and −
 // zoom and F fits; − + Fit in the corner as in the other views, and the house top right goes
-// back to the three-quarter view it opens in. Fit keeps the angle; both ease into place.
+// back to the view it opens in: a piece from the wing the same way round as the wing's 3D view
+// shows it (a three-quarter view until that has been seen), a part not drawn in the wing in a
+// three-quarter view. Fit keeps the angle; both ease into place.
 // three.js loads on first use (the wing's 3D view shares the chunk) and renders on demand.
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import StageZoom from './StageZoom.vue'
@@ -13,6 +15,8 @@ const props = defineProps({
   // { solids, plates, material, kind }: the piece as placed (wing3d solids, and ribs or cap
   // strips: { outline, holes, thickness, matrix }); or { flat: part, material }
   subject: { type: Object, required: true },
+  // The wing's 3D view's direction (target to camera), when it has one
+  viewDir: { type: Array, default: null },
 })
 
 const wrapEl = ref(null)
@@ -183,10 +187,11 @@ function fit() {
   if (!body) return
   moveTo(fitPose(camera.position.clone().sub(controls.target)))
 }
-// Home: the three-quarter view, fitted
+// Home: as the wing's 3D view looks at a placed piece, else the three-quarter view; fitted
 function home(animate = true) {
   if (!body) return
-  moveTo(fitPose(homeDir()), animate)
+  const dir = !props.subject.flat && props.viewDir ? new THREE.Vector3(...props.viewDir) : homeDir()
+  moveTo(fitPose(dir), animate)
 }
 
 function zoomBy(k) {

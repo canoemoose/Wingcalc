@@ -2,7 +2,9 @@
 // One piece of the wing on its own. The selection is a part (from the plan or the list) or a
 // piece picked in the 3D view (wing3d.js wingPieces): a rib, a gusset, the leading edge, a
 // spar cap, a servo, whatever is drawn. A part cut from sheet is drawn flat at true
-// proportions (outline, holes, engraved lines and label, with its size, quantity and notes);
+// proportions (outline, holes, engraved lines and label, with its size, quantity and notes), and
+// any other piece as pieceDrawing.js draws it (a cap strip's profile, a strip's section, a
+// foam core's block, a servo's side view), dimensioned;
 // under that, the piece in 3D as it sits in the wing (a part picked from the list shows its
 // first piece; one not drawn in the wing, such as a hatch or a template, shows as a solid of
 // its thickness). The list opens with a thumbnail of each part, then the pieces that aren't
@@ -12,6 +14,7 @@ import { bounds } from '../lib/ribs.js'
 import { strokeText } from '../lib/strokeFont.js'
 import { MATERIALS } from '../lib/structure.js'
 import { pieceOutline } from '../lib/wing3d.js'
+import { pieceDrawing } from '../lib/pieceDrawing.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 // The 3D view loads with three.js, in its own chunk
@@ -22,6 +25,10 @@ const props = defineProps({
   // The wing's pieces and the model they're drawn from (wing3d), for showing one as placed
   pieces: { type: Array, default: () => [] },
   model: { type: Object, default: null },
+  // The structure analysis, for drawing a piece that isn't a part (a core's block)
+  analysis: { type: Object, default: null },
+  // The direction the wing's 3D view looks from, for showing a placed piece the same way round
+  viewDir: { type: Array, default: null },
   selected: { type: String, default: null },
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
 })
@@ -52,6 +59,38 @@ const label = computed(() => {
 const len = (v) => format(v, 'thin', defaultUnit(props.system, 'thin'))
 const long = (v) => format(v, 'length', defaultUnit(props.system, 'length'))
 const material = (key) => (key ? (MATERIALS[key]?.label.toLowerCase() ?? key) : '')
+
+// A piece that isn't a part, drawn flat (pieceDrawing), with its dimension lines placed: each
+// off its side by a gap in proportion to the drawing, its label beside it
+const drawing = computed(() => {
+  if (part.value || !piece.value || !props.analysis) return null
+  const d = pieceDrawing(props.analysis, props.analysis.structure, piece.value)
+  if (!d) return null
+  const b = bounds(d.shapes.flatMap((s) => s.pts))
+  const k = Math.max(b.w, b.h)
+  const gap = k * 0.08
+  const text = k * 0.055
+  const dims = d.dims.map((m) => {
+    const [[u0, z0], [u1, z1]] = [m.from, m.to]
+    const o = m.side === 'below' ? [0, -gap] : m.side === 'left' ? [-gap, 0] : [gap, 0]
+    const a = [u0 + o[0], z0 + o[1]]
+    const c = [u1 + o[0], z1 + o[1]]
+    const L = Math.hypot(u1 - u0, z1 - z0)
+    const mid = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]
+    const label = m.side === 'below' ? { x: mid[0], y: -(mid[1] - text * 1.1), anchor: 'middle' } : m.side === 'left' ? { x: mid[0] - text * 0.4, y: -mid[1] + text * 0.35, anchor: 'end' } : { x: mid[0] + text * 0.4, y: -mid[1] + text * 0.35, anchor: 'start' }
+    return { line: [a, c], ext: [[[u0, z0], a], [[u1, z1], c]], label: { ...label, text: len(L) } }
+  })
+  // Room round it for the dimensions and their labels
+  const padL = d.dims.some((m) => m.side === 'left') ? gap + text * 5 : gap
+  const padR = d.dims.some((m) => m.side === 'right') ? gap + text * 5 : gap
+  const padB = d.dims.some((m) => m.side === 'below') ? gap + text * 1.8 : gap
+  const pad = gap * 0.6
+  // A section's hatching, its spacing in proportion to the drawing; the label above it
+  const hatch = k * 0.045
+  const padT = d.label ? gap + text * 1.6 : pad
+  const label = d.label ? { x: b.x0, y: -b.y1 - gap * 0.6, text: d.label } : null
+  return { ...d, dims, text, hatch, label, box: `${b.x0 - padL} ${-b.y1 - padT} ${b.w + padL + padR} ${b.h + padT + padB}` }
+})
 
 // The 3D view's subject: the piece's own geometry as placed, or the part as a flat solid
 const solid = computed(() => {
@@ -295,7 +334,7 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
       <span v-if="part" class="wc-part__size">
         <template v-if="selPiece && selPiece.id !== part.id">Cut as {{ part.name }}: </template>{{ len(view.b.w) }} × {{ len(view.b.h) }}, {{ len(part.thickness) }} {{ material(part.material) }}, {{ part.qty }} off
       </span>
-      <span v-else class="wc-part__size">{{ pieceSize }}</span>
+      <span v-else class="wc-part__size">{{ pieceSize }}<template v-if="drawing?.extra?.blockLength">; block {{ long(drawing.extra.blockLength) }} long</template></span>
     </div>
     <svg v-if="part" :viewBox="view.box" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`Part ${part.name}`">
       <polygon :points="pts(part.outline)" class="wc-part__cut" />
@@ -303,8 +342,29 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
       <polyline v-for="(e, i) in part.etch" :key="'e' + i" :points="pts(e)" class="wc-part__etch" />
       <polyline v-for="(e, i) in label" :key="'l' + i" :points="pts(e)" class="wc-part__etch" />
     </svg>
-    <PartSolid v-if="solid" :subject="solid" />
-    <figcaption v-if="part?.notes.length || (part && placed.length > 1 && !selPiece)" class="wc-figure__caption">
+    <svg v-else-if="drawing" :viewBox="drawing.box" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="drawing.caption">
+      <defs>
+        <pattern :id="`${uid}-hatch`" patternUnits="userSpaceOnUse" :width="drawing.hatch" :height="drawing.hatch" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" :y2="drawing.hatch" class="wc-part__hatch" :stroke-width="drawing.hatch * 0.14" />
+        </pattern>
+      </defs>
+      <text v-if="drawing.label" :x="drawing.label.x" :y="drawing.label.y" :font-size="drawing.text * 1.05" class="wc-part__sectionlabel">{{ drawing.label.text }}</text>
+      <template v-for="(s, i) in drawing.shapes" :key="'s' + i">
+        <template v-if="s.kind === 'section'">
+          <polygon :points="pts(s.pts)" class="wc-part__cut" />
+          <polygon :points="pts(s.pts)" class="wc-part__section" :fill="`url(#${uid}-hatch)`" />
+        </template>
+        <polygon v-else :points="pts(s.pts)" :class="`wc-part__${s.kind === 'cut' ? 'cut' : s.kind === 'hole' ? 'hole' : s.kind === 'dash' ? 'dash' : 'line'}`" />
+      </template>
+      <g v-for="(m, i) in drawing.dims" :key="'d' + i" class="wc-part__dim">
+        <polyline v-for="(e, j) in m.ext" :key="j" :points="pts(e)" class="wc-part__dimext" />
+        <polyline :points="pts(m.line)" class="wc-part__dimline" />
+        <text :x="m.label.x" :y="m.label.y" :text-anchor="m.label.anchor" :font-size="drawing.text" class="wc-part__dimtext">{{ m.label.text }}</text>
+      </g>
+    </svg>
+    <PartSolid v-if="solid" :subject="solid" :view-dir="viewDir" />
+    <figcaption v-if="part?.notes.length || (part && placed.length > 1 && !selPiece) || drawing" class="wc-figure__caption">
+      <span v-if="drawing">{{ drawing.caption }}.</span>
       <span v-if="part && placed.length > 1 && !selPiece">In 3D, the first of the {{ placed.length }} pieces cut as {{ part.name }}, as it sits in the wing.</span>
       <span v-for="(n, i) in part?.notes ?? []" :key="i">{{ n }}.</span>
     </figcaption>
