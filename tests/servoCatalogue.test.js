@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { SERVOS, SERVO_CLASSES, HITEC, FUTABA, CATALOGUE, servoById, servoFrame, installedServo, ratedTorque } from '../src/lib/servos.js'
 import { HITEC_SPECS, FUTABA_FIGURES } from '../src/lib/servoCatalogue.js'
 import { ARMS, HORNS, armsFor } from '../src/lib/linkage.js'
+import { servoSide } from '../src/lib/pieceDrawing.js'
 
 const KG_CM = 0.0980665
 const by = (m) => CATALOGUE.find((s) => s.model === m)
@@ -100,10 +101,45 @@ describe('Futaba catalogue', () => {
     }
   })
 
-  it('says its lugs, output and lead are estimated, and builds them from the class', () => {
-    for (const s of FUTABA) {
+  it('carries the figures from its futaba.uk drawing, where it has one', () => {
+    const drawn = FUTABA.filter((s) => s.lugSpan != null)
+    expect(drawn.map((s) => s.model).sort()).toEqual(
+      ['HPS-A703', 'HPS-A704', 'HPS-AA702', 'S-A300', 'S-A301', 'S-A400', 'S-A401', 'S-A501', 'S-A601', 'S-AG500', 'S-U300', 'S-U301', 'S-U305', 'S-U400', 'S3150', 'S3154'].sort(),
+    )
+    for (const s of drawn) {
+      const [l, , h] = s.body
+      expect(s.lugSpan, s.model).toBeGreaterThan(l)
+      expect(s.lugThickness, s.model).toBeGreaterThan(0.0005)
+      expect(s.lugThickness, s.model).toBeLessThan(0.003)
+      expect(s.lugHeight + s.lugThickness, s.model).toBeLessThanOrEqual(h + 1e-9)
+      expect(s.caseHeight, s.model).toBeGreaterThan(s.lugHeight)
+      expect(s.output.offset, s.model).toBeGreaterThan(0)
+      expect(s.output.offset, s.model).toBeLessThan(l / 2)
+      expect(s.output.top, s.model).toBeGreaterThan(h)
+      expect(s.output.diameter, s.model).toBeGreaterThan(0.003)
+      // Only the lead is ever left out of a drawing
+      expect(s.estimated ?? [], s.model).toEqual(s.lead ? [] : ['lead'])
+    }
+    const su300 = by('S-U300')
+    expect(su300.lugSpan).toBe(0.0555)
+    expect(su300.lugHeight).toBe(0.0266)
+    expect(su300.output).toEqual({ offset: 0.0099, top: 0.0421, diameter: 0.013 })
+    // Four models share one case
+    for (const m of ['S-U305', 'S-A300', 'S-A301']) expect(by(m).lugSpan).toBe(by('S-U400').lugSpan)
+    // The S-AG500 is a wing servo: lugs standing in its middle plane, a tab below
+    const ag = by('S-AG500')
+    expect(ag.wingLugs).toEqual({ length: 0.008, bottom: 'tab', tab: [0.01, 0.0064] })
+    expect(ag.lugHeight + ag.wingLugs.length).toBeCloseTo(ag.body[2], 9)
+    // S3154's gear tower stands above its 19.8 mm case
+    expect(by('S3154').caseHeight).toBe(0.0198)
+    expect(by('S3154').body[2]).toBe(0.0233)
+  })
+
+  it('takes the rest from the class where futaba.uk has no drawing, and says so', () => {
+    const undrawn = FUTABA.filter((s) => s.lugSpan == null)
+    expect(undrawn.length).toBeGreaterThan(0)
+    for (const s of undrawn) {
       expect(s.estimated).toEqual(['lugs', 'output', 'lead'])
-      expect(s.lugSpan).toBeUndefined()
       const f = servoFrame(s)
       const cls = SERVOS[s.class]
       // The lug span scales with the case's length, so lugs always stand beyond it
@@ -112,8 +148,26 @@ describe('Futaba catalogue', () => {
       expect(f.lugHeight).toBeLessThan(s.body[2])
       expect(f.output.top).toBeGreaterThan(s.body[2])
     }
-    // Hitec's are drawn
+    // A drawn model missing only its lead gets the class's lead and keeps its own lugs
+    const a400 = servoFrame(by('S-A400'))
+    expect(by('S-A400').estimated).toEqual(['lead'])
+    expect(a400.lugSpan).toBe(0.0545)
+    expect(a400.lead.exit).toBe('end')
+    // Hitec's are all drawn
     for (const s of HITEC) expect(s.estimated).toBeUndefined()
+  })
+
+  it('installs every servo every way up, and the side view says where its figures come from', () => {
+    for (const s of FUTABA) {
+      for (const m of ['upright', 'side', 'flat']) {
+        const v = installedServo(s.id, m)
+        expect(v.height, `${s.model} ${m}`).toBeGreaterThan(0)
+        expect(v.run, `${s.model} ${m}`).toBeGreaterThan(0)
+      }
+    }
+    expect(servoSide(installedServo('futaba-s-u300')).caption).toMatch(/^Side view, from Futaba's drawing:/)
+    expect(servoSide(installedServo('futaba-s-a400')).caption).toMatch(/the lead, which it doesn't show/)
+    expect(servoSide(installedServo('futaba-s3155')).caption).toMatch(/no drawing published/)
   })
 
   it('installs in a bay like any catalogue servo', () => {

@@ -64,7 +64,7 @@ About 5½ rounds in all.
 ### Step 1 as built
 
 - `src/lib/servoCatalogue.js` holds the published figures; `servos.js` builds `HITEC`, `FUTABA` and `CATALOGUE` from them, each entry with `ratings`, `gears`, `digital`, `spline` ({ type, teeth }) and `current`. 29 Hitec and 31 Futaba servos.
-- Futaba publishes no dimensioned drawings, so Futaba entries carry `estimated: ['lugs', 'output', 'lead']` and take those from their class (`servoFrame`).
+- Futaba's dimensioned drawings are on futaba.uk: 16 models carry their figures (`drawing` in `servoCatalogue.js`); the rest carry `estimated: ['lugs', 'output', 'lead']` and take those from their class (`servoFrame`), and three drawn ones `estimated: ['lead']`.
 - `src/lib/linkage.js` holds `ARMS` (27, Hitec and Futaba), `HORNS` (9 control horns) and `armsFor(servo)`. Compatibility is by the maker's spline name, or by a horn set naming the servo, rather than a stored list per servo: one rule, and a new arm reaches every servo it fits.
 - **No hole positions anywhere**: no maker publishes them. Step 2's geometry needs them measured (backlog, "Servo catalogue"). Until then, step 3 could take an arm's and a horn's hole positions as typed-in figures.
 - Generic horns were not added: with no published heights to base them on, they'd be invented.

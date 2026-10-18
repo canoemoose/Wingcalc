@@ -54,7 +54,7 @@ function servoText(s) {
   const b = bayFor(s)
   const v = installedServo(b.class, b.mounting, props.mass)
   const mu = defaultUnit(props.system, 'mass')
-  return `${v.label}: ${format(v.mass, 'mass', mu)}, about ${(v.torque / 0.0980665).toFixed(1)} kg·cm. Installed, lugs, output and lead included, it takes ${mm(v.run)} mm along the chord, ${mm(v.width)} mm across the span and ${mm(v.height)} mm of depth.${v.estimated ? ` ${v.maker} publishes no drawing, so its lugs and output are placed as a typical ${SERVOS[v.class].label.toLowerCase()} servo's.` : ''}${v.plan?.screws?.length ? '' : ' Its lugs don\'t bear on the plate this way up, so it needs fixing another way (the plate\'s note says how).'}`
+  return `${v.label}: ${format(v.mass, 'mass', mu)}, about ${(v.torque / 0.0980665).toFixed(1)} kg·cm. Installed, lugs, output and lead included, it takes ${mm(v.run)} mm along the chord, ${mm(v.width)} mm across the span and ${mm(v.height)} mm of depth.${v.estimated?.includes('lugs') ? ` ${v.maker} publishes no drawing of it, so its lugs and output are placed as a typical ${SERVOS[v.class].label.toLowerCase()} servo's.` : ''}${v.plan?.screws?.length ? '' : ' Its lugs don\'t bear on the plate this way up, so it needs fixing another way (the plate\'s note says how).'}`
 }
 </script>
 

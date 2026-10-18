@@ -162,7 +162,7 @@ function drawn({ body, case: caseHeight, lugs, wing, output, lead, drawing }) {
     lugHeight: m(height),
     caseHeight: m(caseHeight ?? body[2]),
     output: { offset: m(output[0]), top: m(output[1]), diameter: m(output[2]) },
-    lead: { exit: lead[0], at: m(lead[1]) },
+    ...(lead ? { lead: { exit: lead[0], at: m(lead[1]) } } : {}),
   }
   if (wing) out.wingLugs = { length: m(wing.length), bottom: wing.tab ? 'tab' : 'lugs', ...(wing.tab ? { tab: wing.tab.map(m) } : {}) }
   if (drawing) out.drawing = drawing
@@ -254,21 +254,24 @@ export const HITEC = [
 ]
 
 // ---------------------------------------------------------------------------------------------
-// Futaba catalogue (servoCatalogue.js). Futaba publishes the case's size but no dimensioned
-// drawing, so the lugs, output and lead are the class's, the lug span scaled with the case's
-// length (servoFrame); estimated names them, for the side view and the picker to say so.
-const futaba = ({ model, class: cls, body, mass, thin = false, ...rest }) => {
+// Futaba catalogue (servoCatalogue.js). A model with a drawing (futaba.uk) carries its figures
+// as the Hitec ones do; what its drawing doesn't show (estimated: 'lead' on some, everything but
+// the case on a model with no drawing) is the class's, the lug span scaled with the case's
+// length (servoFrame). estimated names those parts, for the side view and the bay hint.
+const futaba = ({ model, class: cls, body, mass, thin = false, drawing, ...rest }) => {
   const s = specs('Futaba', rest)
+  const fig = drawing ? drawn(drawing) : { body: body.map((v) => Math.round(v * 1e4) / 1e7) }
+  const estimated = drawing ? (drawing.lead ? [] : ['lead']) : ['lugs', 'output', 'lead']
   return {
     id: `futaba-${model.toLowerCase()}`,
     model,
     maker: 'Futaba',
     class: cls,
-    body: body.map((v) => Math.round(v * 1e4) / 1e7),
+    ...fig,
     mass: mass / 1000,
     torque: ratedTorque(s.ratings),
     thin,
-    estimated: ['lugs', 'output', 'lead'],
+    ...(estimated.length ? { estimated } : {}),
     ...fromClass(cls),
     ...s,
   }
