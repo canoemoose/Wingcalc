@@ -32,8 +32,8 @@ function build(edit = () => {}, wingEdit = () => {}) {
   const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
   const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
   const a = analyseStructure({ wing: s.input, airfoil, structure: st, mass: s.input.mass, spanwise: perf.spanwise, controls })
-  const { parts } = buildParts(a, a.structure)
-  return { a, st: a.structure, parts, w: wing3d(a, a.structure, parts) }
+  const { parts, stock } = buildParts(a, a.structure)
+  return { a, st: a.structure, parts, stock, all: [...parts, ...stock], w: wing3d(a, a.structure, parts) }
 }
 
 const builtUp = (st) => {
@@ -65,13 +65,32 @@ function reachable(parts, solids) {
 }
 
 describe('picking a part in the 3D view', () => {
-  it('names a part that exists for every solid that stands for one', () => {
-    const { parts, w } = build(builtUp)
-    const tagged = w.solids.filter((s) => s.pick && !s.pick.groups)
-    expect(tagged.length).toBeGreaterThan(10)
-    for (const s of tagged) expect(partFor(parts, s.pick, 0), `${s.kind} ${JSON.stringify(s.pick)}`).not.toBeNull()
-    // Spars, edge stock and stringers are strip stock, not parts: nothing to pick
-    for (const s of w.solids.filter((x) => ['spar', 'le', 'te', 'stringer'].includes(x.kind))) expect(s.pick).toBeUndefined()
+  it('names a part or a piece of stock for every solid, so anything can be picked', () => {
+    const { a, all, w } = build((st) => {
+      builtUp(st)
+      st.stringers = [{ id: 1, position: 0.5, surface: 'both', width: 0.003, height: 0.003, material: 'balsa-hard' }]
+    })
+    expect(w.solids.length).toBeGreaterThan(20)
+    for (const s of w.solids) {
+      expect(s.pick, s.kind).toBeTruthy()
+      for (const at of [a.rootS + 0.01, (a.rootS + a.tipS) / 2, a.tipS - 0.01]) expect(partFor(all, s.pick, at), `${s.kind} ${JSON.stringify(s.pick)}`).not.toBeNull()
+    }
+  })
+
+  it('lists the strip stock as pieces: its section as the outline, its length as the thickness', () => {
+    const { a, stock } = build(builtUp)
+    const spar = stock.filter((p) => p.stock === 'spar')
+    expect(spar.length).toBeGreaterThanOrEqual(2) // a line per panel
+    for (const p of stock) {
+      expect(p.group).toBe('stock')
+      expect(p.thickness).toBeGreaterThan(0)
+      expect(p.outline.length).toBeGreaterThanOrEqual(3)
+    }
+    // The spar's two panels are picked by where along the span the click is
+    const [p1, p2] = spar
+    expect(partFor(stock, { stock: 'spar' }, (p1.span[0] + p1.span[1]) / 2)).toBe(p1.id)
+    expect(partFor(stock, { stock: 'spar' }, (p2.span[0] + p2.span[1]) / 2)).toBe(p2.id)
+    expect(a.tipS).toBeGreaterThan(p1.span[1])
   })
 
   it('reaches every part the 3D view draws: ribs, gussets, webs, braces, servo plates, sheeting, tabs and tip', () => {

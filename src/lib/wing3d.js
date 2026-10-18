@@ -931,9 +931,9 @@ export function wing3d(a, structure, parts) {
   if (sp.type === 'tube' && tubeBore(a, st, s0)) {
     const outer = sweepRings(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[0], 40, sparEnds)
     const inner = sweepRings(a, s0, sparEnd, (s) => tubeBore(a, st, s), 40, sparEnds)
-    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner))
+    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner), { stock: 'spar' })
   } else {
-    for (let k = 0; k < nSpar; k++) add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }))
+    for (let k = 0; k < nSpar; k++) add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }), { stock: 'spar' })
   }
   const ribList = parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s)
   for (let i = 1; i < ribList.length; i++) {
@@ -956,23 +956,23 @@ export function wing3d(a, structure, parts) {
       add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] })
     }
   }
-  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }))
+  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), { stock: 'le' })
   // The trailing edge: the wing's, broken where each control surface's own runs, between the
   // surface's end ribs' outer faces
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok).sort((p, q) => p.s0 - q.s0)
   let from = s0
   let fromExt = ends[0]
   for (const sf of surfaces) {
-    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }))
+    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }), { stock: 'te' })
     from = sf.s1
     fromExt = halfRib
-    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20))
+    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20), { stock: sf.stock ? `teMoving:${sf.id}` : 'te' })
     // The hinge spars: the fixed side's between the end ribs' faces, the moving side's across
     // the moving surface
-    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12))
-    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12))
+    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12), { stock: `hinge:${sf.id}` })
+    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12), { stock: `hingeMoving:${sf.id}` })
   }
-  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }))
+  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }), { stock: 'te' })
 
   // A foam wing's core: from the leading edge stock to the trailing edge stock, stopping at the
   // fixed hinge spar along each control surface, whose own core runs from its hinge spar back;
@@ -1044,7 +1044,7 @@ export function wing3d(a, structure, parts) {
     if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
     for (const which of ['upper', 'lower']) {
       if (str.surface !== 'both' && str.surface !== which) continue
-      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }))
+      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), { stock: `stringer:${str.id}` })
     }
   }
 
@@ -1123,7 +1123,8 @@ export function wing3d(a, structure, parts) {
 // s, as the part's id, or null: one of a list of ids (the first that's a part), the part a gusset
 // is one of (its members; mirrored, in the other half, its mirrorMember if it has one), or of
 // the parts in some groups (on the same surface, if they say), the one whose span is nearest s,
-// and of those the one whose station s is nearest (a core's two hot-wire templates).
+// and of those the one whose station s is nearest (a core's two hot-wire templates); or a
+// piece of stock (ribs.js stockParts, with the parts) by its stock name, the same way.
 export function partFor(parts, pick, s, { mirrored = false } = {}) {
   if (!pick) return null
   if (pick.ids) return pick.ids.find((id) => parts.some((p) => p.id === id)) ?? null
@@ -1134,7 +1135,7 @@ export function partFor(parts, pick, s, { mirrored = false } = {}) {
   let best = null
   let bestD = [Infinity, Infinity]
   for (const p of parts) {
-    if (!pick.groups?.includes(p.group)) continue
+    if (pick.stock ? p.stock !== pick.stock : !pick.groups?.includes(p.group)) continue
     if (pick.surface && p.surface && p.surface !== pick.surface) continue
     const [lo, hi] = p.span ?? (Number.isFinite(p.s) ? [p.s, p.s] : [-Infinity, Infinity])
     const d = [s < lo ? lo - s : s > hi ? s - hi : 0, Number.isFinite(p.s) ? Math.abs(s - p.s) : 0]

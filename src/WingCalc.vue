@@ -773,14 +773,16 @@ const structureWarnings = computed(() => {
 })
 // Structure warnings beside the editor settings that fix them; the rest under the editor
 const placedWarnings = computed(() => bySection(structureWarnings.value, input.structure.construction === 'foam'))
+// Everything the Part card can show and the 3D view can pick: the parts, then the stock
+// (ribs.js stockParts: spars, edges, stringers and the rest of the cut list)
+const inspectable = computed(() => (structureResult.value ? [...structureResult.value.parts, ...(structureResult.value.stock ?? [])] : []))
 // The part shown in the preview: the first rib, or a foam wing's first template
 const firstParts = computed(() => (ribParts.value.length ? ribParts.value : (structureResult.value?.parts.filter((p) => p.group === 'templates') ?? [])))
 watch(
   firstParts,
   (list) => {
     if (!list.length) return
-    const all = structureResult.value.parts
-    if (!all.some((p) => p.id === selectedPart.value)) selectedPart.value = list[0].id
+    if (!inspectable.value.some((p) => p.id === selectedPart.value)) selectedPart.value = list[0].id
   },
   { immediate: true },
 )
@@ -1387,6 +1389,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 :analysis="structureResult.a"
                 :structure="structureResult.a.structure"
                 :parts="structureResult.parts"
+                :stock="structureResult.stock ?? []"
                 :system="system"
                 :selected="selectedPart"
                 @select="selectedPart = $event"
@@ -1398,7 +1401,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             </article>
             <article class="wc-card">
               <h3 class="wc-card__label">Part</h3>
-              <PartPreview :parts="structureResult.parts" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
+              <PartPreview :parts="inspectable" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
             </article>
           </div>
         </template>

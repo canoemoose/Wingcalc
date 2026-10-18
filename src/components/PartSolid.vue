@@ -1,10 +1,13 @@
 <script setup>
 // One part in 3D: its outline and holes cut from a sheet of its thickness, with its engraved
-// lines on the face, at true proportions. Drag to turn it, right-drag to move it, and while the
-// view has focus scroll, + and − zoom and F fits; − + Fit in the corner as in the other views.
+// lines on the face, at true proportions (a piece of strip stock: its section run out to its
+// length). Drag to turn it, right-drag to move it, and while the view has focus scroll, + and −
+// zoom and F fits; − + Fit in the corner as in the other views, and the house top right goes
+// back to the three-quarter view it opens in. Fit keeps the angle; both ease into place.
 // three.js loads on first use (the wing's 3D view shares the chunk) and renders on demand.
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import StageZoom from './StageZoom.vue'
+import { HOME } from '../lib/icons.js'
 
 const props = defineProps({
   part: { type: Object, required: true },
@@ -20,10 +23,9 @@ let camera = null
 let controls = null
 let body = null
 let resizeObs = null
-// Looking at the face from in front, a little above and to one side, so its thickness shows
-const VIEW = [0.45, -0.55, 1]
 const WOOD = 0xd9b77e
 const MATERIAL_COLOURS = { mylar: 0xb8c4cc, 'template-stock': 0xc9ced4 }
+const EASE_MS = 320
 
 const size = () => ({ w: wrapEl.value?.clientWidth || 320, h: wrapEl.value?.clientHeight || 220 })
 
@@ -68,17 +70,35 @@ function build() {
     body.add(new THREE.Line(g, etch))
   }
   scene.add(body)
-  fit(VIEW)
+  home(false)
 }
 
-// Frame the part from a view direction (target to camera), or from where the camera is now
-function fit(dir) {
-  if (!body) return
+// The three-quarter view for this part: mostly square to its broadest face (across its
+// thinnest dimension), turned a third of the way towards its length and looking a little down,
+// so a plate shows its face and edge and a stick shows its side, length and an end
+function homeDir() {
+  const s = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3())
+  const dims = [s.x, s.y, s.z]
+  const thin = dims.indexOf(Math.min(...dims))
+  const rest = [0, 1, 2].filter((k) => k !== thin)
+  const long = dims[rest[0]] >= dims[rest[1]] ? rest[0] : rest[1]
+  const d = [0, 0, 0]
+  d[thin] += 0.8
+  d[long] += 0.45
+  // A little from above: up is y, or failing that the third axis
+  d[thin === 1 || long === 1 ? rest.find((k) => k !== long) : 1] += 0.35
+  return new THREE.Vector3(...d).normalize()
+}
+
+// Where the camera goes to fit the part looking along dir (target to camera)
+function fitPose(dir) {
   const box = new THREE.Box3().setFromObject(body)
   const c = box.getCenter(new THREE.Vector3())
-  const d = dir ? new THREE.Vector3(...dir).normalize() : camera.position.clone().sub(controls.target).normalize()
-  const x = new THREE.Vector3(0, 1, 0).cross(d).normalize()
-  const y = d.clone().cross(x)
+  const z = dir.clone().normalize()
+  const x = new THREE.Vector3(0, 1, 0).cross(z)
+  if (x.lengthSq() < 1e-8) x.set(1, 0, 0)
+  x.normalize()
+  const y = z.clone().cross(x)
   let hx = 0
   let hy = 0
   for (const i of [0, 1]) {
@@ -91,20 +111,58 @@ function fit(dir) {
     }
   }
   const { w, h } = size()
+  // Clear of the corner buttons along the bottom
+  const half = Math.max(hy * (h / Math.max(1, h - 72)), (hx * h) / w, 1e-3) * 1.1
   const r = box.getSize(new THREE.Vector3()).length()
-  // Room for the corner buttons along the bottom
-  const half = Math.max(hy * (h / Math.max(1, h - 64)), (hx * h) / w, 1e-3) * 1.08
-  Object.assign(camera, { left: (-half * w) / h, right: (half * w) / h, top: half, bottom: -half, near: -r * 10, far: r * 10, zoom: 1 })
-  camera.position.copy(c).addScaledVector(d, r * 2)
-  camera.up.set(0, 1, 0)
-  controls.target.copy(c)
-  camera.updateProjectionMatrix()
-  controls.update()
-  render()
+  return { target: c, dir: z, dist: r * 2, zoom: (camera.top - camera.bottom) / 2 / half, r }
+}
+
+// Ease the camera to a pose: target, view direction and zoom together
+let anim = 0
+function moveTo(pose, animate = true) {
+  const r = pose.r
+  camera.near = -r * 10
+  camera.far = r * 10
+  const from = { target: controls.target.clone(), dir: camera.position.clone().sub(controls.target).normalize(), zoom: camera.zoom }
+  const apply = (t) => {
+    const e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
+    const target = from.target.clone().lerp(pose.target, e)
+    const dir = from.dir.clone().lerp(pose.dir, e)
+    if (dir.lengthSq() < 1e-8) dir.copy(pose.dir)
+    dir.normalize()
+    controls.target.copy(target)
+    camera.position.copy(target).addScaledVector(dir, pose.dist)
+    camera.zoom = from.zoom + (pose.zoom - from.zoom) * e
+    camera.updateProjectionMatrix()
+    controls.update()
+    render()
+  }
+  const id = ++anim
+  if (!animate || typeof requestAnimationFrame === 'undefined' || document.hidden) return apply(1)
+  const t0 = performance.now()
+  const step = (now) => {
+    if (id !== anim) return
+    const t = Math.min(1, (now - t0) / EASE_MS)
+    apply(t)
+    if (t < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+}
+
+// Fit: the whole part in view from where the camera is looking now
+function fit() {
+  if (!body) return
+  moveTo(fitPose(camera.position.clone().sub(controls.target)))
+}
+// Home: the three-quarter view, fitted
+function home(animate = true) {
+  if (!body) return
+  moveTo(fitPose(homeDir()), animate)
 }
 
 function zoomBy(k) {
   if (!camera) return
+  anim++
   camera.zoom *= k
   camera.updateProjectionMatrix()
   render()
@@ -153,6 +211,8 @@ onMounted(async () => {
     controls = new OrbitControls(camera, renderer.domElement)
     controls.enableZoom = false
     controls.addEventListener('change', render)
+    // Turning it by hand stops any easing
+    controls.addEventListener('start', () => anim++)
     wrapEl.value.addEventListener('focusin', onFocus)
     wrapEl.value.addEventListener('focusout', onFocus)
     resizeObs = new ResizeObserver(resize)
@@ -169,6 +229,7 @@ onMounted(async () => {
 watch(() => props.part, build)
 
 onBeforeUnmount(() => {
+  anim++
   resizeObs?.disconnect()
   controls?.dispose()
   dispose(body)
@@ -179,6 +240,9 @@ onBeforeUnmount(() => {
 <template>
   <div ref="wrapEl" class="wc-part__solid" tabindex="0" aria-label="The part in 3D: drag to turn it" @pointerdown="focusView" @keydown="onKey">
     <p v-if="status" class="wc-part__status">{{ status }}</p>
-    <StageZoom fit-title="Fit the part to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fit(VIEW)" />
+    <button v-else type="button" class="wc-3d__home wc-part__home" aria-label="Home view" title="Home view: the three-quarter view" @click="home()">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in HOME" :key="k" :d="d" /></svg>
+    </button>
+    <StageZoom fit-title="Fit the part to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fit" />
   </div>
 </template>

@@ -2,8 +2,8 @@
 // The built-up half wing in 3D: see-through covering, sheeting and cap strips, ribs at their
 // thickness, spar, webs, edge stock and stringers. Drag to orbit, right-drag or Shift-drag to
 // pan, scroll to zoom; click a part to select it (shared with the plan and the part preview):
-// a rib, gusset, web, brace, plate, sheet and so on, whatever the parts list has. Spars, edge
-// stock, stringers and the like are strip stock, not parts, and select nothing.
+// a rib, gusset, web, brace, plate, sheet and so on, and the strip stock too (spar, edges,
+// stringers, hinge spars, cap strips), as the cut list's line for that panel.
 //
 // Top right, a view cube with labelled faces: click a face to swing round to that view.
 //
@@ -32,6 +32,8 @@ const props = defineProps({
   analysis: { type: Object, required: true },
   structure: { type: Object, required: true },
   parts: { type: Array, required: true },
+  // The stock pieces (ribs.js stockParts), picked with the parts
+  stock: { type: Array, default: () => [] },
   selected: { type: String, default: null },
   system: { type: [String, Object], default: 'metric' }, // a units setting (units.js normaliseUnits) or system name
 })
@@ -422,7 +424,7 @@ function build() {
     // that runs over several parts
     if (s.pick) {
       mesh.userData.pick = s.pick
-      if (!s.pick.groups) mesh.userData.partId = partFor(props.parts, s.pick, 0)
+      if (!s.pick.groups && !s.pick.stock) mesh.userData.partId = partFor(props.parts, s.pick, 0)
     }
     group.add(outlined(mesh))
   }
@@ -441,7 +443,10 @@ function build() {
     const shape = new THREE.Shape(c.outline.map(([u, z]) => new THREE.Vector2(u, z)))
     const geo = new THREE.ExtrudeGeometry(shape, { depth: c.thickness, bevelEnabled: false, curveSegments: 1 })
     geo.applyMatrix4(new THREE.Matrix4().fromArray(c.matrix))
-    ;(c.surface ? groups.surfaces : groups.capStrips).add(outlined(new THREE.Mesh(geo, wood(COLOURS.sheet))))
+    const strip = new THREE.Mesh(geo, wood(COLOURS.sheet))
+    strip.userData.pick = { stock: 'capStrips' }
+    strip.userData.colour = COLOURS.sheet
+    ;(c.surface ? groups.surfaces : groups.capStrips).add(outlined(strip))
   }
   mirror = root.clone()
   // The centre rib's gussets in the other half are the ones on its other face: their own part,
@@ -548,9 +553,12 @@ function applyVisibility() {
 function highlight() {
   const accent = new THREE.Color(cssColour('--wc-accent', '#1f6feb'))
   for (const g of [root, mirror]) {
+    const sel = props.stock.find((p) => p.id === props.selected)
+    const single = sel?.stock && props.stock.filter((p) => p.stock === sel.stock).length === 1 ? sel.stock : null
     g.traverse((m) => {
-      if (!m.isMesh || !m.userData.partId) return
-      const on = m.userData.partId === props.selected
+      if (!m.isMesh) return
+      if (!m.userData.partId && !(m.userData.pick?.stock && m.userData.colour != null)) return
+      const on = m.userData.partId ? m.userData.partId === props.selected : !!single && m.userData.pick.stock === single
       m.material.color.set(on ? accent : m.userData.colour)
       m.material.emissive?.set(on ? accent.clone().multiplyScalar(0.25) : 0x000000)
     })
@@ -793,7 +801,7 @@ function onUp(e) {
   if (!id && o.userData.pick) {
     // Where along the span, in this half's own coordinates (the other half is mirrored in x)
     const p = hit.point
-    id = partFor(props.parts, o.userData.pick, spanOf(props.analysis, [inMirror ? -p.x : p.x, p.y, p.z]), { mirrored: inMirror })
+    id = partFor([...props.parts, ...props.stock], o.userData.pick, spanOf(props.analysis, [inMirror ? -p.x : p.x, p.y, p.z]), { mirrored: inMirror })
   }
   if (id) emit('select', id)
 }

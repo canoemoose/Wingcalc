@@ -1,14 +1,15 @@
 <script setup>
 // One part at true proportions: its cut outline, holes, engraved lines and label, with its size,
-// quantity and notes, drawn flat or as a 3D solid of its thickness. Steps through the parts in
-// order; the list opens with a thumbnail of each, grouped as in the export.
+// quantity and notes, drawn flat and, under that, as a 3D solid of its thickness. Steps through
+// the parts in order; the list opens with a thumbnail of each, grouped as in the export. Strip
+// stock (ribs.js stockParts) comes last: its section drawn flat, the stick as cut in 3D.
 import { computed, ref, nextTick, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { bounds } from '../lib/ribs.js'
 import { strokeText } from '../lib/strokeFont.js'
 import { MATERIALS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 
-// The 3D view loads (with three.js) only when it's first shown
+// The 3D view loads with three.js, in its own chunk
 const PartSolid = defineAsyncComponent(() => import('./PartSolid.vue'))
 
 const props = defineProps({
@@ -38,15 +39,13 @@ const len = (v) => format(v, 'thin', defaultUnit(props.system, 'thin'))
 const solidPart = computed(() => ({ ...part.value, etch: [...(part.value.etch ?? []), ...label.value] }))
 const sizeText = (p) => {
   const b = bounds(p.outline)
-  return `${len(b.w)} × ${len(b.h)}`
+  return p.group === 'stock' ? `${len(b.w)} × ${len(b.h)}, ${format(p.thickness, 'length', defaultUnit(props.system, 'length'))} long` : `${len(b.w)} × ${len(b.h)}`
 }
+const material = (p) => MATERIALS[p.material]?.label.toLowerCase() ?? p.material
 const step = (k) => {
   const n = props.parts.length
   emit('select', props.parts[(index.value + k + n) % n].id)
 }
-
-// Flat or 3D
-const mode = ref('2d')
 
 // --- The part list ------------------------------------------------------------------------------
 
@@ -64,6 +63,7 @@ const GROUPS = {
   templates: 'Hot-wire templates',
   skins: 'Skins',
   pockets: 'Pocket templates',
+  stock: 'Strip stock',
 }
 // Groups in the order they first appear
 const runs = computed(() => {
@@ -222,22 +222,16 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
         </ul>
       </div>
       <button type="button" class="wc-iconbtn" aria-label="Next part" title="Next part" @click="step(1)">→</button>
-      <span class="wc-part__size">
-        {{ len(view.b.w) }} × {{ len(view.b.h) }}, {{ len(part.thickness) }} {{ MATERIALS[part.material]?.label.toLowerCase() }},
-        {{ part.qty }} off
-      </span>
-      <div class="wc-part__mode" role="group" aria-label="View">
-        <button type="button" class="wc-button wc-part__modebtn" :aria-pressed="String(mode === '2d')" title="The part flat, as it's cut" @click="mode = '2d'">2D</button>
-        <button type="button" class="wc-button wc-part__modebtn" :aria-pressed="String(mode === '3d')" title="The part in 3D, at its thickness" @click="mode = '3d'">3D</button>
-      </div>
+      <span v-if="part.group === 'stock'" class="wc-part__size">{{ len(view.b.w) }} × {{ len(view.b.h) }} section, {{ sizeText(part).split(', ').pop() }}, {{ material(part) }}, {{ part.qty }} off</span>
+      <span v-else class="wc-part__size">{{ len(view.b.w) }} × {{ len(view.b.h) }}, {{ len(part.thickness) }} {{ material(part) }}, {{ part.qty }} off</span>
     </div>
-    <svg v-if="mode === '2d'" :viewBox="view.box" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`Part ${part.name}`">
+    <svg :viewBox="view.box" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`Part ${part.name}`">
       <polygon :points="pts(part.outline)" class="wc-part__cut" />
       <polygon v-for="(h, i) in part.holes" :key="'h' + i" :points="pts(h)" class="wc-part__hole" />
       <polyline v-for="(e, i) in part.etch" :key="'e' + i" :points="pts(e)" class="wc-part__etch" />
       <polyline v-for="(e, i) in label" :key="'l' + i" :points="pts(e)" class="wc-part__etch" />
     </svg>
-    <PartSolid v-else :part="solidPart" />
+    <PartSolid :part="solidPart" />
     <figcaption v-if="part.notes.length" class="wc-figure__caption">
       <span v-for="(n, i) in part.notes" :key="i">{{ n }}.</span>
     </figcaption>
