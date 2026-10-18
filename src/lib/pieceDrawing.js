@@ -104,7 +104,7 @@ export function servoSide(servo) {
       { from: [b.x1, 0], to: [b.x1, Math.max(f.height, f.output.top)], side: 'right' },
     ],
     caption: [
-      servo.model ? `Side view, from ${servo.maker ?? 'the maker'}'s drawing` : "Side view, at the class's typical size",
+      servo.estimated ? `Side view, the case from ${servo.maker}'s figures, the lugs and output at its class's proportions (no drawing published)` : servo.model ? `Side view, from ${servo.maker ?? 'the maker'}'s drawing` : "Side view, at the class's typical size",
       `across the lugs, base to the ${f.wingLugs ? 'upper lugs' : 'lugs'}, and base to the horn seat`,
     ].join(': '),
   }

@@ -3,7 +3,7 @@
 // covered in servoBays.test.js.
 import { describe, it, expect } from 'vitest'
 import {
-  SERVOS, SERVO_CLASSES, HITEC, MOUNTINGS,
+  SERVOS, SERVO_CLASSES, HITEC, FUTABA, CATALOGUE, MOUNTINGS,
   servoEnvelope, servoById, servoOptions, defaultServoClass, bayOf, setBay, dropBay, installedServo,
   servoFrame, servoParts,
 } from '../src/lib/servos.js'
@@ -192,14 +192,23 @@ describe('servoEnvelope', () => {
 })
 
 describe('servoOptions', () => {
-  it('lists every generic class, then every Hitec servo, with unique values', () => {
+  it('lists every generic class, then every Hitec and Futaba servo, with unique values', () => {
     const opts = servoOptions()
-    expect(opts.length).toBe(SERVO_CLASSES.length + HITEC.length)
+    expect(opts.length).toBe(SERVO_CLASSES.length + CATALOGUE.length)
     expect(new Set(opts.map((o) => o.value)).size).toBe(opts.length)
     expect(opts.filter((o) => o.group === 'Generic').map((o) => o.value)).toEqual(SERVO_CLASSES)
-    expect(opts.filter((o) => o.group.startsWith('Hitec')).map((o) => o.value)).toEqual(HITEC.map((s) => s.id))
-    // Thin wing servos in a group of their own
-    expect(opts.filter((o) => /wing servos/.test(o.group)).every((o) => HITEC.find((s) => s.id === o.value).thin)).toBe(true)
+    expect(opts.filter((o) => o.group.startsWith('Hitec')).map((o) => o.value).sort()).toEqual(HITEC.map((s) => s.id).sort())
+    expect(opts.filter((o) => o.group.startsWith('Futaba')).map((o) => o.value).sort()).toEqual(FUTABA.map((s) => s.id).sort())
+    // Each group in one run, so the drop-down shows each heading once
+    const runs = opts.map((o) => o.group).filter((g, i, a) => g !== a[i - 1])
+    expect(new Set(runs).size).toBe(runs.length)
+    expect(runs.slice(1, 3)).toEqual(['Hitec micro', 'Hitec mini'])
+    // Thin wing servos in a group of their own, per maker
+    expect(opts.filter((o) => /wing servos/.test(o.group)).every((o) => CATALOGUE.find((s) => s.id === o.value).thin)).toBe(true)
+  })
+
+  it('marks a discontinued servo in its label', () => {
+    expect(servoOptions().find((o) => o.value === 'futaba-s3001').label).toMatch(/\(discontinued\)$/)
   })
 
   it('labels a Hitec servo by its model, weight and torque, and a generic class by its size', () => {

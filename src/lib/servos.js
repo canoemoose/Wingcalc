@@ -17,6 +17,8 @@
 //   at        the older panel-relative position, m from the panel's inner end; used only when
 //             along is not set (saves from before along)
 
+import { HITEC_SPECS, FUTABA_FIGURES } from './servoCatalogue.js'
+
 // Servo classes. Generic sizes, no brand: each is the rounded figures of the common hobby
 // servos of that class (docs/methods.md), all in SI base units.
 //   length, width, height  the case body, lengths along the chord, across the span (a bay is
@@ -178,6 +180,34 @@ const STD_311 = { body: [40.0, 20.0, 36.5], lugs: [52.8, 2.5, 26.5], output: [10
 const STD_485 = { body: [40.0, 20.0, 38.0], lugs: [53.0, 2.5, 28.0], output: [10.0, 42.5, 12], lead: ['end', 6.0] }
 const STD_645 = { body: [40.8, 20.0, 37.8], lugs: [53.4, 2.5, 27.0], output: [10.0, 42.8, 12], lead: ['end', 5.0] }
 
+// The published specs every catalogue entry carries (servoCatalogue.js), in SI units:
+//   ratings   [{ volts, torque (N·m), speed (s per 60°) }], null where not given at that voltage
+//   gears     'plastic', 'karbonite', 'metal' or 'titanium', or null if not published
+//   digital   true, false, or null if not published
+//   spline    { type, teeth }: the output spline as the maker names it, and its tooth count
+//             where that's published (Futaba names its by size and gives none); null if unknown
+//   current   false for a model kept though no longer made
+const ratingsOf = (rows) => rows.map(([volts, torque, speed]) => ({ volts, torque: torque == null ? null : torque * KG_CM, speed }))
+const splineOf = (type, maker) => {
+  if (!type) return null
+  const n = maker === 'Hitec' ? Number(type.match(/\d+/)?.[0]) : NaN
+  return { type, teeth: Number.isFinite(n) ? n : null }
+}
+const specs = (maker, { ratings, gears = null, digital = null, spline = null, current = true }) => ({
+  ratings: ratingsOf(ratings),
+  gears,
+  digital,
+  spline: splineOf(spline, maker),
+  current,
+})
+
+// The torque a servo is listed by: its rating nearest 6 V (the higher voltage of two as near)
+export function ratedTorque(ratings) {
+  const ok = (ratings ?? []).filter((r) => r.torque > 0)
+  if (!ok.length) return null
+  return ok.reduce((a, r) => (Math.abs(r.volts - 6) < Math.abs(a.volts - 6) - 1e-9 || (Math.abs(Math.abs(r.volts - 6) - Math.abs(a.volts - 6)) < 1e-9 && r.volts > a.volts) ? r : a)).torque
+}
+
 const hitec = (model, cls, mass, torque, thin, d) => ({
   id: `hitec-${model.toLowerCase()}`,
   model,
@@ -188,6 +218,7 @@ const hitec = (model, cls, mass, torque, thin, d) => ({
   torque: torque * KG_CM,
   thin,
   ...fromClass(cls),
+  ...specs('Hitec', HITEC_SPECS[model]),
 })
 
 export const HITEC = [
@@ -222,6 +253,32 @@ export const HITEC = [
   hitec('HS-5645MG', 'standard', 60, 12.1, false, STD_645),
 ]
 
+// ---------------------------------------------------------------------------------------------
+// Futaba catalogue (servoCatalogue.js). Futaba publishes the case's size but no dimensioned
+// drawing, so the lugs, output and lead are the class's, the lug span scaled with the case's
+// length (servoFrame); estimated names them, for the side view and the picker to say so.
+const futaba = ({ model, class: cls, body, mass, thin = false, ...rest }) => {
+  const s = specs('Futaba', rest)
+  return {
+    id: `futaba-${model.toLowerCase()}`,
+    model,
+    maker: 'Futaba',
+    class: cls,
+    body: body.map((v) => Math.round(v * 1e4) / 1e7),
+    mass: mass / 1000,
+    torque: ratedTorque(s.ratings),
+    thin,
+    estimated: ['lugs', 'output', 'lead'],
+    ...fromClass(cls),
+    ...s,
+  }
+}
+
+export const FUTABA = FUTABA_FIGURES.map(futaba)
+
+// Every maker's servo, Hitec first
+export const CATALOGUE = [...HITEC, ...FUTABA]
+
 // The mounting a servo goes in, and the envelope it takes up in the wing: chord (along the
 // chord), span (across the span) and depth (from the skin inward). Upright stands the case on
 // its base; side lies it on its side; flat lays a thin wing servo in the wing's plane, its long
@@ -235,22 +292,25 @@ export function servoEnvelope(servo, mounting = 'upright') {
   return { chord: l, span: w, depth: h }
 }
 
-// A Hitec entry by its id, or a generic class by its key (as { id, ...class }), or null
+// A catalogue entry by its id, or a generic class by its key (as { id, ...class }), or null
 export function servoById(id) {
-  const h = HITEC.find((s) => s.id === id)
+  const h = CATALOGUE.find((s) => s.id === id)
   if (h) return h
   if (SERVOS[id]) return { id, ...SERVOS[id] }
   return null
 }
 
-// The picker's choices: the generic classes, then the Hitec servos
+// The picker's choices: the generic classes, then each maker's servos, a group per class from the
+// smallest up and the thin wing servos last (each group in one run, as the drop-down needs)
 export function servoOptions() {
+  const makers = [...new Set(CATALOGUE.map((s) => s.maker))]
+  const rank = (s) => makers.indexOf(s.maker) * 10 + (s.thin ? SERVO_CLASSES.length : SERVO_CLASSES.indexOf(s.class))
   return [
     ...SERVO_CLASSES.map((cls) => ({ value: cls, label: `${SERVOS[cls].label} (${SERVOS[cls].size})`, group: 'Generic' })),
-    ...HITEC.map((s) => ({
+    ...[...CATALOGUE].sort((a, b) => rank(a) - rank(b)).map((s) => ({
       value: s.id,
-      label: `${s.model}, ${Math.round(s.mass * 1000)} g, ${(s.torque / KG_CM).toFixed(1)} kg·cm`,
-      group: s.thin ? 'Hitec wing servos (thin)' : `Hitec ${SERVOS[s.class].label.toLowerCase()}`,
+      label: `${s.model}, ${Math.round(s.mass * 1000)} g, ${(s.torque / KG_CM).toFixed(1)} kg·cm${s.current === false ? ' (discontinued)' : ''}`,
+      group: s.thin ? `${s.maker} wing servos (thin)` : `${s.maker} ${SERVOS[s.class].label.toLowerCase()}`,
     })),
   ]
 }
@@ -403,9 +463,11 @@ export function platePlan(parts, z, thickness, pilot = 0.001) {
 
 // A servo's shape in its own frame, upright: x along its length from the case's centre
 // (positive towards the lead end), y across its width from the centre, z up from its base.
-// From a Hitec entry's drawn figures, or for a generic class from its sizes, with the output
-// boss a quarter of the length from the centre, a third of the width across and an eighth of
-// the height above the case, and the lead out of the end near the base.
+// From an entry's drawn figures, or for a generic class from its sizes, with the output boss a
+// quarter of the length from the centre, a third of the width across and an eighth of the
+// height above the case, and the lead out of the end near the base. An entry with a case but no
+// drawing (a Futaba servo: see `estimated`) takes the rest from its class, the lug span scaled
+// with its length.
 export function servoFrame(servo) {
   const cls = SERVOS[servo.class] ?? SERVOS[servo.id] ?? SERVOS.micro
   const [length, width, height] = servo.body ?? [servo.length ?? cls.length, servo.width ?? cls.width, servo.height ?? cls.height]
@@ -414,7 +476,7 @@ export function servoFrame(servo) {
     width,
     height,
     caseHeight: servo.caseHeight ?? height,
-    lugSpan: servo.lugSpan ?? cls.lugSpan,
+    lugSpan: servo.lugSpan ?? (servo.body ? (length * cls.lugSpan) / cls.length : cls.lugSpan),
     lugThickness: servo.lugThickness ?? cls.lugThickness,
     lugHeight: servo.lugHeight ?? (height * cls.lugHeight) / cls.height,
     output: servo.output ?? { offset: length / 4, top: height * 1.125, diameter: width / 3 },

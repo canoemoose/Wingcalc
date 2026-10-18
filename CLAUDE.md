@@ -29,7 +29,7 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - Inputs commit on Enter or blur, never per keystroke (`UnitInput.vue`); inspector sections are an accordion (one open per parent element, `InspectorSection.vue`).
 - Warnings sit beside the settings that fix them: main-page ones under their input (`warn` as a message), structure ones in the editor section mapped by id in `src/lib/warnings.js`. Give new structure warnings an id that maps there.
 - Control surfaces: where a surface is (extent, depth, throws, crow) is the wing editor's (`ControlSurfaceEditor.vue`, handles in `WingPlanEditor.vue`); its hinge gap and servo bay are the structure editor's (`SurfaceStructure.vue`). A surface hinged at the TE stock's face is the stock itself (`stock` in `surfaceLayouts`).
-- Servos: generic classes and Hitec models in `src/lib/servos.js`; a bay's servo goes through `installedServo(id, mounting)`. Trays sit between the wing's own ribs where they fit (`fitBaysToRibs`).
+- Servos: generic classes, Hitec and Futaba models in `src/lib/servos.js`, built from the published figures in `src/lib/servoCatalogue.js` (Futaba has no drawings, so its lugs and output are `estimated` from the class); arms, control horns and `armsFor(servo)` in `src/lib/linkage.js`. The servo configurator's plan is `docs/scope-servo.md`; a bay's servo goes through `installedServo(id, mounting)`. Trays sit between the wing's own ribs where they fit (`fitBaysToRibs`).
 - D-box sheeting per surface and sheeted hard points: `sheetExtent` and `hardPatches` in `structure.js`; use them rather than testing `covering.type` for where sheeting runs.
 - The drawn section's trailing edge is always closed (`closeTrailingEdge` / `syncTrailingEdge` in `sectionSpline.js`).
 
