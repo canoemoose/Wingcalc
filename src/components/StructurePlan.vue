@@ -669,11 +669,15 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       </div>
       <StageZoom v-model:snap="snapOn" :snap-step="editable ? fmt(step) : ''" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
-    <p v-if="readout" class="wc-plan__readout wc-structure-plan__readout">
-      <strong>{{ readout.name }}</strong> {{ readout.kind }}, {{ readout.d }} from the root rib<template v-if="readout.bays"
-        >; bays {{ readout.bays }}</template
-      >.
-      <template v-if="readout.movable"> Drag it, or nudge with the arrow keys; Delete removes it.</template>
+    <!-- Always there, two lines tall, so the page doesn't move as the selection changes -->
+    <p class="wc-plan__readout wc-structure-plan__readout">
+      <template v-if="readout">
+        <strong>{{ readout.name }}</strong> {{ readout.kind }}, {{ readout.d }} from the root rib<template v-if="readout.bays"
+          >; bays {{ readout.bays }}</template
+        >.
+        <template v-if="readout.movable"> Drag it, or nudge with the arrow keys; Delete removes it.</template>
+      </template>
+      <span v-else class="wc-muted">Click a rib to see where it is.</span>
     </p>
     <figcaption class="wc-figure__caption">
       One side, flat as built, leading edge at the top.{{ analysis.structure?.spar.type === 'none' ? ' No spar' : ' Spar in accent colour' }}<template v-if="geom.sheet">,

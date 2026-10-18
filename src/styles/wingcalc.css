@@ -1841,9 +1841,13 @@
   stroke-width: 2.5;
   stroke-dasharray: 5 3;
 }
+/* Two lines tall whatever it says, so the page doesn't move as the selection changes */
 .wc-structure-plan__readout {
   margin-top: 6px;
   font-size: 0.85rem;
+  line-height: 1.45;
+  min-height: calc(2 * 1.45em + 12px);
+  box-sizing: border-box;
 }
 .wc-sp__outline {
   fill: var(--wc-bg);
@@ -1983,9 +1987,12 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* Expanded: the panel fills the window and the charts fill what the readout, legend and notes
+   leave, drawn at that size (LoadsChart measures the stage) */
 .wc-loads__panel {
-  width: min(1100px, 100%);
-  max-height: calc(100vh - 32px);
+  display: flex;
+  width: 100%;
+  height: calc(100vh - 32px);
   overflow: auto;
   padding: 16px 20px;
   background: var(--wc-bg);
@@ -1993,6 +2000,36 @@
   border: 1px solid var(--wc-border);
   border-radius: var(--wc-radius);
   box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+}
+.wc-loads--expanded {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.wc-loads--expanded .wc-loads__stage {
+  flex: 1;
+  min-height: 340px;
+  overflow: hidden;
+}
+.wc-loads--expanded svg {
+  width: auto;
+}
+.wc-loads__title {
+  font-weight: 600;
+  fill: var(--wc-text);
+}
+/* Each reading keeps room for its value, so the line wraps the same with or without one */
+.wc-loads__at {
+  min-width: 13em;
+}
+.wc-loads__value {
+  display: inline-block;
+  min-width: 4.5em;
+  font-variant-numeric: tabular-nums;
 }
 .wc-loads__actions {
   display: flex;
@@ -2295,29 +2332,19 @@
   color: var(--wc-muted);
   font-variant-numeric: tabular-nums;
 }
-/* Flat or 3D, at the head's right */
-.wc-part__mode {
-  display: inline-flex;
-  gap: 2px;
-  margin-left: auto;
-}
-.wc-part__modebtn {
-  height: 26px;
-  min-width: 34px;
-  padding: 0 8px;
-  font-size: 0.78rem;
-}
-.wc-part__modebtn[aria-pressed='true'] {
-  color: var(--wc-accent);
-  border-color: color-mix(in srgb, var(--wc-accent) 60%, var(--wc-border));
-  background: color-mix(in srgb, var(--wc-accent) 10%, var(--wc-bg));
-}
-/* The 3D view: as tall as the flat drawing's greatest height */
+/* The 3D view, under the flat drawing */
 .wc-part__solid {
   position: relative;
-  height: 240px;
-  border-radius: 6px;
+  height: 260px;
+  margin-top: 8px;
+  border-top: 1px solid var(--wc-border);
   outline: none;
+}
+.wc-part__home {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
 }
 .wc-part__solid:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--wc-accent) 50%, transparent);
