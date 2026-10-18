@@ -26,3 +26,5 @@ export const TRASH = ['M4 7h16', 'M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3', 'M6
 export const EXPAND = ['M4 9v-3a2 2 0 0 1 2 -2h3', 'M20 9v-3a2 2 0 0 0 -2 -2h-3', 'M4 15v3a2 2 0 0 0 2 2h3', 'M20 15v3a2 2 0 0 1 -2 2h-3']
 // The expand corners turned inward: back to the card
 export const SHRINK = ['M9 4v3a2 2 0 0 1 -2 2h-3', 'M15 4v3a2 2 0 0 0 2 2h3', 'M9 20v-3a2 2 0 0 0 -2 -2h-3', 'M15 20v-3a2 2 0 0 1 2 -2h3']
+// A circled i: notes behind a button (Tabler info-circle)
+export const INFO = ['M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0', 'M12 9h.01', 'M11 12h1v4h1']

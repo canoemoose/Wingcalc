@@ -1401,7 +1401,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 @view="view3d = $event"
               />
             </article>
-            <article class="wc-card">
+            <article class="wc-card wc-card--fill">
               <h3 class="wc-card__label">Loads</h3>
               <LoadsChart :analysis="structureResult.a" :ribs="ribParts" :system="system" :design-g="input.structure.loads.designG" />
             </article>

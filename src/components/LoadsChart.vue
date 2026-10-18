@@ -10,7 +10,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { MODES, MODE_SLOTS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
-import { EXPAND, SHRINK } from '../lib/icons.js'
+import { EXPAND, SHRINK, INFO } from '../lib/icons.js'
 import LoadsChart from './LoadsChart.vue'
 
 const props = defineProps({
@@ -23,12 +23,13 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
-// Drawn at the width they're shown, in px. In the card each chart is a fixed height; expanded,
-// each takes half of what the stage has (its titles and readouts aside), so they fill it
+// Drawn at the width they're shown, in px, each chart half the height the stage has once its
+// titles and readouts are in: expanded, the panel's; in the card, the row's (the Part card beside
+// it sets that, see .wc-card--fill), never under 150 px
 const stageEl = ref(null)
-const stage = ref({ w: 520, h: 560 })
+const stage = ref({ w: 520, h: 0 })
 const W = computed(() => Math.max(300, stage.value.w))
-const H = computed(() => (props.expanded ? Math.max(160, Math.floor(stage.value.h / 2) - 2) : 140))
+const H = computed(() => Math.max(props.expanded ? 160 : 150, Math.floor(stage.value.h / 2) - 2))
 const M = { l: 44, r: 10, t: 10, b: 22 }
 let stageObs = null
 onMounted(() => {
@@ -139,16 +140,21 @@ const hasNeg = computed(() => props.analysis.stations.some((r) => r.Mneg > 0))
 const readout = computed(() => {
   const d = hoverD.value
   const signed = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
+  // Not pointing: the moment at the root, and each mode's lowest margin along the span
   const at = (get, show) => {
-    if (d == null) return ''
-    const v = valueAt(get, d)
+    const v = valueAt(get, d ?? 0)
     return v == null ? '' : show(v)
   }
   const bending = [{ key: 'M', line: 'solid', label: `at ${props.designG} g`, value: at((r) => r.M, nm) }]
   if (hasNeg.value) bending.push({ key: 'Mn', line: 'dashed', label: 'negative', value: at((r) => r.Mneg, nm) })
-  const margins = chart.value.modes.map((m) => ({ key: m.key, slot: m.slot, label: m.label, value: at((r) => r.ms[m.key], signed) }))
+  const worst = chart.value.worst?.mode
+  const margins = chart.value.modes.map((m) => ({ key: m.key, slot: m.slot, label: m.label, value: d == null ? signed(m.low) : at((r) => r.ms[m.key], signed), worst: d == null && m.key === worst }))
   return { x: d == null ? null : chart.value.x(d), at: d == null ? null : format(d, 'length', defaultUnit(props.system, 'length')), bending, margins }
 })
+
+// The notes, shown over the card on the info button
+const notesOpen = ref(false)
+const uid = `wc-loads-${Math.random().toString(36).slice(2, 8)}`
 
 // The overlay: Escape or the backdrop closes it
 const big = ref(false)
@@ -172,6 +178,9 @@ function nm(v) {
 
 <template>
   <figure class="wc-figure wc-loads" :class="{ 'wc-loads--expanded': expanded }">
+    <button v-if="!expanded" type="button" class="wc-iconbtn wc-loads__info" :aria-expanded="String(notesOpen)" :aria-controls="`${uid}-notes`" aria-label="Notes on these charts" title="Notes on these charts" @click="notesOpen = !notesOpen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in INFO" :key="k" :d="d" /></svg>
+    </button>
     <button v-if="!expanded" type="button" class="wc-iconbtn wc-loads__expand" aria-label="Show the loads charts larger" title="Show larger" @click="big = true">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in EXPAND" :key="k" :d="d" /></svg>
     </button>
@@ -199,7 +208,7 @@ function nm(v) {
     <p class="wc-loads__readout" aria-live="polite">
       <span class="wc-loads__at">
         <template v-if="readout.at"><strong>{{ readout.at }}</strong> from the root rib:</template>
-        <span v-else class="wc-muted">Point at a chart to read it here:</span>
+        <span v-else class="wc-muted">At the root rib:</span>
       </span>
       <span v-for="it in readout.bending" :key="it.key" class="wc-loads__reading">
         <span :class="['wc-loads__line', { 'wc-loads__line--dashed': it.line === 'dashed' }]" aria-hidden="true"></span>{{ it.label }}
@@ -233,26 +242,19 @@ function nm(v) {
     <p class="wc-loads__readout" aria-live="polite">
       <span class="wc-loads__at">
         <template v-if="readout.at"><strong>{{ readout.at }}</strong> from the root rib:</template>
-        <span v-else class="wc-muted">Point at a chart to read it here:</span>
+        <span v-else class="wc-muted">Lowest along the span:</span>
       </span>
-      <span v-for="it in readout.margins" :key="it.key" class="wc-loads__reading">
+      <span v-for="it in readout.margins" :key="it.key" :class="['wc-loads__reading', { 'wc-loads__reading--worst': it.worst }]">
         <span :class="['wc-loads__swatch', `wc-loads__mode--${it.slot}`]" aria-hidden="true"></span>{{ it.label }}
         <span class="wc-loads__value">{{ it.value }}</span>
       </span>
+      <span v-if="chart.braces.length" class="wc-loads__reading">
+        <span class="wc-loads__brace-key" aria-hidden="true"></span>Dihedral brace
+      </span>
     </p>
     </div>
-    <ul class="wc-loads__legend" aria-label="Lowest margin along the span, by failure mode">
-      <li class="wc-loads__legend-head">Lowest along the span:</li>
-      <li v-for="m in chart.modes" :key="m.key" :class="{ 'wc-loads__legend--worst': m.key === chart.worst?.mode }">
-        <span :class="['wc-loads__swatch', `wc-loads__mode--${m.slot}`]" aria-hidden="true"></span>
-        {{ m.label }} <span class="wc-muted">{{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</span>
-      </li>
-      <li v-if="chart.braces.length || chart.breakX.length">
-        <span class="wc-loads__swatch wc-loads__swatch--brace" aria-hidden="true"></span>
-        Dihedral brace <span class="wc-muted">B1 to B{{ chart.braces.length || chart.breakX.length }}</span>
-      </li>
-    </ul>
-    <figcaption class="wc-figure__caption">
+    <!-- The notes: under the charts when expanded; in the card, behind the info button -->
+    <figcaption v-if="expanded || notesOpen" :id="`${uid}-notes`" :class="['wc-figure__caption', { 'wc-loads__notes': !expanded }]">
       <span>
         Root bending {{ nm(analysis.rootMoment) }} and shear {{ analysis.rootShear.toFixed(0) }} N at
         {{ designG }} g (solid; dashed is the negative case).<template v-if="ribs.length"> Ribs are the vertical ticks.</template>

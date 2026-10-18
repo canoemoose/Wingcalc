@@ -276,8 +276,8 @@ describe('app render', () => {
         }),
       )
       expect(html).toContain('Leading edge')
-      // The margin chart's legend names every mode it draws
-      expect(html).toContain('wc-loads__legend')
+      // The margins readout names every mode it draws, with its lowest margin until pointed at
+      expect(html).toContain('Lowest along the span')
       for (const k of Object.keys(a.summary.modes)) expect(html).toContain(MODES[k])
       if (html.includes('wc-edgefit')) fitDrawn++
       if (!a.edges.le.fits) misfits++
