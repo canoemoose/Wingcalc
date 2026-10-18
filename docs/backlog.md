@@ -26,6 +26,7 @@ Requested in the 17 October feedback: a complete downloadable design booklet for
 - The covering weights for Doculam, and for glass and carbon cloth with epoxy, are estimates (film thickness plus adhesive; cloth weight times a hand-laid wet-out). Oracover's figure is a retailer's. Weigh some samples.
 - Cap strips are still listed full length where a sheeted hard point covers a rib (the sheet now covers the whole chord, so they aren't needed there).
 - Air brakes' servo bays are still set in the wing editor, with the brake; control surfaces' moved to the structure editor.
+- Possible bug, not yet checked (found by a throwaway probe, 18 October 2026): two panels (0.4 m to a 0.22 m chord, then 0.35 m to 0.15 m with 5° dihedral and sweep 0.15), even rib spacing, ribs perpendicular. `analyseStructure` places 12 ribs, but `buildParts` skips R11 at 680 mm as "outside", so it has no part and isn't in 3D. Suggested spacing on the same wing (sweep 0.05, and streamwise at 0.15) builds all 12. It may already be fixed; reproduce before chasing it.
 
 ## Questions for Sam
 
