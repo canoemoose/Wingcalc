@@ -19,7 +19,7 @@ import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, cap
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
-import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt } from './edgeStock.js'
+import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt, edgeFace, clipPolygon, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { isFoam } from './foam.js'
 import { foamParts, WIRE_KERF, LEAD_IN } from './foamParts.js'
 
@@ -202,6 +202,9 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 // leads: the servo leads that pass through this rib, [{ name, diameter, offset }] (a bay's lead,
 // the hole's near edge offset behind the spar's rear face): each gets a hole, kept clear of the
 // rib's edges and of the other holes, or a note and a mention in `leadFails` if there's no room.
+// How thin a rib runs out to over an inset leading-edge strip, where it feathers out
+const INSET_FEATHER = 0.0005
+
 export function buildRib(a, structure, rib, { board = null, split = null, leads = [] } = {}) {
   const r = structure.ribs
   const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
@@ -246,8 +249,12 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const cov = structure.covering
     if (movingSide) return uA
     // As set, or with none set just behind the LE stock (capStripStart)
-    const start = capStripStart(structure, a.section(rib.s).c)
-    const open = !(start > 0) ? uA : Math.max(uA, crossing((s) => a.section(s).xl + start * a.section(s).c, start * a.section(rib.s).c))
+    const start = capStripStart(structure, a.section(rib.s).c, side)
+    // The rib's front on this side: where a turned leading-edge face meets it, else uA
+    const front = leFaceU ? meetFace(leFaceU, side === 'top' ? top : bot, uA) : uA
+    // With none set, a turned leading edge's strips start right at its face
+    const atFace = leFaceU && cov.capStripStart == null
+    const open = atFace || !(start > 0) ? front : Math.max(front, crossing((s) => a.section(s).xl + start * a.section(s).c, start * a.section(rib.s).c))
     if (cov.type !== 'dbox') return open
     const ext = sheetExtent(structure, side, sparXiRear)
     if (!ext) return open
@@ -321,7 +328,86 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const movingSide = split?.side === 'moving'
   if (fixedSide) uB = crossing(split.surface.faces.fixedFront, guessAt(split.surface.faces.fixedFront))
   if (movingSide) uA = crossing(split.surface.faces.movingRear, guessAt(split.surface.faces.movingRear))
+  // A leading edge let into the ribs: the strip sits in a notch in the rib's lower front corner,
+  // the rib over it and behind it (edgeStock.js insetPlacement). The rib runs forward over the
+  // strip until it feathers out (INSET_FEATHER of rib left over the strip's top); the notch's
+  // floor is the strip's top, its end the strip's back face. Section heights become the rib's
+  // point by point, by the rib's own offset from the section there (its twist about the spar),
+  // as the 3D view does, so the notch and the strip meet exactly.
+  let insetNotch = null
+  const secR = a.section(rib.s)
+  if (!movingSide && structure.le.inset && secR) {
+    const P = insetPlacement(structure.le.inset.item, secR)
+    const uNose = crossing((s) => a.section(s).xl, 0)
+    const vOf = (u) => (u - uNose) / scale
+    const liftAt = (u) => {
+      const f = secR.surf(Math.min(1, Math.max(0, vOf(u) / secR.c)))
+      return (interp(us, prof.up, u) - f.upper + interp(us, prof.lo, u) - f.lower) / 2
+    }
+    // A point of the strip (u, z of its own) on the rib
+    const onRib = (su, sz) => {
+      const [v, y] = P.toV(su, sz)
+      const u = uNose + v * scale
+      return [u, y + liftAt(u)]
+    }
+    const [vF, yF] = P.toV(0, P.H)
+    const [vB, yB] = P.toV(P.W, P.H)
+    const floorAt = (u) => yF + ((yB - yF) * (vOf(u) - vF)) / (vB - vF || 1e-9) + liftAt(u)
+    const tB = onRib(P.W, P.H)
+    // Where the back face meets the rib's lower edge, down the face from the top corner
+    let lo = 0
+    let hi = 1.5
+    for (let i = 0; i < 40; i++) {
+      const m = (lo + hi) / 2
+      const [u, z] = onRib(P.W, P.H * (1 - m))
+      if (z > bot(u)) lo = m
+      else hi = m
+    }
+    const ub = onRib(P.W, P.H * (1 - (lo + hi) / 2))[0]
+    let uFront = null
+    for (let u = Math.max(0, uNose); u < tB[0]; u += 0.0001) {
+      if (top(u) - floorAt(u) >= INSET_FEATHER) {
+        uFront = u
+        break
+      }
+    }
+    if (uFront != null && tB[0] > uFront + 0.001) {
+      uA = uFront
+      insetNotch = { kind: 'floor', u0: uFront, u1: Math.max(tB[0], ub), ub, uTop: tB[0], floorAt }
+    } else {
+      // No rib to keep over it: it's glued to the rib's front like any other strip
+      uA = Math.max(uA, ub)
+      notes.push('No room for rib over the leading-edge strip: the rib stops at its back')
+    }
+  }
   if (!(uB > uA + (movingSide ? 0.005 : 0.01))) return { ok: false, reason: 'short', s: rib.s }
+  // Behind an inset strip's notch, where the rib is whole (labels and lightening holes)
+  const uSolid = insetNotch ? insetNotch.u1 + 0.001 : uA
+  // Edge stock turned to the camber: the rib's face is cut to its angle, through uA (or uB) at
+  // the stock's mid-height. faceU(z) is where the face is along the rib at rib height z: the
+  // face's distance from the wing's edge at that height (edgeStock.js edgeFace, in the section's
+  // own heights, which the rib's differ from by its twist about the spar), along the rib.
+  const sec0 = a.section(rib.s)
+  const faceCut = (e, edge, uMid) => {
+    if (!e?.face || !sec0) return null
+    const F = edgeFace(e.face.item, sec0, edge, e.face)
+    const xi = Math.min(1, Math.max(0, edge === 'le' ? F.depth / sec0.c : 1 - F.depth / sec0.c))
+    const f = sec0.surf(xi)
+    const lift = (interp(us, prof.up, uMid) + interp(us, prof.lo, uMid)) / 2 - (f.upper + f.lower) / 2
+    const sign = edge === 'le' ? 1 : -1
+    return (z) => uMid + sign * (F.at(z - lift) - (e.width || 0)) * scale
+  }
+  const leFaceU = movingSide ? null : faceCut(structure.le, 'le', uA)
+  // Where a face line u = fu(z) meets a surface z = surf(u), from near u
+  const meetFace = (fu, surf, u) => {
+    for (let i = 0; i < 8; i++) u = fu(surf(u))
+    return u
+  }
+  const teFaceU = fixedSide ? null : faceCut(structure.te, 'te', uB)
+  // The outline is walked from a little outside a turned face, then cut along it
+  const leanOut = (fu, u, out) => (fu ? out(u, fu(top(u)), fu(bot(u))) : u)
+  const uCutA = Math.max(0, leanOut(leFaceU, uA, Math.min) - 0.0005 * (leFaceU ? 1 : 0))
+  const uCutB = Math.min(L, leanOut(teFaceU, uB, Math.max) + 0.0005 * (teFaceU ? 1 : 0))
   if (!fixedSide && top(uB) - bot(uB) < MIN_MATERIAL) notes.push('Very thin where it meets the trailing edge stock')
 
   // Notches from the top (upper) and bottom (lower): { u0, u1, depth }
@@ -388,10 +474,10 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // Walk the outline: top from the LE cut to the TE cut, down the TE cut, bottom back.
   const inside = (list, u) => list.some((nt) => u > nt.u0 + 1e-9 && u < nt.u1 - 1e-9)
   const edgeUs = (list) => list.flatMap((nt) => [nt.u0, nt.u1])
-  const breaks = [...new Set([uA, uB, ...us.filter((u) => u > uA && u < uB)])]
+  const breaks = [...new Set([uCutA, uCutB, ...us.filter((u) => u > uCutA && u < uCutB)])]
 
   const topChain = []
-  const tops = [...new Set([...breaks, ...edgeUs(upper)])].filter((u) => u >= uA && u <= uB).sort((p, q) => p - q)
+  const tops = [...new Set([...breaks, ...edgeUs(upper)])].filter((u) => u >= uCutA && u <= uCutB).sort((p, q) => p - q)
   for (const u of tops) {
     const nt = upper.find((x) => Math.abs(x.u0 - u) < 1e-9)
     const nt1 = upper.find((x) => Math.abs(x.u1 - u) < 1e-9)
@@ -402,18 +488,24 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       topChain.push([u, Math.min(top(nt1.u0), top(nt1.u1)) - nt1.depth], [u, top(u)])
     } else if (!inside(upper, u)) topChain.push([u, top(u)])
   }
-  const bottomItems = [...lower.map((x) => ({ ...x, kind: 'notch' })), ...tabs.map((x) => ({ ...x, kind: 'tab' }))]
-  const bots = [...new Set([...breaks, ...edgeUs(bottomItems)])].filter((u) => u >= uA && u <= uB).sort((p, q) => q - p)
+  const bottomItems = [...lower.map((x) => ({ ...x, kind: 'notch' })), ...tabs.map((x) => ({ ...x, kind: 'tab' })), ...(insetNotch ? [insetNotch] : [])]
+  const bots = [...new Set([...breaks, ...edgeUs(bottomItems)])].filter((u) => u >= uCutA && u <= uCutB).sort((p, q) => q - p)
   const botChain = []
   for (const u of bots) {
     const startItem = bottomItems.find((x) => Math.abs(x.u1 - u) < 1e-9) // walking backwards: enter at u1
     const endItem = bottomItems.find((x) => Math.abs(x.u0 - u) < 1e-9)
     const level = (x) => (x.kind === 'tab' ? x.z : Math.max(bot(x.u0), bot(x.u1)) + x.depth)
-    if (startItem) botChain.push([u, bot(u)], [u, level(startItem)])
+    // An inset strip's notch: up its back face to its top corner, then along its top (sloping)
+    // to the rib's front, where the rib ends over the strip
+    if (startItem?.kind === 'floor') botChain.push([startItem.ub, bot(startItem.ub)], [startItem.uTop, startItem.floorAt(startItem.uTop)])
+    else if (endItem?.kind === 'floor') botChain.push([u, endItem.floorAt(u)])
+    else if (startItem) botChain.push([u, bot(u)], [u, level(startItem)])
     else if (endItem) botChain.push([u, level(endItem)], [u, bot(u)])
     else if (!inside(bottomItems, u)) botChain.push([u, bot(u)])
   }
   let outline = clean([...topChain, ...botChain])
+  if (leFaceU) outline = clean(clipPolygon(outline, ([u, z]) => u - leFaceU(z)))
+  if (teFaceU) outline = clean(clipPolygon(outline, ([u, z]) => teFaceU(z) - u))
   // A rod or dowel sits in a half-round notch in the rib's front, its centre line on the cut
   if (!movingSide && isRound(structure.le) && structure.le.diameter > 0) {
     const r = structure.le.diameter / 2
@@ -489,8 +581,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const edge = 0.0015
   let best = null
   for (const [from, to, pref] of [
-    [uA + edge, Math.min(uB, uSpar0) - edge, 1.1],
-    [Math.max(uA, uSpar1) + edge, uB - edge, 1],
+    [uSolid + edge, Math.min(uB, uSpar0) - edge, 1.1],
+    [Math.max(uSolid, uSpar1) + edge, uB - edge, 1],
   ]) {
     for (let u0 = from; u0 < to; u0 += 0.001) {
       // The tallest label (up to 5 mm) whose box fits clear from here
@@ -517,7 +609,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   }
   const label = best
     ? { text: name, u: best.u0, z: best.z, h: best.h }
-    : { text: name, u: uA + 0.004, z: (top(uA + 0.004) + bot(uA + 0.004)) / 2 - 0.00075, h: 0.0015 }
+    : { text: name, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
   const labelBox = best ? [best.u0, best.u1] : null
 
   // Lightening holes, in the open stretches either side of the spar (not on the root,
@@ -526,8 +618,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const m = r.lighteningMargin || 0.004
     const stretches = []
     for (const [from, to] of [
-      [uA + m, Math.min(uB, uSpar0) - m],
-      [Math.max(uA, uSpar1) + m, uB - m],
+      [uSolid + m, Math.min(uB, uSpar0) - m],
+      [Math.max(uSolid, uSpar1) + m, uB - m],
     ]) {
       let open = [[from, to]]
       for (const [b0, b1] of [labelBox, ...leadBlocks].filter(Boolean)) {
@@ -589,6 +681,25 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     // Where each surface's cap strips start from the LE side: a D-box side with sheeting
     // runs its strips from the end of that side's sheet, the rest from the LE stock
     capStripFrom: { top: capFrom('top'), bottom: capFrom('bottom') },
+    // and where they end: at the rib's end, or where a turned trailing-edge face meets each side
+    capStripTo: {
+      top: teFaceU ? meetFace(teFaceU, top, uB) : uB,
+      bottom: teFaceU ? meetFace(teFaceU, bot, uB) : uB,
+    },
+    // Each strip's ends as [outer, inner] along the rib: square, or against a turned face cut
+    // along it, from the outer surface down to the rib
+    capStripEnds: Object.fromEntries(
+      ['top', 'bottom'].map((side) => {
+        const outer = (u) => interp(us, side === 'top' ? prof.up : prof.lo, u)
+        const inner = side === 'top' ? top : bot
+        const f = capFrom(side)
+        const atFace = leFaceU && structure.covering.capStripStart == null && Math.abs(f - meetFace(leFaceU, inner, uA)) < 1e-6
+        const from = atFace ? [meetFace(leFaceU, outer, f), f] : [f, f]
+        const t = teFaceU ? meetFace(teFaceU, inner, uB) : uB
+        const to = teFaceU ? [meetFace(teFaceU, outer, uB), t] : [t, t]
+        return [side, { from, to }]
+      }),
+    ),
     uA,
     uB,
     outline,
@@ -1315,7 +1426,12 @@ function panelKeysOf(a, s) {
 function sheetWidth(a, structure, s, surface) {
   const sec = a.section(s)
   if (!sec) return 0
-  const q0 = (structure.le.width || 0) / sec.c
+  // From the leading edge stock, or over an inset strip where it meets it (edgeStock.js)
+  const inset = structure.le.inset ? insetSheetStarts(structure.le.inset.item, sec, structure.covering.sheetThickness || 0) : null
+  const side = surface === 'upper' ? 'top' : 'bottom'
+  // A turned leading edge: where its leaning face meets this surface
+  const turned = structure.le.face?.[`${side}Xi`]
+  const q0 = inset ? inset[side] / sec.c : Number.isFinite(turned) ? turned : (structure.le.width || 0) / sec.c
   const sparXi = (a.sparX(s) - sec.xl) / sec.c
   const sp = structure.spar
   const half = (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
@@ -1419,10 +1535,11 @@ function stripCutList(a, structure, parts, both) {
       })
     } else if (structure.le.type !== 'none') {
       out.push({
-        item: `Leading edge${leItem ? ` (${leItem.code} ${KIND_LABELS[leItem.kind]})` : ''}, ${p.name}`,
+        item: `Leading edge${leItem ? ` (${leItem.code} ${KIND_LABELS[leItem.kind]}${leItem.laid === 'flat' ? ', laid flat' : leItem.laid === 'edge' ? ', on edge' : ''})` : ''}, ${p.name}`,
         edge: 'le',
         material: structure.le.material,
-        size: [edges?.le.item ? edges.le.item.width : structure.le.width, edges?.le.item ? edges.le.item.height : Math.ceil(leH * 1000) / 1000],
+        // A strip let in either way up is bought as catalogued
+        size: leItem ? leItem.sold ?? [leItem.width, leItem.height] : [structure.le.width, Math.ceil(leH * 1000) / 1000],
         length: lenAlong(p.from, p.to, edgeX('le')),
         qty: sides,
       })
@@ -1433,7 +1550,7 @@ function stripCutList(a, structure, parts, both) {
       item: `Trailing edge (${edges?.te.item ? `${edges.te.item.code} ${KIND_LABELS[edges.te.item.kind]}` : structure.te.type}), ${p.name}`,
       edge: 'te',
       material: structure.te.material,
-      size: [structure.te.width, edges?.te.item ? edges.te.item.height : Math.ceil(teH * 1000) / 1000],
+      size: [edges?.te.item ? edges.te.item.width : structure.te.width, edges?.te.item ? edges.te.item.height : Math.ceil(teH * 1000) / 1000],
       length: lenAlong(p.from, p.to, edgeX('te')),
       qty: sides,
       triangular: structure.te.type === 'triangular',
@@ -1515,7 +1632,8 @@ function stripCutList(a, structure, parts, both) {
     let total = 0
     for (const p of ribs) {
       const b = p.rib
-      total += (Math.max(0, b.uB - b.capStripFrom.top) + Math.max(0, b.uB - b.capStripFrom.bottom)) * p.qty
+      const to = b.capStripTo ?? { top: b.uB, bottom: b.uB }
+      total += (Math.max(0, to.top - b.capStripFrom.top) + Math.max(0, to.bottom - b.capStripFrom.bottom)) * p.qty
     }
     out.push({ item: 'Cap strips (total, both surfaces)', material: cov.capStripMaterial, size: [cov.capStripWidth, cov.capStripThickness], length: total, qty: 1 })
   }

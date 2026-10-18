@@ -2139,16 +2139,31 @@
   max-height: 140px;
 }
 .wc-edgefit__stock {
-  fill: color-mix(in srgb, var(--wc-moderate) 22%, transparent);
-  stroke: var(--wc-moderate);
-  stroke-width: 1;
-  stroke-linejoin: round;
+  fill: color-mix(in srgb, var(--wc-moderate) 45%, transparent);
+  stroke: none;
 }
 .wc-edgefit__section {
   fill: none;
-  stroke: var(--wc-accent);
-  stroke-width: 1.6;
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
   stroke-linejoin: round;
+}
+/* The stock as sold, before carving (dashed); the rib behind its face; the face itself */
+.wc-edgefit__sold {
+  fill: color-mix(in srgb, var(--wc-moderate) 8%, transparent);
+  stroke: var(--wc-moderate);
+  stroke-width: 0.9;
+  stroke-dasharray: 3 2;
+  stroke-linejoin: round;
+}
+.wc-edgefit__rib {
+  fill: color-mix(in srgb, var(--wc-accent) 30%, transparent);
+  stroke: none;
+}
+.wc-edgefit__face {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1.2;
 }
 .wc-edgefit__short {
   fill: color-mix(in srgb, var(--wc-sharp) 45%, transparent);

@@ -180,8 +180,12 @@ export function defaultStructure() {
     // type: 'balsa' (stock) | 'rod' (carbon) | 'dowel' (hardwood) | 'none' (the sheeting forms the nose)
     // stock: 'auto' (a standard size picked to suit) | 'custom' (width as entered) | a catalogue id (edgeStock.js)
     // diameter: a rod or dowel's, null for the type's default (edgeStock.js LE_TYPES)
-    le: { type: 'balsa', stock: 'auto', width: 0.006, height: null, material: 'balsa-hard', diameter: null }, // height: custom stock only (null: as deep)
-    te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium' }, // 'triangular' | 'flat' (custom only)
+    // fit: 'square' (the stock's back face square to the chord, flat on the square-cut rib face),
+    // 'rotated' (turned to follow the camber, the rib face cut to its angle) or, the leading edge
+    // only, 'inset' (let into the ribs); lay: a let-in strip on 'edge', 'flat' or the 'best' way
+    // up. See edgeStock.js
+    le: { type: 'balsa', stock: 'auto', width: 0.006, height: null, material: 'balsa-hard', diameter: null, fit: 'square', lay: 'best' }, // height: custom stock only (null: as deep)
+    te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium', fit: 'square' }, // 'triangular' | 'flat' (custom only)
     stringers: [], // { id, position (chord fraction), surface: 'upper' | 'lower' | 'both', width, height, material }
     ribs: {
       material: 'balsa-medium',
@@ -601,9 +605,15 @@ export function leStockDepth(le) {
 }
 // Chord fraction where cap strips start: the set value, or with null just behind the
 // leading-edge stock, as a fraction of the chord (chord in m; without one, from the nose).
-export function capStripStart(structure, chord) {
+// Under a leading edge let into the ribs (side 'bottom'), behind the strip's bottom back
+// corner, where its bottom stops being the lower surface.
+export function capStripStart(structure, chord, side = null) {
   const v = structure.covering.capStripStart
   if (v != null) return v
+  if (side === 'bottom' && Number.isFinite(structure.le?.inset?.bottomXi)) return structure.le.inset.bottomXi
+  // Turned to the camber: where its leaning face meets that surface
+  const face = structure.le?.face
+  if (side && face && Number.isFinite(face[side === 'top' ? 'topXi' : 'bottomXi'])) return face[side === 'top' ? 'topXi' : 'bottomXi']
   return chord > 0 ? leStockDepth(structure.le) / chord : 0
 }
 
@@ -613,7 +623,7 @@ export function capStripStart(structure, chord) {
 export function skinAt(structure, q, sparXiRear, side, chord, caps = true) {
   const cov = structure.covering
   // Cap strips stop short of the leading edge (capStripStart), so the rib's nose is uncovered
-  const strip = caps && cov.capStrips && q >= capStripStart(structure, chord) - 1e-9 ? cov.capStripThickness || 0 : 0
+  const strip = caps && cov.capStrips && q >= capStripStart(structure, chord, side) - 1e-9 ? cov.capStripThickness || 0 : 0
   if (cov.type === 'sheeted') return cov.sheetThickness || 0
   if (cov.type === 'dbox') {
     if (!side) return q <= sparXiRear ? cov.sheetThickness || 0 : strip
@@ -1576,7 +1586,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const e = edges[k]
     const item = e.round ? roundItem(e.round.diameter) : e.item
     const sec = item && section(e.worstS)
-    if (sec && sec.c > 1e-4) e.drawing = { ...fitDrawing(item, sec, k, e.offset || 0), where: whereS(e.worstS), shortfall: e.shortfall, fits: e.fits }
+    if (sec && sec.c > 1e-4) e.drawing = { ...fitDrawing(item, sec, k, { d: e.offset || 0, mode: e.mode, theta: e.round ? null : e.angle ?? 0 }), where: whereS(e.worstS), shortfall: e.shortfall, fits: e.fits }
   }
   // A foam wing's cores: one per panel (and the centre section), root outward
   const cores = []

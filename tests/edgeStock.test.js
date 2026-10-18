@@ -4,10 +4,10 @@ import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
-import { buildParts, bounds } from '../src/lib/ribs.js'
+import { buildParts, bounds, buildRib } from '../src/lib/ribs.js'
 import { cutListCsv } from '../src/lib/dxf.js'
-import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId, fitDrawing, profileOutline, fitOver } from '../src/lib/edgeStock.js'
-import { sectionAt as sectionIn3d, leSection } from '../src/lib/wing3d.js'
+import { LE_STOCK, TE_STOCK, resolveEdges, lengthsToBuy, roundFitAt, migrateLeStockId, fitDrawing, profileOutline, fitOver, insetPlacement } from '../src/lib/edgeStock.js'
+import { sectionAt as sectionIn3d, leSection, sheetSection as sheetSection3d } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
@@ -105,8 +105,12 @@ describe('edge stock', () => {
     })
     const r1 = res.parts.find((p) => p.group === 'ribs')
     const b = bounds(r1.outline)
-    expect(b.x0).toBeCloseTo(0.0125, 6)
-    expect(b.x1).toBeCloseTo(0.25 - 0.025, 6)
+    // As far as each stock reaches into the wing: its own depth, less any it's set past the edge
+    const { le, te } = res.a.edges
+    expect(le.width).toBeCloseTo(0.0125 - le.offset, 6)
+    expect(te.width).toBeCloseTo(0.025 - te.offset, 6)
+    expect(b.x0).toBeCloseTo(le.width, 6)
+    expect(b.x1).toBeCloseTo(0.25 - te.width, 6)
   })
 
   it('warns when the chosen stock is too small to carve to the section, says where, and suggests the auto pick', () => {
@@ -141,9 +145,10 @@ describe('edge stock', () => {
     const good = build().a.edges
     expect(good.le.drawing.short.length).toBe(0)
     expect(good.te.drawing.short.length).toBe(0)
-    // Trailing edge drawn forward of the trailing edge, as negative x
+    // Trailing edge drawn forward of the trailing edge, as negative x, reaching aft of it only by
+    // as much as the stock is set past it
     expect(good.te.drawing.x0).toBeLessThan(0)
-    expect(good.te.drawing.x1).toBe(0)
+    expect(good.te.drawing.x1).toBeLessThanOrEqual(good.te.offset + 1e-6)
   })
 
   it('names the part in the cut list and says how many lengths to buy', () => {
@@ -351,5 +356,222 @@ describe('edge stock drawings', () => {
       expect(top[0]).toBeCloseTo(bot[0], 9)
       expect(top[1] + bot[1]).toBeCloseTo(0.01, 9)
     }
+  })
+})
+
+describe('square and rotated edge stock', () => {
+  // A strongly cambered nose (its mean line climbing at about 17 degrees), 250 mm chord
+  const cambered = () => {
+    const c = 0.25
+    const sec = { c, surf: (xi) => ({ upper: (0.06 * Math.sqrt(xi) + 0.3 * xi) * c, lower: (-0.06 * Math.sqrt(xi) + 0.3 * xi) * c }) }
+    return () => sec
+  }
+  const sym = LE_STOCK.find((x) => x.code === 'L335')
+
+  it('keeps square stock square: no angle, its back face square to the chord', () => {
+    const f = fitOver(sym, cambered(), [0], 'le', { mode: 'square' })
+    expect(f.at[0].theta).toBe(0)
+    const d = fitDrawing(sym, cambered()(), 'le', { mode: 'square' })
+    expect(d.angle).toBe(0)
+    // The face is vertical
+    expect(d.face[0][0]).toBeCloseTo(d.face[1][0], 9)
+  })
+
+  it('turns stock to the camber when that is what lets it fit at the nose', () => {
+    // Too shallow to hold the climbing nose square, it fits turned nose-up
+    const small = LE_STOCK.find((x) => x.code === 'L325')
+    const sq = fitOver(small, cambered(), [0], 'le', { mode: 'square', d: 0 })
+    const rot = fitOver(small, cambered(), [0], 'le', { mode: 'rotated', d: 0 })
+    expect(sq.fits).toBe(false)
+    expect(rot.at[0].theta).toBeGreaterThan(0)
+    expect(rot.shortfall).toBeLessThan(sq.shortfall)
+    // Stock that already fits square isn't turned: turning it would only carve more away
+    const roomy = LE_STOCK.find((x) => x.kind === 'symmetrical' && fitOver(x, cambered(), [0], 'le', { mode: 'square', d: 0 }).fits)
+    expect(roomy).toBeTruthy()
+    expect(fitOver(roomy, cambered(), [0], 'le', { mode: 'rotated', d: 0 }).at[0].theta).toBe(0)
+    // The drawing's face leans with it
+    const d = fitDrawing(small, cambered()(), 'le', { mode: 'rotated' })
+    expect(Math.abs(d.face[1][0] - d.face[0][0])).toBeGreaterThan(1e-4)
+  })
+
+  it('splits the section at the rib face: the carved edge ahead of it, the rib behind', () => {
+    const area = (o) => Math.abs(o.reduce((t, [x1, y1], i) => { const [x2, y2] = o[(i + 1) % o.length]; return t + x1 * y2 - x2 * y1 }, 0)) / 2
+    for (const mode of ['square', 'rotated']) {
+      const d = fitDrawing(sym, cambered()(), 'le', { mode })
+      const whole = area([...[...d.upper].reverse(), ...d.lower])
+      expect(area(d.carved) + area(d.rib)).toBeCloseTo(whole, 8)
+      expect(area(d.carved)).toBeGreaterThan(0)
+    }
+  })
+
+  it('follows the setting on each edge', () => {
+    const sq = build().a.edges
+    const rot = build((st) => {
+      st.le.fit = 'rotated'
+      st.te.fit = 'rotated'
+    }).a.edges
+    expect(sq.le.mode).toBe('square')
+    expect(sq.le.angle).toBe(0)
+    expect(rot.le.mode).toBe('rotated')
+    expect(rot.te.mode).toBe('rotated')
+    expect(rot.le.drawing.carved.length).toBeGreaterThan(2)
+  })
+})
+
+describe('edge stock let into the ribs', () => {
+  const { a } = build((st) => {
+    st.le.fit = 'inset'
+    st.te.fit = 'inset'
+  })
+  it('lets in the leading edge only: the trailing edge stays square', () => {
+    expect(a.edges.te.mode).toBe('square')
+    expect(a.edges.te.drawing.inset).toBeUndefined()
+  })
+  for (const k of ['le']) {
+    it(`places the ${k} strip at the edge, its bottom along the lower surface, the rib over it`, () => {
+      const e = a.edges[k]
+      expect(e.mode).toBe('inset')
+      expect(['strip', 'square', 'triangular']).toContain(e.item.kind)
+      const d = e.drawing
+      expect(d.inset).toBe(true)
+      // Right at the edge: only as far past it as covers the edge's own curve, turned
+      expect(d.offset).toBeLessThan(e.item.width * 0.2)
+      // Its bottom is at or below the lower surface wherever it is: the bottom corners of the
+      // carved shape are on the lower surface, not above it
+      const sec = a.section(e.worstS)
+      const sign = k === 'le' ? 1 : -1
+      const lowerAt = (x) => sec.surf(Math.min(1, Math.max(0, k === 'le' ? x / sec.c : 1 + x / sec.c))).lower
+      for (const [x, z] of d.carved) expect(z).toBeGreaterThanOrEqual(lowerAt(sign * Math.abs(x)) - 1e-4)
+      // The rib keeps material over its back corner when it fits
+      if (d.fits) expect(d.over).toBeGreaterThanOrEqual(0.0015 - 0.0002)
+      // What's carved is inside the stock as sold
+      expect(d.carved.length).toBeGreaterThan(2)
+    })
+  }
+})
+
+describe('ribs for a leading edge let into them', () => {
+  const inset = build((st) => (st.le.fit = 'inset'))
+  const square = build()
+  const root = (r) => r.parts.find((p) => p.group === 'ribs')
+
+  it('run the rib forward over the strip, past where a square-cut rib stops', () => {
+    const ui = Math.min(...root(inset).outline.map(([u]) => u))
+    const us = Math.min(...root(square).outline.map(([u]) => u))
+    expect(ui).toBeLessThan(us - 0.001)
+  })
+
+  it('notch the rib out of the strip: nothing of the rib below the strip top ahead of its back', () => {
+    const { a } = inset
+    const e = a.edges.le
+    const sec = a.section(a.ribs[0].s)
+    const P = insetPlacement(e.item, sec)
+    const top = (v) => {
+      // The strip's top line in the section, at v back from the nose
+      const [v0, y0] = P.toV(0, P.H)
+      const [v1, y1] = P.toV(P.W, P.H)
+      return y0 + ((y1 - y0) * (v - v0)) / (v1 - v0)
+    }
+    const back = Math.min(P.toV(P.W, 0)[0], P.toV(P.W, P.H)[0])
+    const ahead = root(inset).outline.filter(([u]) => u < back - 0.0005)
+    expect(ahead.length).toBeGreaterThan(2)
+    for (const [u, z] of ahead) expect(z).toBeGreaterThanOrEqual(top(u) - 2e-4)
+  })
+
+  it('draw the 3D leading edge as the carved strip', () => {
+    const { a } = inset
+    const P = leSection(a, a.structure, a.ribs[0].s)
+    const xs = P.map(([x]) => x)
+    const sec = a.section(a.ribs[0].s)
+    // It starts at the nose and reaches back about the strip's depth
+    expect(Math.min(...xs)).toBeCloseTo(sec.xl, 3)
+    expect(Math.max(...xs) - sec.xl).toBeGreaterThan(a.edges.le.item.width * 0.8)
+    // The same number of points at every station, so it lofts along the span
+    const counts = new Set([0, 0.25, 0.5, 0.75, 1].map((f) => leSection(a, a.structure, a.rootS + (a.tipS - a.rootS) * f * 0.98)?.length))
+    expect(counts.size).toBe(1)
+  })
+})
+
+describe('joints round an inset leading edge', () => {
+  it('runs the rib forward over the strip until it feathers out', () => {
+    const { parts } = build((st) => (st.le.fit = 'inset'))
+    const o = parts.find((p) => p.group === 'ribs').outline
+    const u0 = Math.min(...o.map(([u]) => u))
+    const front = o.filter(([u]) => u < u0 + 1e-6).map(([, z]) => z)
+    // Its front edge, over the strip, is only about half a millimetre tall
+    expect(Math.max(...front) - Math.min(...front)).toBeLessThan(0.001)
+  })
+
+  it('steps the rib top square where the cap strips start', () => {
+    const { a, parts } = build((st) => {
+      st.le.fit = 'inset'
+      st.covering.type = 'open'
+      st.covering.capStrips = true
+      // Clear of the strip's back, so the step stands on its own
+      st.covering.capStripStart = 0.1
+    })
+    const o = parts.find((p) => p.group === 'ribs').outline
+    const t = a.structure.covering.capStripThickness
+    // Somewhere along the top two points sit at the same place, one cap strip apart in height
+    const steps = o.filter((p, i) => {
+      const q = o[(i + 1) % o.length]
+      return Math.abs(q[0] - p[0]) < 1e-5 && Math.abs(Math.abs(q[1] - p[1]) - t) < 2e-4
+    })
+    expect(steps.length).toBeGreaterThan(0)
+  })
+
+  it('starts the bottom cap strips at the back of the strip, where its bottom stops being the surface', () => {
+    const { a } = build((st) => {
+      st.le.fit = 'inset'
+      st.covering.type = 'open'
+      st.covering.capStrips = true
+    })
+    const rib = a.ribs[0]
+    const rb = buildRib(a, a.structure, rib)
+    const sec = a.section(rib.s)
+    const P = insetPlacement(a.edges.le.item, sec)
+    expect(rb.capStripFrom.bottom).toBeCloseTo(P.toV(P.W, 0)[0], 3)
+  })
+
+  it('brings a D-box forward over the strip on top, and to its back underneath', () => {
+    const { a } = build((st) => {
+      st.le.fit = 'inset'
+      st.covering.type = 'dbox'
+    })
+    const sec = a.section(a.rootS)
+    const top = sheetSection3d(a, a.structure, a.rootS, 'upper')
+    const bottom = sheetSection3d(a, a.structure, a.rootS, 'lower')
+    const start = (P) => Math.min(...P.map(([x]) => x)) - sec.xl
+    const P = insetPlacement(a.edges.le.item, sec)
+    expect(start(top)).toBeLessThan(P.toV(P.W, P.H)[0] - 0.001)
+    expect(start(bottom)).toBeCloseTo(P.toV(P.W, 0)[0], 4)
+  })
+})
+
+describe('a let-in strip either way up', () => {
+  const inset = (lay, stock = 'L263') => build((st) => {
+    st.le.fit = 'inset'
+    st.le.stock = stock
+    st.le.lay = lay
+  }).a.edges.le
+  it('stands it on edge or lays it flat as asked, its longer side up or along the chord', () => {
+    const edge = inset('edge')
+    const flat = inset('flat')
+    expect(edge.item.laid).toBe('edge')
+    expect(edge.item.height).toBeGreaterThan(edge.item.width)
+    expect(flat.item.laid).toBe('flat')
+    expect(flat.item.width).toBeGreaterThan(flat.item.height)
+  })
+  it('picks the better way when left to it, and lists it in the cut list as sold', () => {
+    const best = inset('best')
+    expect(['edge', 'flat']).toContain(best.item.laid)
+    const { cutList } = build((st) => {
+      st.le.fit = 'inset'
+      st.le.stock = 'L263'
+      st.le.lay = 'flat'
+    })
+    const le = cutList.find((c) => c.edge === 'le')
+    expect(le.size).toEqual([0.0065, 0.025])
+    expect(le.item).toMatch(/laid flat/)
   })
 })

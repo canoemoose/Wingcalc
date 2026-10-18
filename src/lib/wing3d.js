@@ -14,7 +14,7 @@
 import { MIN_CORE, isFoam } from './foam.js'
 import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan } from './structure.js'
 import { gussetsAt } from './ribs.js'
-import { isRound, roundFitAt } from './edgeStock.js'
+import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
 import { placeServo } from './servos.js'
 
@@ -363,7 +363,10 @@ export function sheetSection(a, structure, s, which) {
   const sec = a.section(s)
   if (!sec || !(sec.c > 1e-4)) return null
   const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
-  const x0 = sec.xl + structure.le.width
+  // From the leading edge stock, or over an inset strip where it meets it
+  const inset = structure.le.inset ? insetSheetStarts(structure.le.inset.item, sec, structure.covering.sheetThickness || 0) : null
+  const turned = structure.le.face?.[which === 'upper' ? 'topXi' : 'bottomXi']
+  const x0 = sec.xl + (inset ? inset[which === 'upper' ? 'top' : 'bottom'] : Number.isFinite(turned) ? turned * sec.c : structure.le.width)
   // Each surface's sheet runs to its own end (a D-box side may stop short of the spar, or be off)
   const side = which === 'upper' ? 'top' : 'bottom'
   const rearXi = (sparRear(s) - sec.xl) / sec.c
@@ -391,9 +394,53 @@ export function patchSection(a, structure, s, which) {
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, inner(x)])]
 }
 
+// A closed outline as n points evenly round it, from its foremost point, anticlockwise (x aft,
+// h up): so outlines whose own point counts differ from station to station loft together
+function evenRing(pts, n = 36) {
+  const area = pts.reduce((t, [x1, y1], i) => {
+    const [x2, y2] = pts[(i + 1) % pts.length]
+    return t + x1 * y2 - x2 * y1
+  }, 0)
+  let ring = area < 0 ? [...pts].reverse() : [...pts]
+  const k = ring.reduce((b, p, i) => (p[0] < ring[b][0] ? i : b), 0)
+  ring = [...ring.slice(k), ...ring.slice(0, k)]
+  const seg = ring.map((p, i) => Math.hypot(ring[(i + 1) % ring.length][0] - p[0], ring[(i + 1) % ring.length][1] - p[1]))
+  const total = seg.reduce((t, l) => t + l, 0)
+  const out = []
+  let i = 0
+  let run = 0
+  for (let j = 0; j < n; j++) {
+    const at = (total * j) / n
+    while (i < ring.length - 1 && run + seg[i] < at) run += seg[i++]
+    const t = seg[i] > 0 ? (at - run) / seg[i] : 0
+    const [x0, y0] = ring[i]
+    const [x1, y1] = ring[(i + 1) % ring.length]
+    out.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t])
+  }
+  return out
+}
+
+// Where turned edge stock's face (the rib face behind it) meets one surface at s, in plan: the
+// face's distance from the edge at that height (edgeStock.js edgeFace, in the section's own
+// heights, which the 3D surface differs from by the twist). Null for square stock.
+function faceX(a, structure, s, edge, which) {
+  const e = structure[edge]
+  const sec = a.section(s)
+  if (!e?.face || !sec) return null
+  const F = edgeFace(e.face.item, sec, edge, e.face)
+  const xAt = (v) => (edge === 'le' ? sec.xl + v : sec.xl + sec.c - v)
+  let x = xAt(F.depth)
+  for (let i = 0; i < 6; i++) {
+    const xi = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
+    const lift = surfaceHeight(a, s, x, which) - sec.surf(xi)[which]
+    x = xAt(Math.min(sec.c / 2, Math.max(0, F.at(surfaceHeight(a, s, x, which) - lift))))
+  }
+  return x
+}
+
 // Leading edge stock at s: the section's own nose over its depth, cosine-spaced so it stays
-// round; a rod or dowel as its circle, placed as the fit check places it (edgeStock.js);
-// nothing for a sheeted nose.
+// round, back to the rib face (square, or at a turned stock's angle); a rod or dowel as its
+// circle, placed as the fit check places it (edgeStock.js); nothing for a sheeted nose.
 export function leSection(a, structure, s) {
   const sec = a.section(s)
   if (!sec || !(sec.c > 1e-4) || structure.le.type === 'none') return null
@@ -405,9 +452,24 @@ export function leSection(a, structure, s) {
     const zc = roundFitAt(D, sec).centre + surfaceHeight(a, s, x, 'upper') - sec.surf(Math.min(1, r / sec.c)).upper
     return Array.from({ length: 24 }, (_, i) => [x + r * Math.cos((2 * Math.PI * i) / 24), zc + r * Math.sin((2 * Math.PI * i) / 24)])
   }
+  // Let into the ribs: the strip as carved to the section, in its notch (edgeStock.js)
+  if (structure.le.inset) {
+    const P = insetPlacement(structure.le.inset.item, sec)
+    if (P.carved.length > 2) {
+      return evenRing(P.carved).map(([v, y]) => {
+        const x = sec.xl + v
+        const f = sec.surf(Math.min(1, Math.max(0, v / sec.c)))
+        const lift = (surfaceHeight(a, s, x, 'upper') - f.upper + surfaceHeight(a, s, x, 'lower') - f.lower) / 2
+        return [x, y + lift]
+      })
+    }
+  }
   const w = Math.min(structure.le.width, sec.c / 2)
-  const xs = cosine(10).map((f) => sec.xl + f * w)
-  return [...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...xs.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
+  const xUp = faceX(a, structure, s, 'le', 'upper') ?? sec.xl + w
+  const xLo = faceX(a, structure, s, 'le', 'lower') ?? sec.xl + w
+  const ups = cosine(10).map((f) => sec.xl + f * (xUp - sec.xl))
+  const los = cosine(10).map((f) => sec.xl + f * (xLo - sec.xl))
+  return [...[...ups].reverse().map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...los.slice(1).map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
 }
 
 // A control surface's fixed hinge spar at s: from its front face to its rear face (a box that
@@ -499,8 +561,11 @@ export function teSection(a, structure, s, k = 8) {
   if (!sec || !(sec.c > 1e-4)) return null
   const from = sec.xl + sec.c - Math.min(structure.te.width, sec.c / 2)
   const to = sec.xl + sec.c
-  const xs = Array.from({ length: k + 1 }, (_, i) => from + ((to - from) * i) / k)
-  return [...xs.map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...[...xs].reverse().map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
+  // From the rib face (square, or at a turned stock's angle) to the trailing edge
+  const run = (x0) => Array.from({ length: k + 1 }, (_, i) => x0 + ((to - x0) * i) / k)
+  const ups = run(faceX(a, structure, s, 'te', 'upper') ?? from)
+  const los = run(faceX(a, structure, s, 'te', 'lower') ?? from)
+  return [...ups.map((x) => [x, surfaceHeight(a, s, x, 'upper')]), ...[...los].reverse().map((x) => [x, surfaceHeight(a, s, x, 'lower')])]
 }
 
 // A control surface that is the trailing edge stock itself, at s: the stock from the hinge back,
@@ -951,7 +1016,7 @@ export function wing3d(a, structure, parts) {
         const f = (u - us[i - 1]) / (us[i] - us[i - 1] || 1)
         return arr[i - 1] + (arr[i] - arr[i - 1]) * f
       }
-      const to = r.uB
+      const to0 = r.uB
       const n = 40
       for (const [outer, inner, side] of [
         [up, upIn, 'top'],
@@ -959,9 +1024,13 @@ export function wing3d(a, structure, parts) {
       ]) {
         // Each surface's strips start behind its own sheeting (from the LE where that side is open)
         const from = r.capStripFrom[side]
+        // ... and end at the rib's end, or where a turned trailing-edge face meets this side
+        const to = r.capStripTo?.[side] ?? to0
         if (!(to > from)) continue
-        const uu = Array.from({ length: n + 1 }, (_, i) => from + ((to - from) * i) / n)
-        const outline = [...uu.map((u) => [u, at(outer, u)]), ...[...uu].reverse().map((u) => [u, at(inner, u)])]
+        // Its ends: square, or cut along a turned edge's face (outer and inner ends apart)
+        const ends = r.capStripEnds?.[side] ?? { from: [from, from], to: [to, to] }
+        const run = (a0, a1) => Array.from({ length: n + 1 }, (_, i) => a0 + ((a1 - a0) * i) / n)
+        const outline = [...run(ends.from[0], ends.to[0]).map((u) => [u, at(outer, u)]), ...run(ends.from[1], ends.to[1]).reverse().map((u) => [u, at(inner, u)])]
         // Centred on the rib, except on end ribs, where it's flush with the outer face; the
         // centre rib's is split between the halves (the other half comes with the mirror)
         const cw = cov.capStripWidth

@@ -90,6 +90,20 @@ const SPAR_TYPES = [
   { value: 'tube', label: 'Tube' },
   { value: 'solid', label: 'Solid' },
 ]
+// How edge stock goes on: square to the rib face, or turned to follow the camber
+const EDGE_FITS = [
+  { value: 'square', label: 'Square to the rib', title: 'Its back face square to the chord, glued flat on the square-cut rib face' },
+  { value: 'rotated', label: 'Turned to the camber', title: 'Turned to follow the section, so less is carved away; the rib face is cut to its angle' },
+  { value: 'inset', label: 'Let into the ribs', title: 'A strip in a notch in the rib corner, its bottom along the lower surface, the rib over it and behind it' },
+]
+// A let-in strip: which way up
+const LAYS = [
+  { value: 'best', label: 'Best way up', title: 'Whichever fits with the least carved away' },
+  { value: 'edge', label: 'On edge', title: 'Its longer side up' },
+  { value: 'flat', label: 'Laid flat', title: 'Its longer side along the chord' },
+]
+// The trailing edge isn't let into the ribs
+const TE_FITS = EDGE_FITS.filter((f) => f.value !== 'inset')
 const COVERINGS = [
   { value: 'open', label: 'Open', title: 'Ribs only, covered over the open bays' },
   { value: 'dbox', label: 'D-box', title: 'Sheeted from the leading edge back to the spar' },
@@ -656,6 +670,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           @update:model-value="set('le.height', $event)"
         />
         <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
+        <SegmentedField :model-value="st.le.fit ?? 'square'" label="Leading edge stock fitted" :options="EDGE_FITS" @update:model-value="set('le.fit', $event)" />
+        <SegmentedField v-if="st.le.fit === 'inset'" :model-value="st.le.lay ?? 'best'" label="Strip laid" :options="LAYS" @update:model-value="set('le.lay', $event)" />
       </template>
       <SelectField
         v-else-if="isRound(st.le)"
@@ -700,6 +716,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         />
       </template>
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />
+      <SegmentedField v-if="edges?.te.item" :model-value="st.te.fit === 'rotated' ? 'rotated' : 'square'" label="Trailing edge stock fitted" :options="TE_FITS" @update:model-value="set('te.fit', $event)" />
       <EdgeFit v-if="edges?.te.drawing" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
