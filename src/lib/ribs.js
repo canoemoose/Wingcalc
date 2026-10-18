@@ -205,10 +205,11 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 export function buildRib(a, structure, rib, { board = null, split = null, leads = [] } = {}) {
   const r = structure.ribs
   const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
-  const prof = cutProfile(a, rib.s, { perpendicular })
+  let prof = cutProfile(a, rib.s, { perpendicular })
   if (!prof) return { ok: false, reason: 'outside', s: rib.s }
   const notes = []
-  const { us, length: L } = prof
+  let us = prof.us
+  const L = prof.length
   const scale = L / prof.chord // along-rib length per unit of streamwise chord
   const uSpar = prof.sparU
   const sp = structure.spar
@@ -255,14 +256,44 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     return crossing((s) => a.section(s).xl + set * a.section(s).c, uSpar1)
   }
 
-  // Inset surfaces: offset by the skin, measured square to the surface
-  const n = us.length
-  const upIn = new Array(n)
-  const loIn = new Array(n)
   // Sheeted hard points over this rib: the rib is inset by their sheeting where they cover it
   const patches = split?.side === 'moving' ? [] : hardPatches(structure, a.rootS).filter((h) => rib.s >= h.s0 - 1e-6 && rib.s <= h.s1 + 1e-6)
   const patchT = patchSheet(structure).thickness
   const patchAt = (q, side) => (patches.some((h) => h.sides.includes(side) && q >= h.from - 1e-9 && q <= h.to + 1e-9) ? patchT : 0)
+  // Where the skin over the rib changes (cap strips starting, sheeting ending, a hard point's
+  // edge), the rib's edge steps square instead of ramping between samples: two more samples, a
+  // hair either side of each change
+  {
+    const c = a.section(rib.s).c
+    const skin = (q, side) => Math.max(skinAt(structure, q, sparXiRear, side, c), patchAt(q, side))
+    const lerp = (i, t) => ({ u: us[i] + (us[i + 1] - us[i]) * t, up: prof.up[i] + (prof.up[i + 1] - prof.up[i]) * t, lo: prof.lo[i] + (prof.lo[i + 1] - prof.lo[i]) * t, xi: prof.xi[i] + (prof.xi[i + 1] - prof.xi[i]) * t })
+    const rows = []
+    for (let i = 0; i < us.length; i++) {
+      rows.push({ u: us[i], up: prof.up[i], lo: prof.lo[i], xi: prof.xi[i] })
+      if (i === us.length - 1) continue
+      const at = []
+      for (const side of ['top', 'bottom']) {
+        if (Math.abs(skin(prof.xi[i], side) - skin(prof.xi[i + 1], side)) < 1e-9) continue
+        let lo = 0
+        let hi = 1
+        for (let k = 0; k < 30; k++) {
+          const m = (lo + hi) / 2
+          if (Math.abs(skin(lerp(i, m).xi, side) - skin(prof.xi[i], side)) < 1e-9) lo = m
+          else hi = m
+        }
+        at.push(lo, hi)
+      }
+      for (const t of [...new Set(at)].sort((p, q) => p - q)) if (t > 1e-6 && t < 1 - 1e-6) rows.push(lerp(i, t))
+    }
+    if (rows.length > us.length) {
+      prof = { ...prof, us: rows.map((x) => x.u), up: rows.map((x) => x.up), lo: rows.map((x) => x.lo), xi: rows.map((x) => x.xi) }
+      us = prof.us
+    }
+  }
+  // Inset surfaces: offset by the skin, measured square to the surface
+  const n = us.length
+  const upIn = new Array(n)
+  const loIn = new Array(n)
   for (let i = 0; i < n; i++) {
     const i0 = Math.max(0, i - 1)
     const i1 = Math.min(n - 1, i + 1)
