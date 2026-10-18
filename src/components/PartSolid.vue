@@ -1,7 +1,7 @@
 <script setup>
-// One part in 3D: its outline and holes cut from a sheet of its thickness, with its engraved
-// lines on the face, at true proportions (a piece of strip stock: its section run out to its
-// length). Drag to turn it, right-drag to move it, and while the view has focus scroll, + and −
+// One piece in 3D on its own: as it sits in the wing (its solids from the 3D model, and a rib or
+// cap strip's outline placed by its matrix), or a part that isn't drawn in the wing as a solid
+// of its thickness with its engraved lines on the face. Drag to turn it, right-drag to move it, and while the view has focus scroll, + and −
 // zoom and F fits; − + Fit in the corner as in the other views, and the house top right goes
 // back to the three-quarter view it opens in. Fit keeps the angle; both ease into place.
 // three.js loads on first use (the wing's 3D view shares the chunk) and renders on demand.
@@ -10,7 +10,9 @@ import StageZoom from './StageZoom.vue'
 import { HOME } from '../lib/icons.js'
 
 const props = defineProps({
-  part: { type: Object, required: true },
+  // { solids, plates, material, kind }: the piece as placed (wing3d solids, and ribs or cap
+  // strips: { outline, holes, thickness, matrix }); or { flat: part, material }
+  subject: { type: Object, required: true },
 })
 
 const wrapEl = ref(null)
@@ -23,8 +25,11 @@ let camera = null
 let controls = null
 let body = null
 let resizeObs = null
+let toCreasedNormals = null
 const WOOD = 0xd9b77e
-const MATERIAL_COLOURS = { mylar: 0xb8c4cc, 'template-stock': 0xc9ced4 }
+const MATERIAL_COLOURS = { mylar: 0xb8c4cc, 'template-stock': 0xc9ced4, 'carbon-tube': 0x2f3337 }
+// As in the wing's 3D view
+const KIND_COLOURS = { servo: 0x3a3f45, servoOutput: 0xf2f2ee, servoLead: 0xd9a400, tab: 0x8fa3ad, blade: 0x7f8c97, core: 0xe9e5d8, coreMoving: 0xe9e5d8, sheet: 0xecd9b0, plate: 0xa8794a }
 const EASE_MS = 320
 
 const size = () => ({ w: wrapEl.value?.clientWidth || 320, h: wrapEl.value?.clientHeight || 220 })
@@ -51,23 +56,47 @@ function build() {
     scene.remove(body)
     dispose(body)
   }
-  const p = props.part
-  const t = Math.max(p.thickness || 0, 1e-4)
+  const sub = props.subject
   body = new THREE.Group()
+  const colourOf = (kind) => KIND_COLOURS[kind] ?? MATERIAL_COLOURS[sub.material] ?? WOOD
+  const edges = new THREE.LineBasicMaterial({ color: 0x5b4a32, transparent: true, opacity: 0.6 })
+  const add = (geo, colour) => {
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85, metalness: 0, side: THREE.DoubleSide }))
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edges))
+    body.add(mesh)
+  }
   const v2 = ([u, z]) => new THREE.Vector2(u, z)
-  const shape = new THREE.Shape(p.outline.map(v2))
-  for (const h of p.holes ?? []) shape.holes.push(new THREE.Path(h.map(v2)))
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, curveSegments: 1 })
-  const mat = new THREE.MeshStandardMaterial({ color: MATERIAL_COLOURS[p.material] ?? WOOD, roughness: 0.85, metalness: 0, side: THREE.DoubleSide })
-  const mesh = new THREE.Mesh(geo, mat)
-  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x5b4a32, transparent: true, opacity: 0.6 })))
-  body.add(mesh)
-  // Engraved lines on the front face, just proud of it so they don't flicker
-  const etch = new THREE.LineBasicMaterial({ color: new THREE.Color(cssColour('--wc-accent', '#1f6feb')) })
-  for (const e of p.etch ?? []) {
-    if (e.length < 2) continue
-    const g = new THREE.BufferGeometry().setFromPoints(e.map(([u, z]) => new THREE.Vector3(u, z, t + t * 0.02 + 1e-5)))
-    body.add(new THREE.Line(g, etch))
+  const extrude = (p, depth) => {
+    const shape = new THREE.Shape(p.outline.map(v2))
+    for (const h of p.holes ?? []) shape.holes.push(new THREE.Path(h.map(v2)))
+    return new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 1 })
+  }
+  if (sub.flat) {
+    const p = sub.flat
+    const t = Math.max(p.thickness || 0, 1e-4)
+    add(extrude(p, t), colourOf(null))
+    // Engraved lines on the front face, just proud of it so they don't flicker
+    const etch = new THREE.LineBasicMaterial({ color: new THREE.Color(cssColour('--wc-accent', '#1f6feb')) })
+    for (const e of p.etch ?? []) {
+      if (e.length < 2) continue
+      const g = new THREE.BufferGeometry().setFromPoints(e.map(([u, z]) => new THREE.Vector3(u, z, t + t * 0.02 + 1e-5)))
+      body.add(new THREE.Line(g, etch))
+    }
+  } else {
+    // As placed in the wing: smooth over gentle curves, sharp at corners, as in the wing's view
+    for (const sol of sub.solids ?? []) {
+      let geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(sol.positions, 3))
+      geo.setIndex(new THREE.BufferAttribute(sol.indices, 1))
+      if (toCreasedNormals) geo = toCreasedNormals(geo, Math.PI / 6)
+      else geo.computeVertexNormals()
+      add(geo, colourOf(sol.kind))
+    }
+    for (const p of sub.plates ?? []) {
+      const geo = extrude(p, p.thickness)
+      geo.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix))
+      add(geo, sub.kind === 'capStrip' ? KIND_COLOURS.sheet : colourOf(null))
+    }
   }
   scene.add(body)
   home(false)
@@ -199,6 +228,7 @@ onMounted(async () => {
   try {
     THREE = await import('three')
     const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js')
+    toCreasedNormals = (await import('three/examples/jsm/utils/BufferGeometryUtils.js')).toCreasedNormals
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
     wrapEl.value.appendChild(renderer.domElement)
@@ -226,7 +256,7 @@ onMounted(async () => {
   }
 })
 
-watch(() => props.part, build)
+watch(() => props.subject, build)
 
 onBeforeUnmount(() => {
   anim++

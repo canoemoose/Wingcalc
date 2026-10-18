@@ -921,8 +921,11 @@ export function wing3d(a, structure, parts) {
   const s0 = a.rootS
   const s1 = a.tipS
   const solids = []
-  // pick: which part a solid stands for, for selecting it in the view (see partFor)
-  const add = (kind, mesh, pick = null) => mesh && solids.push({ kind, ...mesh, ...(pick ? { pick } : {}) })
+  // pick: which part a solid stands for (see partFor); piece: which piece of the wing it is,
+  // { id, name, material }, for selecting and inspecting it on its own (see wingPieces). A
+  // piece may be several solids (a servo's case, lugs, boss and lead).
+  const add = (kind, mesh, pick = null, piece = null) => mesh && solids.push({ kind, ...mesh, ...(pick ? { pick } : {}), ...(piece ? { piece } : {}) })
+  const ribName = (id) => parts.find((p) => p.id === id)?.name ?? id
 
   // Spar, then the shear webs: separate pieces between the ribs, as they're fitted
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(s1, s0 + sp.tubeLength) : s1
@@ -931,9 +934,13 @@ export function wing3d(a, structure, parts) {
   if (sp.type === 'tube' && tubeBore(a, st, s0)) {
     const outer = sweepRings(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[0], 40, sparEnds)
     const inner = sweepRings(a, s0, sparEnd, (s) => tubeBore(a, st, s), 40, sparEnds)
-    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner), { stock: 'spar' })
+    if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner), null, { id: 'spar', name: 'Spar tube', material: sp.tubeMaterial })
   } else {
-    for (let k = 0; k < nSpar; k++) add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }), { stock: 'spar' })
+    const caps = sp.type === 'caps' || sp.type === 'box'
+    for (let k = 0; k < nSpar; k++) {
+      const piece = caps ? { id: `spar-${k ? 'bottom' : 'top'}`, name: `Spar cap, ${k ? 'bottom' : 'top'}`, material: sp.capMaterial } : { id: 'spar', name: 'Spar', material: sp.solidMaterial }
+      add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }), null, piece)
+    }
   }
   const ribList = parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s)
   for (let i = 1; i < ribList.length; i++) {
@@ -941,38 +948,52 @@ export function wing3d(a, structure, parts) {
     const to = ribList[i].s - ribList[i].thickness / 2
     if (to - from < 0.001) continue
     const n = webBoxes(a, st, from).length
-    for (let k = 0; k < n; k++) add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [`W${i}`] })
+    for (let k = 0; k < n; k++) {
+      const piece = { id: `web-${i}-${k}`, name: `Shear web, ${ribList[i - 1].name} to ${ribList[i].name}${n > 1 ? (k ? ', rear' : ', front') : ''}`, material: sp.webMaterial }
+      add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [`W${i}`] }, piece)
+    }
   }
 
   // Sheeting, then the leading and trailing edge stock
   const cov = st.covering
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
-    for (const which of ['upper', 'lower']) add('sheet', sweep(a, s0, s1, (s) => sheetSection(a, st, s, which), 40, { extend: ends, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which })
+    // A sheet per panel, as each is cut
+    const runs = panelRuns(a)
+    for (const which of ['upper', 'lower']) {
+      runs.forEach((r, k) => {
+        const ext = [k === 0 ? ends[0] : 0, k === runs.length - 1 ? ends[1] : 0]
+        const piece = { id: `sheet-${which}-${k}`, name: `${which === 'upper' ? 'Top' : 'Bottom'} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (r.from + r.to) / 2 }
+        add('sheet', sweep(a, r.from, r.to, (s) => sheetSection(a, st, s, which), 20, { extend: ext, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which }, piece)
+      })
+    }
   }
   // Sheeted hard points, over the ribs at their ends and the bays between
   for (const h of hardPatches(st, a.rootS)) {
     for (const side of h.sides) {
       const which = side === 'top' ? 'upper' : 'lower'
-      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] })
+      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st).material })
     }
   }
-  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), { stock: 'le' })
+  add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), null, { id: 'le', name: 'Leading edge', material: st.le.material })
   // The trailing edge: the wing's, broken where each control surface's own runs, between the
   // surface's end ribs' outer faces
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok).sort((p, q) => p.s0 - q.s0)
   let from = s0
   let fromExt = ends[0]
+  let fromName = 'the root'
+  const teMat = st.te.material
   for (const sf of surfaces) {
-    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }), { stock: 'te' })
+    add('te', sweep(a, from, sf.s0, (s) => teSection(a, st, s), 20, { extend: [fromExt, halfRib] }), null, { id: `te-${sf.id}`, name: `Trailing edge, ${fromName} to ${sf.label}`, material: teMat })
+    fromName = sf.label
     from = sf.s1
     fromExt = halfRib
-    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20), { stock: sf.stock ? `teMoving:${sf.id}` : 'te' })
+    add('teMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => (sf.stock ? stockSurfaceSection(a, st, sf, s) : teSection(a, st, s)), 20), null, { id: `teMoving-${sf.id}`, name: sf.stock ? `${sf.label}, cut from the trailing edge stock` : `Trailing edge, ${sf.label}`, material: teMat })
     // The hinge spars: the fixed side's between the end ribs' faces, the moving side's across
     // the moving surface
-    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12), { stock: `hinge:${sf.id}` })
-    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12), { stock: `hingeMoving:${sf.id}` })
+    add('hinge', sweep(a, sf.fixed[0], sf.fixed[1], (s) => hingeSparSection(a, st, sf, s), 12), null, { id: `hinge-${sf.id}`, name: `Hinge spar, fixed side, ${sf.label}`, material: st.hinges.material })
+    if (!sf.stock) add('hingeMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => movingSparSection(a, st, sf, s), 12), null, { id: `hingeMoving-${sf.id}`, name: `Hinge spar, moving side, ${sf.label}`, material: st.hinges.material })
   }
-  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }), { stock: 'te' })
+  add('te', sweep(a, from, s1, (s) => teSection(a, st, s), 40, { extend: [fromExt, ends[1]] }), null, { id: 'te', name: surfaces.length ? `Trailing edge, ${fromName} to the tip` : 'Trailing edge', material: teMat })
 
   // A foam wing's core: from the leading edge stock to the trailing edge stock, stopping at the
   // fixed hinge spar along each control surface, whose own core runs from its hinge spar back;
@@ -984,14 +1005,16 @@ export function wing3d(a, structure, parts) {
     // A core is picked as its nearer hot-wire template
     const templates = { groups: ['templates'] }
     let at = s0
+    let k = 0
+    const core = (id, name) => ({ id: `core-${id}`, name, material: st.foam?.core })
     for (const sf of surfaces) {
-      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates)
-      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12), templates)
-      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12), templates)
+      add('core', sweep(a, at, sf.s0, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates, core(k++, 'Foam core, inboard of ' + sf.label))
+      add('core', sweep(a, sf.s0, sf.s1, (s) => coreSection(a, st, s, front(s), sf.faces.fixedFront(s)), 12), templates, core(k++, `Foam core, ahead of ${sf.label}`))
+      if (!sf.stock) add('coreMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => coreSection(a, st, s, sf.faces.movingRear(s), teFront(s), 8), 12), templates, core(`${sf.id}-moving`, `Foam core, ${sf.label}`))
       at = sf.s1
     }
-    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates)
-    if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40))
+    add('core', sweep(a, at, s1, (s) => coreSection(a, st, s, front(s), teFront(s)), 40), templates, core(k++, surfaces.length ? 'Foam core, outboard' : 'Foam core'))
+    if (sp.webThickness > 0) add('web', sweep(a, s0, s1, (s) => webBoxes(a, st, s)[0], 40), null, { id: 'web', name: 'Shear web', material: sp.webMaterial })
   }
 
   // Servo bays: each servo, standing on the lower skin's inside, drawn from its maker's drawing
@@ -1002,8 +1025,10 @@ export function wing3d(a, structure, parts) {
     const { parts: sp, plate } = servoBayParts(a, st, b)
     // The servo and its plate are picked as the plate (a foam wing's: the pocket's template)
     const pick = { ids: [b.name, `${b.name}-T`] }
-    for (const p of sp) add(p.kind, servoSolid(a, p), pick)
-    for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1), pick)
+    const servo = { id: `servo-${b.name}`, name: `${b.servo.label} servo, ${b.name}` }
+    const platePiece = { id: `plate-${b.name}`, name: `Servo plate, ${b.name}`, material: 'ply-birch' }
+    for (const p of sp) add(p.kind, servoSolid(a, p), pick, servo)
+    for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1), pick, platePiece)
   }
 
   // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;
@@ -1013,18 +1038,18 @@ export function wing3d(a, structure, parts) {
     if (r.type === 'blade') {
       r.walls.forEach((w, k) => {
         const xm = (w.x0 + w.x1) / 2
-        add('brakeBox', sweep(a, r.inner[0], r.inner[1], (s) => rect(w.x0, w.x1, insetHeight(a, st, s, xm, 'lower'), insetHeight(a, st, s, xm, 'upper')), 1), { ids: [`${r.name}-${k ? 'R' : 'F'}`, `${r.name}-T`] })
+        add('brakeBox', sweep(a, r.inner[0], r.inner[1], (s) => rect(w.x0, w.x1, insetHeight(a, st, s, xm, 'lower'), insetHeight(a, st, s, xm, 'upper')), 1), { ids: [`${r.name}-${k ? 'R' : 'F'}`, `${r.name}-T`] }, { id: `${r.name}-wall-${k}`, name: `${r.label}, ${k ? 'rear' : 'front'} wall`, material: 'ply-birch' })
       })
-      for (const x of bladeXs(r)) {
+      bladeXs(r).forEach((x, bi) => {
         const hw = BRAKE.bladeThickness / 2
         for (const which of r.surfaces) {
           const sec = (s) => {
             const z = surfaceHeight(a, s, x, which)
             return which === 'upper' ? rect(x - hw, x + hw, z - 0.3 * r.height, z + r.height) : rect(x - hw, x + hw, z - r.height, z + 0.3 * r.height)
           }
-          add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, sec, 1), { ids: [`${r.name}-B`, `${r.name}-T`] })
+          add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, sec, 1), { ids: [`${r.name}-B`, `${r.name}-T`] }, { id: `${r.name}-blade-${bi}-${which}`, name: `${r.label}, blade ${bi + 1}${r.surfaces.length > 1 ? (which === 'upper' ? ', top' : ', bottom') : ''}`, material: 'ply-birch' })
         }
-      }
+      })
     } else {
       const th = Math.max(BRAKE.plate, 0.0015)
       const ca = Math.cos(r.angle * RAD)
@@ -1035,7 +1060,7 @@ export function wing3d(a, structure, parts) {
         const p1 = [r.x0 + r.chord * ca, z + r.chord * sa]
         return [p0, p1, [p1[0] - th * sa, p1[1] + th * ca], [p0[0] - th * sa, p0[1] + th * ca]]
       }
-      add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, plate, 1), { ids: [`${r.name}-P`, `${r.name}-T`] })
+      add('blade', sweep(a, r.s - r.length / 2, r.s + r.length / 2, plate, 1), { ids: [`${r.name}-P`, `${r.name}-T`] }, { id: `${r.name}-plate`, name: `${r.label}, plate`, material: 'ply-birch' })
     }
   }
 
@@ -1044,7 +1069,7 @@ export function wing3d(a, structure, parts) {
     if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
     for (const which of ['upper', 'lower']) {
       if (str.surface !== 'both' && str.surface !== which) continue
-      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), { stock: `stringer:${str.id}` })
+      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), null, { id: `stringer-${str.id}-${which}`, name: `Stringer at ${Math.round(str.position * 100)}% chord, ${which === 'upper' ? 'top' : 'bottom'}`, material: str.material })
     }
   }
 
@@ -1090,7 +1115,7 @@ export function wing3d(a, structure, parts) {
         const root = p.kind === 'root' && st.ribs.rootJoint === 'two-piece'
         const width = centre ? cw / 2 : cw
         const reach = tip ? t / 2 : root ? -t / 2 + cw : cw / 2
-        capStrips.push({ id: `${p.id}-cs`, outline, holes: [], thickness: width, matrix: place(width, reach), surface: p.group === 'surfaces' })
+        capStrips.push({ id: `${p.id}-cs-${side}`, name: `Cap strip, ${p.name}, ${side}`, material: cov.capStripMaterial, outline, holes: [], thickness: width, matrix: place(width, reach), surface: p.group === 'surfaces' })
       }
     }
   }
@@ -1110,12 +1135,23 @@ export function wing3d(a, structure, parts) {
   for (const g of gussetPrisms(a, st, parts)) {
     const pick = { member: `${g.rib}:${g.edge}:${g.side}` }
     if (centreRib(g.rib)) pick.mirrorMember = `${g.rib}:${g.edge}:${-g.side}`
-    solids.push({ ...g, pick })
+    const both = gussetLayer(st.gussets, g.edge) === 'both'
+    const name = `Gusset at ${ribName(g.rib)}, ${g.edge === 'le' ? 'leading' : 'trailing'} edge, ${g.side > 0 ? 'outboard' : 'inboard'}${both ? (g.layer === 'upper' ? ', top' : ', bottom') : ''}`
+    solids.push({ ...g, pick, piece: { id: `gusset-${g.rib}-${g.edge}-${g.side}-${g.layer}`, name, material: st.gussets.material } })
   }
-  for (const b of bracePlates(a, st, parts)) solids.push({ ...b, pick: { ids: [b.part] } })
-  for (const t of hingeTabPlates(a, st)) solids.push({ ...t, pick: { ids: ['H1'] } })
+  const braceFaces = {}
+  for (const b of bracePlates(a, st, parts)) {
+    const k = (braceFaces[b.part] = (braceFaces[b.part] ?? 0) + 1)
+    solids.push({ ...b, pick: { ids: [b.part] }, piece: { id: `brace-${b.part}-${k}`, name: `Dihedral brace ${b.part}, ${k === 1 ? 'front' : 'rear'}`, material: parts.find((p) => p.id === b.part)?.material } })
+  }
+  const tabsOn = {}
+  for (const t of hingeTabPlates(a, st)) {
+    const k = (tabsOn[t.surface] = (tabsOn[t.surface] ?? 0) + 1)
+    const sf = surfaces.find((x) => x.id === t.surface)
+    solids.push({ ...t, pick: { ids: ['H1'] }, piece: { id: `tab-${t.surface}-${k}`, name: `Mylar hinge tab ${k}, ${sf?.label ?? 'control surface'}`, material: 'mylar' } })
+  }
   const tip = tipBlock(a, st)
-  if (tip) solids.push({ kind: 'tip', ...tip, pick: { ids: ['T1'] } })
+  if (tip) solids.push({ kind: 'tip', ...tip, pick: { ids: ['T1'] }, piece: { id: 'tip', name: 'Tip block', material: 'balsa-light' } })
   return { skin: sk, solids, ribs, capStrips, bounds: { min: lo, max: hi } }
 }
 
@@ -1123,8 +1159,7 @@ export function wing3d(a, structure, parts) {
 // s, as the part's id, or null: one of a list of ids (the first that's a part), the part a gusset
 // is one of (its members; mirrored, in the other half, its mirrorMember if it has one), or of
 // the parts in some groups (on the same surface, if they say), the one whose span is nearest s,
-// and of those the one whose station s is nearest (a core's two hot-wire templates); or a
-// piece of stock (ribs.js stockParts, with the parts) by its stock name, the same way.
+// and of those the one whose station s is nearest (a core's two hot-wire templates).
 export function partFor(parts, pick, s, { mirrored = false } = {}) {
   if (!pick) return null
   if (pick.ids) return pick.ids.find((id) => parts.some((p) => p.id === id)) ?? null
@@ -1135,7 +1170,7 @@ export function partFor(parts, pick, s, { mirrored = false } = {}) {
   let best = null
   let bestD = [Infinity, Infinity]
   for (const p of parts) {
-    if (pick.stock ? p.stock !== pick.stock : !pick.groups?.includes(p.group)) continue
+    if (!pick.groups?.includes(p.group)) continue
     if (pick.surface && p.surface && p.surface !== pick.surface) continue
     const [lo, hi] = p.span ?? (Number.isFinite(p.s) ? [p.s, p.s] : [-Infinity, Infinity])
     const d = [s < lo ? lo - s : s > hi ? s - hi : 0, Number.isFinite(p.s) ? Math.abs(s - p.s) : 0]
@@ -1145,6 +1180,75 @@ export function partFor(parts, pick, s, { mirrored = false } = {}) {
     }
   }
   return best
+}
+
+// The wing's panels along the flat span, root outward, as the cut list names them: the centre
+// section (when there is one) and each panel, { name, from, to }.
+export function panelRuns(a) {
+  const out = []
+  const half = a.sampler.half
+  if (a.rootS < half - 1e-6) out.push({ name: 'centre section', from: a.rootS, to: half })
+  a.sampler.ends.forEach((e, i) => {
+    const from = Math.max(a.rootS, e.inner.s)
+    if (e.outer.s - from > 1e-4) out.push({ name: `panel ${i + 1}`, from, to: e.outer.s })
+  })
+  return out
+}
+
+// Every piece of the wing the 3D view draws, for selecting and inspecting it on its own: { id,
+// name, kind, material, part (the part it's cut as, when it is one: a rib, gusset, web, plate,
+// a panel's sheet and so on; null for strip stock, a servo, a core), solids (indices into
+// model.solids), rib (a model.ribs entry) or capStrip (a model.capStrips entry) }. A rib's
+// piece is the rib part itself, so ids shared with the plan select the same thing.
+export function wingPieces(model, parts) {
+  const out = []
+  const byId = new Map()
+  model.solids.forEach((s, i) => {
+    if (!s.piece) return
+    let p = byId.get(s.piece.id)
+    if (!p) {
+      const part = s.pick ? partFor(parts, s.pick, s.piece.at ?? 0) : null
+      p = { id: s.piece.id, name: s.piece.name, kind: s.kind, material: s.piece.material ?? null, part, solids: [] }
+      byId.set(p.id, p)
+      out.push(p)
+    }
+    p.solids.push(i)
+  })
+  for (const r of model.ribs) out.push({ id: r.id, name: r.name, kind: 'rib', material: parts.find((p) => p.id === r.id)?.material ?? null, part: r.id, solids: [], rib: r })
+  for (const c of model.capStrips) out.push({ id: c.id, name: c.name, kind: 'capStrip', material: c.material, part: null, solids: [], capStrip: c })
+  return out
+}
+
+// A piece's silhouette for a thumbnail, as [u, v] points: a rib's or cap strip's own outline,
+// or the convex hull of its solids' points seen square to their two longest dimensions.
+export function pieceOutline(model, piece) {
+  if (piece.rib) return piece.rib.outline
+  if (piece.capStrip) return piece.capStrip.outline
+  const pts = []
+  for (const i of piece.solids) {
+    const pos = model.solids[i].positions
+    const n = pos.length / 3
+    const step = Math.max(1, Math.floor(n / 1500))
+    for (let k = 0; k < n; k += step) pts.push([pos[3 * k], pos[3 * k + 1], pos[3 * k + 2]])
+  }
+  if (pts.length < 3) return []
+  const ext = [0, 1, 2].map((k) => Math.max(...pts.map((p) => p[k])) - Math.min(...pts.map((p) => p[k])))
+  const [a1, a2] = [0, 1, 2].sort((p, q) => ext[q] - ext[p])
+  // World y is up: keep it the second axis when it's one of the two, so the picture stands up
+  const [u, v] = a1 === 1 ? [a2, a1] : [a1, a2]
+  const flat = pts.map((p) => [p[u], p[v]]).sort((p, q) => p[0] - q[0] || p[1] - q[1])
+  const cross = (o, p, q) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+  const half = (list) => {
+    const h = []
+    for (const p of list) {
+      while (h.length >= 2 && cross(h.at(-2), h.at(-1), p) <= 0) h.pop()
+      h.push(p)
+    }
+    return h
+  }
+  const lower = half(flat)
+  const upper = half([...flat].reverse())
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
 }
 
 // The flat span station s of a point in the half wing's world coordinates: where the span

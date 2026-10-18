@@ -19,7 +19,7 @@ import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, cap
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
-import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt, edgeFace, clipPolygon, insetPlacement, insetSheetStarts, profileOutline } from './edgeStock.js'
+import { KIND_LABELS, lengthsToBuy, STOCK_LENGTH, LE_TYPES, isRound, roundFitAt, edgeFace, clipPolygon, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { isFoam } from './foam.js'
 import { foamParts, WIRE_KERF, LEAD_IN } from './foamParts.js'
 
@@ -1363,7 +1363,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   const covered = coveredArea(a, structure)
   const servoMass = bays.reduce((m, x) => m + x.mass, 0)
   const weight = estimateWeight(parts, cutList, covered, structure, both ? 2 : 1, servoMass, extra)
-  return { parts, stock: stockParts(cutList, a.edges), skipped, cutList, weight, covered, boards, warnings }
+  return { parts, skipped, cutList, weight, covered, boards, warnings }
 }
 
 // The sides of a rib that get corner gussets: +1 outboard, -1 inboard. Never outboard of the
@@ -1489,52 +1489,6 @@ function normalise(pts) {
   return pts.map(([x, y]) => [x - b.x0, y - b.y0])
 }
 
-// Each line of the cut list (strip and stick stock, and a foam wing's blocks) as a piece the
-// Part card can show and the 3D view pick, alongside the parts: its section as the outline (a
-// catalogue edge's own profile, a rod's or tube's circle, a triangular trailing edge's
-// wedge) and its length as the thickness, so a 3D view of it is the stick as it's cut. stock
-// says which solid of the 3D view it is and span where along the span (see wing3d partFor).
-// Not parts in the export: the cut list lists them.
-export function stockParts(cutList, edges) {
-  return (cutList ?? [])
-    .filter((c) => Array.isArray(c.size) && c.size[0] > 0 && c.length > 0)
-    .map((c, i) => {
-      const [w, h0] = c.size
-      const h = Math.max(h0 || 0, 1e-4)
-      let outline = rect(0, 0, w, h)
-      let holes = []
-      if (c.round || c.tube) {
-        outline = circle(w / 2, w / 2, w / 2, 32)
-        if (c.tube && h0 > 0 && h0 < w / 2) holes = [circle(w / 2, w / 2, w / 2 - h0, 32)]
-      } else if (c.edge && edges?.[c.edge]?.item) {
-        outline = normalise(profileOutline(edges[c.edge].item))
-      } else if (c.triangular) {
-        outline = [
-          [0, 0],
-          [w, h / 2 - h / 20],
-          [w, h / 2 + h / 20],
-          [0, h],
-        ]
-      }
-      return {
-        id: `C${i + 1}`,
-        name: c.item,
-        group: 'stock',
-        material: c.material,
-        thickness: c.length,
-        qty: c.qty,
-        outline,
-        holes,
-        etch: [],
-        label: null,
-        notes: c.note ? [c.note] : [],
-        section: [w, h0],
-        ...(c.stock ? { stock: c.stock } : {}),
-        ...(c.span ? { span: c.span } : {}),
-      }
-    })
-}
-
 // Strip and stick stock that isn't cut from sheet: spar caps, LE and TE stock, stringers,
 // cap strips, the tube. Lengths per wing side unless the line says otherwise.
 function stripCutList(a, structure, parts, both) {
@@ -1571,9 +1525,9 @@ function stripCutList(a, structure, parts, both) {
     if (p.to - p.from < 1e-4) continue
     const sparLen = lenAlong(p.from, p.to, a.sparX)
     if (sp.type === 'caps' || sp.type === 'box') {
-      out.push({ item: `Spar caps, ${p.name}`, material: sp.capMaterial, size: [sp.capWidth, sp.capThickness], length: sparLen, qty: 2 * sides, stock: 'spar', span: [p.from, p.to] })
+      out.push({ item: `Spar caps, ${p.name}`, material: sp.capMaterial, size: [sp.capWidth, sp.capThickness], length: sparLen, qty: 2 * sides })
     } else if (sp.type === 'solid') {
-      out.push({ item: `Spar, ${p.name}`, material: sp.solidMaterial, size: [sp.solidWidth, sp.solidDepth], length: sparLen, qty: sides, stock: 'spar', span: [p.from, p.to] })
+      out.push({ item: `Spar, ${p.name}`, material: sp.solidMaterial, size: [sp.solidWidth, sp.solidDepth], length: sparLen, qty: sides })
     }
     // Edge stock: a catalogue part at its own size, custom at the depth the section needs, or
     // a rod or dowel at its diameter; nothing for a sheeted nose
@@ -1591,8 +1545,6 @@ function stripCutList(a, structure, parts, both) {
         qty: sides,
         round: true,
         stockLength: t.length,
-        stock: 'le',
-        span: [p.from, p.to],
       })
     } else if (structure.le.type !== 'none') {
       out.push({
@@ -1603,8 +1555,6 @@ function stripCutList(a, structure, parts, both) {
         size: leItem ? leItem.sold ?? [leItem.width, leItem.height] : [structure.le.width, Math.ceil(leH * 1000) / 1000],
         length: lenAlong(p.from, p.to, edgeX('le')),
         qty: sides,
-        stock: 'le',
-        span: [p.from, p.to],
       })
     }
     const teQ = (s) => a.section(s).c - structure.te.width
@@ -1617,13 +1567,11 @@ function stripCutList(a, structure, parts, both) {
       length: lenAlong(p.from, p.to, edgeX('te')),
       qty: sides,
       triangular: structure.te.type === 'triangular',
-      stock: 'te',
-      span: [p.from, p.to],
     })
     for (const st of structure.stringers ?? []) {
       if (!(st.width > 0)) continue
       const n = st.surface === 'both' ? 2 : 1
-      out.push({ item: `Stringer at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, size: [st.width, st.height], length: p.to - p.from, qty: n * sides, stock: `stringer:${st.id}`, span: [p.from, p.to] })
+      out.push({ item: `Stringer at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, size: [st.width, st.height], length: p.to - p.from, qty: n * sides })
     }
   }
   // Each control surface's two hinge spars: the fixed side's square, the moving side's
@@ -1642,7 +1590,6 @@ function stripCutList(a, structure, parts, both) {
       length: (sf.fixed[1] - sf.fixed[0]) * k,
       qty: sides,
       note: `Between the end ribs, ribs butting its front face; ${slots}`,
-      stock: `hinge:${sf.id}`,
     })
     if (sf.stock) {
       out.push({
@@ -1651,14 +1598,12 @@ function stripCutList(a, structure, parts, both) {
         size: [structure.te.width, up(sf.depth.moving)],
         length: (sf.moving[1] - sf.moving[0]) * k,
         qty: sides,
-        stock: `teMoving:${sf.id}`,
         note: `Cut from the trailing edge stock; bevel its front face to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
       })
       continue
     }
     out.push({
       item: `Hinge spar, moving side, ${sf.label}`,
-      stock: `hingeMoving:${sf.id}`,
       material: h.material,
       size: [h.movingWidth, up(sf.depth.moving)],
       length: (sf.moving[1] - sf.moving[0]) * k,
@@ -1670,7 +1615,6 @@ function stripCutList(a, structure, parts, both) {
   for (const br of (a.brakes ?? []).filter((x) => x.ok && x.type === 'spoiler')) {
     out.push({
       item: `Hinge tape, ${br.label}`,
-      stock: `tape:${br.id}`,
       material: 'mylar',
       size: [0.012, 0.0002],
       length: br.length,
@@ -1683,7 +1627,6 @@ function stripCutList(a, structure, parts, both) {
     for (const bay of (a.bays ?? []).filter((x) => x.ok)) {
       out.push({
         item: `Hatch rail, ${bay.label}`,
-        stock: `rail:${bay.id}`,
         material: 'spruce',
         size: [0.005, 0.005],
         length: bay.hatch.s1 - bay.hatch.s0,
@@ -1694,7 +1637,7 @@ function stripCutList(a, structure, parts, both) {
   }
   if (sp.type === 'tube') {
     const L = Number.isFinite(sp.tubeLength) ? Math.min(sp.tubeLength, span) : span
-    out.push({ item: 'Spar tube', material: sp.tubeMaterial, size: [sp.tubeDiameter, sp.tubeWall], length: L * (both && structure.ribs.rootJoint !== 'two-piece' ? 2 : 1), qty: both && structure.ribs.rootJoint !== 'two-piece' ? 1 : sides, tube: true, stock: 'spar' })
+    out.push({ item: 'Spar tube', material: sp.tubeMaterial, size: [sp.tubeDiameter, sp.tubeWall], length: L * (both && structure.ribs.rootJoint !== 'two-piece' ? 2 : 1), qty: both && structure.ribs.rootJoint !== 'two-piece' ? 1 : sides, tube: true })
   }
   const cov = structure.covering
   if (cov.capStrips && cov.type !== 'sheeted') {
@@ -1705,7 +1648,7 @@ function stripCutList(a, structure, parts, both) {
       const to = b.capStripTo ?? { top: b.uB, bottom: b.uB }
       total += (Math.max(0, to.top - b.capStripFrom.top) + Math.max(0, to.bottom - b.capStripFrom.bottom)) * p.qty
     }
-    out.push({ item: 'Cap strips (total, both surfaces)', material: cov.capStripMaterial, size: [cov.capStripWidth, cov.capStripThickness], length: total, qty: 1, stock: 'capStrips' })
+    out.push({ item: 'Cap strips (total, both surfaces)', material: cov.capStripMaterial, size: [cov.capStripWidth, cov.capStripThickness], length: total, qty: 1 })
   }
   // Catalogue edge stock, rods and dowels: how many lengths to buy, noted on each edge's
   // first line

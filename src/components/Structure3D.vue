@@ -1,9 +1,10 @@
 <script setup>
 // The built-up half wing in 3D: see-through covering, sheeting and cap strips, ribs at their
 // thickness, spar, webs, edge stock and stringers. Drag to orbit, right-drag or Shift-drag to
-// pan, scroll to zoom; click a part to select it (shared with the plan and the part preview):
-// a rib, gusset, web, brace, plate, sheet and so on, and the strip stock too (spar, edges,
-// stringers, hinge spars, cap strips), as the cut list's line for that panel.
+// pan, scroll to zoom; click any piece to select it (shared with the plan and the Part card,
+// which shows it on its own): a rib, gusset, web, sheet, a spar cap, the leading edge, a
+// stringer, a servo, whatever is drawn (wing3d.js wingPieces). Selecting a part (from the plan
+// or the Part card's list) highlights every piece cut as it.
 //
 // Top right, a view cube with labelled faces: click a face to swing round to that view.
 //
@@ -23,7 +24,7 @@
 // A foam wing has no ribs: its core is a solid between the skins (its own layer), each control
 // surface's core with the surface.
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
-import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, faceView, orbitLerp, partFor, spanOf } from '../lib/wing3d.js'
+import { wing3d, sectionAt, spanPlane, worldPoint, HOME_VIEW, faceView, orbitLerp, partFor } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { EYE, EYE_OFF, HOME, ORTHO, PERSPECTIVE, CUT } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
@@ -32,8 +33,9 @@ const props = defineProps({
   analysis: { type: Object, required: true },
   structure: { type: Object, required: true },
   parts: { type: Array, required: true },
-  // The stock pieces (ribs.js stockParts), picked with the parts
-  stock: { type: Array, default: () => [] },
+  // The model (wing3d) and its pieces (wingPieces), when the page has built them already
+  model: { type: Object, default: null },
+  pieces: { type: Array, default: () => [] },
   selected: { type: String, default: null },
   system: { type: [String, Object], default: 'metric' }, // a units setting (units.js normaliseUnits) or system name
 })
@@ -363,7 +365,8 @@ function build() {
   // Not before the scene exists: three.js may already be loaded (by an earlier view) when a prop
   // changes while this one is still mounting
   if (!THREE || !scene) return
-  const model = wing3d(props.analysis, props.structure, props.parts)
+  const model = props.model ?? wing3d(props.analysis, props.structure, props.parts)
+  const partOf = new Map(props.pieces.map((p) => [p.id, p.part]))
   if (root) {
     scene.remove(root)
     scene.remove(mirror)
@@ -420,12 +423,10 @@ function build() {
                 : groups.edges
     const mesh = meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour))
     mesh.userData.colour = colour
-    // The part it stands for: fixed for most, found from where it's clicked for a sheet or core
-    // that runs over several parts
-    if (s.pick) {
-      mesh.userData.pick = s.pick
-      if (!s.pick.groups && !s.pick.stock) mesh.userData.partId = partFor(props.parts, s.pick, 0)
-    }
+    // The piece it is, and the part that piece is cut as (if any)
+    if (s.piece) mesh.userData.pieceId = s.piece.id
+    if (s.pick) mesh.userData.pick = s.pick
+    mesh.userData.partId = (s.piece ? partOf.get(s.piece.id) : null) ?? (s.pick && !s.pick.groups ? partFor(props.parts, s.pick, 0) : null)
     group.add(outlined(mesh))
   }
   for (const r of model.ribs) {
@@ -435,6 +436,7 @@ function build() {
     geo.applyMatrix4(new THREE.Matrix4().fromArray(r.matrix))
     const mesh = new THREE.Mesh(geo, behind(COLOURS.rib))
     mesh.userData.partId = r.id
+    mesh.userData.pieceId = r.id
     mesh.userData.colour = COLOURS.rib
     mesh.userData.centre = r.centre
     ;(r.surface ? groups.surfaces : groups.ribs).add(outlined(mesh))
@@ -444,7 +446,7 @@ function build() {
     const geo = new THREE.ExtrudeGeometry(shape, { depth: c.thickness, bevelEnabled: false, curveSegments: 1 })
     geo.applyMatrix4(new THREE.Matrix4().fromArray(c.matrix))
     const strip = new THREE.Mesh(geo, wood(COLOURS.sheet))
-    strip.userData.pick = { stock: 'capStrips' }
+    strip.userData.pieceId = c.id
     strip.userData.colour = COLOURS.sheet
     ;(c.surface ? groups.surfaces : groups.capStrips).add(outlined(strip))
   }
@@ -553,12 +555,9 @@ function applyVisibility() {
 function highlight() {
   const accent = new THREE.Color(cssColour('--wc-accent', '#1f6feb'))
   for (const g of [root, mirror]) {
-    const sel = props.stock.find((p) => p.id === props.selected)
-    const single = sel?.stock && props.stock.filter((p) => p.stock === sel.stock).length === 1 ? sel.stock : null
     g.traverse((m) => {
-      if (!m.isMesh) return
-      if (!m.userData.partId && !(m.userData.pick?.stock && m.userData.colour != null)) return
-      const on = m.userData.partId ? m.userData.partId === props.selected : !!single && m.userData.pick.stock === single
+      if (!m.isMesh || m.userData.colour == null) return
+      const on = !!props.selected && (m.userData.pieceId === props.selected || m.userData.partId === props.selected)
       m.material.color.set(on ? accent : m.userData.colour)
       m.material.emissive?.set(on ? accent.clone().multiplyScalar(0.25) : 0x000000)
     })
@@ -797,12 +796,9 @@ function onUp(e) {
   const o = hit.object
   let inMirror = false
   for (let q = o; q; q = q.parent) if (q === mirror) inMirror = true
-  let id = inMirror && o.userData.pick?.mirrorMember ? null : o.userData.partId
-  if (!id && o.userData.pick) {
-    // Where along the span, in this half's own coordinates (the other half is mirrored in x)
-    const p = hit.point
-    id = partFor([...props.parts, ...props.stock], o.userData.pick, spanOf(props.analysis, [inMirror ? -p.x : p.x, p.y, p.z]), { mirrored: inMirror })
-  }
+  // The piece itself; in the other half a centre-rib gusset is the one on the rib's other
+  // face, which is its part (the piece drawn is this half's)
+  const id = inMirror && o.userData.pick?.mirrorMember ? o.userData.partId : o.userData.pieceId ?? o.userData.partId
   if (id) emit('select', id)
 }
 
@@ -899,7 +895,7 @@ onBeforeUnmount(() => {
   renderer?.domElement.remove()
 })
 
-watch(() => [props.analysis, props.parts, props.structure], build)
+watch(() => [props.analysis, props.parts, props.structure, props.model], build)
 watch(() => props.selected, () => root && highlight())
 watch(show, applyVisibility, { deep: true })
 watch(section, updateSection, { deep: true })

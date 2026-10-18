@@ -30,7 +30,7 @@ import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
 import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf, fillManualRibs } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
-import { gussetFit } from './lib/wing3d.js'
+import { gussetFit, wing3d, wingPieces } from './lib/wing3d.js'
 import { planThumb, isoThumb } from './lib/thumbnails.js'
 import { iconSvg } from './lib/logo.js'
 import '@fontsource/ibm-plex-sans/latin-400.css'
@@ -773,16 +773,18 @@ const structureWarnings = computed(() => {
 })
 // Structure warnings beside the editor settings that fix them; the rest under the editor
 const placedWarnings = computed(() => bySection(structureWarnings.value, input.structure.construction === 'foam'))
-// Everything the Part card can show and the 3D view can pick: the parts, then the stock
-// (ribs.js stockParts: spars, edges, stringers and the rest of the cut list)
-const inspectable = computed(() => (structureResult.value ? [...structureResult.value.parts, ...(structureResult.value.stock ?? [])] : []))
+// The 3D model, built once for the 3D view and the Part card (only when one of them is shown),
+// and every piece of the wing in it, for selecting and inspecting one on its own
+const model3d = computed(() => (structureResult.value ? wing3d(structureResult.value.a, structureResult.value.a.structure, structureResult.value.parts) : null))
+const pieces = computed(() => (model3d.value ? wingPieces(model3d.value, structureResult.value.parts) : []))
 // The part shown in the preview: the first rib, or a foam wing's first template
 const firstParts = computed(() => (ribParts.value.length ? ribParts.value : (structureResult.value?.parts.filter((p) => p.group === 'templates') ?? [])))
 watch(
   firstParts,
   (list) => {
     if (!list.length) return
-    if (!inspectable.value.some((p) => p.id === selectedPart.value)) selectedPart.value = list[0].id
+    const ok = structureResult.value.parts.some((p) => p.id === selectedPart.value) || (model3d.value && pieces.value.some((p) => p.id === selectedPart.value))
+    if (!ok) selectedPart.value = list[0].id
   },
   { immediate: true },
 )
@@ -1389,7 +1391,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 :analysis="structureResult.a"
                 :structure="structureResult.a.structure"
                 :parts="structureResult.parts"
-                :stock="structureResult.stock ?? []"
+                :model="model3d"
+                :pieces="pieces"
                 :system="system"
                 :selected="selectedPart"
                 @select="selectedPart = $event"
@@ -1401,7 +1404,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             </article>
             <article class="wc-card">
               <h3 class="wc-card__label">Part</h3>
-              <PartPreview :parts="inspectable" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
+              <PartPreview :parts="structureResult.parts" :pieces="pieces" :model="model3d" :selected="selectedPart" :system="system" @select="selectedPart = $event" />
             </article>
           </div>
         </template>

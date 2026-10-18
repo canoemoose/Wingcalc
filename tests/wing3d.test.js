@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
-import { wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates, faceView, orbitLerp, HOME_VIEW } from '../src/lib/wing3d.js'
+import { panelRuns, wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates, faceView, orbitLerp, HOME_VIEW } from '../src/lib/wing3d.js'
 
 function build(edit = () => {}, wingEdit = () => {}) {
   const s = defaultState()
@@ -208,7 +208,8 @@ describe('3D wing', () => {
 
   it('lays the D-box sheeting on the rib tops, and cap strips on the open part of each rib', () => {
     const { a, st, parts, w } = build((x) => (x.covering.type = 'dbox'), swept)
-    expect(w.solids.filter((x) => x.kind === 'sheet')).toHaveLength(2)
+    // Top and bottom, one sheet per panel as each is cut
+    expect(w.solids.filter((x) => x.kind === 'sheet')).toHaveLength(2 * panelRuns(a).length)
     const ribs = parts.filter((q) => q.group === 'ribs')
     expect(w.capStrips).toHaveLength(2 * ribs.length) // top and bottom of every rib
     for (const p of ribs) {

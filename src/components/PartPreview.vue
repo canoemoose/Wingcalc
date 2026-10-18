@@ -1,12 +1,17 @@
 <script setup>
-// One part at true proportions: its cut outline, holes, engraved lines and label, with its size,
-// quantity and notes, drawn flat and, under that, as a 3D solid of its thickness. Steps through
-// the parts in order; the list opens with a thumbnail of each, grouped as in the export. Strip
-// stock (ribs.js stockParts) comes last: its section drawn flat, the stick as cut in 3D.
+// One piece of the wing on its own. The selection is a part (from the plan or the list) or a
+// piece picked in the 3D view (wing3d.js wingPieces): a rib, a gusset, the leading edge, a
+// spar cap, a servo, whatever is drawn. A part cut from sheet is drawn flat at true
+// proportions (outline, holes, engraved lines and label, with its size, quantity and notes);
+// under that, the piece in 3D as it sits in the wing (a part picked from the list shows its
+// first piece; one not drawn in the wing, such as a hatch or a template, shows as a solid of
+// its thickness). The list opens with a thumbnail of each part, then the pieces that aren't
+// cut from sheet; the arrows step through it.
 import { computed, ref, nextTick, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { bounds } from '../lib/ribs.js'
 import { strokeText } from '../lib/strokeFont.js'
 import { MATERIALS } from '../lib/structure.js'
+import { pieceOutline } from '../lib/wing3d.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 // The 3D view loads with three.js, in its own chunk
@@ -14,13 +19,23 @@ const PartSolid = defineAsyncComponent(() => import('./PartSolid.vue'))
 
 const props = defineProps({
   parts: { type: Array, required: true },
+  // The wing's pieces and the model they're drawn from (wing3d), for showing one as placed
+  pieces: { type: Array, default: () => [] },
+  model: { type: Object, default: null },
   selected: { type: String, default: null },
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
 })
 const emit = defineEmits(['select'])
 
-const index = computed(() => Math.max(0, props.parts.findIndex((p) => p.id === props.selected)))
-const part = computed(() => props.parts[index.value] ?? null)
+// --- What's selected --------------------------------------------------------------------------
+
+const selPiece = computed(() => props.pieces.find((p) => p.id === props.selected) ?? null)
+// The part: selected, or the one the selected piece is cut as
+const part = computed(() => props.parts.find((p) => p.id === props.selected) ?? (selPiece.value?.part ? props.parts.find((p) => p.id === selPiece.value.part) : null) ?? null)
+// The pieces cut as that part, and the one shown: the selected piece, or the part's first
+const placed = computed(() => (part.value ? props.pieces.filter((p) => p.part === part.value.id) : []))
+const piece = computed(() => selPiece.value ?? placed.value[0] ?? null)
+const title = computed(() => selPiece.value?.name ?? part.value?.name ?? '')
 
 // SVG y runs down, so flip z.
 const pts = (list) => list.map(([u, z]) => `${u.toFixed(5)},${(-z).toFixed(5)}`).join(' ')
@@ -30,24 +45,47 @@ const view = computed(() => {
   return { box: `${b.x0 - pad} ${-b.y1 - pad} ${b.w + 2 * pad} ${b.h + 2 * pad}`, b }
 })
 const label = computed(() => {
-  const l = part.value.label
+  const l = part.value?.label
   if (!l?.text) return []
   return strokeText(l.text, l.u, l.z, l.h)
 })
 const len = (v) => format(v, 'thin', defaultUnit(props.system, 'thin'))
-// The 3D view engraves the label with the other lines
-const solidPart = computed(() => ({ ...part.value, etch: [...(part.value.etch ?? []), ...label.value] }))
-const sizeText = (p) => {
-  const b = bounds(p.outline)
-  return p.group === 'stock' ? `${len(b.w)} × ${len(b.h)}, ${format(p.thickness, 'length', defaultUnit(props.system, 'length'))} long` : `${len(b.w)} × ${len(b.h)}`
-}
-const material = (p) => MATERIALS[p.material]?.label.toLowerCase() ?? p.material
-const step = (k) => {
-  const n = props.parts.length
-  emit('select', props.parts[(index.value + k + n) % n].id)
-}
+const long = (v) => format(v, 'length', defaultUnit(props.system, 'length'))
+const material = (key) => (key ? (MATERIALS[key]?.label.toLowerCase() ?? key) : '')
 
-// --- The part list ------------------------------------------------------------------------------
+// The 3D view's subject: the piece's own geometry as placed, or the part as a flat solid
+const solid = computed(() => {
+  const p = piece.value
+  if (p && props.model) {
+    const solids = p.solids.map((i) => props.model.solids[i])
+    const plates = [p.rib, p.capStrip].filter(Boolean)
+    return { solids, plates, material: p.material, kind: p.kind }
+  }
+  if (!part.value) return null
+  return { flat: { ...part.value, etch: [...(part.value.etch ?? []), ...label.value] }, material: part.value.material }
+})
+// A piece that isn't a part: its material and its greatest length
+const pieceSize = computed(() => {
+  const p = piece.value
+  if (!p || !props.model) return ''
+  if (p.capStrip) return [material(p.material), `${long(bounds(p.capStrip.outline).w)} long`].filter(Boolean).join(', ')
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  for (const i of p.solids) {
+    const pos = props.model.solids[i].positions
+    for (let k = 0; k < pos.length; k += 3) {
+      for (let j = 0; j < 3; j++) {
+        lo[j] = Math.min(lo[j], pos[k + j])
+        hi[j] = Math.max(hi[j], pos[k + j])
+      }
+    }
+  }
+  if (!Number.isFinite(lo[0])) return material(p.material)
+  const L = Math.max(...hi.map((v, j) => v - lo[j]))
+  return [material(p.material), `${long(L)} long`].filter(Boolean).join(', ')
+})
+
+// --- The list: the parts, then the pieces that aren't parts --------------------------------------
 
 const GROUPS = {
   ribs: 'Ribs',
@@ -63,30 +101,61 @@ const GROUPS = {
   templates: 'Hot-wire templates',
   skins: 'Skins',
   pockets: 'Pocket templates',
-  stock: 'Strip stock',
 }
+const PIECE_GROUPS = {
+  spar: 'Spar and edges',
+  le: 'Spar and edges',
+  te: 'Spar and edges',
+  teMoving: 'Spar and edges',
+  hinge: 'Hinge spars',
+  hingeMoving: 'Hinge spars',
+  stringer: 'Stringers',
+  capStrip: 'Cap strips',
+  servo: 'Servos',
+  servoOutput: 'Servos',
+  servoLead: 'Servos',
+  core: 'Foam cores',
+  coreMoving: 'Foam cores',
+  web: 'Shear webs',
+  sheet: 'Sheeting',
+}
+const sizeText = (p) => {
+  const b = bounds(p.outline)
+  return `${len(b.w)} × ${len(b.h)}`
+}
+const entries = computed(() => [
+  ...props.parts.map((p) => ({ id: p.id, name: p.name, group: GROUPS[p.group] ?? p.group, outline: p.outline, holes: p.holes ?? [], detail: `${sizeText(p)}, ${p.qty} off` })),
+  ...(props.model ? props.pieces.filter((p) => !p.part) : []).map((p) => ({ id: p.id, name: p.name, group: PIECE_GROUPS[p.kind] ?? 'Other pieces', outline: pieceOutline(props.model, p), holes: [], detail: material(p.material) })),
+])
+// The list entry for the selection: its part, or the piece itself
+const index = computed(() => Math.max(0, entries.value.findIndex((e) => e.id === (part.value?.id ?? selPiece.value?.id))))
 // Groups in the order they first appear
 const runs = computed(() => {
   const out = []
-  props.parts.forEach((p, i) => {
+  entries.value.forEach((p, i) => {
     const last = out.at(-1)
     if (last?.group === p.group) last.items.push({ p, i })
-    else out.push({ group: p.group, label: GROUPS[p.group] ?? p.group, items: [{ p, i }] })
+    else out.push({ group: p.group, items: [{ p, i }] })
   })
   return out
 })
+const step = (k) => {
+  const n = entries.value.length
+  if (n) emit('select', entries.value[(index.value + k + n) % n].id)
+}
 
 // Each thumbnail fitted to its own box, so a gusset reads as well as a rib: the outline and
 // holes as one path, the holes cut out
 const TW = 56
 const TH = 30
 function thumb(p) {
+  if (!p.outline?.length) return ''
   const b = bounds(p.outline)
   const k = Math.min((TW - 4) / Math.max(b.w, 1e-6), (TH - 4) / Math.max(b.h, 1e-6))
   const x0 = (TW - b.w * k) / 2
   const y0 = (TH - b.h * k) / 2
   const ring = (list) => 'M' + list.map(([u, z]) => `${(x0 + (u - b.x0) * k).toFixed(1)},${(y0 + (b.y1 - z) * k).toFixed(1)}`).join('L') + 'Z'
-  return [p.outline, ...(p.holes ?? [])].map(ring).join('')
+  return [p.outline, ...p.holes].map(ring).join('')
 }
 
 const open = ref(false)
@@ -104,7 +173,7 @@ function position() {
   const above = r.top - 8
   const up = below < 240 && above > below
   place.value = {
-    left: `${Math.max(8, Math.min(r.left, window.innerWidth - 268))}px`,
+    left: `${Math.max(8, Math.min(r.left, window.innerWidth - 308))}px`,
     maxHeight: `${Math.min(420, up ? above : below)}px`,
     ...(up ? { bottom: `${vh - r.top + 2}px` } : { top: `${r.bottom + 2}px` }),
   }
@@ -122,7 +191,7 @@ function hide(focusButton = true) {
   if (focusButton) button.value?.focus()
 }
 function choose(i) {
-  const p = props.parts[i]
+  const p = entries.value[i]
   if (p) emit('select', p.id)
   hide()
 }
@@ -136,7 +205,7 @@ function onButtonKey(e) {
   }
 }
 function onListKey(e) {
-  const n = props.parts.length
+  const n = entries.value.length
   const stepBy = { ArrowDown: 1, ArrowUp: -1 }[e.key]
   if (stepBy) active.value = (active.value + stepBy + n) % n
   else if (e.key === 'Home') active.value = 0
@@ -168,9 +237,9 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
 </script>
 
 <template>
-  <figure v-if="part" class="wc-figure wc-part">
+  <figure v-if="part || piece" class="wc-figure wc-part">
     <div class="wc-part__head">
-      <button type="button" class="wc-iconbtn" aria-label="Previous part" title="Previous part" @click="step(-1)">←</button>
+      <button type="button" class="wc-iconbtn" aria-label="Previous" title="Previous" @click="step(-1)">←</button>
       <div ref="root" class="wc-part__picker">
         <button
           ref="button"
@@ -180,10 +249,11 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
           :aria-expanded="open"
           :aria-controls="`${uid}-list`"
           aria-label="Part"
+          :title="title"
           @click="open ? hide() : show()"
           @keydown="onButtonKey"
         >
-          <span>{{ part.name }}</span>
+          <span>{{ title }}</span>
           <span class="wc-part__caret" aria-hidden="true">▾</span>
         </button>
         <ul
@@ -194,12 +264,12 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
           :style="place"
           role="listbox"
           tabindex="-1"
-          aria-label="Parts"
+          aria-label="Parts and pieces"
           :aria-activedescendant="`${uid}-opt-${active}`"
           @keydown="onListKey"
         >
           <template v-for="r in runs" :key="r.group + r.items[0].i">
-            <li class="wc-part__group" role="presentation">{{ r.label }}</li>
+            <li class="wc-part__group" role="presentation">{{ r.group }}</li>
             <li
               v-for="{ p, i } in r.items"
               :id="`${uid}-opt-${i}`"
@@ -208,32 +278,35 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
               class="wc-part__opt"
               :class="{ 'wc-part__opt--active': i === active }"
               role="option"
-              :aria-selected="p.id === part.id"
+              :aria-selected="i === index"
               @pointerenter="active = i"
               @click="choose(i)"
             >
               <svg class="wc-part__thumb" :viewBox="`0 0 ${TW} ${TH}`" aria-hidden="true"><path :d="thumb(p)" /></svg>
               <span class="wc-part__opt-text">
                 <span>{{ p.name }}</span>
-                <span class="wc-part__opt-size">{{ sizeText(p) }}, {{ p.qty }} off</span>
+                <span v-if="p.detail" class="wc-part__opt-size">{{ p.detail }}</span>
               </span>
             </li>
           </template>
         </ul>
       </div>
-      <button type="button" class="wc-iconbtn" aria-label="Next part" title="Next part" @click="step(1)">→</button>
-      <span v-if="part.group === 'stock'" class="wc-part__size">{{ len(view.b.w) }} × {{ len(view.b.h) }} section, {{ sizeText(part).split(', ').pop() }}, {{ material(part) }}, {{ part.qty }} off</span>
-      <span v-else class="wc-part__size">{{ len(view.b.w) }} × {{ len(view.b.h) }}, {{ len(part.thickness) }} {{ material(part) }}, {{ part.qty }} off</span>
+      <button type="button" class="wc-iconbtn" aria-label="Next" title="Next" @click="step(1)">→</button>
+      <span v-if="part" class="wc-part__size">
+        <template v-if="selPiece && selPiece.id !== part.id">Cut as {{ part.name }}: </template>{{ len(view.b.w) }} × {{ len(view.b.h) }}, {{ len(part.thickness) }} {{ material(part.material) }}, {{ part.qty }} off
+      </span>
+      <span v-else class="wc-part__size">{{ pieceSize }}</span>
     </div>
-    <svg :viewBox="view.box" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`Part ${part.name}`">
+    <svg v-if="part" :viewBox="view.box" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="`Part ${part.name}`">
       <polygon :points="pts(part.outline)" class="wc-part__cut" />
       <polygon v-for="(h, i) in part.holes" :key="'h' + i" :points="pts(h)" class="wc-part__hole" />
       <polyline v-for="(e, i) in part.etch" :key="'e' + i" :points="pts(e)" class="wc-part__etch" />
       <polyline v-for="(e, i) in label" :key="'l' + i" :points="pts(e)" class="wc-part__etch" />
     </svg>
-    <PartSolid :part="solidPart" />
-    <figcaption v-if="part.notes.length" class="wc-figure__caption">
-      <span v-for="(n, i) in part.notes" :key="i">{{ n }}.</span>
+    <PartSolid v-if="solid" :subject="solid" />
+    <figcaption v-if="part?.notes.length || (part && placed.length > 1 && !selPiece)" class="wc-figure__caption">
+      <span v-if="part && placed.length > 1 && !selPiece">In 3D, the first of the {{ placed.length }} pieces cut as {{ part.name }}, as it sits in the wing.</span>
+      <span v-for="(n, i) in part?.notes ?? []" :key="i">{{ n }}.</span>
     </figcaption>
   </figure>
 </template>
