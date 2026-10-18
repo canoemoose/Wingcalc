@@ -220,7 +220,7 @@ export function defaultStructure() {
     // on each side at its centre line. fixedWidth and movingWidth are the hinge spars' widths
     // across the hinge (the fixed part's, square; the moving surface's, bevelled); tabs are
     // tabWidth along the hinge by tabLength across it, no more than tabSpacing apart, the end
-    // ones tabInset in from the ends of the moving surface. The tabs are cut from 25 mm Mylar
+    // ones' nearer edges tabInset in from the ends of the moving surface. The tabs are cut from 25 mm Mylar
     // roll, 0.2 mm thick: the roll's width goes across the hinge (12.5 mm into each spar, so
     // the spars are 13 mm wide), and each tab is cut 25 mm long along it unless set otherwise.
     hinges: {
@@ -951,9 +951,13 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     // trailing edge stock is bevelled like any other, though its depth is small enough that the
     // gap would clear it square
     const bevel = { top: Math.max(r.down, bevelAngle(r.down, g, movingDepth / 2)), bottom: Math.max(r.up, bevelAngle(r.up, g, movingDepth / 2)) }
-    // Tabs along the moving surface's span, measured along the hinge
+    // Tabs along the moving surface's span, measured along the hinge. Each lies square to the
+    // hinge, so on a raked hinge its nearest corner to an end is tabLength/2 × slope further
+    // along it than its half width: the end ones go in that far plus tabInset, which is to
+    // that corner
     const k = Math.sqrt(1 + r.slope * r.slope)
-    const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: h.tabInset, width: h.tabWidth }).map((d) => moving[0] + d / k)
+    const reach = h.tabWidth / 2 + (h.tabLength / 2) * Math.abs(r.slope)
+    const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: Math.max(0, h.tabInset) + reach, width: 2 * reach }).map((d) => moving[0] + d / k)
     const slot = Math.max(0, (h.tabLength - g) / 2)
     const narrow = stock ? Math.min(h.fixedWidth, structure.te.width || h.fixedWidth) : Math.min(h.fixedWidth, h.movingWidth)
     if (slot > narrow + 1e-9) {

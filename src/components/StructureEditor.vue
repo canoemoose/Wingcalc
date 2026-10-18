@@ -1015,7 +1015,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
         <UnitInput :id="id('hti')" :model-value="st.hinges.tabInset" quantity="length" :system="system" label="In from the ends" @update:model-value="set('hinges.tabInset', $event)" />
       </div>
-      <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones this far in from the surface's ends.</p>
+      <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
     </InspectorSection>
 
     <InspectorSection v-if="!foam" title="Dihedral braces" fold-key="structure:braces" :warnings="warnIn('braces')" :summary="summaries.braces">

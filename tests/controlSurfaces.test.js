@@ -257,10 +257,12 @@ describe('control surfaces in the structure', () => {
     expect(r.fixed[0]).toBeCloseTo(r.s0 + st.ribs.thickness / 2, 9)
     expect(r.moving[0]).toBeCloseTo(r.fixed[0] + r.gap, 9)
     expect(r.moving[1]).toBeCloseTo(r.fixed[1] - r.gap, 9)
-    // Tabs inside the moving surface, the end ones inset as asked (measured along the hinge)
+    // Tabs inside the moving surface, the end ones' nearer corners inset as asked (measured
+    // along the hinge)
     expect(r.tabs.length).toBeGreaterThanOrEqual(2)
-    expect((r.tabs[0] - r.moving[0]) * k).toBeCloseTo(st.hinges.tabInset, 9)
-    expect((r.moving[1] - r.tabs.at(-1)) * k).toBeCloseTo(st.hinges.tabInset, 9)
+    const reach = st.hinges.tabWidth / 2 + (st.hinges.tabLength / 2) * Math.abs(r.slope)
+    expect((r.tabs[0] - r.moving[0]) * k).toBeCloseTo(st.hinges.tabInset + reach, 9)
+    expect((r.moving[1] - r.tabs.at(-1)) * k).toBeCloseTo(st.hinges.tabInset + reach, 9)
     expect(r.slot).toBeCloseTo((st.hinges.tabLength - r.gap) / 2, 9)
   })
 
@@ -335,5 +337,20 @@ describe('hingeTabOutline', () => {
     expect(c[0]).toBeCloseTo(0.4, 12)
     expect(c[1]).toBeCloseTo(sf.hingeX(0.4), 12)
     expect(p3).toHaveLength(2)
+  })
+})
+
+describe('hinge tabs on a raked hinge', () => {
+  it('sets the end tabs’ nearer corners the inset in from the moving surface’s ends', () => {
+    const raked = { ...aileron, hingeIn: 0.55, hingeOut: 0.8 }
+    const { a, st } = build({ surfaces: [raked], edit: (x) => { x.hinges.tabInset = 0.005 } })
+    const r = a.surfaces[0]
+    expect(r.ok, r.problem).toBe(true)
+    expect(Math.abs(r.slope)).toBeGreaterThan(0.03)
+    const k = Math.hypot(1, r.slope)
+    const ss = r.tabs.flatMap((s) => hingeTabOutline(r, s, st.hinges.tabWidth, st.hinges.tabLength).map(([cs]) => cs))
+    // Along the hinge, the inset from each end to the nearest corner
+    expect((Math.min(...ss) - r.moving[0]) * k).toBeCloseTo(0.005, 9)
+    expect((r.moving[1] - Math.max(...ss)) * k).toBeCloseTo(0.005, 9)
   })
 })
