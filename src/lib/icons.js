@@ -24,3 +24,5 @@ export const CUT = ['M3 15h18', 'M3 9h18', 'M14 3l-4 18']
 export const TRASH = ['M4 7h16', 'M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3', 'M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2 -2l1 -12', 'M10 11v6', 'M14 11v6']
 // Four corner brackets pointing outwards: expand to full window
 export const EXPAND = ['M4 9v-3a2 2 0 0 1 2 -2h3', 'M20 9v-3a2 2 0 0 0 -2 -2h-3', 'M4 15v3a2 2 0 0 0 2 2h3', 'M20 15v3a2 2 0 0 1 -2 2h-3']
+// The expand corners turned inward: back to the card
+export const SHRINK = ['M9 4v3a2 2 0 0 1 -2 2h-3', 'M15 4v3a2 2 0 0 0 2 2h3', 'M9 20v-3a2 2 0 0 0 -2 -2h-3', 'M15 20v-3a2 2 0 0 1 2 -2h3']

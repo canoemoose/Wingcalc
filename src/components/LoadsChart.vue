@@ -5,11 +5,12 @@
 // at that span position and reads every curve there. The corner button opens the same charts
 // to fill the window, over the page (the component again, expanded, its charts drawn at the
 // size they're shown so the text stays its usual size); Escape, Close or the backdrop closes it.
-// Each chart's title sits above its plot.
+// Each chart has its title and key above it and its own readout under it; both charts are drawn
+// at the size they're shown, so their text is the same size in the card and expanded.
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { MODES, MODE_SLOTS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
-import { EXPAND } from '../lib/icons.js'
+import { EXPAND, SHRINK } from '../lib/icons.js'
 import LoadsChart from './LoadsChart.vue'
 
 const props = defineProps({
@@ -22,18 +23,28 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
-// In the card: a fixed drawing scaled to the card's width. Expanded: the charts area's own size
-// in px, each chart half its height, so they fill the window
+// Drawn at the width they're shown, in px. In the card each chart is a fixed height; expanded,
+// each takes half of what the stage has (its titles and readouts aside), so they fill it
 const stageEl = ref(null)
-const stage = ref({ w: 900, h: 560 })
-const W = computed(() => (props.expanded ? Math.max(480, stage.value.w) : 520))
-const H = computed(() => (props.expanded ? Math.max(160, (stage.value.h - 12) / 2) : 140))
-// Room along the top for the chart's title, clear of the plot
-const M = { l: 44, r: 10, t: 24, b: 22 }
+const stage = ref({ w: 520, h: 560 })
+const W = computed(() => Math.max(300, stage.value.w))
+const H = computed(() => (props.expanded ? Math.max(160, Math.floor(stage.value.h / 2) - 2) : 140))
+const M = { l: 44, r: 10, t: 10, b: 22 }
 let stageObs = null
 onMounted(() => {
-  if (!props.expanded || !stageEl.value || typeof ResizeObserver === 'undefined') return
-  const measure = () => (stage.value = { w: stageEl.value.clientWidth, h: stageEl.value.clientHeight })
+  if (!stageEl.value || typeof ResizeObserver === 'undefined') return
+  // The width, and the height left for the two charts once the titles and readouts are in
+  const measure = () => {
+    const el = stageEl.value
+    if (!el) return
+    let other = 0
+    for (const c of el.children) {
+      if (c.tagName.toLowerCase() === 'svg') continue
+      const cs = getComputedStyle(c)
+      other += c.offsetHeight + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom)
+    }
+    stage.value = { w: el.clientWidth, h: el.clientHeight - other }
+  }
   stageObs = new ResizeObserver(measure)
   stageObs.observe(stageEl.value)
   measure()
@@ -121,27 +132,22 @@ function valueAt(get, d) {
   const t = b.d - a.d > 1e-12 ? (d - a.d) / (b.d - a.d) : 0
   return get(a) + (get(b) - get(a)) * t
 }
-// Not pointing: the same entries with no values, so the line keeps its shape and the page
-// doesn't move
+// Each chart's readout: the moment at the design load and in the negative case, and every
+// mode's margin. Not pointing: the same entries with no values, so the lines keep their shape
+// and the page doesn't move.
+const hasNeg = computed(() => props.analysis.stations.some((r) => r.Mneg > 0))
 const readout = computed(() => {
   const d = hoverD.value
-  if (d == null) {
-    const items = [{ key: 'M', label: 'Bending', value: '' }]
-    if (props.analysis.stations.some((r) => r.Mneg > 0)) items.push({ key: 'Mn', label: 'negative', value: '' })
-    for (const m of chart.value.modes) items.push({ key: m.key, slot: m.slot, label: m.label, value: '' })
-    return { x: null, at: null, items }
-  }
   const signed = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
-  const M0 = valueAt((r) => r.M, d)
-  const Mn = props.analysis.stations.some((r) => r.Mneg > 0) ? valueAt((r) => r.Mneg, d) : null
-  const items = []
-  if (M0 != null) items.push({ key: 'M', label: 'Bending', value: nm(M0) })
-  if (Mn != null) items.push({ key: 'Mn', label: 'negative', value: nm(Mn) })
-  for (const m of chart.value.modes) {
-    const v = valueAt((r) => r.ms[m.key], d)
-    if (v != null) items.push({ key: m.key, slot: m.slot, label: m.label, value: signed(v) })
+  const at = (get, show) => {
+    if (d == null) return ''
+    const v = valueAt(get, d)
+    return v == null ? '' : show(v)
   }
-  return { x: chart.value.x(d), at: format(d, 'length', defaultUnit(props.system, 'length')), items }
+  const bending = [{ key: 'M', line: 'solid', label: `at ${props.designG} g`, value: at((r) => r.M, nm) }]
+  if (hasNeg.value) bending.push({ key: 'Mn', line: 'dashed', label: 'negative', value: at((r) => r.Mneg, nm) })
+  const margins = chart.value.modes.map((m) => ({ key: m.key, slot: m.slot, label: m.label, value: at((r) => r.ms[m.key], signed) }))
+  return { x: d == null ? null : chart.value.x(d), at: d == null ? null : format(d, 'length', defaultUnit(props.system, 'length')), bending, margins }
 })
 
 // The overlay: Escape or the backdrop closes it
@@ -169,8 +175,16 @@ function nm(v) {
     <button v-if="!expanded" type="button" class="wc-iconbtn wc-loads__expand" aria-label="Show the loads charts larger" title="Show larger" @click="big = true">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in EXPAND" :key="k" :d="d" /></svg>
     </button>
+    <button v-else type="button" class="wc-iconbtn wc-loads__expand" aria-label="Back to the card" title="Back to the card (Esc)" @click="emit('close')">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in SHRINK" :key="k" :d="d" /></svg>
+    </button>
     <div ref="stageEl" class="wc-loads__stage">
-    <svg :viewBox="`0 0 ${W} ${H}`" :width="expanded ? W : null" :height="expanded ? H : null" role="img" aria-label="Bending moment along the span" @pointermove="onHover" @pointerleave="hoverD = null">
+    <div class="wc-loads__head">
+      <span class="wc-loads__title">Bending moment, N·m</span>
+      <span class="wc-loads__key"><span class="wc-loads__line" aria-hidden="true"></span>at {{ designG }} g</span>
+      <span v-if="hasNeg" class="wc-loads__key"><span class="wc-loads__line wc-loads__line--dashed" aria-hidden="true"></span>negative case</span>
+    </div>
+    <svg :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" role="img" aria-label="Bending moment along the span" @pointermove="onHover" @pointerleave="hoverD = null">
       <line v-for="(x, i) in chart.ribX" :key="'r' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__rib" />
       <line :x1="M.l" :x2="W - M.r" :y1="H - M.b" :y2="H - M.b" class="wc-svg-axis" />
       <polyline v-if="chart.momentNeg" :points="chart.momentNeg" class="wc-svg-curve wc-svg-curve--indicative" />
@@ -178,12 +192,22 @@ function nm(v) {
       <line v-for="(x, i) in chart.breakX" :key="'b' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__break" />
       <text :x="M.l - 4" :y="M.t + 4" text-anchor="end" class="wc-svg-tick">{{ chart.mMax.toFixed(1) }}</text>
       <text :x="M.l - 4" :y="H - M.b" text-anchor="end" class="wc-svg-tick">0</text>
-      <text :x="M.l" :y="M.t - 9" class="wc-svg-tick wc-loads__title">Bending moment, N·m</text>
       <text :x="M.l" :y="H - 6" class="wc-svg-tick">root rib</text>
       <text :x="W - M.r" :y="H - 6" text-anchor="end" class="wc-svg-tick">tip, {{ chart.spanLabel }}</text>
       <line v-if="readout.x != null" :x1="readout.x" :x2="readout.x" :y1="M.t" :y2="H - M.b" class="wc-loads__cross" />
     </svg>
-    <svg :viewBox="`0 0 ${W} ${H}`" :width="expanded ? W : null" :height="expanded ? H : null" role="img" aria-label="Lowest margin of safety along the span" @pointermove="onHover" @pointerleave="hoverD = null">
+    <p class="wc-loads__readout" aria-live="polite">
+      <span class="wc-loads__at">
+        <template v-if="readout.at"><strong>{{ readout.at }}</strong> from the root rib:</template>
+        <span v-else class="wc-muted">Point at a chart to read it here:</span>
+      </span>
+      <span v-for="it in readout.bending" :key="it.key" class="wc-loads__reading">
+        <span :class="['wc-loads__line', { 'wc-loads__line--dashed': it.line === 'dashed' }]" aria-hidden="true"></span>{{ it.label }}
+        <span class="wc-loads__value">{{ it.value }}</span>
+      </span>
+    </p>
+    <div class="wc-loads__head"><span class="wc-loads__title">Margin of safety by failure mode</span></div>
+    <svg :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" role="img" aria-label="Lowest margin of safety along the span" @pointermove="onHover" @pointerleave="hoverD = null">
       <rect :x="M.l" :y="chart.zero" :width="W - M.l - M.r" :height="H - M.b - chart.zero" class="wc-loads__bad" />
       <line v-for="(x, i) in chart.ribX" :key="'r' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__rib" />
       <line :x1="M.l" :x2="W - M.r" :y1="chart.zero" :y2="chart.zero" class="wc-svg-axis" />
@@ -204,21 +228,21 @@ function nm(v) {
       <text :x="M.l - 4" :y="chart.yS(MS_MAX) + 4" text-anchor="end" class="wc-svg-tick">+{{ MS_MAX }}</text>
       <text :x="M.l - 4" :y="chart.zero + 3" text-anchor="end" class="wc-svg-tick">0</text>
       <text :x="M.l - 4" :y="chart.yS(MS_MIN)" text-anchor="end" class="wc-svg-tick">{{ MS_MIN }}</text>
-      <text :x="M.l" :y="M.t - 9" class="wc-svg-tick wc-loads__title">Margin of safety by failure mode</text>
       <line v-if="readout.x != null" :x1="readout.x" :x2="readout.x" :y1="M.t" :y2="H - M.b" class="wc-loads__cross" />
     </svg>
-    </div>
     <p class="wc-loads__readout" aria-live="polite">
       <span class="wc-loads__at">
         <template v-if="readout.at"><strong>{{ readout.at }}</strong> from the root rib:</template>
-        <span v-else class="wc-muted">Point at a chart to read it:</span>
+        <span v-else class="wc-muted">Point at a chart to read it here:</span>
       </span>
-      <span v-for="it in readout.items" :key="it.key" class="wc-loads__reading">
-        <span v-if="it.slot" :class="['wc-loads__swatch', `wc-loads__mode--${it.slot}`]" aria-hidden="true"></span>{{ it.label }}
+      <span v-for="it in readout.margins" :key="it.key" class="wc-loads__reading">
+        <span :class="['wc-loads__swatch', `wc-loads__mode--${it.slot}`]" aria-hidden="true"></span>{{ it.label }}
         <span class="wc-loads__value">{{ it.value }}</span>
       </span>
     </p>
-    <ul class="wc-loads__legend" aria-label="Failure modes">
+    </div>
+    <ul class="wc-loads__legend" aria-label="Lowest margin along the span, by failure mode">
+      <li class="wc-loads__legend-head">Lowest along the span:</li>
       <li v-for="m in chart.modes" :key="m.key" :class="{ 'wc-loads__legend--worst': m.key === chart.worst?.mode }">
         <span :class="['wc-loads__swatch', `wc-loads__mode--${m.slot}`]" aria-hidden="true"></span>
         {{ m.label }} <span class="wc-muted">{{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</span>
@@ -244,9 +268,6 @@ function nm(v) {
       </span>
       <span>Bending counts the spar, sheeting, any laminate and the stringers; hinge spars, edge stock, servo trays and hard points are left out, on the safe side.</span>
     </figcaption>
-    <div v-if="expanded" class="wc-loads__actions">
-      <button type="button" class="wc-button" @click="emit('close')">Close</button>
-    </div>
     <!-- Fixed over the page, inside the app so it keeps its theme -->
     <div v-if="!expanded && big" class="wc-confirm__backdrop" @pointerdown.self="big = false">
       <div class="wc-loads__panel" role="dialog" aria-modal="true" aria-label="Loads along the span">

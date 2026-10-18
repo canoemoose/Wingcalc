@@ -481,6 +481,8 @@ const preview = computed(() => {
   return { s, y1: sec.xl + a.value.structure.le.width, y2: sec.xl + sec.c - a.value.structure.te.width }
 })
 const KINDS = { root: 'Root rib', break: 'Panel break', tip: 'Tip rib', hard: 'Hard point', manual: 'Manual rib', normal: 'Rib', surface: 'Control surface end rib' }
+// The readout in full, for its tooltip when the line is cut short
+const readoutText = computed(() => (readout.value ? `${readout.value.name} ${readout.value.kind}, ${readout.value.d} from the root rib${readout.value.bays ? `; bays ${readout.value.bays}` : ''}.` : ''))
 const readout = computed(() => {
   const p = selectedPart.value
   if (!p) return null
@@ -669,13 +671,12 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       </div>
       <StageZoom v-model:snap="snapOn" :snap-step="editable ? fmt(step) : ''" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
-    <!-- Always there, two lines tall, so the page doesn't move as the selection changes -->
-    <p class="wc-plan__readout wc-structure-plan__readout">
+    <!-- Always there and one line tall, so the page doesn't move as the selection changes -->
+    <p class="wc-structure-plan__readout" :title="readoutText">
       <template v-if="readout">
         <strong>{{ readout.name }}</strong> {{ readout.kind }}, {{ readout.d }} from the root rib<template v-if="readout.bays"
           >; bays {{ readout.bays }}</template
         >.
-        <template v-if="readout.movable"> Drag it, or nudge with the arrow keys; Delete removes it.</template>
       </template>
       <span v-else class="wc-muted">Click a rib to see where it is.</span>
     </p>
@@ -689,7 +690,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to
       move around.
-      <template v-if="editable">Double-click the wing to add a rib there.</template>
+      <template v-if="editable">Double-click the wing to add a rib there; drag a rib to move it, or nudge it with the arrow keys, and Delete removes it.</template>
       <template v-else-if="a.construction === 'foam'">A foam wing has no ribs: its cores are cut between the panel ends, and the servo and air brake pockets are routed where outlined.</template>
       <template v-else>Click a rib to see it; set spacing to Manual to move ribs here.</template>
     </figcaption>
