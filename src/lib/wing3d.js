@@ -508,8 +508,10 @@ export function movingSparSection(a, structure, sf, s) {
   return [[xa, mid], meet(sf.bevel.bottom, 'lower'), [xr, lo(xr)], [xr, up(xr)], meet(sf.bevel.top, 'upper')]
 }
 
-// Where a servo stands in its bay: the base height, the highest the lower skin's inside gets
-// under its footprint and along the bay, so it never pokes through the skin, and the room above it.
+// Where a servo stands in its bay: the base height (its lowest point), the highest the lower
+// skin's inside (or a lower stringer's top) gets under its run and along the bay, so it never
+// pokes through either, and the ceiling, the lowest the upper skin's inside (or an upper
+// stringer's underside) gets.
 export function servoBox(a, structure, b) {
   let base = -Infinity
   let ceil = Infinity
@@ -519,8 +521,56 @@ export function servoBox(a, structure, b) {
       base = Math.max(base, insetHeight(a, structure, s, x, 'lower'))
       ceil = Math.min(ceil, insetHeight(a, structure, s, x, 'upper'))
     }
+    for (const str of structure.stringers ?? []) {
+      if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
+      for (const w of ['upper', 'lower']) {
+        if (str.surface !== 'both' && str.surface !== w) continue
+        const box = stringerBox(a, structure, str, s, w)
+        if (!box) continue
+        const xs = box.map((p) => p[0])
+        if (Math.max(...xs) <= b.lugs.x0 || Math.min(...xs) >= b.lugs.x1) continue
+        const hs = box.map((p) => p[1])
+        if (w === 'lower') base = Math.max(base, Math.max(...hs))
+        else ceil = Math.min(ceil, Math.min(...hs))
+      }
+    }
   }
   return { base, ceil, top: base + b.servo.height }
+}
+
+// A built bay's servo and mount plate: the servo's solids placed (servos.js placeServo), standing
+// on servoBox's base with its case centred on the bay's, and the plate as the strips of ply
+// round its cut-out ([x0, x1, s0, s1]), from z to z + thickness.
+export function servoBayParts(a, structure, b) {
+  const box = servoBox(a, structure, b)
+  const parts = placeServo(b.servo, { x: (b.case.x0 + b.case.x1) / 2, s: b.s, base: box.base })
+  const z = box.base + b.servo.lugHeight + b.servo.lugThickness
+  const p = b.plate
+  const c = b.cut
+  const strips = c
+    ? [
+        [p.x0, c.x0, p.s0, p.s1],
+        [c.x1, p.x1, p.s0, p.s1],
+        [c.x0, c.x1, p.s0, c.s0],
+        [c.x0, c.x1, c.s1, p.s1],
+      ]
+    : [[p.x0, p.x1, p.s0, p.s1]]
+  return { parts, plate: { z, thickness: p.thickness, strips: strips.filter(([x0, x1, s0, s1]) => x1 - x0 > 1e-4 && s1 - s0 > 1e-4) } }
+}
+
+// One of a servo's solids cut square to the span at s, as [x, h] corners, or null where the
+// cut misses it
+function servoSlice({ box, cylinder: c }, s) {
+  const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+  if (box) return s >= box.s[0] && s <= box.s[1] ? rect(box.x[0], box.x[1], box.z[0], box.z[1]) : null
+  if (c.axis === 's') {
+    if (s < c.from || s > c.to) return null
+    return Array.from({ length: 16 }, (_, i) => [c.x + c.r * Math.cos((2 * Math.PI * i) / 16), c.z + c.r * Math.sin((2 * Math.PI * i) / 16)])
+  }
+  const d = s - c.s
+  if (Math.abs(d) >= c.r) return null
+  const half = Math.sqrt(c.r * c.r - d * d)
+  return c.axis === 'x' ? rect(c.from, c.to, c.z - half, c.z + half) : rect(c.x - half, c.x + half, c.from, c.to)
 }
 
 // One of a servo's solids (servos.js placeServo) as a mesh: a box swept across the span, or a
@@ -636,6 +686,15 @@ export function sectionAt(a, structure, parts, s) {
   for (const str of st.stringers ?? []) {
     if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
     for (const w of ['upper', 'lower']) if (str.surface === 'both' || str.surface === w) add('stringer', stringerBox(a, st, str, s, w))
+  }
+  // Servos and their mount plates, where the cut crosses them
+  for (const b of (a.bays ?? []).filter((x) => x.ok)) {
+    if (s < b.sA || s > b.sB) continue
+    const { parts: sp, plate } = servoBayParts(a, st, b)
+    for (const p of sp) add(p.kind, servoSlice(p, s))
+    for (const [x0, x1, s0, s1] of plate.strips) {
+      if (s >= s0 && s <= s1) add('plate', [[x0, plate.z], [x1, plate.z], [x1, plate.z + plate.thickness], [x0, plate.z + plate.thickness]])
+    }
   }
   // Control surfaces' hinge spars, where the cut crosses them
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
@@ -934,24 +993,12 @@ export function wing3d(a, structure, parts) {
 
   // Servo bays: each servo, standing on the lower skin's inside, drawn from its maker's drawing
   // (servos.js placeServo: case, lugs, output boss, lead), and the mount plate across the bay on
-  // its lugs, with the cut-out for the case
+  // its lugs, round its cut-out
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
-    const box = servoBox(a, st, b)
     const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
-    const parts = placeServo(b.servo, { x: (b.lugs.x0 + b.lugs.x1) / 2, s: b.s, base: box.base })
-    for (const p of parts) add(p.kind, servoSolid(a, p))
-    const z = box.base + b.servo.lugHeight + b.servo.lugThickness
-    const cut = parts[0].box
-    const gap = 0.0005
-    const strips = [
-      [b.plate.x0, cut.x[0] - gap, b.plate.s0, b.plate.s1],
-      [cut.x[1] + gap, b.plate.x1, b.plate.s0, b.plate.s1],
-      [cut.x[0] - gap, cut.x[1] + gap, b.plate.s0, cut.s[0] - gap],
-      [cut.x[0] - gap, cut.x[1] + gap, cut.s[1] + gap, b.plate.s1],
-    ]
-    for (const [x0, x1, s0, s1] of strips) {
-      if (x1 - x0 > 1e-4 && s1 - s0 > 1e-4) add('plate', sweep(a, s0, s1, () => rect(x0, x1, z, z + b.plate.thickness), 1))
-    }
+    const { parts: sp, plate } = servoBayParts(a, st, b)
+    for (const p of sp) add(p.kind, servoSolid(a, p))
+    for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1))
   }
 
   // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;

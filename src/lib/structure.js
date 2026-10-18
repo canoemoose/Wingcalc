@@ -30,7 +30,7 @@ import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES, isRound } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
-import { placeBays, servoMasses, fitBaysToRibs, BAY_MARGIN, SERVO_HEADROOM } from './servos.js'
+import { placeBays, servoMasses, fitBaysToRibs, BAY_MARGIN, SERVO_HEADROOM, PLATE_EDGE } from './servos.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
 import { braceSizing } from './ribs.js'
@@ -1106,20 +1106,23 @@ const BAY_PROBLEMS = {
 }
 
 // Each servo bay laid out (servos.js placeBays says where it goes; this builds it). The bay
-// is the gap between two ribs, a servo's width and its clearance across, with a hard point
-// (a full rib) at each end. The servo lies flat with its lugs along the chord, its lugs'
-// span ending a margin ahead of the fixed hinge spar; a ply mount plate spans the bay
-// between the ribs' faces, flush with the underside of the lugs, with a cut-out for the case
-// (the servo goes in from below, the lugs bearing up on the plate). The hatch is the opening
-// in the lower surface under it, the plate's size. The leads leave through a hole in each rib
-// inboard of the bay (the bay's own inner rib included), in a strip just behind the main
-// spar, one hole's width per bay, the outermost bay's nearest the spar.
+// is the gap between two ribs, the whole servo's width (servos.js installedServo: lugs, boss
+// and lead included) and its clearance across, with a hard point (a full rib) at each end. The
+// servo's run along the chord (all of it) and the plate round it go between the leads' strip
+// behind the spar and the fixed hinge spar; a ply mount plate spans the bay between the ribs'
+// faces, its underside on the lugs' top face, with a cut-out for what passes through it and
+// at least PLATE_EDGE of ply round that (the servo goes in from below, the lugs bearing up on
+// the plate). Lower stringers under the run raise the servo, upper ones lower its ceiling. The
+// hatch is the opening in the lower surface under it, the plate's size. The leads leave
+// through a hole in each rib inboard of the bay (the bay's own inner rib included), in a strip
+// just behind the main spar, one hole's width per bay, the outermost bay's nearest the spar.
 //
 // Returns the bays (surfaces: the built ones from surfaceLayouts), each with ok (built) or
 // problem, and for the built ones: plate ({ x0, x1 } chord, { s0, s1 } span, thickness), lugs
-// and case ({ x0, x1 }), hatch ({ x0, x1, s0, s1 }), inner (the rib faces' s), lead ({ diameter,
-// offset }: the hole's near edge's distance behind the spar's rear face), room (the depth there,
-// between the skins, for a flat servo), need and warnings.
+// (the servo's whole run) and case ({ x0, x1 }), cut ({ x0, x1, s0, s1 }, the plate's cut-out),
+// screws ([x, s], the plate's pilot holes), hatch ({ x0, x1, s0, s1 }), inner (the rib faces'
+// s), lead ({ diameter, offset }: the hole's near edge's distance behind the spar's rear face),
+// room (the depth there, between the skins), need and warnings.
 export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, surfaces, bays) {
   const t = structure.ribs.thickness || 0
   const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
@@ -1153,14 +1156,23 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
     const hingeFront = Math.min(...ss.map((s) => r.faces.fixedFront(s)))
     const leadsEnd = Math.max(...ss.map(sparRear)) + offset
     const free = [leadsEnd + 0.002, hingeFront - 0.002]
-    if (free[1] - free[0] < sv.lugSpan + 2 * BAY_MARGIN) {
+    // From the case's centre: the whole servo's run, and the plate, a margin beyond the run and
+    // never less than the plate's edge of ply round its cut-out
+    const half = (sv.run ?? sv.lugSpan) / 2
+    const cut = sv.plan?.cut
+    const pf = Math.min(-half - BAY_MARGIN, cut ? cut.x[0] - PLATE_EDGE : -Infinity)
+    const pr = Math.max(half + BAY_MARGIN, cut ? cut.x[1] + PLATE_EDGE : Infinity)
+    if (free[1] - free[0] < pr - pf) {
       b.ok = false
       b.problem = 'forward'
       continue
     }
-    // Depth for a servo lying flat with its lugs from x to x + lugSpan: from the highest the
-    // lower skin's inside gets to the lowest the upper's does, over that and the bay's length
-    const depthFrom = (x0) => {
+    // Depth for the servo with its centre at xc: from the highest the lower skin's inside (or a
+    // lower stringer's top) gets to the lowest the upper's (or an upper stringer's underside)
+    // does, over its run and the bay's length
+    const depthFrom = (xc) => {
+      const x0 = xc - half
+      const x1 = xc + half
       let base = -Infinity
       let ceil = Infinity
       for (let i = 0; i <= 4; i++) {
@@ -1169,42 +1181,48 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
         if (!sec || !(sec.c > 1e-4)) continue
         const xiRear = (sparRear(s) - sec.xl) / sec.c
         for (let k = 0; k <= 6; k++) {
-          const x = x0 + (sv.lugSpan * k) / 6
+          const x = x0 + ((x1 - x0) * k) / 6
           const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
           const f = sec.surf(q)
-          const skinLo = skinAt(structure, q, xiRear, 'bottom', sec.c)
-          const skinUp = skinAt(structure, q, xiRear, 'top', sec.c)
-          base = Math.max(base, f.lower + skinLo)
-          ceil = Math.min(ceil, f.upper - skinUp)
+          base = Math.max(base, f.lower + skinAt(structure, q, xiRear, 'bottom', sec.c))
+          ceil = Math.min(ceil, f.upper - skinAt(structure, q, xiRear, 'top', sec.c))
+        }
+        for (const st of structure.stringers ?? []) {
+          if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
+          const xs = sec.xl + st.position * sec.c
+          if (xs + st.width / 2 <= x0 || xs - st.width / 2 >= x1) continue
+          const f = sec.surf(st.position)
+          if (st.surface !== 'upper') base = Math.max(base, f.lower + skinAt(structure, st.position, xiRear, 'bottom', sec.c) + st.height)
+          if (st.surface !== 'lower') ceil = Math.min(ceil, f.upper - skinAt(structure, st.position, xiRear, 'top', sec.c) - st.height)
         }
       }
       return ceil - base
     }
     // Where it goes in the free stretch: the deepest place, the rearmost if several are as deep
     // (a millimetre in hand), so the pushrod to the horn is short
-    const lo = free[0] + BAY_MARGIN
-    const hi = free[1] - BAY_MARGIN - sv.lugSpan
-    let front = hi
+    const lo = free[0] - pf
+    const hi = free[1] - pr
+    let xc = hi
     let room = depthFrom(hi)
     for (let k = 1; k <= 16; k++) {
       const x = hi - ((hi - lo) * k) / 16
       const d = depthFrom(x)
       if (d > room + 0.001) {
         room = d
-        front = x
+        xc = x
       }
     }
-    const rear = front + sv.lugSpan
-    const plateRear = rear + BAY_MARGIN
-    const plateFront = front - BAY_MARGIN
-    const need = sv.height + SERVO_HEADROOM
-    const caseX0 = front + (sv.lugSpan - sv.length) / 2
+    // The plate's top must be under the upper skin too
+    const need = Math.max(sv.height, sv.lugHeight + sv.lugThickness + sv.plate) + SERVO_HEADROOM
+    const inner = [b.sA + t / 2, b.sB - t / 2]
     Object.assign(b, {
-      inner: [b.sA + t / 2, b.sB - t / 2],
-      plate: { x0: plateFront, x1: plateRear, s0: b.sA + t / 2, s1: b.sB - t / 2, thickness: sv.plate },
-      lugs: { x0: front, x1: rear },
-      case: { x0: caseX0, x1: caseX0 + sv.length },
-      hatch: { x0: plateFront, x1: plateRear, s0: b.sA + t / 2, s1: b.sB - t / 2 },
+      inner,
+      plate: { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1], thickness: sv.plate },
+      lugs: { x0: xc - half, x1: xc + half },
+      case: { x0: xc - sv.length / 2, x1: xc + sv.length / 2 },
+      cut: cut ? { x0: xc + cut.x[0], x1: xc + cut.x[1], s0: b.s + cut.s[0], s1: b.s + cut.s[1] } : null,
+      screws: (sv.plan?.screws ?? []).map(([x, s]) => [xc + x, b.s + s]),
+      hatch: { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1] },
       room,
       need,
     })

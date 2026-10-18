@@ -27,6 +27,7 @@
 //   torque                 stall torque at 4.8 V, rounded down, N·m
 //   plate                  the mount plate's ply thickness, m
 //   leadHole               the hole a lead passes through the ribs by, m
+//   pilot                  the pilot hole for a lug screw in the mount plate, m
 export const SERVOS = {
   'sub-micro': {
     label: 'Sub-micro',
@@ -41,6 +42,7 @@ export const SERVOS = {
     torque: 0.06,
     plate: 0.0015,
     leadHole: 0.004,
+    pilot: 0.001,
   },
   micro: {
     label: 'Micro',
@@ -55,6 +57,7 @@ export const SERVOS = {
     torque: 0.15,
     plate: 0.0015,
     leadHole: 0.006,
+    pilot: 0.001,
   },
   mini: {
     label: 'Mini',
@@ -69,6 +72,7 @@ export const SERVOS = {
     torque: 0.28,
     plate: 0.002,
     leadHole: 0.007,
+    pilot: 0.0012,
   },
   standard: {
     label: 'Standard',
@@ -83,13 +87,21 @@ export const SERVOS = {
     torque: 0.4,
     plate: 0.003,
     leadHole: 0.01,
+    pilot: 0.0015,
   },
 }
 
 export const SERVO_CLASSES = Object.keys(SERVOS)
 
-// Room left round the case in the bay, each side across the span, m
-export const SERVO_CLEARANCE = 0.0015
+// The least ply a mount plate keeps round its cut-out, and the gap the cut-out leaves round
+// what passes through it, m
+export const PLATE_EDGE = 0.003
+export const CUTOUT_GAP = 0.0005
+// The least ply left between a lug screw's pilot hole and the cut-out, m
+export const SCREW_EDGE = 0.001
+// Room left beside the servo in the bay, each side across the span, to the rib faces: the
+// cut-out's gap and the plate's edge, m
+export const SERVO_CLEARANCE = CUTOUT_GAP + PLATE_EDGE
 // The top of the case's clearance under the upper skin, m
 export const SERVO_HEADROOM = 0.002
 
@@ -124,7 +136,8 @@ export const SERVO_HEADROOM = 0.002
 //   mass               with its lead, kg
 //   torque             stall torque at about 4.8 to 6 V, N·m
 //   thin               a thin wing servo, the kind that lies flat in a thin wing
-//   plate, leadHole    from the generic class above
+//   plate, leadHole,   from the generic class above
+//   pilot
 //
 // Every dimension is a figure printed on the drawing except the output boss's diameter and the
 // lead's place, which are scaled off it (to about half a millimetre).
@@ -134,7 +147,7 @@ export const SERVO_HEADROOM = 0.002
 // are given. D141SW is no longer on hitecrcd.com: its figures are from the D141SH, which Hitec
 // lists in the same case.
 const KG_CM = 0.0980665
-const fromClass = (cls) => ({ plate: SERVOS[cls].plate, leadHole: SERVOS[cls].leadHole })
+const fromClass = (cls) => ({ plate: SERVOS[cls].plate, leadHole: SERVOS[cls].leadHole, pilot: SERVOS[cls].pilot })
 
 // A drawing's figures in mm, as an entry's fields in m
 function drawn({ body, case: caseHeight, lugs, wing, output, lead, drawing }) {
@@ -257,33 +270,133 @@ export function defaultServoClass(mass) {
 export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 
 // The servo a bay holds, in the generic classes' fields (which the bay geometry reads) and turned
-// to its mounting: length along the chord, width across the span, height its depth in the wing,
-// and the lugs half way up a servo that lies down. id is a Hitec id or a class; anything else
-// takes the class that suits the model's mass.
+// to its mounting, sized by everything drawn of it (servoParts: case, tower, lugs, output boss and
+// lead stub), so a bay that fits these fits the whole servo:
+//   length         the case along the chord
+//   run            the whole servo along the chord, symmetric about the case's centre (the bay's
+//                  lug run, what the stretch between the spar and the hinge must hold)
+//   width          the whole servo across the span, symmetric about the bay's centre
+//   height         the whole servo's depth, from its lowest point to its highest
+//   lift           how far the case's base sits above that lowest point (a wing servo's tab,
+//                  or a lead out of the base, stood upright)
+//   lugHeight      from the lowest point to the underside of the plate's lugs (the plate's
+//                  underside is lugHeight + lugThickness)
+//   lugSpan        the lugs' own span, as drawn
+//   plan           the mount plate's cut-out ({ x, s } ranges, from the case's centre and the
+//                  bay's) and its screw holes ([x, s]), see platePlan
+// id is a Hitec id or a class; anything else takes the class that suits the model's mass.
 export function installedServo(id, mounting = 'upright', mass = 0) {
   const found = servoById(id) ?? { id: defaultServoClass(mass), ...SERVOS[defaultServoClass(mass)] }
   const cls = SERVOS[found.class] ?? SERVOS[found.id] ?? SERVOS.micro
   const frame = servoFrame(found)
+  const mount = MOUNTINGS[mounting] ? mounting : 'upright'
   const base = {
     ...cls,
     ...found,
     label: found.model ?? cls.label,
-    length: frame.length,
-    width: frame.width,
-    height: frame.height,
     lugSpan: frame.lugSpan,
     lugThickness: frame.lugThickness,
-    lugHeight: frame.lugHeight,
     frame,
+    mounting: mount,
+    lift: 0,
   }
-  const mount = MOUNTINGS[mounting] ? mounting : 'upright'
-  if (mount === 'upright') return { ...base, mounting: mount }
-  const e = servoEnvelope(found, mount)
-  const lugHeight = Math.max(0, e.depth / 2 - base.lugThickness / 2)
-  if (mount === 'side') return { ...base, length: e.chord, width: e.span, height: e.depth, lugHeight, mounting: mount }
-  // Flat, the case's length lies across the span and its lugs with it, so the bay is the lugs'
-  // span wide; along the chord the servo is its height, and a wing servo's tab below its base
-  return { ...base, length: e.chord, width: Math.max(e.span, frame.lugSpan), height: e.depth, lugSpan: e.chord + (frame.wingLugs?.tab?.[1] ?? 0), lugHeight, mounting: mount }
+  // Placed about the case's centre on its base, to measure it
+  const parts = placeServo(base, { x: 0, s: 0, base: 0 })
+  const ext = partsExtent(parts)
+  const kase = parts[0].box
+  const lift = -ext.z[0]
+  const plateZ = plateHeight(parts, frame.lugThickness, ext.z) + lift
+  const plan = platePlan(parts, plateZ - lift, cls.plate, found.pilot ?? cls.pilot)
+  return {
+    ...base,
+    length: kase.x[1] - kase.x[0],
+    run: 2 * Math.max(-ext.x[0], ext.x[1]),
+    width: 2 * Math.max(-ext.s[0], ext.s[1]),
+    height: ext.z[1] - ext.z[0],
+    lift,
+    lugHeight: plateZ - frame.lugThickness,
+    plan,
+  }
+}
+
+// The x, s and z ranges a set of placed parts (placeServo) fill
+export function partsExtent(parts) {
+  const ext = { x: [Infinity, -Infinity], s: [Infinity, -Infinity], z: [Infinity, -Infinity] }
+  const grow = (k, lo, hi) => {
+    ext[k][0] = Math.min(ext[k][0], lo)
+    ext[k][1] = Math.max(ext[k][1], hi)
+  }
+  for (const p of parts) {
+    if (p.box) for (const k of ['x', 's', 'z']) grow(k, p.box[k][0], p.box[k][1])
+    else {
+      const c = p.cylinder
+      for (const k of ['x', 's', 'z']) {
+        if (k === c.axis) grow(k, c.from, c.to)
+        else grow(k, c[k] - c.r, c[k] + c.r)
+      }
+    }
+  }
+  return ext
+}
+
+// The ranges one part fills in x, s and z
+function partRanges(p) {
+  if (p.box) return p.box
+  const c = p.cylinder
+  const r = (k) => (k === c.axis ? [c.from, c.to] : [c[k] - c.r, c[k] + c.r])
+  return { x: r('x'), s: r('s'), z: r('z') }
+}
+
+// The height of the mount plate's underside (placed parts, the case on z = 0): the top of the
+// lugs that lie flat in the wing's plane (an upright servo's, or a wing servo's laid flat),
+// the highest of them; with none lying flat (an ordinary servo on its side or flat, whose lugs
+// stand on edge), half way up the servo.
+function plateHeight(parts, t, zs) {
+  const flat = parts.slice(1).filter((p) => p.kind === 'servo' && p.box && Math.abs(p.box.z[1] - p.box.z[0] - t) < 1e-6)
+  if (flat.length) return Math.max(...flat.map((p) => p.box.z[1]))
+  return (zs[0] + zs[1]) / 2
+}
+
+// The mount plate's cut-out and screw holes, from the case's centre (x) and the bay's (s): the
+// cut-out is the plan of everything that passes through the plate (from z to z + thickness)
+// with CUTOUT_GAP round it; a screw goes through each lug that bears on the plate's underside,
+// in the part of the lug the cut-out leaves (so the ply either side of the hole is even), two
+// along it when that part is at least 8 mm long, at a quarter of its length from its middle,
+// else one at its middle, leaving out any the cut-out would take or that would leave less than
+// SCREW_EDGE of ply between its pilot hole and the cut-out (short says some were left out).
+export function platePlan(parts, z, thickness, pilot = 0.001) {
+  const through = parts.filter((p) => {
+    const r = partRanges(p)
+    return r.z[0] < z + thickness - 1e-6 && r.z[1] > z + 1e-6
+  })
+  const ext = partsExtent(through)
+  const cut = through.length ? { x: [ext.x[0] - CUTOUT_GAP, ext.x[1] + CUTOUT_GAP], s: [ext.s[0] - CUTOUT_GAP, ext.s[1] + CUTOUT_GAP] } : null
+  const inCut = ([x, s]) => cut && x > cut.x[0] && x < cut.x[1] && s > cut.s[0] && s < cut.s[1]
+  // A lug's range on one axis with the cut-out's taken off the end it covers
+  const clip = (r, c) => (!c || r[1] <= c[0] || r[0] >= c[1] ? r : r[1] > c[1] ? [Math.max(r[0], c[1]), r[1]] : r[0] < c[0] ? [r[0], Math.min(r[1], c[0])] : r)
+  const screws = []
+  let short = false
+  for (const p of parts.slice(1)) {
+    if (p.kind !== 'servo' || !p.box || Math.abs(p.box.z[1] - z) > 1e-6) continue
+    // Clip along the axis the lug sticks out of the cut-out on
+    const outX = cut && (p.box.x[0] < cut.x[0] || p.box.x[1] > cut.x[1])
+    const x = outX ? clip(p.box.x, cut.x) : p.box.x
+    const s = !outX && cut ? clip(p.box.s, cut.s) : p.box.s
+    const mid = [(x[0] + x[1]) / 2, (s[0] + s[1]) / 2]
+    const lx = x[1] - x[0]
+    const ls = s[1] - s[0]
+    const pts = Math.max(lx, ls) < 0.008 ? [mid] : lx > ls ? [[mid[0] - lx / 4, mid[1]], [mid[0] + lx / 4, mid[1]]] : [[mid[0], mid[1] - ls / 4], [mid[0], mid[1] + ls / 4]]
+    for (const q of pts) {
+      if (inCut(q)) continue
+      // Room for the pilot hole and SCREW_EDGE of ply to the cut-out, or none
+      if (cut && Math.max(cut.x[0] - q[0], q[0] - cut.x[1], cut.s[0] - q[1], q[1] - cut.s[1]) - pilot / 2 < SCREW_EDGE - 1e-9) {
+        short = true
+        continue
+      }
+      screws.push(q)
+    }
+  }
+  return { cut, screws, short }
 }
 
 // A servo's shape in its own frame, upright: x along its length from the case's centre
@@ -310,7 +423,7 @@ export function servoFrame(servo) {
 }
 
 // How thick a servo's lead is drawn, and how far it's drawn out of the case, m
-const LEAD = { thickness: 0.0025, stub: 0.006 }
+const LEAD = { thickness: 0.002, stub: 0.006 }
 
 // The solids a servo is drawn with, in its frame (servoFrame): { kind, box } with box
 // [[x0, x1], [y0, y1], [z0, z1]], or { kind, cylinder } with cylinder { x, y, r, z: [z0, z1] }
@@ -342,22 +455,22 @@ export function servoParts(frame) {
 // { kind, box } with box { x: [x0, x1], s: [s0, s1], z: [z0, z1] } (plan x along the chord,
 // flat s along the span, z the height in the section), or { kind, cylinder } with cylinder
 // { axis: 'x' | 's' | 'z', x, s, z (the centre, the axis's own one unused), r, from, to }.
-// at: { x, s, base }, the centre of the lugs' run along the chord, the bay's centre across the
-// span and the height the servo stands on. Upright, its length runs along the chord with the
-// lead end aft; on its side, the same with its height across the span; flat, its height runs
-// along the chord, output aft, and its length across the span.
+// at: { x, s, base }, the case's centre along the chord, the bay's centre across the span (the
+// case's too) and the height the servo stands on (its lowest point; the case's base is lift
+// above it). Upright, its length runs along the chord with the lead end aft; on its side, the
+// same with its height across the span; flat, its height runs along the chord, output aft, and
+// its length across the span.
 export function placeServo(servo, at) {
   const f = servo.frame ?? servoFrame(servo)
   const mount = servo.mounting ?? 'upright'
-  const tab = f.wingLugs?.tab?.[1] ?? 0
   // Frame (x, y, z) to wing (x, s, z)
   const map =
     mount === 'side'
       ? { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
       : mount === 'flat'
-      ? { x: ['z', -(f.height - tab) / 2], s: ['x', 0], z: ['y', f.width / 2] }
+      ? { x: ['z', -f.height / 2], s: ['x', 0], z: ['y', f.width / 2] }
       : { x: ['x', 0], s: ['y', 0], z: ['z', 0] }
-  const origin = { x: at.x, s: at.s, z: at.base }
+  const origin = { x: at.x, s: at.s, z: at.base + (servo.lift ?? 0) }
   const idx = { x: 0, y: 1, z: 2 }
   const range = (axis, box) => {
     const [from, by] = map[axis]

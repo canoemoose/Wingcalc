@@ -264,9 +264,12 @@ describe('the servo a bay holds', () => {
   it('turns a servo to its mounting: on its side it needs its width of depth, not its height', () => {
     const up = installedServo('standard', 'upright')
     const side = installedServo('standard', 'side')
-    expect(up.height).toBe(SERVOS.standard.height)
+    // Upright it needs its case and the output boss on top of it
+    expect(up.height).toBeCloseTo(up.frame.output.top, 9)
+    expect(up.height).toBeGreaterThan(SERVOS.standard.height)
     expect(side.height).toBe(SERVOS.standard.width)
-    expect(side.width).toBe(SERVOS.standard.height)
+    // On its side its height lies across the span, the boss beyond it, centred on the case
+    expect(side.width).toBeGreaterThanOrEqual(SERVOS.standard.height)
     expect(side.lugHeight).toBeLessThan(side.height)
   })
 

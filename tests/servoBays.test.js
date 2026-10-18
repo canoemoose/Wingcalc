@@ -8,9 +8,9 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure, spanLoads, MIN_MATERIAL } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
-import { wing3d, servoBox } from '../src/lib/wing3d.js'
+import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, HITEC } from '../src/lib/servos.js'
 
 function inside(poly, [x, y]) {
   let c = false
@@ -159,7 +159,8 @@ describe('where a bay goes', () => {
     const [b] = place([aileron], [{ surface: 1, class: 'standard', at: 0.6 }])
     expect(b.class).toBe('standard')
     expect(b.s).toBeCloseTo(0.6, 9)
-    expect(b.width).toBeCloseTo(SERVOS.standard.width + 0.003, 9)
+    expect(b.width).toBeCloseTo(b.servo.width + 2 * SERVO_CLEARANCE, 9)
+    expect(b.servo.width).toBeGreaterThanOrEqual(SERVOS.standard.width)
   })
 
   it('centres a bay along, measured from its surface\'s inner end', () => {
@@ -229,8 +230,10 @@ describe('built servo bays', () => {
         expect(b.plate.x1).toBeLessThan(sf.faces.fixedFront(s))
         expect(b.plate.x0).toBeGreaterThan(res.a.sparX(s))
       }
-      expect(b.lugs.x1 - b.lugs.x0).toBeCloseTo(b.servo.lugSpan, 9)
-      // The case is centred between the lugs
+      // The run is the whole servo, lugs, boss and lead, at least its lugs' span
+      expect(b.lugs.x1 - b.lugs.x0).toBeCloseTo(b.servo.run, 9)
+      expect(b.servo.run).toBeGreaterThanOrEqual(b.servo.lugSpan)
+      // The case is centred in it
       expect(b.case.x0 - b.lugs.x0).toBeCloseTo(b.lugs.x1 - b.case.x1, 9)
       expect(b.case.x1 - b.case.x0).toBeCloseTo(b.servo.length, 9)
       expect(b.room).toBeGreaterThanOrEqual(b.need)
@@ -252,8 +255,10 @@ describe('built servo bays', () => {
       const cut = bounds(plate.holes[0])
       expect(cut.w).toBeCloseTo(b.servo.width + 0.001, 9)
       expect(cut.h).toBeCloseTo(b.servo.length + 0.001, 9)
-      // Centred across, and the lugs' span either side along it
-      expect((cut.x0 + cut.x1) / 2).toBeCloseTo(o.w / 2, 9)
+      // On the servo across (the bay's centre, not the plate's when the tray sits between the
+      // wing's own ribs), round the case along it, and at least the plate's edge of ply all round
+      expect((cut.x0 + cut.x1) / 2).toBeCloseTo(b.s - b.plate.s0, 9)
+      expect(Math.min(cut.x0 - o.x0, o.x1 - cut.x1, cut.y0 - o.y0, o.y1 - cut.y1)).toBeGreaterThanOrEqual(PLATE_EDGE - 1e-9)
       expect(cut.y0 - o.y0).toBeCloseTo(b.case.x0 - b.plate.x0 - 0.0005, 9)
       // Four pilot holes, inside the plate and clear of the cut-out
       expect(plate.holes).toHaveLength(5)
@@ -530,7 +535,7 @@ describe('servo bays in the exports and the 3D view', () => {
 })
 
 describe('a Hitec servo in its bay, drawn from its drawing', () => {
-  const at = (b, base = 0) => ({ x: (b.lugs.x0 + b.lugs.x1) / 2, s: b.s, base })
+  const at = (b, base = 0) => ({ x: (b.case.x0 + b.case.x1) / 2, s: b.s, base })
   const boxes = (parts, kind) => parts.filter((p) => p.kind === kind && p.box).map((p) => p.box)
 
   it('stands upright with its lugs at their height, along the bay, and its output on top', () => {
@@ -546,9 +551,12 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
     expect((kase.s[0] + kase.s[1]) / 2).toBeCloseTo(b.s, 9)
     expect(kase.x[0]).toBeCloseTo(b.case.x0, 9)
     expect(kase.z).toEqual([0, 0.0294])
-    // The lugs reach the bay's lug run and sit at their height, 2 mm thick
-    expect(Math.min(...lugs.map((l) => l.x[0]))).toBeCloseTo(b.lugs.x0, 9)
-    expect(Math.max(...lugs.map((l) => l.x[1]))).toBeCloseTo(b.lugs.x1, 9)
+    // The lugs span their 39.8 mm about the case, inside the bay's run, at their height, 2 mm thick
+    const mid = (b.case.x0 + b.case.x1) / 2
+    expect(Math.min(...lugs.map((l) => l.x[0]))).toBeCloseTo(mid - 0.0199, 9)
+    expect(Math.max(...lugs.map((l) => l.x[1]))).toBeCloseTo(mid + 0.0199, 9)
+    expect(mid - 0.0199).toBeGreaterThanOrEqual(b.lugs.x0 - 1e-9)
+    expect(mid + 0.0199).toBeLessThanOrEqual(b.lugs.x1 + 1e-9)
     for (const l of lugs) {
       expect(l.z[0]).toBeCloseTo(0.0192, 9)
       expect(l.z[1]).toBeCloseTo(0.0212, 9)
@@ -569,10 +577,11 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
     const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-125mg', mounting: 'flat' }, { surface: flap.id, enabled: false }] })
     const b = res.a.bays.find((x) => x.ok)
     expect(b).toBeTruthy()
-    // 42 mm across the lugs and 1.5 mm clear each side; along the chord its 34 mm and the 6 mm tab
+    // 42 mm across the lugs and the clearance each side; along the chord its 34 mm, the 6 mm tab
+    // and the output boss, centred on the case (23 mm each way, the tab's end the farther)
     expect(b.servo.width).toBeCloseTo(0.042, 9)
     expect(b.width).toBeCloseTo(0.042 + 2 * SERVO_CLEARANCE, 9)
-    expect(b.lugs.x1 - b.lugs.x0).toBeCloseTo(0.04, 9)
+    expect(b.lugs.x1 - b.lugs.x0).toBeCloseTo(0.046, 9)
     expect(b.servo.height).toBeCloseTo(0.01, 9)
     const parts = placeServo(b.servo, at(b, 0.01))
     const all = boxes(parts, 'servo')
@@ -592,7 +601,8 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
     // The output boss points aft along the chord
     const out = parts.find((p) => p.kind === 'servoOutput').cylinder
     expect(out.axis).toBe('x')
-    expect(out.from).toBeCloseTo(b.lugs.x1, 9)
+    expect(out.from).toBeCloseTo(b.case.x1, 9)
+    expect(out.to).toBeLessThanOrEqual(b.lugs.x1 + 1e-9)
     expect(out.to).toBeGreaterThan(out.from)
     // In 3D: the case, its upper pair of lugs and its tab, the boss and the lead
     const m = wing3d(res.a, res.st, res.parts)
@@ -612,5 +622,132 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
     // and its width is the depth
     const kase = parts[0].box
     expect(kase.z).toEqual([0, 0.0116])
+  })
+})
+
+describe('every servo fits its bay, nothing through anything, and the plate keeps its ply', () => {
+  // A deep wing (500 to 450 mm chord, 16% thick) with a stringer top and bottom through the bays
+  const big = (input) => {
+    input.rootChord = 0.5
+    input.panels = normalisePanels([{ id: 1, length: 1.0, tipChord: 0.45, dihedral: 0 }])
+    input.mass = 3
+  }
+  const withStringers = (st) => {
+    st.stringers = [{ id: 1, position: 0.45, surface: 'both', width: 0.003, height: 0.003, material: 'balsa-hard' }]
+  }
+  const ids = [...SERVO_CLASSES, ...HITEC.map((s) => s.id)]
+  const eps = 1e-6
+  // Do two ranges overlap by more than a hair?
+  const over = (p, q) => Math.min(p[1], q[1]) - Math.max(p[0], q[0]) > 1e-6
+  const ranges = (p) => partsExtent([p])
+
+  function check(res, b, tag) {
+    const { a, st } = res
+    expect(b.ok, `${tag}: ${b.problem}`).toBe(true)
+    expect(b.room, `${tag}: room`).toBeGreaterThanOrEqual(b.need)
+    const { parts, plate } = servoBayParts(a, st, b)
+    const sf = a.surfaces.find((r) => r.id === b.surface)
+    for (const s of [b.sA, b.s, b.sB]) {
+      // The plate (and everything over it) between the spar and the fixed hinge spar
+      expect(b.plate.x1, `${tag}: hinge`).toBeLessThan(sf.faces.fixedFront(s))
+      expect(b.plate.x0, `${tag}: spar`).toBeGreaterThan(a.sparX(s))
+    }
+    for (const p of parts) {
+      const r = ranges(p)
+      const what = `${tag} ${p.kind}`
+      // Between the rib faces, and over the plate's run along the chord
+      expect(r.s[0], `${what}: inner rib`).toBeGreaterThanOrEqual(b.inner[0] - eps)
+      expect(r.s[1], `${what}: outer rib`).toBeLessThanOrEqual(b.inner[1] + eps)
+      expect(r.x[0], `${what}: front`).toBeGreaterThanOrEqual(b.plate.x0 - eps)
+      expect(r.x[1], `${what}: rear`).toBeLessThanOrEqual(b.plate.x1 + eps)
+      // Inside the skins and clear of the stringers wherever it is
+      for (let i = 0; i <= 2; i++) {
+        const s = r.s[0] + ((r.s[1] - r.s[0]) * i) / 2
+        for (let k = 0; k <= 8; k++) {
+          const x = r.x[0] + ((r.x[1] - r.x[0]) * k) / 8
+          expect(r.z[0], `${what}: lower skin`).toBeGreaterThanOrEqual(insetHeight(a, st, s, x, 'lower') - 1e-5)
+          expect(r.z[1], `${what}: upper skin`).toBeLessThanOrEqual(insetHeight(a, st, s, x, 'upper') + 1e-5)
+        }
+        for (const str of st.stringers) {
+          for (const w of ['upper', 'lower']) {
+            const sb = stringerBox(a, st, str, s, w)
+            const xs = sb.map((q) => q[0])
+            const hs = sb.map((q) => q[1])
+            const hit = over(r.x, [Math.min(...xs), Math.max(...xs)]) && over(r.z, [Math.min(...hs), Math.max(...hs)])
+            expect(hit, `${what}: through the ${w} stringer`).toBe(false)
+          }
+        }
+      }
+      // Not through the plate
+      for (const [x0, x1, s0, s1] of plate.strips) {
+        const hit = over(r.x, [x0, x1]) && over(r.s, [s0, s1]) && over(r.z, [plate.z, plate.z + plate.thickness])
+        expect(hit, `${what}: through the plate`).toBe(false)
+      }
+    }
+    // The plate under the upper skin, and keeping its ply round the cut-out and the screws
+    for (const [x0, x1, s0, s1] of plate.strips) {
+      for (const x of [x0, x1]) for (const s of [s0, s1]) expect(plate.z + plate.thickness, `${tag}: plate top`).toBeLessThanOrEqual(insetHeight(a, st, s, x, 'upper') + 1e-5)
+    }
+    const part = res.parts.find((q) => q.name === b.name)
+    const o = bounds(part.outline)
+    const cut = b.cut ? bounds(part.holes[0]) : null
+    const screws = b.cut ? part.holes.slice(1) : part.holes
+    if (cut) expect(Math.min(cut.x0 - o.x0, o.x1 - cut.x1, cut.y0 - o.y0, o.y1 - cut.y1), `${tag}: ply round the cut-out`).toBeGreaterThanOrEqual(PLATE_EDGE - 1e-9)
+    for (const h of screws) {
+      const hb = bounds(h)
+      const r = (hb.x1 - hb.x0) / 2
+      const cx = (hb.x0 + hb.x1) / 2
+      const cy = (hb.y0 + hb.y1) / 2
+      expect(Math.min(cx - o.x0, o.x1 - cx, cy - o.y0, o.y1 - cy) - r, `${tag}: screw to the plate's edge`).toBeGreaterThanOrEqual(MIN_MATERIAL - 1e-9)
+      // A millimetre of ply at least between the pilot hole and the cut-out
+      if (cut) expect(Math.max(cut.x0 - cx, cx - cut.x1, cut.y0 - cy, cy - cut.y1) - r, `${tag}: screw to the cut-out`).toBeGreaterThanOrEqual(0.001 - 1e-9)
+    }
+  }
+
+  for (const mounting of ['upright', 'side', 'flat']) {
+    it(`fits every servo ${mounting}`, () => {
+      for (const id of ids) {
+        const res = build({ bays: [{ surface: aileron.id, class: id, mounting }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
+        check(res, res.a.bays.find((x) => x.surface === aileron.id), `${id} ${mounting}`)
+      }
+    })
+  }
+
+  it('screws an upright servo and a flat wing servo up into the plate, four or more screws', () => {
+    for (const [id, mounting] of [['hitec-hs-85mg', 'upright'], ['hitec-hs-125mg', 'flat'], ['micro', 'upright']]) {
+      const res = build({ bays: [{ surface: aileron.id, class: id, mounting }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16 })
+      const b = res.a.bays.find((x) => x.surface === aileron.id)
+      expect(b.screws.length, `${id} ${mounting}`).toBeGreaterThanOrEqual(4)
+    }
+  })
+
+  it('draws the servos and plates as closed solids, and fills them in the section cut', () => {
+    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-645mg' }, { surface: flap.id, class: 'hitec-hs-125mg', mounting: 'flat' }], wingEdit: big, airfoilThickness: 16 })
+    const m = wing3d(res.a, res.st, res.parts)
+    const kinds = ['servo', 'servoOutput', 'servoLead', 'plate']
+    const solids = m.solids.filter((s) => kinds.includes(s.kind))
+    expect(solids.length).toBeGreaterThan(10)
+    for (const sol of solids) {
+      // Closed: every edge shared by exactly two triangles
+      const edges = new Map()
+      const idx = sol.indices
+      for (let i = 0; i < idx.length; i += 3) {
+        for (const [p, q] of [
+          [idx[i], idx[i + 1]],
+          [idx[i + 1], idx[i + 2]],
+          [idx[i + 2], idx[i]],
+        ]) {
+          const k = p < q ? `${p},${q}` : `${q},${p}`
+          edges.set(k, (edges.get(k) ?? 0) + 1)
+        }
+      }
+      expect([...edges.values()].every((n) => n === 2), `${sol.kind} closed`).toBe(true)
+    }
+    // A cut through each bay's middle fills the servo and the plate
+    for (const b of res.a.bays.filter((x) => x.ok)) {
+      const got = new Set(sectionAt(res.a, res.st, res.parts, b.s).pieces.map((p) => p.kind))
+      expect(got.has('servo'), b.name).toBe(true)
+      expect(got.has('plate'), b.name).toBe(true)
+    }
   })
 })

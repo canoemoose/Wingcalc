@@ -236,7 +236,8 @@ describe('a blade brake built into the wing', () => {
     // At a chosen place instead
     const at = build({ bays: [{ surface: 'b1', at: 0.2, class: 'mini' }] })
     expect(at.a.bays[0].s).toBeCloseTo(at.a.sampler.ends[0].inner.s + 0.2, 9)
-    expect(at.a.bays[0].servo).toMatchObject({ ...SERVOS.mini, mounting: 'upright' })
+    const { label, length, lugSpan, mass, torque, plate, leadHole } = SERVOS.mini
+    expect(at.a.bays[0].servo).toMatchObject({ label, length, lugSpan, mass, torque, plate, leadHole, mounting: 'upright' })
   })
 
   it('puts the bay on the other side when the inboard one would run off the panel', () => {

@@ -1010,13 +1010,20 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     const sv = bay.servo
     const len = bay.plate.s1 - bay.plate.s0
     const wid = bay.plate.x1 - bay.plate.x0
-    const caseV = bay.case.x0 - bay.plate.x0
-    const lugLen = (sv.lugSpan - sv.length) / 2
-    const cut = 0.0005
-    const screws = []
-    for (const v of [bay.lugs.x0 - bay.plate.x0 + lugLen / 2, bay.lugs.x1 - bay.plate.x0 - lugLen / 2]) {
-      for (const k of [-1, 1]) screws.push(circle(len / 2 + (k * sv.width) / 4, v, 0.0006, 12))
-    }
+    // In the plate's own frame: u across the span from its inner edge, v along the chord from
+    // its front edge. The cut-out and screw holes are the bay's (structure.js bayLayouts).
+    const u = (s) => s - bay.plate.s0
+    const v = (x) => x - bay.plate.x0
+    const c = bay.cut
+    const holes = c ? [rect(u(c.s0), v(c.x0), u(c.s1), v(c.x1))] : []
+    for (const [x, s] of bay.screws ?? []) holes.push(circle(u(s), v(x), sv.pilot / 2, 12))
+    // The least ply left round the cut-out
+    const ply = c ? Math.min(u(c.s0), len - u(c.s1), v(c.x0), wid - v(c.x1)) : Math.min(len, wid) / 2
+    const fixing = bay.screws?.length
+      ? 'The servo goes in from below, its lugs screwed up into the plate'
+      : sv.plan?.short
+      ? `The servo's lugs are too short to screw through the plate with a millimetre of ply round the pilot hole: fix it with a strap or blocks over its lugs`
+      : "The servo's lugs stand on edge in this mounting, so none bears on the plate: fix it with blocks glued beside its lugs, or another mounting"
     parts.push({
       id: bay.name,
       name: bay.name,
@@ -1025,13 +1032,13 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       thickness: sv.plate,
       qty: both ? 2 : 1,
       outline: rect(0, 0, len, wid),
-      holes: [rect(len / 2 - sv.width / 2 - cut, caseV - cut, len / 2 + sv.width / 2 + cut, caseV + sv.length + cut), ...screws],
+      holes,
       etch: [],
       label: null,
       bay,
       notes: [
-        `${bay.label} (${bay.hostLabel || 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued ${betweenRibs(bay.sA, bay.sB)}, long side along the chord. The servo goes in from below, its lugs screwed up into the plate`,
-        `Plate fits the gap between the ${foam ? "pocket's ends" : 'rib faces'} (${(len * 1000).toFixed(1)} mm); the cut-out leaves about ${(((len - sv.width) / 2 - cut) * 1000).toFixed(1)} mm of ply down each side`,
+        `${bay.label} (${bay.hostLabel || 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued ${betweenRibs(bay.sA, bay.sB)}, its ${len >= wid ? 'long side across the span' : 'long side along the chord'}. ${fixing}`,
+        `Plate fits the gap between the ${foam ? "pocket's ends" : 'rib faces'} (${(len * 1000).toFixed(1)} mm); the cut-out leaves at least ${(ply * 1000).toFixed(1)} mm of ply all round`,
       ],
     })
     if (sheeted) {
