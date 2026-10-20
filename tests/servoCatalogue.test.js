@@ -104,7 +104,7 @@ describe('Futaba catalogue', () => {
   it('carries the figures from its futaba.uk drawing, where it has one', () => {
     const drawn = FUTABA.filter((s) => s.lugSpan != null)
     expect(drawn.map((s) => s.model).sort()).toEqual(
-      ['HPS-A703', 'HPS-A704', 'HPS-AA702', 'S-A300', 'S-A301', 'S-A400', 'S-A401', 'S-A501', 'S-A601', 'S-AG500', 'S-U300', 'S-U301', 'S-U305', 'S-U400', 'S3150', 'S3154'].sort(),
+      ['HPS-A703', 'HPS-A704', 'HPS-AA702', 'S-A300', 'S-A301', 'S-A400', 'S-A401', 'S-A501', 'S-A601', 'S-AG500', 'S-U300', 'S-U301', 'S-U305', 'S-U306', 'S-U400', 'S3114', 'S3150', 'S3154', 'S3155'].sort(),
     )
     for (const s of drawn) {
       const [l, , h] = s.body
@@ -125,7 +125,13 @@ describe('Futaba catalogue', () => {
     expect(su300.lugHeight).toBe(0.0266)
     expect(su300.output).toEqual({ offset: 0.0099, top: 0.0421, diameter: 0.013 })
     // Four models share one case
-    for (const m of ['S-U305', 'S-A300', 'S-A301']) expect(by(m).lugSpan).toBe(by('S-U400').lugSpan)
+    for (const m of ['S-U305', 'S-U306', 'S-A300', 'S-A301']) expect(by(m).lugSpan).toBe(by('S-U400').lugSpan)
+    // A model drawn from its case-mate's drawing names it
+    expect(by('S3155').drawing).toBe('S3150')
+    expect(by('S3155').output).toEqual(by('S3150').output)
+    expect(by('S3114').drawing).toBe('S3154')
+    expect(by('S-U306').drawing).toBe('S-U400')
+    expect(by('S3150').drawing).toBeUndefined()
     // The S-AG500 is a wing servo: lugs standing in its middle plane, a tab below
     const ag = by('S-AG500')
     expect(ag.wingLugs).toEqual({ length: 0.008, bottom: 'tab', tab: [0.01, 0.0064] })
@@ -167,7 +173,8 @@ describe('Futaba catalogue', () => {
     }
     expect(servoSide(installedServo('futaba-s-u300')).caption).toMatch(/^Side view, from Futaba's drawing:/)
     expect(servoSide(installedServo('futaba-s-a400')).caption).toMatch(/the lead, which it doesn't show/)
-    expect(servoSide(installedServo('futaba-s3155')).caption).toMatch(/no drawing published/)
+    expect(servoSide(installedServo('futaba-s3102')).caption).toMatch(/no drawing published/)
+    expect(servoSide(installedServo('futaba-s3155')).caption).toMatch(/^Side view, from Futaba's drawing of the S3150, which shares its case:/)
   })
 
   it('installs in a bay like any catalogue servo', () => {

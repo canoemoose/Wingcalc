@@ -56,15 +56,20 @@ export const HITEC_SPECS = {
 //            shows a horn (S-U400's case, S-A400, S-A401, S3150, S3154); the boss's diameter,
 //            the lead's place and S-A401's and S-A501's output top are scaled off the drawing
 //            (about half a millimetre), the rest printed. S-AG500's lead is scaled off a photo.
-//            No lead where the drawing doesn't show one. Models without a drawing (futaba.uk has
-//            none for them) take the lugs, output and lead from their class (servoFrame).
+//            No lead where the drawing doesn't show one. Models futaba.uk doesn't sell have no
+//            drawing unless a case set shows they share a drawn model's case; the rest take the
+//            lugs, output and lead from their class (servoFrame).
 //   class    the generic class it's sized as (servos.js SERVOS)
 //   thin     a slim wing servo
 //   current  false for the S3001, kept as the classic
 // Left out: S3306 and S3306MG (quarter-scale cases), S3170G (a retract servo), and the
 // discontinued S148, S9177SV, S3174SV and BLS173SV.
-// Cases that share a drawing
+// Cases that share a drawing. futaba.uk's spare case sets say which models share a case: one
+// without a drawing of its own takes its case-mate's, naming it (drawing.drawing), as Hitec's
+// D141SW does the D141SH's
 const STD_400 = { body: [40.0, 20.0, 38.1], lugs: [54.5, 2.5, 28.1], output: [9.9, 44.1, 13], lead: ['end', 5.0] }
+const S3150_CASE = { body: [30.0, 10.8, 29.0], lugs: [42.0, 2.0, 19.8], output: [8.1, 32.6, 8], lead: ['end', 5.5] }
+const S3154_CASE = { body: [21.8, 11.0, 23.3], case: 19.8, lugs: [29.4, 1.0, 14.9], output: [5.15, 26.6, 5.5], lead: ['end', 5.0] }
 const HPS_703 = { body: [40.5, 21.0, 39.4], lugs: [54.5, 2.5, 28.3], output: [9.95, 43.8, 6], lead: ['end', 2.5] }
 
 export const FUTABA_FIGURES = [
@@ -72,7 +77,7 @@ export const FUTABA_FIGURES = [
   { model: 'S-U300', class: 'standard', body: [40.4, 19.8, 36.0], mass: 36, ratings: [[4.8, 3.2, 0.23], [6.0, 4.1, 0.19]], gears: 'plastic', digital: true, spline: 'Φ6', drawing: { body: [40.4, 19.8, 36.0], lugs: [55.5, 2.5, 26.6], output: [9.9, 42.1, 13], lead: ['end', 3.0] } },
   { model: 'S-U301', class: 'standard', body: [40.5, 20.0, 36.1], mass: 36, ratings: [[6.6, 3.5, 0.18], [7.4, 3.9, 0.16]], gears: 'plastic', digital: true, spline: 'Φ6', drawing: { body: [40.5, 20.0, 36.1], lugs: [55.5, 2.5, 26.6], output: [9.95, 42.1, 13], lead: ['end', 3.0] } },
   { model: 'S-U305', class: 'standard', body: [40.0, 20.0, 38.1], mass: 46.5, ratings: [[4.8, 7.1, 0.23], [6.0, 8.9, 0.18]], gears: 'metal', digital: null, spline: null, drawing: STD_400 },
-  { model: 'S-U306', class: 'standard', body: [40.0, 20.0, 38.1], mass: 46.5, ratings: [[4.8, 7.1, 0.23], [6.0, 8.9, 0.18]], gears: 'metal', digital: null, spline: null },
+  { model: 'S-U306', class: 'standard', body: [40.0, 20.0, 38.1], mass: 46.5, ratings: [[4.8, 7.1, 0.23], [6.0, 8.9, 0.18]], gears: 'metal', digital: null, spline: null, drawing: { ...STD_400, drawing: 'S-U400' } },
   { model: 'S-U400', class: 'standard', body: [40.0, 20.0, 38.1], mass: 39, ratings: [[6.6, 7.1, 0.14], [7.4, 7.9, 0.13]], gears: 'plastic', digital: true, spline: 'Φ6', drawing: STD_400 },
   { model: 'S-A300', class: 'standard', body: [40.0, 20.0, 38.1], mass: 47, ratings: [[6.6, 10.0, 0.19], [7.4, 11.0, 0.17]], gears: 'metal', digital: true, spline: null, drawing: STD_400 },
   { model: 'S-A301', class: 'standard', body: [40.0, 20.0, 38.1], mass: 47, ratings: [[6.6, 8.5, 0.14], [7.4, 9.0, 0.13]], gears: 'metal', digital: true, spline: null, drawing: STD_400 },
@@ -90,11 +95,11 @@ export const FUTABA_FIGURES = [
   { model: 'S3016', class: 'mini', body: [31.0, 16.0, 30.7], mass: 34, ratings: [[6.0, 4.2, 0.2]], gears: 'metal', digital: false, spline: null },
   { model: 'S3102', class: 'micro', body: [28.0, 13.0, 29.7], mass: 21, ratings: [[4.8, 3.7, 0.25]], gears: 'metal', digital: false, spline: null },
   { model: 'S3107', class: 'micro', body: [21.8, 11.0, 19.8], mass: 9, ratings: [[4.8, 1.2, 0.12]], gears: null, digital: false, spline: null },
-  { model: 'S3114', class: 'micro', body: [21.8, 11.0, 19.8], mass: 7.8, ratings: [[4.8, 1.5, 0.1], [6.0, 1.7, 0.09]], gears: 'plastic', digital: false, spline: 'Φ4' },
+  { model: 'S3114', class: 'micro', body: [21.8, 11.0, 19.8], mass: 7.8, ratings: [[4.8, 1.5, 0.1], [6.0, 1.7, 0.09]], gears: 'plastic', digital: false, spline: 'Φ4', drawing: { ...S3154_CASE, drawing: 'S3154' } },
   { model: 'S3114M', class: 'micro', body: [21.8, 10.9, 19.8], mass: 7.4, ratings: [[4.8, 1.5, 0.1], [6.0, 1.7, 0.09]], gears: null, digital: false, spline: null },
-  { model: 'S3154', class: 'micro', body: [21.8, 11.0, 19.8], mass: 7.9, ratings: [[4.8, 1.5, 0.1], [6.0, 1.7, 0.09]], gears: 'plastic', digital: true, spline: null, drawing: { body: [21.8, 11.0, 23.3], case: 19.8, lugs: [29.4, 1.0, 14.9], output: [5.15, 26.6, 5.5], lead: ['end', 5.0] } },
-  { model: 'S3150', class: 'mini', thin: true, body: [30.0, 10.8, 29.0], mass: 23, ratings: [[4.8, 3.7, 0.24]], gears: 'metal', digital: true, spline: null, drawing: { body: [30.0, 10.8, 29.0], lugs: [42.0, 2.0, 19.8], output: [8.1, 32.6, 8], lead: ['end', 5.5] } },
-  { model: 'S3155', class: 'mini', thin: true, body: [30.5, 10.9, 29.5], mass: 20.1, ratings: [[4.8, 2.0, 0.16]], gears: 'metal', digital: true, spline: null },
+  { model: 'S3154', class: 'micro', body: [21.8, 11.0, 19.8], mass: 7.9, ratings: [[4.8, 1.5, 0.1], [6.0, 1.7, 0.09]], gears: 'plastic', digital: true, spline: null, drawing: S3154_CASE },
+  { model: 'S3150', class: 'mini', thin: true, body: [30.0, 10.8, 29.0], mass: 23, ratings: [[4.8, 3.7, 0.24]], gears: 'metal', digital: true, spline: null, drawing: S3150_CASE },
+  { model: 'S3155', class: 'mini', thin: true, body: [30.5, 10.9, 29.5], mass: 20.1, ratings: [[4.8, 2.0, 0.16]], gears: 'metal', digital: true, spline: null, drawing: { ...S3150_CASE, drawing: 'S3150' } },
   { model: 'S3173SVi', class: 'mini', thin: true, body: [30.0, 10.8, 29.1], mass: 20.6, ratings: [[6.6, 3.9, 0.18], [7.4, 4.3, 0.16]], gears: null, digital: true, spline: null },
   { model: 'S3176SV', class: 'mini', body: [35.9, 19.5, 24.9], mass: 27, ratings: [[6.6, 4.5, 0.17], [7.4, 5.1, 0.16]], gears: null, digital: true, spline: null },
   { model: 'PS-10', class: 'micro', body: [21.5, 11.5, 26.5], mass: 9, ratings: [[5.0, 1.2, 0.1]], gears: null, digital: true, spline: null },
