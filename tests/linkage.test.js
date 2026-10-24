@@ -4,7 +4,7 @@
 // half-length arm (twice the servo angle, less what the sine takes).
 import { describe, it, expect } from 'vitest'
 import { linkage, solveAssembly, mirrorGeometry, outputPivot, hingeAt, hornHole, splineError, ARMS, HORNS } from '../src/lib/linkage.js'
-import { installedServo } from '../src/lib/servos.js'
+import { installedServo, placeServo, turnPoint } from '../src/lib/servos.js'
 
 const RAD = Math.PI / 180
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
@@ -166,9 +166,33 @@ describe('hole positions as installed', () => {
     expect(outputPivot(installedServo('hitec-hs-645mg', 'side'), at).axis).toEqual([0, 1, 0])
     expect(outputPivot(installedServo('hitec-hs-645mg', 'flat'), at).axis).toEqual([1, 0, 0])
     // Turned a quarter in plan
-    const q = outputPivot(up, at, 0.002, Math.PI / 2)
+    const q = outputPivot(installedServo('hitec-hs-645mg', 'upright', 0, { quarter: true }), at, 0.002)
     expect(q.ref[0]).toBeCloseTo(0, 9)
     expect(q.ref[1]).toBeCloseTo(1, 9)
+  })
+
+  it('stands on the output boss as drawn, however the servo is turned and mounted', () => {
+    const at = { x: 0.1, s: 0.3, base: -0.01 }
+    for (const mounting of ['upright', 'side', 'flat']) {
+      for (const turn of [{}, { quarter: true }, { yaw: 0.2 }, { quarter: true, yaw: -0.3 }]) {
+        const v = installedServo('hitec-hs-645mg', mounting, 0, turn)
+        const p = outputPivot(v, at, 0)
+        const boss = placeServo(v, at).find((x) => x.kind === 'servoOutput')
+        const c = boss.cylinder
+        // The boss's far end, on its axis, turned with the servo
+        const end = [c.x, c.s, c.z]
+        end[{ x: 0, s: 1, z: 2 }[c.axis]] = c.axis === 'z' ? c.to : p.axis[{ x: 0, s: 1 }[c.axis]] > 0 ? c.to : c.from
+        let [ex, es] = [end[0], end[1]]
+        if (boss.turn) {
+          const t = boss.turn
+          ;[ex, es] = turnPoint([ex - t.x, es - t.s], t.yaw).map((d, k) => d + (k ? t.s : t.x))
+        }
+        const tag = `${mounting} ${JSON.stringify(turn)}`
+        expect(p.pivot[0], tag).toBeCloseTo(ex, 9)
+        expect(p.pivot[1], tag).toBeCloseTo(es, 9)
+        expect(p.pivot[2], tag).toBeCloseTo(end[2], 9)
+      }
+    }
   })
 
   it('puts the horn hole over the hinge, above or below the face', () => {

@@ -10,7 +10,7 @@ import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
 import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, HITEC } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC } from '../src/lib/servos.js'
 
 function inside(poly, [x, y]) {
   let c = false
@@ -102,7 +102,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', along: null, at: null, link: null })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', square: 'chord', quarterTurn: false, along: null, at: null, link: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
@@ -640,6 +640,19 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
   // Do two ranges overlap by more than a hair?
   const over = (p, q) => Math.min(p[1], q[1]) - Math.max(p[0], q[0]) > 1e-6
   const ranges = (p) => partsExtent([p])
+  // How far a point is outside a convex polygon (negative inside)
+  const outside = (poly, [x, y]) => {
+    let inside = true
+    let d = Infinity
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i]
+      const [bx, by] = poly[(i + 1) % poly.length]
+      const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2)))
+      d = Math.min(d, Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay)))
+      if ((bx - ax) * (y - ay) - (by - ay) * (x - ax) < 0) inside = false
+    }
+    return inside ? -d : d
+  }
 
   function check(res, b, tag) {
     const { a, st } = res
@@ -679,14 +692,25 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
         }
       }
       // Not through the plate
-      for (const [x0, x1, s0, s1] of plate.strips) {
-        const hit = over(r.x, [x0, x1]) && over(r.s, [s0, s1]) && over(r.z, [plate.z, plate.z + plate.thickness])
-        expect(hit, `${what}: through the plate`).toBe(false)
+      for (const q of plate.pieces) {
+        if (!over(r.s, [q.s0, q.s1]) || !over(r.z, [plate.z, plate.z + plate.thickness])) continue
+        // Where the part crosses the piece along the span, its slice against the piece's ply
+        const lo = Math.max(r.s[0], q.s0)
+        const hi = Math.min(r.s[1], q.s1)
+        for (let i = 1; i < 8; i++) {
+          const s = lo + ((hi - lo) * i) / 8
+          const sl = partSlice(p, s)
+          if (!sl) continue
+          const xs = [Math.min(...sl.map((v) => v[0])), Math.max(...sl.map((v) => v[0]))]
+          const zs = [Math.min(...sl.map((v) => v[1])), Math.max(...sl.map((v) => v[1]))]
+          const hit = over(xs, q.x(s)) && over(zs, [plate.z, plate.z + plate.thickness])
+          expect(hit, `${what}: through the plate`).toBe(false)
+        }
       }
     }
     // The plate under the upper skin, and keeping its ply round the cut-out and the screws
-    for (const [x0, x1, s0, s1] of plate.strips) {
-      for (const x of [x0, x1]) for (const s of [s0, s1]) expect(plate.z + plate.thickness, `${tag}: plate top`).toBeLessThanOrEqual(insetHeight(a, st, s, x, 'upper') + 1e-5)
+    for (const q of plate.pieces) {
+      for (const s of [q.s0, q.s1]) for (const x of q.x(s)) expect(plate.z + plate.thickness, `${tag}: plate top`).toBeLessThanOrEqual(insetHeight(a, st, s, x, 'upper') + 1e-5)
     }
     const part = res.parts.find((q) => q.name === b.name)
     const o = bounds(part.outline)
@@ -700,7 +724,7 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
       const cy = (hb.y0 + hb.y1) / 2
       expect(Math.min(cx - o.x0, o.x1 - cx, cy - o.y0, o.y1 - cy) - r, `${tag}: screw to the plate's edge`).toBeGreaterThanOrEqual(MIN_MATERIAL - 1e-9)
       // A millimetre of ply at least between the pilot hole and the cut-out
-      if (cut) expect(Math.max(cut.x0 - cx, cx - cut.x1, cut.y0 - cy, cy - cut.y1) - r, `${tag}: screw to the cut-out`).toBeGreaterThanOrEqual(0.001 - 1e-9)
+      if (cut) expect(outside(part.holes[0], [cx, cy]) - r, `${tag}: screw to the cut-out`).toBeGreaterThanOrEqual(0.001 - 1e-9)
     }
   }
 
@@ -713,6 +737,35 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
     })
   }
 
+  // A raked aileron (hinge at 65% inboard, 85% out: about 12° to the span) and some servos of
+  // each kind, turned a quarter and square to the hinge
+  const raked = { ...aileron, hingeIn: 0.65, hingeOut: 0.85 }
+  const someIds = ['micro', 'standard', 'hitec-hs-645mg', 'hitec-hs-85mg', 'hitec-hs-125mg', 'hitec-d89mw']
+  for (const turn of [{ quarterTurn: true }, { square: 'hinge' }, { square: 'hinge', quarterTurn: true }]) {
+    for (const mounting of ['upright', 'side', 'flat']) {
+      it(`fits a servo ${mounting}, ${turn.square === 'hinge' ? 'square to the hinge' : 'square to the chord'}${turn.quarterTurn ? ', turned a quarter' : ''}`, () => {
+        for (const id of someIds) {
+          const res = build({ surfaces: [raked, flap], bays: [{ surface: aileron.id, class: id, mounting, ...turn }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
+          const b = res.a.bays.find((x) => x.surface === aileron.id)
+          if (b.problem === 'forward') continue
+          check(res, b, `${id} ${mounting} ${JSON.stringify(turn)}`)
+          // Turned as asked: its edges at the hinge's angle when square to it, and its sides
+          // swapped from the servo's unturned when quartered
+          const sf = res.a.surfaces.find((x) => x.id === aileron.id)
+          const [p0, p1, p2] = b.body
+          const ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+          const yaw = turn.square === 'hinge' ? -Math.atan(sf.slope) : 0
+          expect(Math.abs(Math.cos(ang - yaw)), `${id} ${mounting}: turned`).toBeCloseTo(1, 6)
+          const flat = installedServo(id, mounting, 3)
+          const along = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+          const across = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+          expect(along, `${id} ${mounting}: along`).toBeCloseTo(turn.quarterTurn ? flat.caseWidth : flat.length, 9)
+          expect(across, `${id} ${mounting}: across`).toBeCloseTo(turn.quarterTurn ? flat.length : flat.caseWidth, 9)
+        }
+      })
+    }
+  }
+
   it('screws an upright servo and a flat wing servo up into the plate, four or more screws', () => {
     for (const [id, mounting] of [['hitec-hs-85mg', 'upright'], ['hitec-hs-125mg', 'flat'], ['micro', 'upright']]) {
       const res = build({ bays: [{ surface: aileron.id, class: id, mounting }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16 })
@@ -721,8 +774,9 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
     }
   })
 
-  it('draws the servos and plates as closed solids, and fills them in the section cut', () => {
-    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-645mg' }, { surface: flap.id, class: 'hitec-hs-125mg', mounting: 'flat' }], wingEdit: big, airfoilThickness: 16 })
+  for (const [label, turn] of [['', {}], [', turned square to a raked hinge', { square: 'hinge' }], [', turned a quarter', { quarterTurn: true }]]) it(`draws the servos and plates as closed solids, and fills them in the section cut${label}`, () => {
+    const surfaces = [{ ...aileron, hingeIn: 0.65, hingeOut: 0.85 }, flap]
+    const res = build({ surfaces, bays: [{ surface: aileron.id, class: 'hitec-hs-645mg', ...turn }, { surface: flap.id, class: 'hitec-hs-125mg', mounting: turn.quarterTurn ? 'side' : 'flat', ...turn }], wingEdit: big, airfoilThickness: 16 })
     const m = wing3d(res.a, res.st, res.parts)
     const kinds = ['servo', 'servoOutput', 'servoLead', 'plate']
     const solids = m.solids.filter((s) => kinds.includes(s.kind))

@@ -33,6 +33,8 @@
 // (3/16 in) on large and aluminium ones (two measured 24T aluminium arms: 19 and 24 mm, 19.75 and
 // 24.25 mm), as far as the boss allows (6, 9 and 12 mm from the pivot); an aluminium arm has
 // three at most. An arm with no length published takes its size's usual one.
+import { servoPoint, servoDir } from './servos.js'
+
 const PITCH = { micro: 2.4, plastic: 3.5, metal: 4.8 }
 const INNER = { micro: 6, standard: 9, large: 12 }
 const SEAT = { micro: 0.0015, standard: 0.002, large: 0.0025 }
@@ -214,31 +216,16 @@ function trig(a, b, c) {
 
 // The output's pivot as installed, { pivot, axis, ref } in the wing's frame: the centre of the
 // arm's holes (on the output axis, `seat` above the spline's top), the axis and the arm's
-// reference direction. Spread into solveAssembly's geometry with the arm's radius.
-// servo: an installed servo (servos.js installedServo, with its frame, mounting and lift); at:
-// as placeServo's ({ x, s, base }); yaw: the servo turned in plan about its centre, radians
-// (anticlockwise from above, x towards s). The mounting's turn is placeServo's.
-export function outputPivot(servo, at, seat = SEAT.standard, yaw = 0) {
+// reference direction (the case's length, towards the lead end). Spread into solveAssembly's
+// geometry with the arm's radius. servo: an installed servo (servos.js installedServo, with its
+// frame, mounting, turn and lift); at: as placeServo's ({ x, s, base }), which it follows.
+export function outputPivot(servo, at, seat = SEAT.standard) {
   const f = servo.frame
-  const mount = servo.mounting ?? 'upright'
-  // Frame directions (x along the case, y across it, z up its height) in the wing's (x, s, z)
-  const dir =
-    mount === 'side'
-      ? { x: [1, 0, 0], y: [0, 0, 1], z: [0, 1, 0] }
-      : mount === 'flat'
-      ? { x: [0, 1, 0], y: [0, 0, 1], z: [1, 0, 0] }
-      : { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }
-  // Where the frame's origin lands (placeServo's offsets)
-  const origin =
-    mount === 'side'
-      ? [at.x, at.s - f.height / 2, at.base + (servo.lift ?? 0) + f.width / 2]
-      : mount === 'flat'
-      ? [at.x - f.height / 2, at.s, at.base + (servo.lift ?? 0) + f.width / 2]
-      : [at.x, at.s, at.base + (servo.lift ?? 0)]
-  const local = add(scale(dir.x, f.output.offset), scale(dir.z, Math.max(f.height, f.output.top) + seat))
-  const z = [0, 0, 1]
-  const plan = (v) => turn(v, z, yaw)
-  return { pivot: add(origin, plan(local)), axis: plan(dir.z), ref: plan(dir.x) }
+  return {
+    pivot: servoPoint(servo, at, [f.output.offset, 0, Math.max(f.height, f.output.top) + seat]),
+    axis: servoDir(servo, [0, 0, 1]),
+    ref: servoDir(servo, [1, 0, 0]),
+  }
 }
 
 // The hinge at a station along a resolved surface (controlSurfaces.js resolveSurface): a point on

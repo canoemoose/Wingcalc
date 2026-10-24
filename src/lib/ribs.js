@@ -1015,7 +1015,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     const u = (s) => s - bay.plate.s0
     const v = (x) => x - bay.plate.x0
     const c = bay.cut
-    const holes = c ? [rect(u(c.s0), v(c.x0), u(c.s1), v(c.x1))] : []
+    // The cut-out, turned with the servo where it's square to its hinge
+    const holes = bay.cutPoly ? [[...bay.cutPoly].reverse().map(([x, s]) => [u(s), v(x)])] : c ? [rect(u(c.s0), v(c.x0), u(c.s1), v(c.x1))] : []
     for (const [x, s] of bay.screws ?? []) holes.push(circle(u(s), v(x), sv.pilot / 2, 12))
     // The least ply left round the cut-out
     const ply = c ? Math.min(u(c.s0), len - u(c.s1), v(c.x0), wid - v(c.x1)) : Math.min(len, wid) / 2

@@ -16,6 +16,9 @@
 //             surface; null for a third of the way out along it
 //   at        the older panel-relative position, m from the panel's inner end; used only when
 //             along is not set (saves from before along)
+//   square    'chord' (default) or 'hinge': the servo's length square to the chord (along it) or
+//             square to the surface's hinge line in plan, so the pushrod meets the horn square
+//   quarterTurn  true to turn it a quarter in plan from there (its length across the span)
 //   link      the servo's linkage to its surface, as differs from the defaults (bayLinkage.js
 //             DEFAULT_LINK): arm, horn, holes, travel; null for the defaults
 
@@ -349,13 +352,21 @@ export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 //                  underside is lugHeight + lugThickness)
 //   lugSpan        the lugs' own span, as drawn
 //   plan           the mount plate's cut-out ({ x, s } ranges, from the case's centre and the
-//                  bay's) and its screw holes ([x, s]), see platePlan
-// id is a Hitec id or a class; anything else takes the class that suits the model's mass.
-export function installedServo(id, mounting = 'upright', mass = 0) {
+//                  bay's: the bounding box of cutPoly), cutPoly (the cut-out's corners, [x, s],
+//                  turned with the servo) and its screw holes ([x, s]), see platePlan
+//   outline        the whole servo's outline in plan, [x, s] corners from the case's centre
+//   caseOutline    the case's, likewise
+//   quarter, yaw   how it's turned in plan (turn)
+// id is a Hitec id or a class; anything else takes the class that suits the model's mass. turn:
+// { quarter, yaw }, the servo turned in plan about its case's centre: a quarter turn (its length
+// across the span rather than along the chord), then yaw radians more (anticlockwise from above,
+// x towards s), as a bay square to its hinge is.
+export function installedServo(id, mounting = 'upright', mass = 0, turn = {}) {
   const found = servoById(id) ?? { id: defaultServoClass(mass), ...SERVOS[defaultServoClass(mass)] }
   const cls = SERVOS[found.class] ?? SERVOS[found.id] ?? SERVOS.micro
   const frame = servoFrame(found)
   const mount = MOUNTINGS[mounting] ? mounting : 'upright'
+  const yaw = Number.isFinite(turn.yaw) ? turn.yaw : 0
   const base = {
     ...cls,
     ...found,
@@ -364,27 +375,50 @@ export function installedServo(id, mounting = 'upright', mass = 0) {
     lugThickness: frame.lugThickness,
     frame,
     mounting: mount,
+    quarter: !!turn.quarter,
+    yaw,
     lift: 0,
   }
-  // Placed about the case's centre on its base, to measure it
+  // Placed about the case's centre on its base, to measure it: square (the plate's cut-out and
+  // screws are worked out so, then turned) and turned (its extents)
+  const square = placeServo({ ...base, yaw: 0 }, { x: 0, s: 0, base: 0 })
   const parts = placeServo(base, { x: 0, s: 0, base: 0 })
   const ext = partsExtent(parts)
-  const kase = parts[0].box
+  const sq = partsExtent(square)
+  const kase = square[0].box
   const lift = -ext.z[0]
-  const plateZ = plateHeight(parts, frame.lugThickness, ext.z) + lift
-  const plan = platePlan(parts, plateZ - lift, cls.plate, found.pilot ?? cls.pilot)
+  const plateZ = plateHeight(square, frame.lugThickness, ext.z) + lift
+  const flat = platePlan(square, plateZ - lift, cls.plate, found.pilot ?? cls.pilot)
+  const rot = ([x, q]) => turnPoint([x, q], yaw)
+  const rect = (xs, ss) => [[xs[0], ss[0]], [xs[1], ss[0]], [xs[1], ss[1]], [xs[0], ss[1]]].map(rot)
+  const cutPoly = flat.cut ? rect(flat.cut.x, flat.cut.s) : null
+  const plan = {
+    cut: cutPoly ? { x: rangeOf(cutPoly, 0), s: rangeOf(cutPoly, 1) } : null,
+    cutPoly,
+    screws: flat.screws.map(rot),
+    short: flat.short,
+  }
   return {
     ...base,
     length: kase.x[1] - kase.x[0],
     caseWidth: kase.s[1] - kase.s[0],
     run: 2 * Math.max(-ext.x[0], ext.x[1]),
     width: 2 * Math.max(-ext.s[0], ext.s[1]),
+    // The bay between the rib faces: the servo and its clearance, or the plate's cut-out and its
+    // edge of ply where turning the servo takes the cut-out's corners further
+    bayWidth: Math.max(2 * Math.max(-ext.s[0], ext.s[1]) + 2 * SERVO_CLEARANCE, plan.cut ? 2 * Math.max(-plan.cut.s[0], plan.cut.s[1]) + 2 * PLATE_EDGE : 0),
     height: ext.z[1] - ext.z[0],
     lift,
     lugHeight: plateZ - frame.lugThickness,
     plan,
+    outline: rect(sq.x, sq.s),
+    caseOutline: rect(kase.x, kase.s),
   }
 }
+
+// [x, s] turned by yaw about the origin (anticlockwise from above, x towards s)
+export const turnPoint = ([x, q], yaw) => (yaw ? [x * Math.cos(yaw) - q * Math.sin(yaw), x * Math.sin(yaw) + q * Math.cos(yaw)] : [x, q])
+const rangeOf = (pts, k) => [Math.min(...pts.map((p) => p[k])), Math.max(...pts.map((p) => p[k]))]
 
 // The x, s and z ranges a set of placed parts (placeServo) fill
 export function partsExtent(parts) {
@@ -394,7 +428,13 @@ export function partsExtent(parts) {
     ext[k][1] = Math.max(ext[k][1], hi)
   }
   for (const p of parts) {
-    if (p.box) for (const k of ['x', 's', 'z']) grow(k, p.box[k][0], p.box[k][1])
+    if (p.turn) {
+      const c = planCorners(p)
+      grow('x', ...rangeOf(c, 0))
+      grow('s', ...rangeOf(c, 1))
+      const z = partRanges(p).z
+      grow('z', z[0], z[1])
+    } else if (p.box) for (const k of ['x', 's', 'z']) grow(k, p.box[k][0], p.box[k][1])
     else {
       const c = p.cylinder
       for (const k of ['x', 's', 'z']) {
@@ -528,41 +568,162 @@ export function servoParts(frame) {
 // case's too) and the height the servo stands on (its lowest point; the case's base is lift
 // above it). Upright, its length runs along the chord with the lead end aft; on its side, the
 // same with its height across the span; flat, its height runs along the chord, output aft, and
-// its length across the span.
+// its length across the span. A quarter turn (servo.quarter) turns all that a quarter about the
+// case's centre, exactly, so boxes stay boxes; a yaw (servo.yaw, radians) more is carried by
+// each part as turn { yaw, x, s }, the turn about the case's centre its box or cylinder is to
+// be drawn with (planCorners, turnedSlice).
 export function placeServo(servo, at) {
   const f = servo.frame ?? servoFrame(servo)
-  const mount = servo.mounting ?? 'upright'
-  // Frame (x, y, z) to wing (x, s, z)
-  const map =
-    mount === 'side'
-      ? { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
-      : mount === 'flat'
-      ? { x: ['z', -f.height / 2], s: ['x', 0], z: ['y', f.width / 2] }
-      : { x: ['x', 0], s: ['y', 0], z: ['z', 0] }
+  const m = mountMap(servo.mounting, f)
   const origin = { x: at.x, s: at.s, z: at.base + (servo.lift ?? 0) }
   const idx = { x: 0, y: 1, z: 2 }
   const range = (axis, box) => {
-    const [from, by] = map[axis]
+    const [from, by] = m[axis]
     return box[idx[from]].map((v) => origin[axis] + by + v)
   }
   const point = (axis, p) => {
-    const [from, by] = map[axis]
+    const [from, by] = m[axis]
     return origin[axis] + by + p[from]
   }
+  const yaw = servo.yaw ?? 0
+  const turn = Math.abs(yaw) > 1e-9 ? { yaw, x: at.x, s: at.s } : null
   return servoParts(f).map((p) => {
-    if (p.box) return { kind: p.kind, box: { x: range('x', p.box), s: range('s', p.box), z: range('z', p.box) } }
-    const c = p.cylinder
-    const axis = Object.keys(map).find((k) => map[k][0] === 'z')
-    const centre = { x: c.x, y: c.y, z: 0 }
-    const [from, to] = c.z.map((v) => origin[axis] + map[axis][1] + v)
-    return { kind: p.kind, cylinder: { axis, x: point('x', centre), s: point('s', centre), z: point('z', centre), r: c.r, from, to } }
+    let out
+    if (p.box) out = { kind: p.kind, box: { x: range('x', p.box), s: range('s', p.box), z: range('z', p.box) } }
+    else {
+      const c = p.cylinder
+      const axis = Object.keys(m).find((k) => m[k][0] === 'z')
+      const centre = { x: c.x, y: c.y, z: 0 }
+      const [from, to] = c.z.map((v) => origin[axis] + m[axis][1] + v)
+      out = { kind: p.kind, cylinder: { axis, x: point('x', centre), s: point('s', centre), z: point('z', centre), r: c.r, from, to } }
+    }
+    if (servo.quarter) out = quarterTurn(out, at)
+    return turn ? { ...out, turn } : out
   })
+}
+
+// Frame (x along the case, y across it, z up its height) to wing (x, s, z) for a mounting: which
+// frame axis each wing axis takes, and the offset from the case's centre on its base
+function mountMap(mounting, f) {
+  if (mounting === 'side') return { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
+  if (mounting === 'flat') return { x: ['z', -f.height / 2], s: ['x', 0], z: ['y', f.width / 2] }
+  return { x: ['x', 0], s: ['y', 0], z: ['z', 0] }
+}
+
+// A placed part turned a quarter (x towards s) about at, exactly: x' = at.x - (s - at.s),
+// s' = at.s + (x - at.x)
+function quarterTurn(p, at) {
+  const X = (s) => at.x - (s - at.s)
+  const S = (x) => at.s + (x - at.x)
+  if (p.box) return { ...p, box: { x: [X(p.box.s[1]), X(p.box.s[0])], s: [S(p.box.x[0]), S(p.box.x[1])], z: p.box.z } }
+  const c = p.cylinder
+  const axis = c.axis === 'x' ? 's' : c.axis === 's' ? 'x' : 'z'
+  const [from, to] = c.axis === 'x' ? [S(c.from), S(c.to)] : c.axis === 's' ? [X(c.to), X(c.from)] : [c.from, c.to]
+  return { ...p, cylinder: { ...c, axis, x: X(c.s), s: S(c.x), from, to } }
+}
+
+// A point or a direction in the servo's own frame (servoFrame: x along the case towards the
+// lead end, y across it, z up its height from the base, about the case's centre) in the wing,
+// placed as placeServo places it.
+export function servoPoint(servo, at, p) {
+  const f = servo.frame ?? servoFrame(servo)
+  const m = mountMap(servo.mounting, f)
+  const idx = { x: 0, y: 1, z: 2 }
+  const local = ['x', 's', 'z'].map((k) => m[k][1] + p[idx[m[k][0]]])
+  const [x, q] = planTurn(servo, [local[0], local[1]])
+  return [at.x + x, at.s + q, at.base + (servo.lift ?? 0) + local[2]]
+}
+export function servoDir(servo, d) {
+  const m = mountMap(servo.mounting, servo.frame ?? servoFrame(servo))
+  const idx = { x: 0, y: 1, z: 2 }
+  const local = ['x', 's', 'z'].map((k) => d[idx[m[k][0]]])
+  const [x, q] = planTurn(servo, [local[0], local[1]])
+  return [x, q, local[2]]
+}
+const planTurn = (servo, p) => turnPoint(turnPoint(p, servo.quarter ? Math.PI / 2 : 0), servo.yaw ?? 0)
+
+// A placed part's outline in plan, [x, s] corners, turned with it: a box's, or the rectangle a
+// cylinder covers in plan
+export function planCorners(p) {
+  const r = partRanges(p.turn ? { ...p, turn: null } : p)
+  const pts = [[r.x[0], r.s[0]], [r.x[1], r.s[0]], [r.x[1], r.s[1]], [r.x[0], r.s[1]]]
+  if (!p.turn) return pts
+  return pts.map(([x, q]) => {
+    const [dx, ds] = turnPoint([x - p.turn.x, q - p.turn.s], p.turn.yaw)
+    return [p.turn.x + dx, p.turn.s + ds]
+  })
+}
+
+// Where a convex outline in plan ([x, s] corners) crosses the line at s: its [x0, x1], or null
+export function xRangeAt(poly, s) {
+  const xs = []
+  for (let i = 0; i < poly.length; i++) {
+    const [xa, sa] = poly[i]
+    const [xb, sb] = poly[(i + 1) % poly.length]
+    if ((sa - s) * (sb - s) > 0 || sa === sb) {
+      if (sa === sb && Math.abs(sa - s) < 1e-12) xs.push(xa, xb)
+      continue
+    }
+    xs.push(xa + ((xb - xa) * (s - sa)) / (sb - sa))
+  }
+  return xs.length ? [Math.min(...xs), Math.max(...xs)] : null
+}
+
+// One placed part cut square to the span at s, as [x, z] corners, or null where the cut misses
+// it. A turned part is cut through its turned outline: a box's or an upright cylinder's
+// exactly; a cylinder lying in the wing's plane as its circle carried along its turned axis
+// (lying across the span) or as the box round it (along the chord).
+export function partSlice(p, s) {
+  const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+  const c = p.cylinder
+  if (!p.turn) {
+    if (p.box) return s >= p.box.s[0] && s <= p.box.s[1] ? rect(p.box.x[0], p.box.x[1], p.box.z[0], p.box.z[1]) : null
+    if (c.axis === 's') {
+      if (s < c.from || s > c.to) return null
+      return ring(c.x, c.z, c.r)
+    }
+    const d = s - c.s
+    if (Math.abs(d) >= c.r) return null
+    const half = Math.sqrt(c.r * c.r - d * d)
+    return c.axis === 'x' ? rect(c.from, c.to, c.z - half, c.z + half) : rect(c.x - half, c.x + half, c.from, c.to)
+  }
+  const t = p.turn
+  const about = ([x, q]) => {
+    const [dx, ds] = turnPoint([x - t.x, q - t.s], t.yaw)
+    return [t.x + dx, t.s + ds]
+  }
+  if (c?.axis === 'z') {
+    const [cx, cs] = about([c.x, c.s])
+    const d = s - cs
+    if (Math.abs(d) >= c.r) return null
+    const half = Math.sqrt(c.r * c.r - d * d)
+    return rect(cx - half, cx + half, c.from, c.to)
+  }
+  const x = xRangeAt(planCorners(p), s)
+  if (!x) return null
+  if (c?.axis === 's') {
+    // The axis turned: its centre at s
+    const [x0, s0] = about([c.x, c.from])
+    const [x1, s1] = about([c.x, c.to])
+    const cx = Math.abs(s1 - s0) < 1e-12 ? x0 : x0 + ((x1 - x0) * (s - s0)) / (s1 - s0)
+    // No further than its outline in plan, near its turned ends
+    return ring(cx, c.z, c.r).map(([px, pz]) => [Math.min(x[1], Math.max(x[0], px)), pz])
+  }
+  const z = partRanges({ ...p, turn: null }).z
+  return rect(x[0], x[1], z[0], z[1])
+}
+const ring = (x, z, r) => Array.from({ length: 16 }, (_, i) => [x + r * Math.cos((2 * Math.PI * i) / 16), z + r * Math.sin((2 * Math.PI * i) / 16)])
+
+// The span a placed part covers, [s0, s1]
+export function partSpan(p) {
+  if (!p.turn) return partRanges(p).s
+  return rangeOf(planCorners(p), 1)
 }
 
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  return { surface: surfaceId, enabled: true, class: null, mounting: 'upright', along: null, at: null, link: null, ...(saved ?? {}) }
+  return { surface: surfaceId, enabled: true, class: null, mounting: 'upright', square: 'chord', quarterTurn: false, along: null, at: null, link: null, ...(saved ?? {}) }
 }
 
 // controls with one surface's bay settings changed. Settings that come back to the defaults
@@ -572,11 +733,14 @@ export function setBay(controls, surfaceId, patch) {
   const rest = (controls.bays ?? []).filter((b) => b.surface !== surfaceId)
   const upright = !next.mounting || next.mounting === 'upright'
   const link = next.link && Object.keys(next.link).length ? next.link : null
-  const same = next.enabled && !next.class && upright && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
+  const hinge = next.square === 'hinge'
+  const same = next.enabled && !next.class && upright && !hinge && !next.quarterTurn && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
   if (!upright) entry.mounting = next.mounting
+  if (hinge) entry.square = 'hinge'
+  if (next.quarterTurn) entry.quarterTurn = true
   if (Number.isFinite(next.along)) entry.along = next.along
   if (Number.isFinite(next.at)) entry.at = next.at
   if (link) entry.link = link
@@ -608,7 +772,9 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     if (!cfg.enabled) continue
     const chosen = servoById(cfg.class)
     const cls = chosen ? cfg.class : defaultServoClass(mass)
-    const servo = installedServo(cls, cfg.mounting, mass)
+    // Square to the hinge: its length turned from the chord by the hinge line's angle in plan
+    const yaw = cfg.square === 'hinge' && Number.isFinite(r.slope) ? -Math.atan(r.slope) : 0
+    const servo = installedServo(cls, cfg.mounting, mass, { quarter: !!cfg.quarterTurn, yaw })
     const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {
@@ -616,7 +782,7 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
       continue
     }
     const p = sampler.ends[r.panelIndex]
-    const width = servo.width + 2 * SERVO_CLEARANCE
+    const width = servo.bayWidth ?? servo.width + 2 * SERVO_CLEARANCE
     const half = width / 2 + t / 2
     const centres = !r.beside && Number.isFinite(cfg.along) ? [r.s0 + cfg.along] : Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - half, r.beside[1] + half] : [r.s0 + (r.s1 - r.s0) / 3]
     for (const s of centres) {
@@ -655,7 +821,7 @@ export function fitBaysToRibs(bays, ribs, ribThickness = 0) {
   const sorted = [...(ribs ?? [])].sort((p, q) => p.s - q.s)
   for (const b of bays ?? []) {
     if (!b.ok || b.brake) continue
-    const half = b.servo.width / 2 + SERVO_CLEARANCE + t / 2
+    const half = (b.servo.bayWidth ?? b.servo.width + 2 * SERVO_CLEARANCE) / 2 + t / 2
     const inner = [...sorted].reverse().find((r) => r.s <= b.s - half + 1e-9)
     const outer = sorted.find((r) => r.s >= b.s + half - 1e-9)
     if (!inner || !outer) continue

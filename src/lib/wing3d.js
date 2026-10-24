@@ -16,7 +16,7 @@ import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, ha
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
-import { placeServo } from './servos.js'
+import { placeServo, partSlice, partSpan, xRangeAt } from './servos.js'
 import { hingeTabOutline } from './controlSurfaces.js'
 
 const RAD = Math.PI / 180
@@ -540,45 +540,44 @@ export function servoBox(a, structure, b) {
 }
 
 // A built bay's servo and mount plate: the servo's solids placed (servos.js placeServo), standing
-// on servoBox's base with its case centred on the bay's, and the plate as the strips of ply
-// round its cut-out ([x0, x1, s0, s1]), from z to z + thickness.
+// on servoBox's base with its case centred on the bay's, and the plate as pieces of ply round its
+// cut-out (turned with the servo), each { s0, s1, x(s) -> [x0, x1] }, from z to z + thickness.
 export function servoBayParts(a, structure, b) {
   const box = servoBox(a, structure, b)
   const parts = placeServo(b.servo, { x: (b.case.x0 + b.case.x1) / 2, s: b.s, base: box.base })
   const z = box.base + b.servo.lugHeight + b.servo.lugThickness
   const p = b.plate
-  const c = b.cut
-  const strips = c
-    ? [
-        [p.x0, c.x0, p.s0, p.s1],
-        [c.x1, p.x1, p.s0, p.s1],
-        [c.x0, c.x1, p.s0, c.s0],
-        [c.x0, c.x1, c.s1, p.s1],
-      ]
-    : [[p.x0, p.x1, p.s0, p.s1]]
-  return { parts, plate: { z, thickness: p.thickness, strips: strips.filter(([x0, x1, s0, s1]) => x1 - x0 > 1e-4 && s1 - s0 > 1e-4) } }
-}
-
-// One of a servo's solids cut square to the span at s, as [x, h] corners, or null where the
-// cut misses it
-function servoSlice({ box, cylinder: c }, s) {
-  const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
-  if (box) return s >= box.s[0] && s <= box.s[1] ? rect(box.x[0], box.x[1], box.z[0], box.z[1]) : null
-  if (c.axis === 's') {
-    if (s < c.from || s > c.to) return null
-    return Array.from({ length: 16 }, (_, i) => [c.x + c.r * Math.cos((2 * Math.PI * i) / 16), c.z + c.r * Math.sin((2 * Math.PI * i) / 16)])
+  const poly = b.cutPoly ?? (b.cut ? [[b.cut.x0, b.cut.s0], [b.cut.x1, b.cut.s0], [b.cut.x1, b.cut.s1], [b.cut.x0, b.cut.s1]] : null)
+  const pieces = []
+  const whole = (s0, s1) => s1 - s0 > 1e-4 && pieces.push({ s0, s1, x: () => [p.x0, p.x1] })
+  if (!poly) whole(p.s0, p.s1)
+  else {
+    // Across the plate beside the cut-out, then ahead of it and behind it where it crosses
+    const cs0 = Math.max(p.s0, Math.min(...poly.map((q) => q[1])))
+    const cs1 = Math.min(p.s1, Math.max(...poly.map((q) => q[1])))
+    whole(p.s0, cs0)
+    whole(cs1, p.s1)
+    const at = (s) => xRangeAt(poly, Math.min(cs1 - 1e-7, Math.max(cs0 + 1e-7, s))) ?? [p.x0, p.x0]
+    if (cs1 - cs0 > 1e-4) {
+      pieces.push({ s0: cs0, s1: cs1, x: (s) => [p.x0, Math.max(p.x0, at(s)[0])], turned: !!b.cutPoly })
+      pieces.push({ s0: cs0, s1: cs1, x: (s) => [Math.min(p.x1, at(s)[1]), p.x1], turned: !!b.cutPoly })
+    }
   }
-  const d = s - c.s
-  if (Math.abs(d) >= c.r) return null
-  const half = Math.sqrt(c.r * c.r - d * d)
-  return c.axis === 'x' ? rect(c.from, c.to, c.z - half, c.z + half) : rect(c.x - half, c.x + half, c.from, c.to)
+  return { parts, plate: { z, thickness: p.thickness, pieces: pieces.filter((q) => q.x((q.s0 + q.s1) / 2)[1] - q.x((q.s0 + q.s1) / 2)[0] > 1e-4) } }
 }
 
 // One of a servo's solids (servos.js placeServo) as a mesh: a box swept across the span, or a
 // cylinder: round in section along the span, or swept across it as the chord (or height) the
 // circle has at each station when it stands on the chord or the height.
-function servoSolid(a, { box, cylinder: c }) {
+function servoSolid(a, part) {
+  const { box, cylinder: c } = part
   const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
+  // Turned in plan: swept through its turned outline
+  if (part.turn) {
+    const [s0, s1] = partSpan(part)
+    const e = (s1 - s0) * 1e-4
+    return sweep(a, s0 + e, s1 - e, (s) => partSlice(part, s), 12)
+  }
   if (box) return sweep(a, box.s[0], box.s[1], () => rect(box.x[0], box.x[1], box.z[0], box.z[1]), 1)
   if (!(c.r > 0) || !(c.to > c.from)) return null
   if (c.axis === 's') {
@@ -692,9 +691,11 @@ export function sectionAt(a, structure, parts, s) {
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     if (s < b.sA || s > b.sB) continue
     const { parts: sp, plate } = servoBayParts(a, st, b)
-    for (const p of sp) add(p.kind, servoSlice(p, s))
-    for (const [x0, x1, s0, s1] of plate.strips) {
-      if (s >= s0 && s <= s1) add('plate', [[x0, plate.z], [x1, plate.z], [x1, plate.z + plate.thickness], [x0, plate.z + plate.thickness]])
+    for (const p of sp) add(p.kind, partSlice(p, s))
+    for (const q of plate.pieces) {
+      if (s < q.s0 || s > q.s1) continue
+      const [x0, x1] = q.x(s)
+      if (x1 - x0 > 1e-6) add('plate', [[x0, plate.z], [x1, plate.z], [x1, plate.z + plate.thickness], [x0, plate.z + plate.thickness]])
     }
   }
   // Control surfaces' hinge spars, where the cut crosses them
@@ -1022,7 +1023,7 @@ export function wing3d(a, structure, parts) {
     const servo = { id: `servo-${b.name}`, name: `${b.servo.label} servo, ${b.name}`, servo: b.servo }
     const platePiece = { id: `plate-${b.name}`, name: `Servo plate, ${b.name}`, material: 'ply-birch' }
     for (const p of sp) add(p.kind, servoSolid(a, p), null, servo)
-    for (const [x0, x1, s0, s1] of plate.strips) add('plate', sweep(a, s0, s1, () => rect(x0, x1, plate.z, plate.z + plate.thickness), 1), pick, platePiece)
+    for (const q of plate.pieces) add('plate', sweep(a, q.s0, q.s1, (s) => rect(...q.x(s), plate.z, plate.z + plate.thickness), q.turned ? 12 : 1), pick, platePiece)
   }
 
   // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;
