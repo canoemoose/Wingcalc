@@ -16,6 +16,7 @@ export function structureSection(id, foam = false) {
   if (id === 'finish-open') return foam ? 'finish' : 'covering'
   if (id.startsWith('gusset')) return 'gussets'
   if (id.startsWith('brace-')) return 'braces'
+  if (id.startsWith('stringer-')) return 'stringers'
   if (id.startsWith('surface-')) return 'hinges'
   // Each surface's linkage, in that surface's own section (SurfaceStructure.vue)
   if (id.startsWith('linkage-')) return 'surfaces'

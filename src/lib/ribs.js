@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -438,20 +438,40 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     holes.push(circle(0, 0, 1).map(([x, y]) => [(uSpar0 + uSpar1) / 2 + x * (halfSpar + 0.0001), mid + y * r]))
   }
   if (!movingSide && sparHere.type !== 'none' && sparHere.fits === false) notes.push("The spar doesn't fit at this rib")
+  // Stringers and reinforcement: notched in from the skin they're on, or through a hole (round for
+  // a rod or tube) where they run inside the wing. Inside ones are placed once the notches are
+  // all known, below.
+  const insides = []
+  // Stretches along the rib that lead holes, the label and lightening holes keep clear of
+  const keepClear = []
   for (const st of structure.stringers ?? []) {
-    if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
+    if (!stringerOk(st)) continue
+    const { w, h } = stringerSize(st)
     const u = prof.uAt(st.position)
     const line = (s) => {
       const sec = a.section(clampS(s))
       return sec.xl + st.position * sec.c
     }
-    const [f0, f1] = lineFaces(line, st.width)
-    const u0 = crossing(f0, u - st.width / 2)
-    const u1 = crossing(f1, u + st.width / 2)
+    const [f0, f1] = lineFaces(line, w)
+    const u0 = crossing(f0, u - w / 2)
+    const u1 = crossing(f1, u + w / 2)
     if (u0 < uA || u1 > uB) continue
-    const notch = { u0, u1, depth: st.height, what: 'stringer' }
-    if (st.surface !== 'lower') upper.push({ ...notch })
-    if (st.surface !== 'upper') lower.push({ ...notch })
+    const notch = { u0, u1, depth: h, what: 'stringer' }
+    for (const place of stringerPlaces(st)) {
+      if (place === 'upper') upper.push({ ...notch })
+      else if (place === 'lower') lower.push({ ...notch })
+      else insides.push({ st, u0, u1, w, h })
+    }
+  }
+  for (const { st, u0, u1, w, h } of insides) {
+    const um = (u0 + u1) / 2
+    const zc = insideCentre(st, bot(um), top(um))
+    if (top(um) - bot(um) < h + 2 * MIN_MATERIAL) notes.push(`No room round the ${STRINGER_PROFILES[st.profile]?.label.toLowerCase() ?? 'stringer'} at ${Math.round(st.position * 100)}% chord`)
+    // A hair of clearance round it, so it threads through
+    const c = 0.0001
+    keepClear.push([u0, u1])
+    if (stringerSize(st).round) holes.push(circle(0, 0, 1).map(([x, y]) => [um + x * ((u1 - u0) / 2 + c), zc + y * (h / 2 + c)]))
+    else holes.push(rect(u0 - c, zc - h / 2 - c, u1 + c, zc + h / 2 + c))
   }
 
   // Jig tabs: down to the panel's board datum, near each end, clear of lower notches
@@ -564,7 +584,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       for (let k = 0; k <= 20 && !placed; k++) {
         const u = u0 + k * 0.001
         if (u + D / 2 > uB - m) break
-        if (leadBlocks.some(([b0, b1]) => u - D / 2 < b1 + m && u + D / 2 > b0 - m)) continue
+        if ([...leadBlocks, ...keepClear].some(([b0, b1]) => u - D / 2 < b1 + m && u + D / 2 > b0 - m)) continue
         const c = clearOver(u - D / 2, u + D / 2, m)
         if (c.t - c.b >= D) placed = { u, z: (c.t + c.b) / 2 }
       }
@@ -605,7 +625,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       if (h < 0.0015) continue
       const u1 = u0 + textWidth(name, h)
       if (u1 > to) continue
-      if (leadBlocks.some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
+      if ([...leadBlocks, ...keepClear].some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
       const c = clearOver(u0, u1, edge)
       if (c.t - c.b < h) continue
       if (!best || h * pref > best.h * best.pref + 1e-9) best = { u0, u1, h, pref, z: (c.t + c.b) / 2 - h / 2 }
@@ -626,7 +646,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       [Math.max(uSolid, uSpar1) + m, uB - m],
     ]) {
       let open = [[from, to]]
-      for (const [b0, b1] of [labelBox, ...leadBlocks].filter(Boolean)) {
+      for (const [b0, b1] of [labelBox, ...leadBlocks, ...keepClear].filter(Boolean)) {
         open = open.flatMap(([f, t2]) => (b1 + m > f && b0 - m < t2 ? [[f, b0 - m], [b1 + m, t2]] : [[f, t2]]))
       }
       stretches.push(...open.filter(([f, t2]) => t2 > f))
@@ -1603,9 +1623,11 @@ function stripCutList(a, structure, parts, both) {
       triangular: structure.te.type === 'triangular',
     })
     for (const st of structure.stringers ?? []) {
-      if (!(st.width > 0)) continue
+      if (!stringerOk(st)) continue
       const n = st.surface === 'both' ? 2 : 1
-      out.push({ item: `Stringer at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, size: [st.width, st.height], length: p.to - p.from, qty: n * sides })
+      const what = st.surface === 'inside' ? `${STRINGER_PROFILES[st.profile]?.label ?? 'Stringer'} inside the wing` : st.profile && st.profile !== 'rect' ? STRINGER_PROFILES[st.profile].label : 'Stringer'
+      const shape = st.profile === 'tube' ? { size: [st.width, st.wall > 0 ? st.wall : 0.0005], tube: true } : st.profile === 'rod' ? { size: [st.width, st.width], round: true } : { size: [st.width, st.height] }
+      out.push({ item: `${what} at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, ...shape, length: p.to - p.from, qty: n * sides })
     }
   }
   // Each control surface's two hinge spars: the fixed side's square, the moving side's

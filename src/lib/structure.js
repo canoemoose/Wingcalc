@@ -192,7 +192,9 @@ export function defaultStructure() {
     // up. See edgeStock.js
     le: { type: 'balsa', stock: 'auto', width: 0.006, height: null, material: 'balsa-hard', diameter: null, fit: 'square', lay: 'best' }, // height: custom stock only (null: as deep)
     te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium', fit: 'square' }, // 'triangular' | 'flat' (custom only)
-    stringers: [], // { id, position (chord fraction), surface: 'upper' | 'lower' | 'both', width, height, material }
+    // Stringers and carbon reinforcement: { id, position (chord fraction), surface, profile, width,
+    // height, wall, depth, material }. See STRINGER_PROFILES and stringerPlaces.
+    stringers: [],
     ribs: {
       material: 'balsa-medium',
       thickness: 0.002,
@@ -619,6 +621,48 @@ export function sparWidth(sp) {
   return sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter
 }
 
+// Stringers and carbon reinforcement, by profile: 'rect' (a strip of any material, width along
+// the chord by height; what every stringer was before profiles), 'strip' (flat carbon strip, the
+// same shape), 'rod' (carbon rod, width its diameter) or 'tube' (carbon tube, width its outside
+// diameter, wall its wall). Each is on the 'upper' or 'lower' skin (notched into the ribs),
+// 'both', or 'inside' the wing: its centre `depth` of the way up the room between the skins (0
+// on the lower skin, 1 under the upper, 0.5 by default), through a hole in every rib.
+export const STRINGER_PROFILES = {
+  rect: { label: 'Strip', material: 'balsa-hard' },
+  strip: { label: 'Carbon strip', material: 'carbon' },
+  rod: { label: 'Carbon rod', material: 'carbon-rod' },
+  tube: { label: 'Carbon tube', material: 'carbon-tube' },
+}
+export const isRoundStringer = (st) => st?.profile === 'rod' || st?.profile === 'tube'
+// Its size across the chord (w) and up (h), and whether it's round
+export function stringerSize(st) {
+  const round = isRoundStringer(st)
+  return { w: st.width, h: round ? st.width : st.height, round }
+}
+// Whether a stringer is placed and has a size
+export function stringerOk(st) {
+  const { w, h } = stringerSize(st)
+  return Number.isFinite(st.position) && w > 0 && h > 0
+}
+// Where it goes in the section: 'upper', 'lower' or 'inside', one or two of them
+export const stringerPlaces = (st) => (st.surface === 'both' ? ['upper', 'lower'] : st.surface === 'inside' ? ['inside'] : st.surface === 'lower' ? ['lower'] : ['upper'])
+// Its cross-section's area and second moment about its own horizontal axis
+export function stringerSection(st) {
+  const { w, h } = stringerSize(st)
+  if (st.profile === 'rod') return { A: (Math.PI / 4) * w * w, I0: (Math.PI / 64) * w ** 4 }
+  if (st.profile === 'tube') {
+    const di = Math.max(0, w - 2 * (st.wall > 0 ? st.wall : 0.0005))
+    return { A: (Math.PI / 4) * (w * w - di * di), I0: (Math.PI / 64) * (w ** 4 - di ** 4) }
+  }
+  return { A: w * h, I0: (w * h ** 3) / 12 }
+}
+// An inside stringer's centre height, between the inner faces of the skins lo and hi
+export function insideCentre(st, lo, hi) {
+  const { h } = stringerSize(st)
+  const f = Math.min(1, Math.max(0, Number.isFinite(st.depth) ? st.depth : 0.5))
+  return lo + h / 2 + f * Math.max(0, hi - lo - h)
+}
+
 // The two faces of something of width w laid along a line x = line(s) in plan (a spar, a
 // stringer): the width is the stock's own, square to its length, so on a swept line the
 // faces sit w / 2 · √(1 + slope²) either side in x. Returns [front(s), rear(s)].
@@ -893,18 +937,16 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
   }
   const rear = sparXi + sparWidth(structure.spar) / 2 / sec.c
   for (const st of structure.stringers ?? []) {
-    if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
+    if (!stringerOk(st)) continue
     const f = sec.surf(st.position)
     const E = material(st.material).E
-    const A = st.width * st.height
-    const I0 = (st.width * st.height ** 3) / 12
-    if (st.surface !== 'lower') {
-      const t = f.upper - skinAt(structure, st.position, rear, 'top', sec.c, true, sec.s)
-      els.push({ part: 'stringer', surface: 'upper', E, A, z: t - st.height / 2, I0, top: t, bottom: t - st.height })
-    }
-    if (st.surface !== 'upper') {
-      const b = f.lower + skinAt(structure, st.position, rear, 'bottom', sec.c, true, sec.s)
-      els.push({ part: 'stringer', surface: 'lower', E, A, z: b + st.height / 2, I0, top: b + st.height, bottom: b })
+    const { A, I0 } = stringerSection(st)
+    const { h } = stringerSize(st)
+    const t = f.upper - skinAt(structure, st.position, rear, 'top', sec.c, true, sec.s)
+    const b = f.lower + skinAt(structure, st.position, rear, 'bottom', sec.c, true, sec.s)
+    for (const place of stringerPlaces(st)) {
+      const z = place === 'upper' ? t - h / 2 : place === 'lower' ? b + h / 2 : insideCentre(st, b, t)
+      els.push({ part: 'stringer', surface: place, E, A, z, I0, top: z + h / 2, bottom: z - h / 2 })
     }
   }
   return { els, spar: sp, top, bot }
@@ -1288,12 +1330,20 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
           ceil = Math.min(ceil, f.upper - skinAt(structure, q, xiRear, 'top', sec.c, true, s))
         }
         for (const st of structure.stringers ?? []) {
-          if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
+          if (!stringerOk(st)) continue
+          const { w, h } = stringerSize(st)
           const xs = sec.xl + st.position * sec.c
-          if (xs + st.width / 2 <= x0 || xs - st.width / 2 >= x1) continue
+          if (xs + w / 2 <= x0 || xs - w / 2 >= x1) continue
           const f = sec.surf(st.position)
-          if (st.surface !== 'upper') base = Math.max(base, f.lower + skinAt(structure, st.position, xiRear, 'bottom', sec.c, true, s) + st.height)
-          if (st.surface !== 'lower') ceil = Math.min(ceil, f.upper - skinAt(structure, st.position, xiRear, 'top', sec.c, true, s) - st.height)
+          const lo = f.lower + skinAt(structure, st.position, xiRear, 'bottom', sec.c, true, s)
+          const hi = f.upper - skinAt(structure, st.position, xiRear, 'top', sec.c, true, s)
+          for (const place of stringerPlaces(st)) {
+            // One inside the wing closes off whichever side of it the servo is on: below it if
+            // it's in the upper half
+            const zc = place === 'inside' ? insideCentre(st, lo, hi) : null
+            if (place === 'lower' || (zc != null && zc < (lo + hi) / 2)) base = Math.max(base, place === 'lower' ? lo + h : zc + h / 2)
+            else ceil = Math.min(ceil, place === 'upper' ? hi - h : zc - h / 2)
+          }
         }
       }
       return ceil - base
@@ -1689,6 +1739,23 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       message: `The spar doesn't fit inside the wing from ${Math.round(misfit.d * 1000)} mm out from the root rib (depth there ${(misfit.h * 1000).toFixed(1)} mm).`,
     })
   }
+  // Reinforcement inside the wing needs a rib round its hole, the least material each side
+  (structure.stringers ?? []).forEach((st, k) => {
+    if (foam || st.surface !== 'inside' || !stringerOk(st)) return
+    const { h } = stringerSize(st)
+    const tight = stations.find((r) => {
+      const sec = section(r.s)
+      const f = sec.surf(st.position)
+      const room = f.upper - f.lower - skinAt(structure, st.position, 1, 'top', sec.c, true, r.s) - skinAt(structure, st.position, 1, 'bottom', sec.c, true, r.s)
+      return room < h + 2 * MIN_MATERIAL
+    })
+    if (tight) {
+      warnings.push({
+        id: `stringer-fit-${st.id ?? k}`,
+        message: `${STRINGER_PROFILES[st.profile]?.label ?? 'Stringer'} ${k + 1} (${(h * 1000).toFixed(1)} mm) doesn't fit inside the wing with ${(MIN_MATERIAL * 1000).toFixed(1)} mm of rib round it from ${Math.round(tight.d * 1000)} mm out from the root rib. Make it smaller, or move it where the wing is deeper.`,
+      })
+    }
+  })
   if (structure.spar.type === 'tube' && stations.some((r) => r.spar === 'none')) {
     warnings.push({
       id: 'tube-short',

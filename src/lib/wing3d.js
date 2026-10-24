@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, sparOuterFaces, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, sparOuterFaces, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -278,16 +278,35 @@ function seated(a, structure, s, x0, x1, depth, which) {
   return corners(floor - depth, floor)
 }
 
-// A stringer's cross-section at s, as [x, h] corners, seated in its rib notches.
+// A stringer's cross-section at s, as [x, h] points: on a skin ('upper' or 'lower'), seated in
+// its rib notches; 'inside', its centre its depth of the way up between the inset surfaces, as
+// the ribs' holes are cut. A rod or tube is round (16 points), in its notch or hole.
 export function stringerBox(a, structure, str, s, which) {
   const sec = a.section(s)
   if (!sec || !(sec.c > 1e-4)) return null
+  const { w, h, round } = stringerSize(str)
   const line = (t) => {
     const q = a.section(Math.min(a.tipS, Math.max(a.rootS, t)))
     return q.xl + str.position * q.c
   }
-  const [front, rear] = lineFaces(line, str.width)
-  return seated(a, structure, s, front(s), rear(s), str.height, which)
+  const [front, rear] = lineFaces(line, w)
+  const x0 = front(s)
+  const x1 = rear(s)
+  let box
+  if (which === 'inside') {
+    const xm = (x0 + x1) / 2
+    const zc = insideCentre(str, insetHeight(a, structure, s, xm, 'lower'), insetHeight(a, structure, s, xm, 'upper'))
+    box = [
+      [x0, zc - h / 2],
+      [x1, zc - h / 2],
+      [x1, zc + h / 2],
+      [x0, zc + h / 2],
+    ]
+  } else box = seated(a, structure, s, x0, x1, h, which)
+  if (!round) return box
+  const cx = (x0 + x1) / 2
+  const cz = (box[0][1] + box[2][1]) / 2
+  return Array.from({ length: 16 }, (_, k) => [cx + ((x1 - x0) / 2) * Math.cos((2 * Math.PI * k) / 16), cz + (h / 2) * Math.sin((2 * Math.PI * k) / 16)])
 }
 
 // The spar's cross-section(s) at s, as [x, h] corners, seated as the ribs are cut: caps in
@@ -534,15 +553,17 @@ function bayDepth(a, structure, b) {
       ceil = Math.min(ceil, insetHeight(a, structure, s, x, 'upper'))
     }
     for (const str of structure.stringers ?? []) {
-      if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
-      for (const w of ['upper', 'lower']) {
-        if (str.surface !== 'both' && str.surface !== w) continue
+      if (!stringerOk(str)) continue
+      for (const w of stringerPlaces(str)) {
         const box = stringerBox(a, structure, str, s, w)
         if (!box) continue
         const xs = box.map((p) => p[0])
         if (Math.max(...xs) <= b.lugs.x0 || Math.min(...xs) >= b.lugs.x1) continue
         const hs = box.map((p) => p[1])
-        if (w === 'lower') base = Math.max(base, Math.max(...hs))
+        // One inside the wing closes off whichever side of it the servo is on (as bayLayouts)
+        const mid = (insetHeight(a, structure, s, (b.lugs.x0 + b.lugs.x1) / 2, 'upper') + insetHeight(a, structure, s, (b.lugs.x0 + b.lugs.x1) / 2, 'lower')) / 2
+        const below = w === 'lower' || (w === 'inside' && (Math.max(...hs) + Math.min(...hs)) / 2 < mid)
+        if (below) base = Math.max(base, Math.max(...hs))
         else ceil = Math.min(ceil, Math.min(...hs))
       }
     }
@@ -799,8 +820,8 @@ export function sectionAt(a, structure, parts, s) {
   const inRib = parts.some((p) => p.group === 'ribs' && Math.abs(p.s - s) < t)
   if (!inRib) for (const box of webBoxes(a, st, s)) add('web', box)
   for (const str of st.stringers ?? []) {
-    if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
-    for (const w of ['upper', 'lower']) if (str.surface === 'both' || str.surface === w) add('stringer', stringerBox(a, st, str, s, w))
+    if (!stringerOk(str)) continue
+    for (const w of stringerPlaces(str)) add('stringer', stringerBox(a, st, str, s, w))
   }
   // Servos and their mount plates, where the cut crosses them
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
@@ -1205,10 +1226,11 @@ export function wing3d(a, structure, parts, linkages = null) {
 
   // Stringers, seated in their rib notches
   for (const str of st.stringers ?? []) {
-    if (!Number.isFinite(str.position) || !(str.width > 0) || !(str.height > 0)) continue
-    for (const which of ['upper', 'lower']) {
-      if (str.surface !== 'both' && str.surface !== which) continue
-      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), null, { id: `stringer-${str.id}-${which}`, name: `Stringer at ${Math.round(str.position * 100)}% chord, ${which === 'upper' ? 'top' : 'bottom'}`, material: str.material, section: { outline: stringerBox(a, st, str, (s0 + s1) / 2, which) } })
+    if (!stringerOk(str)) continue
+    const what = str.profile && str.profile !== 'rect' ? STRINGER_PROFILES[str.profile].label : 'Stringer'
+    for (const which of stringerPlaces(str)) {
+      const where = { upper: 'top', lower: 'bottom', inside: 'inside the wing' }[which]
+      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), null, { id: `stringer-${str.id}-${which}`, name: `${what} at ${Math.round(str.position * 100)}% chord, ${where}`, material: str.material, section: { outline: stringerBox(a, st, str, (s0 + s1) / 2, which) } })
     }
   }
 

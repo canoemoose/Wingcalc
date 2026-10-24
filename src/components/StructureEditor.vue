@@ -14,7 +14,7 @@ import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
 import EdgeStockPicker from './EdgeStockPicker.vue'
 import { format, defaultUnit } from '../lib/units.js'
-import { MATERIALS, gussetLayer, FINISHES, finishOf } from '../lib/structure.js'
+import { MATERIALS, gussetLayer, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer } from '../lib/structure.js'
 import { FOAMS, SKIN_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter, customLe } from '../lib/edgeStock.js'
 
@@ -128,6 +128,29 @@ const finishHint = computed(() => {
   }
   return `About ${g(f.mass)} with its adhesive or dope.${total} Counted as weight only: the check gives the covering no strength, which errs on the safe side.`
 })
+
+// Stringers and carbon reinforcement: what each is, and where in the section
+const PROFILE_OPTIONS = Object.entries(STRINGER_PROFILES).map(([value, p]) => ({ value, label: p.label }))
+const STRINGER_PLACES = [
+  { value: 'upper', label: 'Top' },
+  { value: 'lower', label: 'Bottom' },
+  { value: 'both', label: 'Both' },
+  { value: 'inside', label: 'Inside', title: 'Through a hole in every rib, at a height of its own' },
+]
+// The materials each profile comes in: a strip of wood or carbon; carbon strip, rod or tube
+const PROFILE_MATERIALS = { rect: CAPS, strip: materials(['carbon']), rod: materials(['carbon-rod']), tube: materials(['carbon-tube']) }
+const stringerName = (s) => (s.profile && s.profile !== 'rect' ? STRINGER_PROFILES[s.profile].label : 'Stringer')
+// A new profile brings its own material (and a tube a wall)
+function setProfile(itemId, profile) {
+  set(
+    'stringers',
+    st.value.stringers.map((x) => {
+      if (x.id !== itemId) return x
+      const keep = PROFILE_MATERIALS[profile].some((m) => m.value === x.material)
+      return { ...x, profile, material: keep ? x.material : STRINGER_PROFILES[profile].material, wall: profile === 'tube' ? (x.wall ?? 0.0005) : x.wall }
+    }),
+  )
+}
 
 const SPACINGS = [
   { value: 'suggested', label: 'From loads', title: 'As close as the structure needs, no wider than the maximum' },
@@ -269,7 +292,7 @@ const summaries = computed(() => {
     spar,
     covering,
     edges: `LE ${edgeName('le')}, TE ${edgeName('te')}`,
-    stringers: (x.stringers ?? []).length ? `${x.stringers.length} stringer${x.stringers.length === 1 ? '' : 's'}` : 'None',
+    stringers: (x.stringers ?? []).length ? `${x.stringers.length} piece${x.stringers.length === 1 ? '' : 's'}` : 'None',
     ribs: `${mm(r.thickness)} ${mat(r.material)}, ${spacing}${r.orientation === 'perpendicular' ? ', square to spar' : ''}`,
     gussets,
     braces: !x.braces.enabled ? 'Off' : `${mat(x.braces.material)}, ${len(x.braces.length)} each side`,
@@ -743,12 +766,13 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
       <EdgeFit v-if="edges?.te.drawing" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Stringers and turbulator spars" fold-key="structure:stringers" :warnings="warnIn('stringers')" :summary="summaries.stringers">
+    <InspectorSection v-if="!foam" title="Stringers and reinforcement" fold-key="structure:stringers" :warnings="warnIn('stringers')" :summary="summaries.stringers">
       <div v-for="(s, k) in st.stringers" :key="s.id" class="wc-structure-editor__item">
         <div class="wc-structure-editor__itemhead">
-          <span>Stringer {{ k + 1 }}</span>
-          <button type="button" class="wc-stations__remove" :aria-label="`Remove stringer ${k + 1}`" @click="removeFrom('stringers', s.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
+          <span>{{ k + 1 }}. {{ stringerName(s) }}</span>
+          <button type="button" class="wc-stations__remove" :aria-label="`Remove ${stringerName(s).toLowerCase()} ${k + 1}`" @click="removeFrom('stringers', s.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path v-for="(d, k) in TRASH" :key="k" :d="d" /></svg></button>
         </div>
+        <SegmentedField :model-value="s.profile ?? 'rect'" label="Profile" :options="PROFILE_OPTIONS" @update:model-value="setProfile(s.id, $event)" />
         <UnitInput
           :id="id(`str${s.id}p`)"
           :model-value="s.position"
@@ -761,31 +785,52 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         />
         <SegmentedField
           :model-value="s.surface"
-          label="Surface"
-          :options="[
-            { value: 'upper', label: 'Top' },
-            { value: 'lower', label: 'Bottom' },
-            { value: 'both', label: 'Both' },
-          ]"
+          label="Where"
+          :options="STRINGER_PLACES"
           @update:model-value="updateIn('stringers', s.id, 'surface', $event)"
         />
-        <div class="wc-structure-editor__pair">
+        <ParamInput
+          v-if="s.surface === 'inside'"
+          :id="id(`str${s.id}z`)"
+          :model-value="Math.round((s.depth ?? 0.5) * 100)"
+          label="Height in the wing"
+          suffix="%"
+          :min="0"
+          :max="100"
+          :step="5"
+          hint="Of the room between the skins at its chord position: 0 on the lower skin, 100 under the upper, 50 in the middle."
+          @update:model-value="updateIn('stringers', s.id, 'depth', $event / 100)"
+        />
+        <div v-if="isRoundStringer(s)" class="wc-structure-editor__pair">
+          <UnitInput :id="id(`str${s.id}w`)" :model-value="s.width" quantity="thin" :system="system" label="Diameter" @update:model-value="updateIn('stringers', s.id, 'width', $event)" />
+          <UnitInput v-if="s.profile === 'tube'" :id="id(`str${s.id}wall`)" :model-value="s.wall ?? 0.0005" quantity="thin" :system="system" label="Wall" @update:model-value="updateIn('stringers', s.id, 'wall', $event)" />
+        </div>
+        <div v-else class="wc-structure-editor__pair">
           <UnitInput :id="id(`str${s.id}w`)" :model-value="s.width" quantity="thin" :system="system" label="Width" @update:model-value="updateIn('stringers', s.id, 'width', $event)" />
           <UnitInput :id="id(`str${s.id}h`)" :model-value="s.height" quantity="thin" :system="system" label="Height" @update:model-value="updateIn('stringers', s.id, 'height', $event)" />
         </div>
-        <SelectField :id="id(`str${s.id}m`)" :model-value="s.material" label="Material" :options="CAPS" @update:model-value="updateIn('stringers', s.id, 'material', $event)" />
+        <SelectField :id="id(`str${s.id}m`)" :model-value="s.material" label="Material" :options="PROFILE_MATERIALS[s.profile ?? 'rect']" @update:model-value="updateIn('stringers', s.id, 'material', $event)" />
       </div>
       <p v-if="!st.stringers.length" class="wc-field__hint">
         None. A stringer on the top surface just behind the leading edge works as a turbulator spar, and stiffens D-box
-        sheeting.
+        sheeting. Carbon strip, rod or tube can go on either skin or anywhere inside the wing, through every rib.
       </p>
-      <button
-        type="button"
-        class="wc-button wc-button--small wc-structure-editor__add"
-        @click="addTo('stringers', { position: 0.12, surface: 'upper', width: 0.003, height: 0.003, material: 'balsa-hard' })"
-      >
-        Add stringer
-      </button>
+      <div class="wc-structure-editor__pair">
+        <button
+          type="button"
+          class="wc-button wc-button--small wc-structure-editor__add"
+          @click="addTo('stringers', { profile: 'rect', position: 0.12, surface: 'upper', width: 0.003, height: 0.003, material: 'balsa-hard' })"
+        >
+          Add stringer
+        </button>
+        <button
+          type="button"
+          class="wc-button wc-button--small wc-structure-editor__add"
+          @click="addTo('stringers', { profile: 'rod', position: 0.5, surface: 'inside', depth: 0.5, width: 0.002, height: 0.002, material: 'carbon-rod' })"
+        >
+          Add carbon
+        </button>
+      </div>
     </InspectorSection>
 
     <InspectorSection v-if="!foam" title="Ribs" fold-key="structure:ribs" :warnings="warnIn('ribs')" :summary="summaries.ribs">
