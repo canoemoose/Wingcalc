@@ -65,6 +65,26 @@ describe('cap strip start', () => {
     expect(skinAtSpar(a.structure, 'top')).toBeGreaterThanOrEqual(0)
   })
 
+  it('runs full cap strips on a D-box surface with no sheeting, whatever start an older save set', () => {
+    const dbox = (start) => (st) => {
+      st.covering.type = 'dbox'
+      st.covering.capStrips = true
+      st.covering.capStripStart = start
+      st.covering.dbox = { top: true, bottom: false, topTo: null, bottomTo: null }
+    }
+    const set = build(dbox(0.1))
+    const none = build(dbox(null))
+    const rib = set.a.ribs[0]
+    const a = buildRib(set.a, set.a.structure, rib)
+    const b = buildRib(none.a, none.a.structure, rib)
+    // The unsheeted bottom starts behind the leading-edge stock, not at 10% chord
+    expect(a.capStripFrom.bottom).toBeCloseTo(b.capStripFrom.bottom, 6)
+    expect(a.capStripFrom.bottom).toBeLessThan(0.1 * set.a.section(rib.s).c - 0.002)
+    // The sheeted top still starts behind its sheeting
+    expect(a.capStripFrom.top).toBeGreaterThan(a.capStripFrom.bottom)
+    expect(capStripStart(set.a.structure, 0.2)).toBeCloseTo(capStripStart(none.a.structure, 0.2), 9)
+  })
+
   it('keeps null through a save and migration, and fills it in for an older save', () => {
     const d = defaultStructure()
     expect(fillDefaults(d, { covering: { capStripStart: null } }).covering.capStripStart).toBeNull()

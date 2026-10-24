@@ -604,12 +604,17 @@ export function leStockDepth(le) {
   if (isRound(le)) return le.diameter || 0
   return le?.type === 'none' ? 0 : le?.width || 0
 }
-// Chord fraction where cap strips start: the set value, or with null just behind the
-// leading-edge stock, as a fraction of the chord (chord in m; without one, from the nose).
-// Under a leading edge let into the ribs (side 'bottom'), behind the strip's bottom back
-// corner, where its bottom stops being the lower surface.
+// The cap-strip start the user set, as a chord fraction: an open structure's setting only.
+// A D-box or sheeted wing runs full cap strips on every surface that isn't sheeted, whatever an
+// older save (or a switch from open) left in capStripStart. Null where none applies.
+export const capStripSet = (structure) => (structure.covering.type === 'open' ? structure.covering.capStripStart ?? null : null)
+
+// Chord fraction where cap strips start: the set value (open structure only), or with none
+// just behind the leading-edge stock, as a fraction of the chord (chord in m; without one,
+// from the nose). Under a leading edge let into the ribs (side 'bottom'), behind the strip's
+// bottom back corner, where its bottom stops being the lower surface.
 export function capStripStart(structure, chord, side = null) {
-  const v = structure.covering.capStripStart
+  const v = capStripSet(structure)
   if (v != null) return v
   if (side === 'bottom' && Number.isFinite(structure.le?.inset?.bottomXi)) return structure.le.inset.bottomXi
   // Turned to the camber: where its leaning face meets that surface

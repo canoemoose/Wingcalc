@@ -38,12 +38,12 @@ describe('D-box sheeting per surface', () => {
     expect(def.a.structure.covering.dbox).toEqual({ top: true, bottom: true, topTo: null, bottomTo: null })
   })
 
-  it('top-only leaves the bottom rib edge un-inset and gives the bottom cap strips from short of the LE', () => {
-    // Pins a numeric start: with the null default the bottom strip starts exactly at the LE stock
+  it('top-only leaves the bottom rib edge un-inset and gives the bottom full cap strips', () => {
+    // A numeric start is an open structure's setting: a D-box ignores it
     const { a } = build((st) => { dboxEdit(true, false)(st); st.covering.capStripStart = 0.1 })
     const rb = buildRib(a, a.structure, a.ribs[Math.floor(a.ribs.length / 2)])
-    // Bottom sheeting off: the bottom cap strip starts short of the leading edge, ahead of the top's
-    expect(rb.capStripFrom.bottom).toBeGreaterThan(rb.uA)
+    // Bottom sheeting off: the bottom cap strip runs from the rib's front, ahead of the top's
+    expect(rb.capStripFrom.bottom).toBeCloseTo(rb.uA, 6)
     expect(rb.capStripFrom.bottom).toBeLessThan(rb.capStripFrom.top)
     // Top still runs to the spar, so its cap strip starts there
     expect(rb.capStripFrom.top).toBeGreaterThan(rb.uA)

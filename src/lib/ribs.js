@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, sheetExtent, hardPatches, patchSheet, patchSpan, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -243,8 +243,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const halfSpar = (uSpar1 - uSpar0) / 2 // half the notch along the rib
   const sparXiRear = interp(us, prof.xi, uSpar1)
   // Rib station where one surface's cap strips start: behind that side's sheeting, or where no
-  // sheeting is ahead of them, short of the leading edge (capStripStart), so the rib's own nose
-  // sets the leading-edge shape
+  // sheeting is ahead of them, from just behind the leading-edge stock (on an open structure,
+  // from its set start, capStripStart, so the rib's own nose sets the leading-edge shape)
   const capFrom = (side) => {
     const cov = structure.covering
     if (movingSide) return uA
@@ -253,7 +253,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     // The rib's front on this side: where a turned leading-edge face meets it, else uA
     const front = leFaceU ? meetFace(leFaceU, side === 'top' ? top : bot, uA) : uA
     // With none set, a turned leading edge's strips start right at its face
-    const atFace = leFaceU && cov.capStripStart == null
+    const atFace = leFaceU && capStripSet(structure) == null
     const open = atFace || !(start > 0) ? front : Math.max(front, crossing((s) => a.section(s).xl + start * a.section(s).c, start * a.section(rib.s).c))
     if (cov.type !== 'dbox') return open
     const ext = sheetExtent(structure, side, sparXiRear)
@@ -693,7 +693,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
         const outer = (u) => interp(us, side === 'top' ? prof.up : prof.lo, u)
         const inner = side === 'top' ? top : bot
         const f = capFrom(side)
-        const atFace = leFaceU && structure.covering.capStripStart == null && Math.abs(f - meetFace(leFaceU, inner, uA)) < 1e-6
+        const atFace = leFaceU && capStripSet(structure) == null && Math.abs(f - meetFace(leFaceU, inner, uA)) < 1e-6
         const from = atFace ? [meetFace(leFaceU, outer, f), f] : [f, f]
         const t = teFaceU ? meetFace(teFaceU, inner, uB) : uB
         const to = teFaceU ? [meetFace(teFaceU, outer, uB), t] : [t, t]
