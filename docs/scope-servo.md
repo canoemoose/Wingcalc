@@ -1,6 +1,6 @@
 # Wingcalc: servo configurator — scope
 
-From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 and 2 done; step 3 (the configurator) next.
+From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 to 3 done; step 4 (placement on the plan) next.
 
 ## Objective
 
@@ -49,7 +49,7 @@ Saved with the bay in `controls.bays` (anything new also in the defaults, so old
 
 1. **Catalogue schema and data** (1½ rounds). *Done 18 October 2026; hole positions estimated in step 2.* New fields on the Hitec entries. Futaba: the S3001 and every current analogue and digital standard, mini, micro and wing servo, read from Futaba's drawings the same way as the Hitec set, one request at a time with the same etiquette as the aerofoil fetch. Every arm each model is offered with. Generic horns. A backlog entry lists every model or arm whose figures couldn't be found. Tests: every servo has the fields and at least one arm, and every arm it lists exists and matches its spline.
 2. **Linkage geometry** (½ round, pure, in `linkage.js`). *Done 24 October 2026: see below.* Arm hole and horn hole positions in 3D from the placement; pushrod length at neutral; achieved surface angle for a given servo angle (closed form for the four-bar linkage, not a small-angle ratio), so up and down throws, differential and mm at the trailing edge; mechanical advantage; the servo angle needed for each designed throw, its midpoint and the travel needed each way (decision 4); squareness at the midpoint; mirrored side by reflection. Horn height is measured from the centre-line pivot. Tests against hand-worked cases.
-3. **Configurator** (1 round). A centred dialogue from the bay (`ServoConfigurator.vue`), laid out in columns like a Finder column view: Servo › Arm › Horn, each filtering the next (the servo's own arms). Travel (±45° or ±60°) is a switch beside the linkage type. Linkage type is a small switch, not a column, while there's only pushrod. Below the columns, a side-on drawing of the assembly (SVG, from the same geometry):
+3. **Configurator** (1 round). *Done 24 October 2026: see below.* A centred dialogue from the bay (`ServoConfigurator.vue`), laid out in columns like a Finder column view: Servo › Arm › Horn, each filtering the next (the servo's own arms). Travel (±45° or ±60°) is a switch beside the linkage type. Linkage type is a small switch, not a column, while there's only pushrod. Below the columns, a side-on drawing of the assembly (SVG, from the same geometry):
    - holes are picked by clicking them on the arm or horn, and the arm is dragged round to choose which way it faces; its angle at surface neutral is shown, from the throws;
    - hole pairs that give the designed throws within the chosen travel are highlighted, the one using the most of it marked as best (finest control); the rest show how far off they are;
    - the surface's designed throw range is drawn faintly with the achieved range over it.
@@ -76,6 +76,15 @@ About 5½ rounds in all.
 - The midpoint is solved by the surface angle there (the arm's tangent from the horn's hole), not by the arm's angle: with arm and horn both square to the pushrod, the arm-angle form is degenerate.
 - Found: 'flat' mounting puts the output axis along the chord, so no linkage works until step 4's quarter turn (backlog).
 - Tests: `tests/linkage.test.js` (a parallelogram, a half-length arm against the hand-worked 43.2°, differential, a spatial upright case, the mirrored half, a catalogue assembly, hole positions as installed, spline teeth).
+
+### Step 3 as built (24 October 2026)
+
+- `src/lib/bayLinkage.js` (pure): `bayFrame` (a built bay's servo position, the hinge at the bay's station on the centre line, the faces' offsets, the depth and designed throws), `configureBay` (defaults filled in, the hole matrix, the holes used), `servoChoices` (fit by depth, with the reason), `linkSummary`, and the link saved with the bay.
+- **Saved as one `link` object in the bay** (`controls.bays[].link`, only what differs from `DEFAULT_LINK`: arm, armRow, armHole, horn, hornHole, hornFace, travel, facing, linkage), not flat fields as the Data section had it: one object to migrate and compare. `bayOf` defaults it to null. armRow is new (a set's arm, or a double's side). `square`, `quarterTurn` and `hornAt` wait for step 4.
+- `ServoConfigurator.vue`, opened by **Servo and linkage…** under each built bay in `SurfaceStructure.vue` (which now takes the analysis), teleported to the editor's window because the side panel traps a fixed dialogue. Columns Servo › Arm › Horn, the summary line's crumbs jump to them; Mounted, Linkage (pushrod only), Servo travel and Horn on switches; the side view square to the hinge; a table of every hole pair's travel (green fits, outlined best, click to pick); the readout. Use this applies class, mounting and link as one undo step.
+- Additions to the brief: the **mounting switch** is in the dialogue too (it changes the linkage more than anything); **generic arms** (`GENERIC_ARMS`) for generic classes and servos whose maker's arms aren't known, so every servo can be configured; a default horn by class.
+- Differences: holes are picked in the drawing or the table (the brief had the drawing only), because an upright servo's arm is seen edge-on in a side view. The fit check is depth only, judged where the current servo stands (not the run between spar and hinge, nor the width between the wing's ribs); another servo is solved in the current one's place until the bay is laid out again.
+- Checked in the running app (dev server, driven by script in a hidden pane): opens full width, every control and the drag work, no console errors, Use this is one undo step. Not looked at by eye: Matt to check the drawing and layout.
 
 ## Out of scope
 

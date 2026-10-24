@@ -11,6 +11,11 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure, MODES } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
+import { normalisePanels } from '../src/lib/wing.js'
+import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
+import { bayFrame, linkOf, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
+import ServoConfigurator from '../src/components/ServoConfigurator.vue'
+import SurfaceStructure from '../src/components/SurfaceStructure.vue'
 
 function memoryStorage(entries = {}) {
   const m = new Map(Object.entries(entries))
@@ -357,5 +362,50 @@ describe('app render', () => {
     expect(plain).toContain('wc-thickness')
     expect(plain).not.toContain('Drawn section in use')
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  describe('the servo configurator', () => {
+    // A deep wing with an aileron and its bay
+    const analysed = (bays) => {
+      const s = defaultState()
+      s.input.rootChord = 0.45
+      s.input.panels = normalisePanels([{ id: 1, length: 0.9, tipChord: 0.4, dihedral: 0 }])
+      s.input.mass = 2
+      const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays }
+      const airfoil = resolveAirfoil(s.airfoil)
+      const g = wingGeometry({ ...s.input, mode: 'panels' })
+      const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+      const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+      const a = analyseStructure({ wing: s.input, airfoil, structure: defaultStructure(), mass: s.input.mass, spanwise: perf.spanwise, controls })
+      return { a, wing: s.input, controls }
+    }
+    const dialogue = (bay, link) => {
+      const { a } = analysed([bay])
+      const props = { system: 'metric', frame: bayFrame(a, a.bays[0]), title: a.bays[0].label, bay: { class: bay.class ?? null, mounting: bay.mounting ?? 'upright', link }, autoClass: 'micro', mass: 2 }
+      return renderToString(createSSRApp({ render: () => h('div', { class: 'wingcalc' }, [h(ServoConfigurator, props)]) }))
+    }
+
+    it('renders for a servo on its side, upright, and with chosen holes on the bottom face', async () => {
+      const side = await dialogue({ surface: 1, mounting: 'side' }, { ...DEFAULT_LINK })
+      expect(side).toContain('servo and linkage, ')
+      expect(side).toContain('Use this')
+      expect(side).toContain('Du-Bro 848')
+      expect(side).toContain('Servo travel')
+      const upright = await dialogue({ surface: 1 }, { ...DEFAULT_LINK })
+      expect(upright).toContain('seen edge-on')
+      await dialogue({ surface: 1, mounting: 'side', class: 'futaba-s3102' }, { ...DEFAULT_LINK, hornFace: 'bottom', armHole: 0, hornHole: 0, travel: 60 })
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('shows the linkage under each built bay', async () => {
+      const { a, wing, controls } = analysed([{ surface: 1, mounting: 'side' }])
+      const html = await renderToString(
+        createSSRApp({ render: () => h(SurfaceStructure, { system: 'metric', wing, mass: 2, controls, analysis: a, 'onUpdate:controls': () => {} }) }),
+      )
+      expect(html).toMatch(/Linkage: .* › .* › Du-Bro 848, hole \d/)
+      expect(html).toContain('Servo and linkage…')
+      expect(warn).not.toHaveBeenCalled()
+      expect(linkOf({}).travel).toBe(45)
+    })
   })
 })

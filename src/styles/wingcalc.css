@@ -2545,6 +2545,233 @@
   gap: 8px;
   margin-top: 18px;
 }
+/* The servo configurator: a large centred dialogue (ServoConfigurator.vue) */
+.wc-config {
+  width: min(1180px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--wc-bg);
+  color: var(--wc-text);
+  border: 1px solid var(--wc-border);
+  border-radius: var(--wc-radius);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
+  outline: none;
+}
+.wc-config__crumbs {
+  font-size: 0.875rem;
+  color: var(--wc-muted);
+}
+.wc-config__crumb {
+  font: inherit;
+  color: var(--wc-accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.wc-config__crumb:hover {
+  text-decoration: underline;
+}
+.wc-config__columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.wc-config__list {
+  height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+  background: var(--wc-surface);
+}
+.wc-config__group {
+  position: sticky;
+  top: 0;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--wc-muted);
+  background: var(--wc-surface);
+  border-bottom: 1px solid var(--wc-border);
+}
+.wc-config__item {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  color: var(--wc-text);
+  background: none;
+  border: 0;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.wc-config__item:hover {
+  background: color-mix(in srgb, var(--wc-accent) 10%, transparent);
+}
+.wc-config__item[aria-selected='true'] {
+  background: var(--wc-accent);
+  color: var(--wc-accent-text);
+}
+.wc-config__item--off {
+  color: var(--wc-muted);
+  opacity: 0.6;
+}
+.wc-config__sub {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+.wc-config__switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.wc-config__body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+.wc-config__figure {
+  margin: 0;
+}
+.wc-config__svg {
+  display: block;
+  width: 100%;
+  height: 300px;
+  background: var(--wc-surface);
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+}
+.wc-config__svg * {
+  vector-effect: non-scaling-stroke;
+}
+.wc-config__skin {
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+}
+.wc-config__surface {
+  fill: color-mix(in srgb, var(--wc-muted) 18%, transparent);
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+}
+.wc-config__design {
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.wc-config__achieved {
+  fill: none;
+  stroke: var(--wc-accent);
+  stroke-width: 3;
+}
+.wc-config__hinge {
+  fill: var(--wc-text);
+}
+.wc-config__servo {
+  fill: color-mix(in srgb, var(--wc-text) 10%, transparent);
+  stroke: var(--wc-muted);
+  stroke-width: 1;
+}
+.wc-config__boss {
+  fill: var(--wc-bg);
+  stroke: var(--wc-text);
+  stroke-width: 1;
+}
+.wc-config__arm {
+  stroke: var(--wc-text);
+  stroke-width: 6;
+  stroke-linecap: round;
+  cursor: grab;
+}
+.wc-config__horn {
+  stroke: var(--wc-text);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.wc-config__rod {
+  stroke: var(--wc-accent);
+  stroke-width: 2;
+}
+.wc-config__hole {
+  fill: var(--wc-bg);
+  stroke: var(--wc-text);
+  stroke-width: 1;
+  cursor: pointer;
+}
+.wc-config__hole--on {
+  fill: var(--wc-accent);
+  stroke: var(--wc-accent);
+}
+.wc-config__table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+.wc-config__table caption {
+  text-align: left;
+  margin-bottom: 4px;
+}
+.wc-config__table th {
+  font-weight: 550;
+  color: var(--wc-muted);
+  padding: 2px 6px;
+  text-align: right;
+}
+.wc-config__table td {
+  padding: 2px;
+}
+.wc-config__cell {
+  font: inherit;
+  min-width: 44px;
+  padding: 3px 4px;
+  color: var(--wc-muted);
+  background: var(--wc-surface);
+  border: 1px solid var(--wc-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.wc-config__cell--fits {
+  color: var(--wc-text);
+  background: color-mix(in srgb, var(--wc-gentle) 18%, var(--wc-bg));
+}
+.wc-config__cell--best {
+  border-color: var(--wc-gentle);
+  box-shadow: inset 0 0 0 1px var(--wc-gentle);
+}
+.wc-config__cell--on {
+  background: var(--wc-accent);
+  color: var(--wc-accent-text);
+  border-color: color-mix(in srgb, var(--wc-accent) 75%, #000);
+}
+.wc-config__results {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 10px;
+  margin: 8px 0;
+  font-size: 0.85rem;
+}
+.wc-config__results dt {
+  color: var(--wc-muted);
+}
+.wc-config__results dd {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .wc-config__columns,
+  .wc-config__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wc-config__list {
+    height: 140px;
+  }
+}
+
 /* Filled, so a darkened border like the primary button */
 .wc-button--danger {
   background: var(--wc-sharp);

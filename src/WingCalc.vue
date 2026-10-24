@@ -1330,7 +1330,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :warnings="placedWarnings.sections"
           >
             <template #surfaces>
-              <SurfaceStructure v-model:controls="input.controls" :wing="planWing" :mass="input.mass" :system="system" />
+              <SurfaceStructure v-model:controls="input.controls" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" />
             </template>
           </StructureEditor>
           <ul v-if="placedWarnings.rest.length" class="wc-warnings">
