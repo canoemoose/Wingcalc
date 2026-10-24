@@ -34,10 +34,10 @@ describe('a bay\'s frame', () => {
 
   it('puts the hinge on the centre line at the bay, with the faces either side', () => {
     expect(b.ok).toBe(true)
-    // By default square to the hinge from the servo's output: on its side the output stands
-    // out from the case along the span
+    // By default in line with the servo: on its side the output stands out from the case along
+    // the span, and its arm swings along the chord from there
     expect(f.bayS).toBe(b.s)
-    expect(f.s).toBe(f.square)
+    expect(f.s).toBe(f.inline)
     expect(f.s).toBeGreaterThan(b.s)
     const at = bayFrame(a, b, { ...DEFAULT_LINK, hornAt: 0.1 })
     expect(at.s).toBeCloseTo(f.surface.s0 + 0.1, 9)
@@ -131,7 +131,7 @@ describe('a bay\'s frame', () => {
     // In a bay only 5 mm deep nothing fits, and the reason names both depths
     const tall = servoChoices({ ...f, room: 0.005 }, servoOptions(), 2)
     const no = tall.find((o) => !o.fits)
-    expect(no.reason).toMatch(/^Needs \d+ mm of depth, the bay has 5 mm$/)
+    expect(no.reason).toMatch(/^Too thick for the wing here: needs \d+ mm, has 5 mm$/)
     expect(servoFits({ room: 0.05 }, installedServo('micro')).ok).toBe(true)
   })
 })
@@ -151,19 +151,52 @@ describe('a servo turned round or over', () => {
 })
 
 describe("every bay's linkage, and its warnings", () => {
+  it('lines the horn up with the servo by default, on a raked hinge too, so the pushrod runs in both their planes', () => {
+    // An aileron whose hinge runs from 65% to 85% of the chord: about 12° to the span
+    const raked = { ...newSurface('aileron', 1, 0.45, 0.85, 1), hingeIn: 0.65, hingeOut: 0.85 }
+    for (const square of ['chord', 'hinge']) {
+      const bay = { surface: 1, square }
+      const s = defaultState()
+      s.input.rootChord = 0.45
+      s.input.panels = normalisePanels([{ id: 1, length: 0.9, tipChord: 0.4, dihedral: 0 }])
+      const controls = { ...defaultControls(), surfaces: [raked], bays: [bay] }
+      const airfoil = resolveAirfoil(s.airfoil)
+      const g = wingGeometry({ ...s.input, mode: 'panels' })
+      const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+      const perf = airfoilPerformance(airfoil, { mass: 2, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+      const a = analyseStructure({ wing: s.input, airfoil, structure: defaultStructure(), mass: 2, spanwise: perf.spanwise, controls })
+      const l = bayLinkages(a, controls).get(1)
+      // The pushrod in the horn's plane, and in the arm's: along the servo's case in plan (exactly
+      // at neutral; at the servo's midpoint the surface is turned a little, and on a raked hinge
+      // that swings the horn's hole a touch along the span)
+      expect(l.c.rodAngle, square).toBeLessThan(2)
+      const yaw = l.bay.servo.yaw
+      const rod = [l.c.result.points.horn[0] - l.c.result.points.arm[0], l.c.result.points.horn[1] - l.c.result.points.arm[1]]
+      expect(Math.abs(Math.atan2(rod[1], rod[0]) - yaw), square).toBeLessThan(0.035)
+      // Square to the chord, the horn is turned off square to the hinge by the rake; square to
+      // the hinge, it isn't turned at all
+      if (square === 'chord') expect(Math.abs(l.frame.hornAngle)).toBeGreaterThan(5)
+      else expect(Math.abs(l.frame.hornAngle)).toBeLessThan(0.01)
+      expect(l.warnings.map((w) => w.id)).not.toContain('linkage-square-1')
+    }
+  })
+
   it('runs the pushrod square to the horn by default, and warns when the horn is moved off it', () => {
     const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, link }] })
     const a = build([{ surface: 1 }])
     const l = bayLinkages(a, controls(null)).get(1)
     expect(l.c.rodAngle).toBeLessThan(1)
     expect(l.warnings).toEqual([])
-    // 60 mm along the hinge from square: well off the horn's plane
-    const moved = bayLinkages(a, controls({ hornAt: l.frame.square - l.frame.surface.s0 + 0.06 })).get(1)
+    // 60 mm along the hinge from in line, its turn left to line up: still in the horn's plane
+    const lined = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06 })).get(1)
+    expect(lined.c.rodAngle).toBeLessThan(2)
+    // The horn kept square to the hinge: well off its plane
+    const moved = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06, hornAngle: 0 })).get(1)
     expect(moved.c.rodAngle).toBeGreaterThan(ROD_OFF_SQUARE)
     expect(moved.warnings.map((w) => w.id)).toContain('linkage-square-1')
     // Turning the horn to meet it clears it
-    const turned = bayLinkages(a, controls({ hornAt: l.frame.square - l.frame.surface.s0 + 0.06, hornAngle: -moved.c.rodAngle })).get(1)
-    const turnedOther = bayLinkages(a, controls({ hornAt: l.frame.square - l.frame.surface.s0 + 0.06, hornAngle: moved.c.rodAngle })).get(1)
+    const turned = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06, hornAngle: -moved.c.rodAngle })).get(1)
+    const turnedOther = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06, hornAngle: moved.c.rodAngle })).get(1)
     expect(Math.min(turned.c.rodAngle, turnedOther.c.rodAngle)).toBeLessThan(1)
   })
 

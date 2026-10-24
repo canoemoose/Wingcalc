@@ -14,14 +14,17 @@
 //   facing    1 or -1, which way the arm points, or null for the one towards the horn's face
 //   linkage   'pushrod' (the only type so far)
 //   hornAt    where the horn is along the hinge, m from the surface's inner end (flat, along the
-//             span), or null for square to the hinge from the servo's output
-//   hornAngle the horn turned in plan from square to the hinge, degrees
+//             span), or null for in line with the servo: where the plane its arm swings in (along
+//             the case, from the output) meets the hinge
+//   hornAngle the horn turned in plan from square to the hinge, degrees, or null for lined up with
+//             the pushrod from the output (along the servo's case when hornAt is null, so the
+//             pushrod runs in the arm's plane and the horn's)
 
 import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly, linkage } from './linkage.js'
 import { installedServo, servoById, bayOf, SERVO_HEADROOM } from './servos.js'
 import { servoBox, surfaceHeight, insetHeight } from './wing3d.js'
 
-export const DEFAULT_LINK = { arm: null, armRow: 0, armHole: null, horn: null, hornHole: null, hornFace: 'bottom', travel: 45, facing: null, linkage: 'pushrod', hornAt: null, hornAngle: 0 }
+export const DEFAULT_LINK = { arm: null, armRow: 0, armHole: null, horn: null, hornHole: null, hornFace: 'bottom', travel: 45, facing: null, linkage: 'pushrod', hornAt: null, hornAngle: null }
 export const TRAVELS = [45, 60]
 
 export const linkOf = (bay) => ({ ...DEFAULT_LINK, ...(bay?.link ?? {}) })
@@ -37,14 +40,15 @@ export function savedLink(link) {
 // the horn's station (on the centre line, with the faces' offsets from it), the surface's depth
 // there and its designed throws. a: analyseStructure's result; b: one of its bays (ok); link: its
 // link (for where the horn is). null if the bay isn't built or its surface isn't.
-//   s, square   the horn's station, flat s, and the one square to the hinge from the output
+//   s, inline   the horn's station, flat s, and the one in line with the servo (hornAt null)
 //   range       the stations the horn can take, [s0, s1]: on the surface, clear of its ends
 //   bayS        the bay's own station
 //   pose        how the servo's turned ({ rotate, flip, yaw }, servos.js installedServo)
 //   box         where it stands (wing3d.js servoBox: base, floor, ceil), and insetMax, the most
 //               it can be inset from the skin on its horn's face
 //   chord       the section at the bay's station, { xl, c }, for where the servo is along it
-//   hornDir     the horn's plane in plan, [x, s]: aft, square to the hinge turned by hornAngle
+//   hornDir     the horn's plane in plan, [x, s]: aft, square to the hinge turned by hornAngle, or
+//               towards it from the output; hornAngle, that turn from square, degrees
 //   faceLine    each face's height along the horn's plane, { top, bottom }: [[u, z]], u aft of
 //               the hinge, m; and meet, where each face of the moving surface starts behind its
 //               bevel, { top, bottom } (u)
@@ -59,19 +63,24 @@ export function bayFrame(a, b, link = DEFAULT_LINK) {
   const at = { x: (b.case.x0 + b.case.x1) / 2, s: b.s, base: box.base }
   const range = [surface.s0 + HORN_END, surface.s1 - HORN_END]
   const clamp = (v) => Math.min(range[1], Math.max(range[0], v))
-  // The foot of the square from the output to the hinge line in plan
+  // In line with the servo: from the output along the case, aft, to the hinge line in plan
   const [px, ps] = outputPivot(b.servo, at, 0).pivot
-  const square = clamp(ps - (surface.slope * (surface.hingeX(ps) - px)) / (1 + surface.slope ** 2))
-  const s = Number.isFinite(link.hornAt) ? clamp(surface.s0 + link.hornAt) : square
+  const yaw = b.servo.yaw ?? 0
+  const along = [Math.cos(yaw), Math.sin(yaw)]
+  const t = (surface.hingeX(ps) - px) / (along[0] - surface.slope * along[1])
+  const inline = clamp(ps + t * along[1])
+  const s = Number.isFinite(link.hornAt) ? clamp(surface.s0 + link.hornAt) : inline
   const x = surface.hingeX(s)
   const upper = surfaceHeight(a, s, x, 'upper')
   const lower = surfaceHeight(a, s, x, 'lower')
   const z = (upper + lower) / 2
   const sec = a.section(s)
-  const ang = ((link.hornAngle || 0) * Math.PI) / 180
   const n = Math.hypot(surface.slope, 1)
-  // Square to the hinge in plan, aft, then turned
+  // Square to the hinge in plan, aft, then turned as set, or else lined up with the pushrod from
+  // the output (along the servo's case when the horn's in line with it)
   const aft = [1 / n, -surface.slope / n]
+  const toHorn = [x - px, s - ps]
+  const ang = Number.isFinite(link.hornAngle) ? (link.hornAngle * Math.PI) / 180 : Math.atan2(aft[0] * toHorn[1] - aft[1] * toHorn[0], aft[0] * toHorn[0] + aft[1] * toHorn[1])
   const hornDir = [aft[0] * Math.cos(ang) - aft[1] * Math.sin(ang), aft[0] * Math.sin(ang) + aft[1] * Math.cos(ang)]
   const faceLine = {}
   for (const [face, which] of [['top', 'upper'], ['bottom', 'lower']]) {
@@ -104,7 +113,7 @@ export function bayFrame(a, b, link = DEFAULT_LINK) {
     surface,
     label: surface.label ?? '',
     s,
-    square,
+    inline,
     range,
     bayS: b.s,
     hinge: hingeAt(surface, s, z),
@@ -119,6 +128,7 @@ export function bayFrame(a, b, link = DEFAULT_LINK) {
     chord: { xl: bayChord.xl, c: bayChord.c },
     room: b.room,
     hornDir,
+    hornAngle: (ang * 180) / Math.PI,
     faceLine,
     meet,
     skinLine,
@@ -302,19 +312,15 @@ export function configureBay(frame, servo, link) {
     hornHole = hornHole ?? pick.hornHole
   }
   const result = matrix.cells[armHole][hornHole]
-  return { ...parts, face, travel, facing, matrix, armHole, hornHole, result, rodAngle: rodAngle(frame, result, link.hornAngle) }
+  return { ...parts, face, travel, facing, matrix, armHole, hornHole, result, rodAngle: rodAngle(frame, result) }
 }
 
-// The pushrod's angle in plan from the horn's plane (square to the hinge, turned by hornAngle
-// degrees), at the servo's midpoint, degrees, or null if it's not solved
-function rodAngle(frame, r, hornAngle = 0) {
+// The pushrod's angle in plan from the horn's plane (frame.hornDir) at the servo's midpoint,
+// degrees, or null if it's not solved
+function rodAngle(frame, r) {
   if (!r?.ok) return null
   const d = [r.points.horn[0] - r.points.arm[0], r.points.horn[1] - r.points.arm[1]]
-  const h = frame.hinge.axis
-  const t = ((hornAngle || 0) * Math.PI) / 180
-  // Square to the hinge, aft, turned
-  const sq = [h[1], -h[0]]
-  const plane = [sq[0] * Math.cos(t) - sq[1] * Math.sin(t), sq[0] * Math.sin(t) + sq[1] * Math.cos(t)]
+  const plane = frame.hornDir
   const n = Math.hypot(...d) * Math.hypot(...plane)
   if (!(n > 0)) return null
   const c = Math.abs((d[0] * plane[0] + d[1] * plane[1]) / n)
@@ -384,7 +390,7 @@ export function servoChoices(frame, options, mass) {
     const v = installedServo(o.value, mass, frame.pose)
     const f = servoFits(frame, v)
     const mm = (x) => `${(x * 1000).toFixed(0)} mm`
-    return { ...o, fits: f.ok, reason: f.ok ? '' : `Needs ${mm(f.need)} of depth, the bay has ${mm(Math.max(0, f.room))}` }
+    return { ...o, fits: f.ok, reason: f.ok ? '' : `Too thick for the wing here: needs ${mm(f.need)}, has ${mm(Math.max(0, f.room))}` }
   })
 }
 

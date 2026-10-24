@@ -998,24 +998,25 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         line.
       </p>
       <slot name="surfaces" />
-      <span class="wc-field__label wc-structure-editor__subhead">Hinges, on every surface</span>
-      <div class="wc-structure-editor__pair">
-        <UnitInput :id="id('hfw')" :model-value="st.hinges.fixedWidth" quantity="thin" :system="system" label="Fixed hinge spar" @update:model-value="set('hinges.fixedWidth', $event)" />
-        <UnitInput :id="id('hmw')" :model-value="st.hinges.movingWidth" quantity="thin" :system="system" label="Surface hinge spar" @update:model-value="set('hinges.movingWidth', $event)" />
-      </div>
-      <p class="wc-field__hint">Widths across the hinge line; the depth follows the section.</p>
-      <SelectField :id="id('hm')" :model-value="st.hinges.material" label="Hinge spar material" :options="WOOD" @update:model-value="set('hinges.material', $event)" />
-      <div class="wc-structure-editor__pair">
-        <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
-        <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
-      </div>
-      <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, and each tab is cut this long along the hinge.</p>
-      <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
-      <div class="wc-structure-editor__pair">
-        <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
-        <UnitInput :id="id('hti')" :model-value="st.hinges.tabInset" quantity="length" :system="system" label="In from the ends" @update:model-value="set('hinges.tabInset', $event)" />
-      </div>
-      <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
+      <InspectorSection title="Hinges, on every surface" fold-key="structure:hinge-settings" :summary="summaries.hinges">
+        <div class="wc-structure-editor__pair">
+          <UnitInput :id="id('hfw')" :model-value="st.hinges.fixedWidth" quantity="thin" :system="system" label="Fixed hinge spar" @update:model-value="set('hinges.fixedWidth', $event)" />
+          <UnitInput :id="id('hmw')" :model-value="st.hinges.movingWidth" quantity="thin" :system="system" label="Surface hinge spar" @update:model-value="set('hinges.movingWidth', $event)" />
+        </div>
+        <p class="wc-field__hint">Widths across the hinge line; the depth follows the section.</p>
+        <SelectField :id="id('hm')" :model-value="st.hinges.material" label="Hinge spar material" :options="WOOD" @update:model-value="set('hinges.material', $event)" />
+        <div class="wc-structure-editor__pair">
+          <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
+          <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
+        </div>
+        <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, and each tab is cut this long along the hinge.</p>
+        <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
+        <div class="wc-structure-editor__pair">
+          <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
+          <UnitInput :id="id('hti')" :model-value="st.hinges.tabInset" quantity="length" :system="system" label="In from the ends" @update:model-value="set('hinges.tabInset', $event)" />
+        </div>
+        <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
+      </InspectorSection>
     </InspectorSection>
 
     <InspectorSection v-if="!foam" title="Dihedral braces" fold-key="structure:braces" :warnings="warnIn('braces')" :summary="summaries.braces">

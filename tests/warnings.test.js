@@ -12,6 +12,8 @@ describe('where a structure warning is shown', () => {
     expect(structureSection('brace-B1')).toBe('braces')
     expect(structureSection('gussets-le')).toBe('gussets')
     expect(structureSection('surface-s1-0')).toBe('hinges')
+    // A linkage's are in its surface's own section
+    expect(structureSection('linkage-travel-1')).toBe('surfaces')
   })
 
   it('leaves warnings set in the wing editor under the structure editor', () => {

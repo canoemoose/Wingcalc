@@ -135,36 +135,35 @@ const faceOptions = [
   { value: 'bottom', label: 'Bottom', title: 'The horn underneath: the arm comes out through the hatch or the lower skin, the servo on it' },
 ]
 const linkageOptions = [{ value: 'pushrod', label: 'Pushrod', title: 'Pull-pull and torque rods come with the tail and fuselage' }]
-const yesNo = [
-  { value: false, label: 'No' },
-  { value: true, label: 'Yes' },
+// Where the output is: at the case's rear or front end, and facing outboard or inboard. Saved as
+// the turns that put it there (servos.js): rotate (half round about the vertical) moves it to the
+// front and turns it inboard, flip (upside down) turns it inboard only
+const endOptions = [
+  { value: false, label: 'Rear', title: 'The output at the rear of the case, nearer the hinge' },
+  { value: true, label: 'Front', title: 'The output at the front of the case, nearer the spar' },
 ]
-const foreBy = [
-  { value: 'length', label: 'mm', title: 'From the leading edge, as a length' },
-  { value: 'chord', label: '%', title: "From the leading edge, as a share of the chord at the bay (it keeps its place if the chord changes)" },
+const sideOptions = [
+  { value: false, label: 'Outboard', title: 'The output faces the tip' },
+  { value: true, label: 'Inboard', title: 'The output faces the root' },
 ]
-const foreUnit = ref(props.bay.fore?.by ?? 'length')
-// Where the case's centre is now, from the leading edge (m)
+const inboard = computed(() => draft.rotate !== draft.flip)
+function setEnd(front) {
+  const inb = inboard.value
+  draft.rotate = front
+  draft.flip = front !== inb
+}
+const setSide = (inb) => (draft.flip = draft.rotate !== inb)
+// Where the case's centre is along the chord at the bay, from the leading edge: a share of the
+// chord, or a length typed with its unit ("120mm"), which the box turns into one (UnitInput). An
+// older draft saved as a length shows as its share of the chord.
 const foreNow = computed(() => frame.value.at.x - frame.value.chord.xl)
 const foreValue = computed(() => {
   const f = draft.fore
   if (!f) return null
-  if (f.by === foreUnit.value) return f.value
-  const c = frame.value.chord.c
-  return foreUnit.value === 'chord' ? f.value / c : f.value * c
+  return f.by === 'chord' ? f.value : f.value / frame.value.chord.c
 })
-function setFore(v) {
-  draft.fore = v == null ? null : { value: v, by: foreUnit.value }
-}
-// The same place in the other unit
-function setForeUnit(by) {
-  const f = draft.fore
-  const c = frame.value.chord.c
-  if (f && f.by !== by) draft.fore = { value: by === 'chord' ? f.value / c : f.value * c, by }
-  foreUnit.value = by
-}
-// Empty boxes say what they'd be: the deepest spot (where it is now), as close to the skin as it goes
-const forePlaceholder = computed(() => `Auto: ${foreUnit.value === 'chord' ? `${((foreNow.value / frame.value.chord.c) * 100).toFixed(1)}%` : thin(foreNow.value)}`)
+const setFore = (v) => (draft.fore = v == null ? null : { value: v, by: 'chord' })
+const forePlaceholder = computed(() => `Auto: ${((foreNow.value / frame.value.chord.c) * 100).toFixed(1)}%`)
 const insetPlaceholder = computed(() => `0 (up to ${thin(frame.value.insetMax)})`)
 
 // --- Drawing -------------------------------------------------------------------------------
@@ -378,13 +377,12 @@ function onKey(e) {
                 class="wc-config__item"
                 :class="{ 'wc-config__item--off': !o.fits }"
                 :aria-selected="draft.cls === o.value"
-                :title="o.reason || undefined"
                 @click="pickServo(o.value)"
               >
                 <svg class="wc-thumb wc-config__thumb" viewBox="-30 -50 60 57" aria-hidden="true">
                   <polygon v-for="(q, k) in o.thumb" :key="k" :points="q" />
                 </svg>
-                <span class="wc-config__name">{{ o.label }}</span>
+                <span class="wc-config__name">{{ o.label }}<span v-if="!o.fits" class="wc-config__sub wc-config__why">{{ o.reason }}</span></span>
               </button>
             </template>
           </div>
@@ -437,22 +435,19 @@ function onKey(e) {
         <SegmentedField model-value="pushrod" label="Linkage" :options="linkageOptions" />
         <SegmentedField :model-value="config.travel" label="Servo travel" :options="travelOptions" @update:model-value="setLink({ travel: $event })" />
         <SegmentedField :model-value="config.face" label="Horn on" :options="faceOptions" @update:model-value="setLink({ hornFace: $event, facing: null })" />
-        <SegmentedField :model-value="draft.rotate" label="Turned round" :options="yesNo" @update:model-value="draft.rotate = $event" />
-        <SegmentedField :model-value="draft.flip" label="Upside down" :options="yesNo" @update:model-value="draft.flip = $event" />
-        <div class="wc-config__fore">
-          <UnitInput
-            :id="`${id}-fore`"
-            :model-value="foreValue"
-            :quantity="foreUnit === 'chord' ? 'percent' : 'length'"
-            :chord="frame.chord.c"
-            chord-name="chord at the bay"
-            :system="system"
-            label="From the leading edge"
-            :placeholder="forePlaceholder"
-            @update:model-value="setFore($event)"
-          />
-          <SegmentedField :model-value="foreUnit" label="In" :options="foreBy" @update:model-value="setForeUnit($event)" />
-        </div>
+        <SegmentedField :model-value="draft.rotate" label="Output at" :options="endOptions" @update:model-value="setEnd($event)" />
+        <SegmentedField :model-value="inboard" label="Output faces" :options="sideOptions" @update:model-value="setSide($event)" />
+        <UnitInput
+          :id="`${id}-fore`"
+          :model-value="foreValue"
+          quantity="percent"
+          :chord="frame.chord.c"
+          chord-name="chord at the bay"
+          :system="system"
+          label="From the leading edge"
+          :placeholder="forePlaceholder"
+          @update:model-value="setFore($event)"
+        />
         <UnitInput :id="`${id}-inset`" :model-value="draft.inset" quantity="thin" :system="system" :label="`Inset from the ${config.face} skin`" :placeholder="insetPlaceholder" @update:model-value="draft.inset = $event" />
       </div>
 

@@ -2626,6 +2626,7 @@
 .wc-config__group {
   position: sticky;
   top: 0;
+  z-index: 1;
   padding: 4px 8px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -2683,7 +2684,13 @@
 }
 .wc-config__item--off {
   color: var(--wc-muted);
-  opacity: 0.6;
+}
+.wc-config__why {
+  color: var(--wc-warn);
+  opacity: 1;
+}
+.wc-config__item[aria-selected='true'] .wc-config__why {
+  color: inherit;
 }
 .wc-config__sub {
   display: block;
@@ -2704,14 +2711,6 @@
 }
 .wc-config__switches .wc-unit--fixed {
   min-width: 0;
-}
-.wc-config__fore {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.wc-config__fore > .wc-field {
-  margin: 0;
 }
 .wc-config__body {
   display: grid;

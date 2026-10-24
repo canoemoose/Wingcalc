@@ -12,6 +12,7 @@ import UnitInput from './UnitInput.vue'
 import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
 import ParamInput from './ParamInput.vue'
+import InspectorSection from './InspectorSection.vue'
 import { wingSampler } from '../lib/wing.js'
 import { resolveSurfaces } from '../lib/controlSurfaces.js'
 import { SERVOS, bayOf, setBay, servoOptions, servoById, installedServo, defaultServoClass } from '../lib/servos.js'
@@ -84,12 +85,32 @@ function linkText(s) {
   return `${sum}: ${r.achieved.up.toFixed(0)}° up, ${r.achieved.down.toFixed(0)}° down, using ±${r.travelNeeded.toFixed(0)}° of ±${l.c.travel}° servo travel.`
 }
 const linkWarn = (s) => !!linked.value.get(s.id)?.warnings.length
+// A surface's heading, closed: its gap and its servo; and its linkage's warnings, listed in it and
+// counted on the heading (warnings.js keeps them out of the Control surfaces section's own list)
+function surfaceSummary(s) {
+  const b = bayFor(s)
+  const gap = `${mm(s.gap ?? 0)} mm gap`
+  if (!b.enabled) return `${gap}, no servo bay`
+  const l = linked.value.get(s.id)
+  const v = l?.bay.servo ?? installedServo(b.class, props.mass, { rotate: b.rotate, flip: b.flip })
+  return `${gap}, ${l ? `${l.bay.name} ` : ''}${v.label}`
+}
+const surfaceWarnings = (s) => linked.value.get(s.id)?.warnings ?? []
 const squareOptions = [
   { value: 'chord', label: 'Chord', title: "The servo's length along the chord" },
   { value: 'hinge', label: 'Hinge', title: "The servo's length square to the hinge line, so the pushrod meets the horn square" },
 ]
 const setLink = (s, patch) => setBayFor(s, { link: savedLink({ ...linkOf(bayFor(s)), ...patch }) })
 const hornAt = (s) => linkOf(bayFor(s)).hornAt
+// The horn's turn as set, or as lined up with the pushrod (rounded to the degree)
+const hornAngle = (s) => {
+  const v = linkOf(bayFor(s)).hornAngle
+  return Number.isFinite(v) ? v : Math.round(linked.value.get(s.id)?.frame.hornAngle ?? 0)
+}
+const hornHint = (s) =>
+  `Where the horn is, from the surface's inner end along it (or drag it on the plan); empty puts it in line with the servo, where its arm's plane meets the hinge. ${
+    Number.isFinite(linkOf(bayFor(s)).hornAngle) ? 'Its turn is set by hand.' : "Its turn lines it up with the pushrod (and with the servo, when it's in line with it)."
+  }`
 
 // The configurator, open on one surface's bay. It's teleported to the nearest .wingcalc (the
 // structure editor's window), since the side panel it's opened from would trap a fixed dialogue.
@@ -136,8 +157,7 @@ function cancel() {
 <template>
   <div ref="rootEl" class="wc-surfaces">
     <p v-if="!shown.length" class="wc-field__hint">No control surfaces yet: draw them in the wing editor.</p>
-    <div v-for="{ r, s } in shown" :key="s.id" class="wc-structure-editor__sub">
-      <span class="wc-field__label">{{ r.label }}</span>
+    <InspectorSection v-for="{ r, s } in shown" :key="s.id" :title="r.label" :fold-key="`structure:surface-${s.id}`" :summary="surfaceSummary(s)" :warnings="surfaceWarnings(s)">
       <UnitInput :id="id(`${s.id}-gap`)" :model-value="s.gap" quantity="thin" :system="system" label="Hinge gap" @update:model-value="update(s.id, { gap: $event ?? 0 })" />
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="bayFor(s).enabled" @change="setBayFor(s, { enabled: $event.target.checked })" />
@@ -167,24 +187,25 @@ function cancel() {
             quantity="length"
             :system="system"
             label="Horn"
-            placeholder="Square to the hinge from the servo"
+            placeholder="In line with the servo"
             @update:model-value="setLink(s, { hornAt: $event })"
           />
           <ParamInput
             :id="id(`${s.id}-horn-angle`)"
-            :model-value="linkOf(bayFor(s)).hornAngle"
-            label="Horn turned from square"
+            :model-value="hornAngle(s)"
+            label="Horn turned from square to the hinge"
             suffix="°"
             :min="-45"
             :max="45"
             :step="1"
-            hint="Where the horn is, from the surface's inner end along it (or drag it on the plan); empty puts it square to the hinge from the servo's output."
+            :hint="hornHint(s)"
             @update:model-value="setLink(s, { hornAngle: $event })"
           />
+          <button v-if="Number.isFinite(linkOf(bayFor(s)).hornAngle)" type="button" class="wc-button wc-button--small" @click="setLink(s, { hornAngle: null })">Line it up with the pushrod</button>
         </template>
         <p v-else-if="analysis" class="wc-field__hint">The linkage can be set once the bay is built.</p>
       </template>
-    </div>
+    </InspectorSection>
     <Teleport v-if="open && opened" :to="dialogueTarget">
       <ServoConfigurator
         :key="open.sid"
