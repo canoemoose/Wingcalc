@@ -8,7 +8,9 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { bayOf, setBay, installedServo, servoOptions } from '../src/lib/servos.js'
-import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, ROD_OFF_SQUARE, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
+import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, linkageFit, ROD_OFF_SQUARE, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
+import { wing3d } from '../src/lib/wing3d.js'
+import { buildParts } from '../src/lib/ribs.js'
 
 // A deep wing (one 0.9 m panel, 450 to 400 mm chord, 2 kg) with an aileron
 function build(bays = []) {
@@ -132,6 +134,78 @@ describe("every bay's linkage, and its warnings", () => {
     const l = bayLinkages(a, controls(pair)).get(1)
     expect(l.warnings.map((w) => w.id)).toContain('linkage-travel-1')
     expect(l.warnings[0].message).toMatch(/more than its ±45°/)
+  })
+})
+
+describe('the arm and pushrod in the wing', () => {
+  const linked = (bay) => {
+    const a = build([bay])
+    const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [bay] }
+    return { a, controls, l: bayLinkages(a, controls).get(1) }
+  }
+  const ids = (l) => l.warnings.map((w) => w.id)
+
+  it('lets the pushrod out through a slot in the top skin, ahead of the hinge spar, from a servo on its side', () => {
+    const { l } = linked({ surface: 1, mounting: 'side' })
+    expect(ids(l)).toEqual([])
+    const rod = l.fit.slots.filter((q) => q.what === 'pushrod')
+    expect(rod).toHaveLength(1)
+    expect(rod[0].surface).toBe('top')
+    expect(rod[0].hatch).toBe(false)
+    // A slot a few millimetres wide, ahead of the hinge
+    expect(rod[0].s1 - rod[0].s0).toBeLessThan(0.006)
+    expect(rod[0].x1 - rod[0].x0).toBeGreaterThan(0.003)
+    expect(rod[0].x1).toBeLessThan(l.frame.hinge.point[0])
+  })
+
+  it('takes the arm and pushrod out through the hatch to a horn underneath', () => {
+    const { l } = linked({ surface: 1, mounting: 'side', link: { hornFace: 'bottom' } })
+    expect(ids(l)).toEqual([])
+    const arm = l.fit.slots.find((q) => q.what === 'arm')
+    expect(arm.surface).toBe('bottom')
+    expect(arm.hatch).toBe(true)
+  })
+
+  it('warns when an upright arm sweeps into the ribs, or through the top skin', () => {
+    expect(ids(linked({ surface: 1 }).l)).toContain('linkage-rib-1')
+    const tall = linked({ surface: 1, class: 'standard' }).l
+    expect(ids(tall)).toContain('linkage-arm-top-1')
+    expect(tall.fit.slots.some((q) => q.what === 'arm' && q.surface === 'top' && !q.hatch)).toBe(true)
+  })
+
+  it('warns when the pushrod is still inside the wing at the fixed hinge spar', () => {
+    const { a, l } = linked({ surface: 1, mounting: 'side' })
+    expect(l.fit.clashes).not.toContain('spar')
+    // The same linkage with the spar's front face 50 mm ahead of the hinge
+    const surface = { ...l.frame.surface, faces: { ...l.frame.surface.faces, fixedFront: (q) => l.frame.surface.hingeX(q) - 0.05 } }
+    const fit = linkageFit(a, l.bay, { ...l.frame, surface }, l.c, l.link)
+    expect(fit.clashes).toContain('spar')
+    expect(fit.warnings.map((w) => w.id)).toContain('linkage-spar-1')
+  })
+
+  it('draws the arm, horn and pushrod as closed, named pieces, flagged where they clash', () => {
+    for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, class: 'standard' }]) {
+      const { a, controls } = linked(bay)
+      const links = bayLinkages(a, controls)
+      const { parts } = buildParts(a, a.structure)
+      const m = wing3d(a, a.structure, parts, links)
+      const sol = m.solids.filter((x) => ['servoArm', 'horn', 'pushrod'].includes(x.kind))
+      expect(sol.map((x) => x.kind).sort()).toEqual(['horn', 'pushrod', 'servoArm'])
+      for (const x of sol) {
+        expect(x.piece.id).toBe(`${x.kind}-SB1`)
+        expect(x.pick).toBeUndefined()
+        const edges = new Map()
+        for (let i = 0; i < x.indices.length; i += 3) {
+          for (const [p, q] of [[x.indices[i], x.indices[i + 1]], [x.indices[i + 1], x.indices[i + 2]], [x.indices[i + 2], x.indices[i]]]) {
+            const k = p < q ? `${p},${q}` : `${q},${p}`
+            edges.set(k, (edges.get(k) ?? 0) + 1)
+          }
+        }
+        expect([...edges.values()].every((n) => n === 2), `${x.kind} closed`).toBe(true)
+      }
+      const armClash = !!sol.find((x) => x.kind === 'servoArm').clash
+      expect(armClash).toBe(bay.class === 'standard')
+    }
   })
 })
 

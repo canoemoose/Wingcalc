@@ -518,6 +518,12 @@ const links = computed(() => {
         [H[1] + dir[1] * half, H[0] + dir[0] * half],
       ],
       servoAt: [l.frame.at.s, l.frame.at.x],
+      // Where the arm or pushrod passes through a skin (a slot, or in the hatch)
+      slots: (l.fit?.slots ?? []).map((q) => ({
+        pts: poly([[q.s0, q.x0], [q.s1, q.x0], [q.s1, q.x1], [q.s0, q.x1]]),
+        hatch: q.hatch,
+        title: `${q.what === 'arm' ? 'The arm' : 'The pushrod'} passes through the ${q.surface} ${q.hatch ? 'hatch' : 'skin'} here: cut a slot`,
+      })),
       hingeAt: [H[1], H[0]],
       frame: l.frame,
     })
@@ -736,6 +742,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         </g>
         <line v-if="preview" :x1="preview.s" :x2="preview.s" :y1="preview.y1" :y2="preview.y2" class="wc-sp__preview" />
         <g v-for="l in show.servos ? links : []" :key="'ln' + l.sid" class="wc-sp__link" :class="{ 'wc-sp__link--warn': l.warn }">
+          <polygon v-for="(q, k) in l.slots" :key="k" :points="q.pts" class="wc-sp__slot-cut"><title>{{ q.title }}</title></polygon>
           <line :x1="l.pivot[0]" :y1="l.pivot[1]" :x2="l.arm[0]" :y2="l.arm[1]" class="wc-sp__arm" />
           <line :x1="l.arm[0]" :y1="l.arm[1]" :x2="l.horn[0]" :y2="l.horn[1]" class="wc-sp__rod" />
           <line :x1="l.hornLine[0][0]" :y1="l.hornLine[0][1]" :x2="l.hornLine[1][0]" :y2="l.hornLine[1][1]" class="wc-sp__horn" />
@@ -793,7 +800,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         sheeted area hatched</template
       ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
       ><template v-if="geom.brakes.length">; air brakes outlined, with the slots or opening in the covering</template
-      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root, and its arm, pushrod and horn (amber where the linkage has a warning). Drag a servo's handle along the span to move it, or its horn's along the hinge; click either to set the servo and linkage</template
+      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root, and its arm, pushrod and horn (amber where the linkage has a warning), with the slots they need in the skin or hatch dashed. Drag a servo's handle along the span to move it, or its horn's along the hinge; click either to set the servo and linkage</template
       ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to

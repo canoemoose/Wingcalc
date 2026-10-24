@@ -2564,6 +2564,13 @@
   stroke: var(--wc-warn);
   stroke-width: 2.5;
 }
+.wc-sp__slot-cut {
+  fill: none;
+  stroke: var(--wc-text);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
 .wc-sp__handle {
   fill: var(--wc-bg);
   stroke: var(--wc-accent);

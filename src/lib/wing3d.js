@@ -906,7 +906,8 @@ export function ribPlacement(a, p) {
 // The built-up half wing: skin, spar, webs, edge stock and stringers as meshes, and every rib
 // as its outline (with holes) plus a column-major 4×4 matrix placing its plane, rib (u, z)
 // in local X, Y and its thickness along local Z.
-export function wing3d(a, structure, parts) {
+// linkages: bayLinkage.js bayLinkages, for each bay's arm, horn and pushrod (optional)
+export function wing3d(a, structure, parts, linkages = null) {
   const st = structure
   const sp = st.spar
   // Spanwise parts run to the outer faces of the end ribs: the tip rib, and the root rib of
@@ -1024,6 +1025,23 @@ export function wing3d(a, structure, parts) {
     const platePiece = { id: `plate-${b.name}`, name: `Servo plate, ${b.name}`, material: 'ply-birch' }
     for (const p of sp) add(p.kind, servoSolid(a, p), null, servo)
     for (const q of plate.pieces) add('plate', sweep(a, q.s0, q.s1, (s) => rect(...q.x(s), plate.z, plate.z + plate.thickness), q.turned ? 12 : 1), pick, platePiece)
+  }
+
+  // Each servo's arm, horn and pushrod at surface neutral (bayLinkage.js linkageSolids, in the
+  // flat frame): bought, so pieces with no part; flagged where they clash (linkageFit)
+  const LINK_NAMES = { servoArm: 'Servo arm', horn: 'Control horn', pushrod: 'Pushrod' }
+  const LINK_CLASH = { servoArm: ['rib', 'arm-top', 'arm-bottom'], pushrod: ['spar'], horn: [] }
+  for (const [, l] of linkages ?? []) {
+    for (const sol of l.solids ?? []) {
+      const mesh = loft(
+        sol.rings.map((ring) => ring.map(([x, s, z]) => worldPoint(a, s, x, z))),
+        { closed: true, caps: 'fan' },
+      )
+      const clash = (l.fit?.clashes ?? []).some((k) => LINK_CLASH[sol.kind].includes(k))
+      const part = sol.kind === 'servoArm' ? l.c.arm : sol.kind === 'horn' ? l.c.horn : null
+      const what = part ? `, ${part.maker === 'Generic' ? part.name : `${part.maker} ${part.part}`}` : ''
+      add(sol.kind, clash ? { ...mesh, clash: true } : mesh, null, { id: `${sol.kind}-${l.bay.name}`, name: `${LINK_NAMES[sol.kind]}, ${l.bay.name}${what}` })
+    }
   }
 
   // Air brakes: a blade brake's box walls, with its blades drawn raised through the covering;

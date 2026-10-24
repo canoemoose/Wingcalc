@@ -781,7 +781,7 @@ const structureWarnings = computed(() => {
 const placedWarnings = computed(() => bySection(structureWarnings.value, input.structure.construction === 'foam'))
 // The 3D model, built once for the 3D view and the Part card (only when one of them is shown),
 // and every piece of the wing in it, for selecting and inspecting one on its own
-const model3d = computed(() => (structureResult.value ? wing3d(structureResult.value.a, structureResult.value.a.structure, structureResult.value.parts) : null))
+const model3d = computed(() => (structureResult.value ? wing3d(structureResult.value.a, structureResult.value.a.structure, structureResult.value.parts, bayLinks.value) : null))
 const pieces = computed(() => (model3d.value ? wingPieces(model3d.value, structureResult.value.parts) : []))
 // The way the 3D view looks at the wing, so the Part card shows a piece the same way round
 const view3d = shallowRef(null)

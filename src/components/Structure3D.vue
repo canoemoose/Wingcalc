@@ -246,6 +246,11 @@ const COLOURS = {
   servo: 0x3a3f45,
   servoOutput: 0xf2f2ee,
   servoLead: 0xd9a400,
+  servoArm: 0xf2f2ee,
+  horn: 0xf2f2ee,
+  pushrod: 0x9aa3ab,
+  // An arm or pushrod that runs into the wing (bayLinkage.js linkageFit)
+  clash: 0xe08a00,
   brakeBox: 0xc9a46a,
   blade: 0x7f8c97,
   plate: 0xa8794a,
@@ -396,13 +401,13 @@ function build() {
   const behind = (c) => Object.assign(wood(c), { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
   const tube = props.structure.spar.type === 'tube'
   for (const s of model.solids) {
-    const colour = s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
+    const colour = s.clash ? COLOURS.clash : s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
     const group =
       s.kind === 'hingeMoving' || s.kind === 'teMoving' || s.kind === 'coreMoving'
         ? groups.surfaces
         : s.kind === 'core'
         ? groups.core
-        : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead'
+        : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead' || s.kind === 'servoArm' || s.kind === 'horn' || s.kind === 'pushrod'
         ? groups.servos
         : s.kind === 'plate'
         ? groups.servoPlates

@@ -33,7 +33,7 @@ let toCreasedNormals = null
 const WOOD = 0xd9b77e
 const MATERIAL_COLOURS = { mylar: 0xb8c4cc, 'template-stock': 0xc9ced4, 'carbon-tube': 0x2f3337 }
 // As in the wing's 3D view
-const KIND_COLOURS = { servo: 0x3a3f45, servoOutput: 0xf2f2ee, servoLead: 0xd9a400, tab: 0x8fa3ad, blade: 0x7f8c97, core: 0xe9e5d8, coreMoving: 0xe9e5d8, sheet: 0xecd9b0, plate: 0xa8794a }
+const KIND_COLOURS = { servo: 0x3a3f45, servoOutput: 0xf2f2ee, servoLead: 0xd9a400, servoArm: 0xf2f2ee, horn: 0xf2f2ee, pushrod: 0x9aa3ab, tab: 0x8fa3ad, blade: 0x7f8c97, core: 0xe9e5d8, coreMoving: 0xe9e5d8, sheet: 0xecd9b0, plate: 0xa8794a }
 const EASE_MS = 320
 
 const size = () => ({ w: wrapEl.value?.clientWidth || 320, h: wrapEl.value?.clientHeight || 220 })

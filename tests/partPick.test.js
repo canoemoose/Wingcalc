@@ -11,6 +11,7 @@ import { buildParts } from '../src/lib/ribs.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { wing3d, worldPoint, partFor, spanOf, panelRuns, wingPieces, pieceOutline } from '../src/lib/wing3d.js'
 import { pieceDrawing } from '../src/lib/pieceDrawing.js'
+import { bayLinkages } from '../src/lib/bayLinkage.js'
 import { bounds } from '../src/lib/ribs.js'
 
 const aileron = newSurface('aileron', 1, 0.3, 0.55, 1)
@@ -35,7 +36,8 @@ function build(edit = () => {}, wingEdit = () => {}) {
   const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
   const a = analyseStructure({ wing: s.input, airfoil, structure: st, mass: s.input.mass, spanwise: perf.spanwise, controls })
   const { parts, cutList } = buildParts(a, a.structure)
-  const w = wing3d(a, a.structure, parts)
+  // With each bay's arm, horn and pushrod, as the app builds it
+  const w = wing3d(a, a.structure, parts, bayLinkages(a, controls))
   return { a, st: a.structure, parts, cutList, w, pieces: wingPieces(w, parts) }
 }
 
@@ -70,6 +72,8 @@ describe('the pieces of the wing', () => {
     const { pieces } = build(builtUp)
     const names = pieces.map((p) => p.name)
     for (const n of ['Spar cap, top', 'Spar cap, bottom', 'Leading edge', 'Stringer at 50% chord, top', 'Stringer at 50% chord, bottom']) expect(names).toContain(n)
+    // The servo's linkage: bought, so pieces with no part
+    for (const n of ['Servo arm, SB1', 'Control horn, SB1', 'Pushrod, SB1']) expect(names.some((x) => x.startsWith(n)), n).toBe(true)
     expect(names.some((n) => n.startsWith('Hinge spar, fixed side, '))).toBe(true)
     expect(names.some((n) => n.startsWith('Trailing edge'))).toBe(true)
     for (const p of pieces.filter((x) => ['spar', 'le', 'te', 'stringer', 'hinge'].includes(x.kind))) {

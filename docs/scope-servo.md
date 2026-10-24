@@ -1,6 +1,6 @@
 # Wingcalc: servo configurator — scope
 
-From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 to 4 done; step 5 (3D and fit check for the arm, horn and pushrod) next.
+From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 to 5 done (docs, step 6, kept up with each). Remaining: the open questions below, and the backlog's follow-ups.
 
 ## Objective
 
@@ -101,6 +101,14 @@ Notes from building it:
 - The default horn station is square to the hinge from the servo's output, not the bay's centre: on a servo on its side the output stands out along the span.
 - Pushrod off the horn's plane is warned over 10° (`ROD_OFF_SQUARE`); the arm's squareness needs no warning (it's square at the midpoint by construction).
 - Checked in the running app by script (hidden pane, viewport emulated): a click on a handle opens the configurator, both drags move and commit once, the warning appears under Control surfaces, the turn settings redraw the servo, undo steps back through each. Not looked at by eye.
+
+### Step 5 as built (24 October 2026)
+
+- `linkageSolids` (bayLinkage.js) gives the arm, horn and pushrod at neutral as rings in the flat frame; `wing3d(a, structure, parts, linkages)` places them (kinds `servoArm`, `horn`, `pushrod`, in the Servos layer), each a piece with no part (bought), named with the arm or horn's maker and part. `tests/partPick.test.js` builds the model with linkages.
+- `linkageFit` checks the arm's end over the travel used (skins' inner faces, the bay's rib faces) and the pushrod at mid travel and each end (skins, fixed hinge spar). Slots: the arm through the hatch is expected; through a skin elsewhere is warned; the pushrod's slot is drawn, not warned. Warnings `linkage-rib-`, `linkage-arm-top-`, `linkage-arm-bottom-`, `linkage-spar-`.
+- Flagged in both views: an arm or pushrod that clashes is amber in 3D (`clash` on the solid), the pushrod amber on the plan, and the slots dashed on the plan.
+- Not covered (backlog): slots as cut parts or in the DXF, the horn against the surface's own structure, a measured part size table.
+- Found while building it: the upright default's arm sweeps into the ribs in an ordinary aileron bay (warned). Suggest on its side as the default (backlog, for Sam).
 
 ## Out of scope
 

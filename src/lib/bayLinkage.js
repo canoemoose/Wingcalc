@@ -16,9 +16,9 @@
 //             span), or null for square to the hinge from the servo's output
 //   hornAngle the horn turned in plan from square to the hinge, degrees
 
-import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly } from './linkage.js'
+import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly, linkage } from './linkage.js'
 import { installedServo, servoById, bayOf, SERVO_HEADROOM } from './servos.js'
-import { servoBox, surfaceHeight } from './wing3d.js'
+import { servoBox, surfaceHeight, insetHeight } from './wing3d.js'
 
 export const DEFAULT_LINK = { arm: null, armRow: 0, armHole: null, horn: null, hornHole: null, hornFace: 'top', travel: 45, facing: null, linkage: 'pushrod', hornAt: null, hornAngle: 0 }
 export const TRAVELS = [45, 60]
@@ -194,7 +194,8 @@ export function bayLinkages(a, controls) {
     const frame = bayFrame(a, b, link)
     if (!frame) continue
     const c = configureBay(frame, b.servo, link)
-    out.set(b.surface, { bay: b, frame, c, link, warnings: linkWarnings(b, frame, c) })
+    const fit = linkageFit(a, b, frame, c, link)
+    out.set(b.surface, { bay: b, frame, c, link, fit, solids: linkageSolids(frame, b.servo, c, link), warnings: [...linkWarnings(b, frame, c), ...fit.warnings] })
   }
   return out
 }
@@ -249,4 +250,185 @@ export function linkSummary(servo, c) {
   const armName = c.arm.maker === 'Generic' ? c.arm.name : `${c.arm.maker} ${c.arm.part}`
   const row = c.arm.holes.length > 1 ? ` (${c.arm.holes[c.armRow].arm})` : ''
   return `${servo.label} › ${armName}${row}, hole ${c.armHole + 1} › ${c.horn.maker} ${c.horn.part}, hole ${c.hornHole + 1}`
+}
+
+// --- The parts in the wing ---------------------------------------------------------------------
+
+// Sizes the arm, horn and pushrod are drawn and checked at, by the arm's or horn's size, m: the
+// arm's width and thickness and how far its end runs past its outer hole; the horn plate's
+// thickness, its base along its plane as a share of its height, and its tip; the pushrod wire's
+// radius (1.2, 1.6 and 2 mm wire)
+export const PART_SIZES = {
+  arm: { micro: { width: 0.0045, thickness: 0.002, tip: 0.0025 }, standard: { width: 0.006, thickness: 0.0025, tip: 0.003 }, large: { width: 0.008, thickness: 0.003, tip: 0.004 } },
+  horn: { micro: 0.0015, mini: 0.0015, standard: 0.002, large: 0.0025, base: 0.7, tip: 0.004 },
+  rod: { micro: 0.0006, standard: 0.0008, large: 0.001 },
+}
+
+const v3 = {
+  add: (p, q) => [p[0] + q[0], p[1] + q[1], p[2] + q[2]],
+  sub: (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]],
+  mul: (p, k) => [p[0] * k, p[1] * k, p[2] * k],
+  cross: (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]],
+  unit: (p) => {
+    const n = Math.hypot(...p) || 1
+    return [p[0] / n, p[1] / n, p[2] / n]
+  },
+}
+
+// A box from p0 to p1 with its width along u and its thickness along v: two rectangular rings
+const barRings = (p0, p1, u, v, w, t) =>
+  [p0, p1].map((p) => [
+    v3.add(p, v3.add(v3.mul(u, w / 2), v3.mul(v, t / 2))),
+    v3.add(p, v3.add(v3.mul(u, -w / 2), v3.mul(v, t / 2))),
+    v3.add(p, v3.add(v3.mul(u, -w / 2), v3.mul(v, -t / 2))),
+    v3.add(p, v3.add(v3.mul(u, w / 2), v3.mul(v, -t / 2))),
+  ])
+
+// A round rod from p0 to p1, radius r: two 12-sided rings square to it
+function rodRings(p0, p1, r) {
+  const d = v3.unit(v3.sub(p1, p0))
+  const u = v3.unit(v3.cross(d, Math.abs(d[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]))
+  const w = v3.cross(d, u)
+  const ring = (p) => Array.from({ length: 12 }, (_, i) => v3.add(p, v3.add(v3.mul(u, r * Math.cos((2 * Math.PI * i) / 12)), v3.mul(w, r * Math.sin((2 * Math.PI * i) / 12)))))
+  return [ring(p0), ring(p1)]
+}
+
+// The arm's angle (radians from its reference) with the servo at an angle from its midpoint
+// (degrees, in its turning direction for trailing edge down)
+const armAngle = (r, servoDeg) => ((r.midpoint + r.direction * servoDeg) * Math.PI) / 180
+
+// The assembly at surface neutral as solids, each { kind, rings } with rings in the wing's flat
+// frame ([x, s, z]), for wing3d to place: the arm ('servoArm'), the horn ('horn') and the
+// pushrod ('pushrod'). Empty where the linkage isn't solved.
+export function linkageSolids(frame, servo, c, link = DEFAULT_LINK) {
+  const r = c.result
+  if (!r?.ok) return []
+  const g = assemblyGeometry(frame, servo, c, c.armHole, c.hornHole, c.face)
+  const L = linkage(g)
+  const t0 = armAngle(r, r.neutralArm)
+  const d = L.armDir(t0)
+  const A = PART_SIZES.arm[c.arm.size] ?? PART_SIZES.arm.standard
+  const radii = c.arm.holes[c.armRow].radii
+  const across = v3.cross(L.a, d)
+  const hub = A.width / 2
+  const arm = barRings(v3.add(g.pivot, v3.mul(d, -hub)), v3.add(g.pivot, v3.mul(d, radii.at(-1) + A.tip)), across, L.a, A.width, A.thickness)
+  // The horn: a plate standing on its face in its plane (square to the hinge, turned), over the
+  // hinge line, tapering from its base to its tip
+  const h = frame.hinge
+  const ang = ((link.hornAngle || 0) * Math.PI) / 180
+  const sq = [h.axis[1], -h.axis[0]]
+  const along = [sq[0] * Math.cos(ang) - sq[1] * Math.sin(ang), sq[0] * Math.sin(ang) + sq[1] * Math.cos(ang), 0]
+  const normal = [-along[1], along[0], 0]
+  const up = c.face === 'bottom' ? -1 : 1
+  const z0 = h.point[2] + up * frame.faces[c.face]
+  const H = c.horn
+  const ht = PART_SIZES.horn[H.size] ?? PART_SIZES.horn.standard
+  const plate = (z, len) => {
+    const o = [h.point[0], h.point[1], z]
+    return [
+      v3.add(o, v3.add(v3.mul(along, len / 2), v3.mul(normal, ht / 2))),
+      v3.add(o, v3.add(v3.mul(along, -len / 2), v3.mul(normal, ht / 2))),
+      v3.add(o, v3.add(v3.mul(along, -len / 2), v3.mul(normal, -ht / 2))),
+      v3.add(o, v3.add(v3.mul(along, len / 2), v3.mul(normal, -ht / 2))),
+    ]
+  }
+  const horn = [plate(z0, H.height * PART_SIZES.horn.base), plate(z0 + up * H.height, PART_SIZES.horn.tip)]
+  const rod = rodRings(L.arm(t0), g.horn, PART_SIZES.rod[c.arm.size] ?? PART_SIZES.rod.standard)
+  return [
+    { kind: 'servoArm', rings: arm },
+    { kind: 'horn', rings: horn },
+    { kind: 'pushrod', rings: rod },
+  ]
+}
+
+// --- Fit in the wing -----------------------------------------------------------------------------
+
+// Whether the arm and pushrod clear the wing over the travel the designed throws use: where the
+// arm's end sweeps through a skin (inside the hatch, a slot in the hatch; elsewhere a slot in
+// the skin) or into the bay's ribs, and where the pushrod leaves the wing (a slot), which must be
+// ahead of the fixed hinge spar. { slots: [{ what, surface, hatch, x0, x1, s0, s1 }], clashes:
+// [...], warnings }.
+export function linkageFit(a, b, frame, c, link = DEFAULT_LINK) {
+  const out = { slots: [], clashes: [], warnings: [] }
+  const r = c.result
+  if (!r?.ok) return out
+  const st = a.structure
+  const g = assemblyGeometry(frame, b.servo, c, c.armHole, c.hornHole, c.face)
+  const L = linkage(g)
+  const A = PART_SIZES.arm[c.arm.size] ?? PART_SIZES.arm.standard
+  const rod = PART_SIZES.rod[c.arm.size] ?? PART_SIZES.rod.standard
+  const reach = c.arm.holes[c.armRow].radii.at(-1) + A.tip
+  const T = Math.min(r.travelNeeded, c.travel)
+  const sweep = Array.from({ length: 13 }, (_, i) => -T + (2 * T * i) / 12)
+  // Where a point is: 'in' between the skins' inner faces, 'top' or 'bottom' through or beyond
+  // a skin, or 'off' the chord
+  const where = ([x, s, z], pad = 0) => {
+    const sec = a.section(s)
+    if (!sec || x < sec.xl || x > sec.xl + sec.c) return 'off'
+    if (z + pad > insetHeight(a, st, s, x, 'upper')) return 'top'
+    if (z - pad < insetHeight(a, st, s, x, 'lower')) return 'bottom'
+    return 'in'
+  }
+  const hatch = b.hatch
+  const inHatch = ([x, s]) => hatch && x >= hatch.x0 && x <= hatch.x1 && s >= hatch.s0 && s <= hatch.s1
+  const grow = (what, surface, pts, pad) => {
+    if (!pts.length) return
+    const x = pts.map((p) => p[0])
+    const q = pts.map((p) => p[1])
+    out.slots.push({ what, surface, hatch: surface === 'bottom' && pts.every(inHatch), x0: Math.min(...x) - pad, x1: Math.max(...x) + pad, s0: Math.min(...q) - pad, s1: Math.max(...q) + pad })
+  }
+  const mm = (v) => `${(v * 1000).toFixed(0)} mm`
+  const name = `${b.label} (${frame.label})`
+
+  // The arm's end over its sweep, half its thickness either side of its plane
+  const ends = sweep.map((x) => v3.add(g.pivot, v3.mul(L.armDir(armAngle(r, x)), reach)))
+  const half = A.thickness / 2
+  for (const surface of ['top', 'bottom']) {
+    const through = ends.filter((p) => where(p, half) === surface)
+    grow('arm', surface, through, A.width / 2)
+  }
+  const ribs = b.inner ?? [b.sA, b.sB]
+  // The arm's end reaches this far along the span either side of its centre line: half its
+  // width across it and half its thickness along the output's axis, as they lie
+  const spread = (t) => Math.abs(v3.cross(L.a, L.armDir(t))[1]) * (A.width / 2) + Math.abs(L.a[1]) * half
+  if (ends.some((p, i) => where(p) === 'in' && (p[1] - spread(armAngle(r, sweep[i])) < ribs[0] || p[1] + spread(armAngle(r, sweep[i])) > ribs[1]))) {
+    out.clashes.push('rib')
+    out.warnings.push({ id: `linkage-rib-${b.surface}`, message: `${name}: its arm sweeps into the bay's ribs. Use a shorter arm or an inner hole, or turn the servo so the arm swings along the chord.` })
+  }
+  for (const sl of out.slots.filter((x) => x.what === 'arm' && !x.hatch)) {
+    out.clashes.push(`arm-${sl.surface}`)
+    out.warnings.push({
+      id: `linkage-arm-${sl.surface}-${b.surface}`,
+      message: `${name}: its arm sweeps through the ${sl.surface} skin${sl.surface === 'bottom' ? ' outside the hatch' : ''}, so it needs a slot ${mm(sl.x1 - sl.x0)} by ${mm(sl.s1 - sl.s0)} there. Use a shorter arm, mount the servo so its arm stays inside the wing or comes out through the hatch, or accept the slot.`,
+    })
+  }
+
+  // The pushrod at mid travel and each end: where it crosses a skin, and whether it's still in
+  // the wing where the fixed hinge spar is
+  const cross = { top: [], bottom: [] }
+  const spar = frame.surface.faces?.fixedFront
+  let intoSpar = false
+  for (const x of [-T, 0, T]) {
+    const p0 = L.arm(armAngle(r, x))
+    const d = r.surfaceAt(x)
+    if (d == null) continue
+    const p1 = L.hornAt((d * Math.PI) / 180)
+    let last = where(p0)
+    for (let i = 1; i <= 40; i++) {
+      const p = v3.add(p0, v3.mul(v3.sub(p1, p0), i / 40))
+      const w = where(p, rod)
+      if (w !== last && (w === 'top' || w === 'bottom' || last === 'top' || last === 'bottom')) cross[w === 'in' ? last : w].push(p)
+      if (w === 'in' && spar && p[0] > spar(p[1]) - rod) intoSpar = true
+      last = w
+    }
+  }
+  for (const surface of ['top', 'bottom']) grow('pushrod', surface, cross[surface], rod + 0.001)
+  if (intoSpar) {
+    out.clashes.push('spar')
+    out.warnings.push({
+      id: `linkage-spar-${b.surface}`,
+      message: `${name}: the pushrod is still inside the wing at the fixed hinge spar, so it would run into it. Put the horn on the ${c.face === 'top' ? 'bottom' : 'top'} face, use a horn hole further from the face, or mount the servo so the pushrod leaves the wing sooner.`,
+    })
+  }
+  return out
 }
