@@ -111,13 +111,27 @@ export const ARMS = [
   arm('Futaba', 'FSH-6V', 'S3156 horn variety pack', 'set', 'micro', null, { holes: MICRO_SET, basis: MICRO, models: ['S3156'], source: FUTABA_HORNS }),
 ]
 
-// The arms that fit a catalogue servo: its maker's, on its spline or made for it by name. Empty
-// for a generic class, or a servo whose spline isn't published and that no arm names.
+// Generic arms: a size's usual set, for a generic class, or a servo none of its maker's arms
+// are known to fit
+export const GENERIC_ARMS = [
+  arm('Generic', 'micro', 'Micro arm set', 'set', 'micro', null, { holes: MICRO_SET, basis: MICRO, source: null }),
+  arm('Generic', 'standard', 'Standard arm set', 'set', 'standard', null, { holes: STANDARD_SET, basis: RETAILER, source: null }),
+  arm('Generic', 'large', 'Large arm set', 'set', 'large', null, { holes: LARGE_SET, basis: LARGE, source: null }),
+]
+const GENERIC_FOR = { 'sub-micro': ['micro'], micro: ['micro'], mini: ['micro', 'standard'], standard: ['standard', 'large'] }
+
+// The arms that fit a servo: its maker's, on its spline or made for it by name, or failing any,
+// the generic arms of its size (a generic class's too).
 export function armsFor(servo) {
-  if (!servo?.maker) return []
+  if (!servo) return []
   const type = servo.spline?.type
-  return ARMS.filter((a) => a.maker === servo.maker && ((type && a.spline === type) || a.models.includes(servo.model)))
+  const own = servo.maker ? ARMS.filter((a) => a.maker === servo.maker && ((type && a.spline === type) || a.models.includes(servo.model))) : []
+  if (own.length) return own
+  const sizes = GENERIC_FOR[servo.class ?? servo.id] ?? ['micro']
+  return GENERIC_ARMS.filter((a) => sizes.includes(a.size))
 }
+
+export const armById = (id) => ARMS.find((a) => a.id === id) ?? GENERIC_ARMS.find((a) => a.id === id) ?? null
 
 // Control horns: the horn on the moving surface the pushrod's clevis hooks into, its holes over
 // the hinge line (as horn makers' instructions place them).
@@ -158,6 +172,12 @@ export const HORNS = [
   horn('Great Planes', 'GPMQ3901', 'Large nylon control horn', 'standard', null, 4, { estimate: 28.5, source: 'https://amr-rc.com/nylon-control-horns-large-2.html' }),
   horn('Gator RC', 'GRC-34', 'Control horn, 34 mm, triangle base, angled', 'large', 34, 4, { source: 'https://www.gator-rc.com/products/gator-rc-control-horn-34mm-triangle-base-angled' }),
 ]
+
+export const hornById = (id) => HORNS.find((h) => h.id === id) ?? null
+
+// The horn a servo's class takes unless one is chosen
+const HORN_FOR = { 'sub-micro': 'du-bro-848', micro: 'du-bro-848', mini: 'du-bro-107', standard: 'du-bro-105' }
+export const defaultHorn = (servo) => hornById(HORN_FOR[servo?.class ?? servo?.id] ?? 'du-bro-848')
 
 // ---------------------------------------------------------------------------------------------
 // Geometry. The assembly in the wing's flat frame (x aft along the chord, s along the span, z

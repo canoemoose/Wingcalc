@@ -229,9 +229,15 @@ describe('arms', () => {
 
   it('offers a servo its own maker\'s arms on its spline, or made for it by name', () => {
     for (const s of CATALOGUE) {
-      for (const a of armsFor(s)) {
-        expect(a.maker).toBe(s.maker)
-        expect(a.spline === s.spline?.type || a.models.includes(s.model), `${s.model} ${a.part}`).toBe(true)
+      const arms = armsFor(s)
+      expect(arms.length, s.model).toBeGreaterThan(0)
+      for (const a of arms) {
+        // Its maker's on its spline or by name, or generic when its maker's offer none
+        if (a.maker === 'Generic') expect(ARMS.some((x) => x.maker === s.maker && (x.spline === s.spline?.type || x.models.includes(s.model))), s.model).toBe(false)
+        else {
+          expect(a.maker).toBe(s.maker)
+          expect(a.spline === s.spline?.type || a.models.includes(s.model), `${s.model} ${a.part}`).toBe(true)
+        }
       }
     }
     const parts = (m) => armsFor(by(m)).map((a) => a.part)
@@ -242,7 +248,9 @@ describe('arms', () => {
     expect(parts('S3107')).toEqual(['FSH-63'])
     // Futaba's arms never go on a Hitec servo, nor anything on a generic class
     expect(armsFor(by('HS-645MG')).some((a) => a.maker === 'Futaba')).toBe(false)
-    expect(armsFor(servoById('micro'))).toEqual([])
+    // A generic class takes the generic arms of its size
+    expect(armsFor(servoById('micro')).map((a) => a.id)).toEqual(['generic-micro'])
+    expect(armsFor(servoById('standard')).map((a) => a.id)).toEqual(['generic-standard', 'generic-large'])
   })
 
   it('only names splines that some servo has, or none', () => {

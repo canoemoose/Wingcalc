@@ -16,6 +16,8 @@
 //             surface; null for a third of the way out along it
 //   at        the older panel-relative position, m from the panel's inner end; used only when
 //             along is not set (saves from before along)
+//   link      the servo's linkage to its surface, as differs from the defaults (bayLinkage.js
+//             DEFAULT_LINK): arm, horn, holes, travel; null for the defaults
 
 import { HITEC_SPECS, FUTABA_FIGURES } from './servoCatalogue.js'
 
@@ -560,7 +562,7 @@ export function placeServo(servo, at) {
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  return { surface: surfaceId, enabled: true, class: null, mounting: 'upright', along: null, at: null, ...(saved ?? {}) }
+  return { surface: surfaceId, enabled: true, class: null, mounting: 'upright', along: null, at: null, link: null, ...(saved ?? {}) }
 }
 
 // controls with one surface's bay settings changed. Settings that come back to the defaults
@@ -569,13 +571,15 @@ export function setBay(controls, surfaceId, patch) {
   const next = { ...bayOf(controls, surfaceId), ...patch }
   const rest = (controls.bays ?? []).filter((b) => b.surface !== surfaceId)
   const upright = !next.mounting || next.mounting === 'upright'
-  const same = next.enabled && !next.class && upright && !Number.isFinite(next.along) && !Number.isFinite(next.at)
+  const link = next.link && Object.keys(next.link).length ? next.link : null
+  const same = next.enabled && !next.class && upright && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
   if (!upright) entry.mounting = next.mounting
   if (Number.isFinite(next.along)) entry.along = next.along
   if (Number.isFinite(next.at)) entry.at = next.at
+  if (link) entry.link = link
   return { ...controls, bays: same ? rest : [...rest, entry] }
 }
 

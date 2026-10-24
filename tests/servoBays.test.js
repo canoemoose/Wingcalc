@@ -102,7 +102,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', along: null, at: null })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', along: null, at: null, link: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
