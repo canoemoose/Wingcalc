@@ -20,7 +20,9 @@
 //             the pushrod from the output (along the servo's case when hornAt is null, so the
 //             pushrod runs in the arm's plane and the horn's)
 
-import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly, linkage } from './linkage.js'
+import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly, linkage, PART_SIZES } from './linkage.js'
+
+export { PART_SIZES }
 import { installedServo, servoById, bayOf, SERVO_HEADROOM } from './servos.js'
 import { servoBox, surfaceHeight, insetHeight } from './wing3d.js'
 
@@ -404,15 +406,6 @@ export function linkSummary(servo, c) {
 
 // --- The parts in the wing ---------------------------------------------------------------------
 
-// Sizes the arm, horn and pushrod are drawn and checked at, by the arm's or horn's size, m: the
-// arm's width and thickness and how far its end runs past its outer hole; the horn plate's
-// thickness, its base along its plane as a share of its height, and its tip; the pushrod wire's
-// radius (1.2, 1.6 and 2 mm wire)
-export const PART_SIZES = {
-  arm: { micro: { width: 0.0045, thickness: 0.002, tip: 0.0025 }, standard: { width: 0.006, thickness: 0.0025, tip: 0.003 }, large: { width: 0.008, thickness: 0.003, tip: 0.004 } },
-  horn: { micro: 0.0015, mini: 0.0015, standard: 0.002, large: 0.0025, base: 0.7, tip: 0.004 },
-  rod: { micro: 0.0006, standard: 0.0008, large: 0.001 },
-}
 
 const v3 = {
   add: (p, q) => [p[0] + q[0], p[1] + q[1], p[2] + q[2]],

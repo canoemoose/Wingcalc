@@ -30,7 +30,8 @@ import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES, isRound } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
-import { placeBays, servoMasses, fitBaysToRibs, BAY_MARGIN, SERVO_HEADROOM, PLATE_EDGE } from './servos.js'
+import { placeBays, servoMasses, fitBaysToRibs, servoById, cutout, BAY_MARGIN, SERVO_HEADROOM, PLATE_EDGE, CUTOUT_GAP } from './servos.js'
+import { armsFor, armById, outputPivot, PART_SIZES } from './linkage.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
 import { braceSizing } from './ribs.js'
@@ -1163,7 +1164,10 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
     // From the case's centre: the whole servo's run, and the plate, a margin beyond the run and
     // never less than the plate's edge of ply round its cut-out
     const half = (sv.run ?? sv.lugSpan) / 2
-    const cut = sv.plan?.cut
+    // The plate's cut-out: the servo's, and a slot where its arm passes through the plate
+    const armCut = armPlateCut(sv, b.link)
+    const plan = sv.plan && armCut ? { ...sv.plan, ...cutout([...sv.plan.rects, armCut], sv.yaw) } : sv.plan
+    const cut = plan?.cut
     const pf = Math.min(-half - BAY_MARGIN, cut ? cut.x[0] - PLATE_EDGE : -Infinity)
     const pr = Math.max(half + BAY_MARGIN, cut ? cut.x[1] + PLATE_EDGE : Infinity)
     if (free[1] - free[0] < pr - pf) {
@@ -1237,8 +1241,8 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
       case: { x0: xc - sv.length / 2, x1: xc + sv.length / 2 },
       cut: cut ? { x0: xc + cut.x[0], x1: xc + cut.x[1], s0: b.s + cut.s[0], s1: b.s + cut.s[1] } : null,
       // The cut-out, the case and the whole servo in plan, turned with the servo ([x, s])
-      cutPoly: sv.plan?.cutPoly?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
-      cutRects: sv.plan?.cutRects?.map((q) => q.map(([x, s]) => [xc + x, b.s + s])) ?? null,
+      cutPoly: plan?.cutPoly?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
+      cutRects: plan?.cutRects?.map((q) => q.map(([x, s]) => [xc + x, b.s + s])) ?? null,
       body: sv.caseOutline?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
       footprint: sv.outline?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
       screws: (sv.plan?.screws ?? []).map(([x, s]) => [xc + x, b.s + s]),
@@ -1252,6 +1256,43 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
     if (b.beyond) b.warnings.push(`${b.label} sticks out past the ends of ${r.label}. The ribs beside it are still its hard points.`)
   }
   return bays
+}
+
+// Where a bay's servo arm passes through its mount plate: a cut square to the servo ({ x, s }
+// ranges about the case's centre, as servos.js platePlan's), or null where it doesn't. The arm the
+// link uses (its first on offer by default), hub to tip, swung through the angles it can take
+// about pointing square out through the horn's face (the servo's travel, ±45° or ±60°, and 15°
+// more each way for the differential), wherever it passes through the plate's thickness, with
+// CUTOUT_GAP round it. sv: an installed servo; link: the bay's saved link.
+function armPlateCut(sv, link) {
+  const arms = armsFor(servoById(sv.id) ?? sv)
+  const arm = (link?.arm && arms.find((x) => x.id === link.arm)) || arms[0] || armById('generic-micro')
+  const row = arm.holes[Math.min(Math.max(0, link?.armRow ?? 0), arm.holes.length - 1)]
+  const A = PART_SIZES.arm[arm.size] ?? PART_SIZES.arm.standard
+  const reach = row.radii.at(-1) + A.tip
+  const hub = A.width / 2
+  // Square to the servo, on its base: the plate's underside and top there
+  const { pivot, axis } = outputPivot({ ...sv, yaw: 0, lift: 0 }, { x: 0, s: 0, base: 0 }, arm.seat)
+  const z0 = sv.lugHeight + sv.lugThickness - sv.lift
+  const z1 = z0 + (sv.plate ?? 0)
+  const up = link?.hornFace === 'top' ? 1 : -1
+  const spread = (((link?.travel === 60 ? 60 : 45) + 15) * Math.PI) / 180
+  const xs = []
+  const keep = (x, z) => z > z0 - 1e-9 && z < z1 + 1e-9 && xs.push(x)
+  for (let i = 0; i <= 24; i++) {
+    const phi = -spread + (2 * spread * i) / 24
+    const d = [Math.sin(phi), up * Math.cos(phi)]
+    const across = [d[1], -d[0]]
+    for (let k = 0; k <= 40; k++) {
+      const r = -hub + ((reach + hub) * k) / 40
+      for (const w of [-1, 0, 1]) keep(pivot[0] + d[0] * r + across[0] * w * hub, pivot[2] + d[1] * r + across[1] * w * hub)
+    }
+  }
+  if (!xs.length) return null
+  // Along the span: the arm's thickness at its plane, and its hub back to the spline's top
+  const a = Math.sign(axis[1]) || 1
+  const ss = [pivot[1] + a * (A.thickness / 2), pivot[1] - a * (arm.seat + A.thickness / 2)]
+  return { x: [Math.min(...xs) - CUTOUT_GAP, Math.max(...xs) + CUTOUT_GAP], s: [Math.min(...ss) - CUTOUT_GAP, Math.max(...ss) + CUTOUT_GAP] }
 }
 
 // Why a bay isn't built, with the bay's name.

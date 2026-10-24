@@ -591,6 +591,89 @@ export function servoBayParts(a, structure, b) {
   return { parts, plate: { z, thickness: p.thickness, pieces: pieces.filter((q) => q.x((q.s0 + q.s1) / 2)[1] - q.x((q.s0 + q.s1) / 2)[0] > 1e-4) } }
 }
 
+// A flat plate from z to z + t in the wing's flat frame: the rectangle p ({ x0, x1, s0, s1 }), with
+// a hole through it (a simple polygon of [x, s] corners, wholly inside it) or none, as one closed
+// solid: its top and bottom triangulated round the hole, and walls round both edges.
+export function plateSolid(a, p, hole, z, t) {
+  const outer = [[p.x0, p.s0], [p.x1, p.s0], [p.x1, p.s1], [p.x0, p.s1]]
+  const area = (poly) => poly.reduce((sum, q, i) => sum + q[0] * poly[(i + 1) % poly.length][1] - poly[(i + 1) % poly.length][0] * q[1], 0) / 2
+  // The hole wound against the outline
+  const inner = hole?.length > 2 ? (area(hole) > 0 ? [...hole].reverse() : [...hole]) : []
+  const pts = [...outer, ...inner]
+  const tris = holeTriangles(outer, inner)
+  const n = pts.length
+  const positions = []
+  for (const h of [z, z + t]) for (const [x, s] of pts) positions.push(...worldPoint(a, s, x, h))
+  const idx = []
+  for (const [i, j, k] of tris) idx.push(i, k, j, n + i, n + j, n + k)
+  // Walls round the outline and the hole, each edge a quad from the bottom to the top
+  const ring = (from, count) => {
+    for (let i = 0; i < count; i++) {
+      const u = from + i
+      const v = from + ((i + 1) % count)
+      idx.push(u, v, n + v, u, n + v, n + u)
+    }
+  }
+  ring(0, outer.length)
+  if (inner.length) ring(outer.length, inner.length)
+  return { positions: new Float32Array(positions), indices: new Uint32Array(idx) }
+}
+
+// Triangles ([i, j, k], indices into outer then hole) covering a polygon (anticlockwise, [x, s]
+// corners) less a hole wound the other way: the hole joined to the outline by a bridge from its
+// furthest corner along x, then ears clipped. Without a hole, the polygon alone.
+function holeTriangles(outer, hole) {
+  const pts = [...outer, ...hole]
+  let ring = outer.map((_, i) => i)
+  if (hole.length) {
+    // The hole's corner furthest along x (nearest the outline's first corner across, for a tie),
+    // joined to the nearer of the outline's corners beyond it
+    const m = outer.length
+    let h = 0
+    for (let i = 1; i < hole.length; i++) if (hole[i][0] > hole[h][0] + 1e-12) h = i
+    const far = (i) => outer[i][0]
+    const beyond = outer.map((_, i) => i).filter((i) => far(i) >= hole[h][0] - 1e-12)
+    const o = beyond.reduce((best, i) => (Math.hypot(outer[i][0] - hole[h][0], outer[i][1] - hole[h][1]) < Math.hypot(outer[best][0] - hole[h][0], outer[best][1] - hole[h][1]) ? i : best), beyond[0])
+    // Of the hole's corners as far along x, the one nearest that outline corner
+    const ties = hole.map((_, i) => i).filter((i) => Math.abs(hole[i][0] - hole[h][0]) < 1e-12)
+    h = ties.reduce((best, i) => (Math.abs(hole[i][1] - outer[o][1]) < Math.abs(hole[best][1] - outer[o][1]) ? i : best), h)
+    const loop = hole.map((_, i) => m + ((h + i) % hole.length))
+    ring = [...ring.slice(0, o + 1), ...loop, m + h, ...ring.slice(o)]
+  }
+  const cross = (a, b, c) => (pts[b][0] - pts[a][0]) * (pts[c][1] - pts[a][1]) - (pts[b][1] - pts[a][1]) * (pts[c][0] - pts[a][0])
+  const same = (i, j) => Math.abs(pts[i][0] - pts[j][0]) < 1e-12 && Math.abs(pts[i][1] - pts[j][1]) < 1e-12
+  const inTri = (p, a, b, c) => cross(a, b, p) > 1e-15 && cross(b, c, p) > 1e-15 && cross(c, a, p) > 1e-15
+  const out = []
+  let guard = 0
+  while (ring.length > 3 && guard++ < 10000) {
+    let cut = false
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[(i + ring.length - 1) % ring.length]
+      const b = ring[i]
+      const c = ring[(i + 1) % ring.length]
+      const turn = cross(a, b, c)
+      // A corner on a straight run goes without a triangle
+      if (Math.abs(turn) < 1e-15) {
+        if (!same(a, c)) {
+          ring.splice(i, 1)
+          cut = true
+          break
+        }
+        continue
+      }
+      if (turn < 0) continue
+      if (ring.some((q) => q !== a && q !== b && q !== c && !same(q, a) && !same(q, b) && !same(q, c) && inTri(q, a, b, c))) continue
+      out.push([a, b, c])
+      ring.splice(i, 1)
+      cut = true
+      break
+    }
+    if (!cut) break
+  }
+  if (ring.length === 3 && Math.abs(cross(ring[0], ring[1], ring[2])) > 1e-15) out.push([ring[0], ring[1], ring[2]])
+  return out
+}
+
 // One of a servo's solids (servos.js placeServo) as a mesh: a box swept across the span, or a
 // cylinder: round in section along the span, or swept across it as the chord (or height) the
 // circle has at each station when it stands on the chord or the height.
@@ -1049,7 +1132,13 @@ export function wing3d(a, structure, parts, linkages = null) {
     const servo = { id: `servo-${b.name}`, name: `${b.servo.label} servo, ${b.name}`, servo: b.servo }
     const platePiece = { id: `plate-${b.name}`, name: `Servo plate, ${b.name}`, material: 'ply-birch' }
     for (const p of sp) add(p.kind, servoSolid(a, p), null, servo)
-    for (const q of plate.pieces) add('plate', sweep(a, q.s0, q.s1, (s) => rect(...q.x(s), plate.z, plate.z + plate.thickness), q.turned ? 12 : 1), pick, platePiece)
+    // One solid: the plate's rectangle with the cut-out through it (the strips when the cut-out
+    // reaches the plate's edge)
+    const p = b.plate
+    const hole = b.cutPoly
+    const inside = hole && hole.every(([x, s]) => x > p.x0 + 1e-6 && x < p.x1 - 1e-6 && s > p.s0 + 1e-6 && s < p.s1 - 1e-6)
+    if (!hole || inside) add('plate', plateSolid(a, p, hole, plate.z, plate.thickness), pick, platePiece)
+    else for (const q of plate.pieces) add('plate', sweep(a, q.s0, q.s1, (s) => rect(...q.x(s), plate.z, plate.z + plate.thickness), q.turned ? 12 : 1), pick, platePiece)
   }
 
   // Each servo's arm, horn and pushrod at surface neutral (bayLinkage.js linkageSolids, in the

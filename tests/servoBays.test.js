@@ -8,9 +8,10 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure, spanLoads, MIN_MATERIAL } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
-import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox } from '../src/lib/wing3d.js'
+import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox, plateSolid } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC, xRangeAt } from '../src/lib/servos.js'
+import { bayLinkages } from '../src/lib/bayLinkage.js'
 
 function inside(poly, [x, y]) {
   let c = false
@@ -263,16 +264,18 @@ describe('built servo bays', () => {
       expect(o.w).toBeCloseTo(b.width, 9) // the gap between the rib faces
       expect(o.h).toBeCloseTo(b.plate.x1 - b.plate.x0, 9)
       // The cut-out: what of the servo passes through the plate, half way up it on its side
-      // (the case, its lugs on edge, the output boss and the lead's stub), and the gap round it
+      // (the case, its lugs on edge, the output boss and the lead's stub), and a slot where its arm
+      // swings through the plate, each with the gap round it
+      expect(b.cutRects).toHaveLength(b.servo.plan.rects.length + 1)
       const cut = bounds(plate.holes[0])
-      expect(cut.w).toBeCloseTo(b.servo.plan.cut.s[1] - b.servo.plan.cut.s[0], 9)
-      expect(cut.h).toBeCloseTo(b.servo.plan.cut.x[1] - b.servo.plan.cut.x[0], 9)
+      expect(cut.w).toBeCloseTo(b.cut.s1 - b.cut.s0, 9)
+      expect(cut.h).toBeCloseTo(b.cut.x1 - b.cut.x0, 9)
       expect(cut.h).toBeGreaterThan(b.servo.lugSpan)
       // Where the servo is across (from the bay's centre, not the plate's when the tray sits
       // between the wing's own ribs) and along, and at least the plate's edge of ply all round
-      expect((cut.x0 + cut.x1) / 2).toBeCloseTo(b.s + (b.servo.plan.cut.s[0] + b.servo.plan.cut.s[1]) / 2 - b.plate.s0, 9)
+      expect((cut.x0 + cut.x1) / 2).toBeCloseTo((b.cut.s0 + b.cut.s1) / 2 - b.plate.s0, 9)
       expect(Math.min(cut.x0 - o.x0, o.x1 - cut.x1, cut.y0 - o.y0, o.y1 - cut.y1)).toBeGreaterThanOrEqual(PLATE_EDGE - 1e-9)
-      expect(cut.y0 - o.y0).toBeCloseTo((b.case.x0 + b.case.x1) / 2 + b.servo.plan.cut.x[0] - b.plate.x0, 9)
+      expect(cut.y0 - o.y0).toBeCloseTo(b.cut.x0 - b.plate.x0, 9)
       // On its side its lugs stand on edge, so no screws: the plate is a frame, and its note says
       // how to fix the servo
       expect(plate.holes).toHaveLength(1)
@@ -556,15 +559,70 @@ describe('servo bays in the exports and the 3D view', () => {
     expect(m.cutPoly.length).toBeGreaterThan(4)
   })
 
+  it('puts the plate where the lead clears it, not half way up an ordinary servo where its lead leaves', () => {
+    for (const id of ['micro', 'standard', 'hitec-hs-5125mg', 'hitec-hs-125mg', 'hitec-hs-85mg', 'futaba-s3150', 'hitec-hs-645mg']) {
+      const v = installedServo(id, 2)
+      const parts = placeServo(v, { x: 0, s: 0, base: 0 })
+      const z0 = v.lugHeight + v.lugThickness
+      const lead = parts.find((p) => p.kind === 'servoLead').box
+      expect(lead.z[0] >= z0 + v.plate - 1e-9 || lead.z[1] <= z0 + 1e-9, id).toBe(true)
+    }
+    // A generic micro servo's lead leaves its end 5 to 7 mm up its 12.2 mm width, where the plate
+    // half way up would be: it goes as near half way as clears it
+    const m = installedServo('micro', 2)
+    const z = m.lugHeight + m.lugThickness
+    expect(Math.abs(z - m.height / 2)).toBeGreaterThan(0.0005)
+    // A wing servo's plate is still on its flat lugs, with its screw holes
+    const w = installedServo('hitec-hs-5125mg', 2)
+    expect(w.plan.screws.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('cuts a slot in the plate where the arm swings through it, so the arm clears it', () => {
+    for (const [cls, link] of [['micro', null], ['hitec-hs-5125mg', null], ['standard', { hornFace: 'top' }], ['mini', { travel: 60 }]]) {
+      const r = build({ bays: [{ surface: aileron.id, class: cls, ...(link ? { link } : {}) }, { surface: flap.id, enabled: false }] })
+      const b = r.a.bays.find((x) => x.surface === aileron.id)
+      const controls = { ...r.controls }
+      const l = bayLinkages(r.a, controls).get(aileron.id)
+      const { plate } = servoBayParts(r.a, r.st, b)
+      const arm = l.solids.find((x) => x.kind === 'servoArm').rings.flat()
+      // Every corner of the arm's bar within the plate's thickness is inside the cut-out
+      for (const [x, s, z] of arm) {
+        if (z < plate.z - 1e-9 || z > plate.z + plate.thickness + 1e-9) continue
+        const inCut = b.cutRects.some((q) => {
+          const xr = xRangeAt(q, s)
+          return xr && x >= xr[0] - 1e-9 && x <= xr[1] + 1e-9
+        })
+        expect(inCut, `${cls}: arm at ${x}, ${s}, ${z}`).toBe(true)
+      }
+    }
+  })
+
   it('builds a servo and a mount plate in 3D, the servo standing inside the skins', () => {
     const m = wing3d(res.a, res.st, res.parts)
-    // Per bay: the case and its two lugs, the output boss and the lead; the plate in strips round
-    // the cut-out, split where its outline steps for the lugs, the boss and the lead
+    // Per bay: the case and its two lugs, the output boss and the lead; the plate as one solid
+    // with its cut-out through it
     const n = res.a.bays.length
     expect(m.solids.filter((s) => s.kind === 'servo')).toHaveLength(3 * n)
     expect(m.solids.filter((s) => s.kind === 'servoOutput')).toHaveLength(n)
     expect(m.solids.filter((s) => s.kind === 'servoLead')).toHaveLength(n)
-    expect(m.solids.filter((s) => s.kind === 'plate').length).toBeGreaterThanOrEqual(4 * n)
+    expect(m.solids.filter((s) => s.kind === 'plate')).toHaveLength(n)
+    // Its top covers the plate less the cut-out, no more and no less
+    for (const b of res.a.bays) {
+      const sol = plateSolid({ ...res.a, sampler: { at: (s) => ({ y: s, z: 0 }), reach: 10 } }, b.plate, b.cutPoly, 0, 0.002)
+      const P = sol.positions
+      const half = P.length / 6
+      let top = 0
+      for (let i = 0; i < sol.indices.length; i += 3) {
+        const [u, v, w] = [sol.indices[i], sol.indices[i + 1], sol.indices[i + 2]]
+        if (u < half || v < half || w < half) continue
+        const q = (k) => [P[3 * k + 2], P[3 * k]]
+        const [A, B, C] = [q(u), q(v), q(w)]
+        top += Math.abs((B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0])) / 2
+      }
+      const hole = Math.abs(b.cutPoly.reduce((t, p, i) => t + p[0] * b.cutPoly[(i + 1) % b.cutPoly.length][1] - b.cutPoly[(i + 1) % b.cutPoly.length][0] * p[1], 0)) / 2
+      // (to the 32-bit floats the mesh holds)
+      expect(top).toBeCloseTo((b.plate.x1 - b.plate.x0) * (b.plate.s1 - b.plate.s0) - hole, 7)
+    }
     for (const b of res.a.bays) {
       const box = servoBox(res.a, res.st, b)
       expect(box.top).toBeCloseTo(box.base + b.servo.height, 9)

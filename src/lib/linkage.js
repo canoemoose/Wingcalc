@@ -181,6 +181,16 @@ export const hornById = (id) => HORNS.find((h) => h.id === id) ?? null
 const HORN_FOR = { 'sub-micro': 'du-bro-848', micro: 'du-bro-848', mini: 'du-bro-107', standard: 'du-bro-105' }
 export const defaultHorn = (servo) => hornById(HORN_FOR[servo?.class ?? servo?.id] ?? 'du-bro-848')
 
+// Sizes the arm, horn and pushrod are drawn and checked at, by the arm's or horn's size, m: the
+// arm's width and thickness and how far its end runs past its outer hole; the horn plate's
+// thickness, its base along its plane as a share of its height, and its tip; the pushrod wire's
+// radius (1.2, 1.6 and 2 mm wire)
+export const PART_SIZES = {
+  arm: { micro: { width: 0.0045, thickness: 0.002, tip: 0.0025 }, standard: { width: 0.006, thickness: 0.0025, tip: 0.003 }, large: { width: 0.008, thickness: 0.003, tip: 0.004 } },
+  horn: { micro: 0.0015, mini: 0.0015, standard: 0.002, large: 0.0025, base: 0.7, tip: 0.004 },
+  rod: { micro: 0.0006, standard: 0.0008, large: 0.001 },
+}
+
 // ---------------------------------------------------------------------------------------------
 // Geometry. The assembly in the wing's flat frame (x aft along the chord, s along the span, z
 // up), m: the arm's hole circles about the servo's output axis, the horn's hole swings about the
