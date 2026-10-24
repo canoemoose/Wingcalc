@@ -10,7 +10,7 @@ import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
 import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC } from '../src/lib/servos.js'
 
 function inside(poly, [x, y]) {
   let c = false
@@ -153,7 +153,9 @@ describe('where a bay goes', () => {
     const v = SERVOS.micro // 2 kg: micro
     expect(b1.class).toBe('micro')
     // On its side: as wide as its height
-    expect(b1.width).toBeCloseTo(b1.servo.width + 2 * SERVO_CLEARANCE, 9)
+    // The servo and the arm on its output, with their clearance, and clear of the cap strips
+    expect(b1.width).toBeCloseTo(b1.servo.bayWidth, 9)
+    expect(b1.servo.bayWidth).toBeGreaterThanOrEqual(b1.servo.width + 2 * SERVO_CLEARANCE + 2 * ARM_ROOM - 1e-9)
     expect(b1.servo.width).toBeGreaterThanOrEqual(v.height)
     // The ribs' centres are half the gap and half a rib out from the centre
     expect(b1.sB - b1.sA).toBeCloseTo(b1.width + 0.002, 9)
@@ -165,7 +167,7 @@ describe('where a bay goes', () => {
     const [b] = place([aileron], [{ surface: 1, class: 'standard', at: 0.6 }])
     expect(b.class).toBe('standard')
     expect(b.s).toBeCloseTo(0.6, 9)
-    expect(b.width).toBeCloseTo(b.servo.width + 2 * SERVO_CLEARANCE, 9)
+    expect(b.width).toBeCloseTo(b.servo.bayWidth, 9)
     expect(b.servo.width).toBeGreaterThanOrEqual(SERVOS.standard.width)
   })
 
@@ -203,18 +205,20 @@ describe('built servo bays', () => {
   const [b1, b2] = res.a.bays
 
   it("sits each tray between two of the wing's own ribs when the servo fits, with none between", () => {
-    for (const b of res.a.bays) {
+    // Ribs up to 180 mm apart (none at a bay's centre) leave room for a micro servo and its arm in a
+    // rib bay, so the tray uses the wing's ribs
+    const wide = build({ edit: (st) => Object.assign(st.ribs, { spacing: 'uniform', pitch: 0.18 }) })
+    for (const b of wide.a.bays) {
       expect(b.ok).toBe(true)
-      // The default spacing leaves room for a micro servo in a rib bay, so the tray uses the wing's ribs
       expect(b.onRibs).toBe(true)
       for (const s of [b.sA, b.sB]) {
-        const rib = res.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)
+        const rib = wide.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)
         expect(rib, `rib at ${s}`).toBeTruthy()
       }
       // And no rib between them
-      expect(res.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
+      expect(wide.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
     }
-    expect(res.skipped).toEqual([])
+    expect(wide.skipped).toEqual([])
   })
 
   it('gives a servo too wide for the rib spacing a pair of hard-point ribs of its own', () => {

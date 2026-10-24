@@ -1313,7 +1313,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const brakes = brakeLayouts(ctx, controls, surfaces)
   const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
   const hosts = [...surfaces, ...brakeHosts(brakes, teFront)]
-  const placement = () => placeBays({ sampler, surfaces: hosts, controls, mass, ribThickness: structure.ribs.thickness })
+  // How far the cap strips stand proud of a rib's faces, which a bay keeps its servo and arm clear of
+  const capOverhang = !foam && structure.covering.capStrips ? Math.max(0, ((structure.covering.capStripWidth || 0) - (structure.ribs.thickness || 0)) / 2) : 0
+  const placement = () => placeBays({ sampler, surfaces: hosts, controls, mass, ribThickness: structure.ribs.thickness, capOverhang })
   let bays = bayLayouts(ctx, hosts, placement())
   // The servos hang where they are placed, whichever ribs their trays end up between
   const relief = servoMasses(bays)
@@ -1425,7 +1427,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   // bays) spans that rib bay; the rest get a pair of ribs of their own a servo's width apart
   if (!foam && bays.some((b) => b.ok)) {
     const plain = ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds])
-    const trays = fitBaysToRibs(bays, plain, structure.ribs.thickness)
+    const trays = fitBaysToRibs(bays, plain, structure.ribs.thickness, capOverhang)
     if (trays.size) {
       const again = placement()
       for (const b of again) if (trays.has(b.id)) Object.assign(b, trays.get(b.id), { onRibs: true })

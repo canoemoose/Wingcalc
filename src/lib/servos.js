@@ -119,6 +119,9 @@ export const SCREW_EDGE = 0.001
 export const SERVO_CLEARANCE = CUTOUT_GAP + PLATE_EDGE
 // The top of the case's clearance under the upper skin, m
 export const SERVO_HEADROOM = 0.002
+// Room for the arm on the output beyond the spline's top, along the output's axis: its seat and
+// its thickness, the hub included (the largest arms': bayLinkage.js PART_SIZES), m
+export const ARM_ROOM = 0.005
 
 // ---------------------------------------------------------------------------------------------
 // Hitec catalogue. Each entry is a real servo; the generic classes above remain the fallback.
@@ -393,6 +396,11 @@ export function installedServo(id, mass = 0, pose = {}) {
   const sq = partsExtent(square)
   const kase = square[0].box
   const lift = -ext.z[0]
+  // Across the span, the arm on the output too: ARM_ROOM beyond the spline's top along its axis
+  const f = frame
+  const tip = servoPoint(base, { x: 0, s: 0, base: 0 }, [f.output.offset, 0, Math.max(f.height, f.output.top)])[1]
+  const armS = tip + ARM_ROOM * servoDir(base, [0, 0, 1])[1]
+  const across = [Math.min(ext.s[0], armS), Math.max(ext.s[1], armS)]
   const plateZ = plateHeight(square, frame.lugThickness, ext.z) + lift
   const flat = platePlan(square, plateZ - lift, cls.plate, found.pilot ?? cls.pilot)
   const rot = ([x, q]) => turnPoint([x, q], yaw)
@@ -410,9 +418,10 @@ export function installedServo(id, mass = 0, pose = {}) {
     caseWidth: kase.s[1] - kase.s[0],
     run: 2 * Math.max(-ext.x[0], ext.x[1]),
     width: 2 * Math.max(-ext.s[0], ext.s[1]),
-    // The bay between the rib faces: the servo and its clearance, or the plate's cut-out and its
-    // edge of ply where turning the servo takes the cut-out's corners further
-    bayWidth: Math.max(2 * Math.max(-ext.s[0], ext.s[1]) + 2 * SERVO_CLEARANCE, plan.cut ? 2 * Math.max(-plan.cut.s[0], plan.cut.s[1]) + 2 * PLATE_EDGE : 0),
+    // The bay between the rib faces: the servo and the arm on its output, with their clearance,
+    // or the plate's cut-out and its edge of ply where turning the servo takes the cut-out's
+    // corners further
+    bayWidth: Math.max(2 * Math.max(-across[0], across[1]) + 2 * SERVO_CLEARANCE, plan.cut ? 2 * Math.max(-plan.cut.s[0], plan.cut.s[1]) + 2 * PLATE_EDGE : 0),
     height: ext.z[1] - ext.z[0],
     lift,
     lugHeight: plateZ - frame.lugThickness,
@@ -771,7 +780,7 @@ export const dropBay = (controls, surfaceId) => ({ ...controls, bays: (controls.
 // sticks out past the ends of its surface. Only the ok ones are built and weighed. face (the
 // horn's, which the servo sits against), fore and inset are the settings structure.js bayLayouts
 // and wing3d.js servoBox place it by.
-export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.002 }) {
+export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.002, capOverhang = 0 }) {
   const out = []
   const idOrder = (a, b) => (typeof a.id === 'number' && typeof b.id === 'number' ? a.id - b.id : String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true }))
   const order = [...(surfaces ?? [])].sort((a, b) => (a.s0 ?? Infinity) - (b.s0 ?? Infinity) || idOrder(a, b))
@@ -794,7 +803,8 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
       continue
     }
     const p = sampler.ends[r.panelIndex]
-    const width = servo.bayWidth ?? servo.width + 2 * SERVO_CLEARANCE
+    // Clear of the cap strips too, where they stand proud of the rib faces at the skin
+    const width = (servo.bayWidth ?? servo.width + 2 * SERVO_CLEARANCE) + 2 * Math.max(0, capOverhang)
     const half = width / 2 + t / 2
     const centres = !r.beside && Number.isFinite(cfg.along) ? [r.s0 + cfg.along] : Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - half, r.beside[1] + half] : [r.s0 + (r.s1 - r.s0) / 3]
     for (const s of centres) {
@@ -827,13 +837,13 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
 // servo and its clearance fit between their faces with no rib in the way. Returns a Map of bay
 // id -> { sA, sB, width } for the bays that fit; the others keep ribs of their own. An air
 // brake's bay shares the brake's box rib, so it's left as it is.
-export function fitBaysToRibs(bays, ribs, ribThickness = 0) {
+export function fitBaysToRibs(bays, ribs, ribThickness = 0, capOverhang = 0) {
   const out = new Map()
   const t = Math.max(0, ribThickness)
   const sorted = [...(ribs ?? [])].sort((p, q) => p.s - q.s)
   for (const b of bays ?? []) {
     if (!b.ok || b.brake) continue
-    const half = (b.servo.bayWidth ?? b.servo.width + 2 * SERVO_CLEARANCE) / 2 + t / 2
+    const half = (b.servo.bayWidth ?? b.servo.width + 2 * SERVO_CLEARANCE) / 2 + Math.max(0, capOverhang) + t / 2
     const inner = [...sorted].reverse().find((r) => r.s <= b.s - half + 1e-9)
     const outer = sorted.find((r) => r.s >= b.s + half - 1e-9)
     if (!inner || !outer) continue

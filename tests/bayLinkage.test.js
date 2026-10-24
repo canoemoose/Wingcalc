@@ -261,6 +261,23 @@ describe('the arm and pushrod outside the wing', () => {
     expect(deep.l.warnings.find((w) => w.id === 'linkage-inside-1').message).toMatch(/nearer the bottom skin/)
   })
 
+  it("keeps every servo's arm clear of the bay's ribs and their cap strips, its output either way", () => {
+    for (const cls of ['sub-micro', 'micro', 'mini', 'standard', 'hitec-hs-5125mg', 'hitec-hs-645mg', 'futaba-s3150']) {
+      for (const pose of [{}, { rotate: true }]) {
+        const { a, l } = linked({ surface: 1, class: cls, ...pose })
+        const tag = `${cls} ${JSON.stringify(pose)}`
+        expect(l.fit.clashes, tag).not.toContain('rib')
+        // The arm's plane, half its thickness either side, inside the cap strips' edges
+        const g = assemblyGeometry(l.frame, l.bay.servo, l.c, l.c.armHole, l.c.hornHole, l.c.face)
+        const cov = a.structure.covering
+        const cap = (cov.capStripWidth - a.structure.ribs.thickness) / 2
+        const halfT = 0.0015
+        expect(g.pivot[1] - halfT, tag).toBeGreaterThan(l.bay.inner[0] + cap)
+        expect(g.pivot[1] + halfT, tag).toBeLessThan(l.bay.inner[1] - cap)
+      }
+    }
+  })
+
   it('warns when the pushrod rubs on the skin between the arm and the horn', () => {
     const { a, l } = linked({ surface: 1 })
     expect(linkageFit(a, l.bay, l.frame, l.c).clashes).toEqual([])

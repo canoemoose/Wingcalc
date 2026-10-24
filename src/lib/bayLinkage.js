@@ -564,15 +564,30 @@ export function linkageFit(a, b, frame, c) {
     })
   }
 
-  // Inside the wing, the arm's end clear of the bay's ribs
-  const ends = sweep.map((x) => v3.add(g.pivot, v3.mul(L.armDir(armAngle(r, x)), reach)))
+  // Inside the wing and through the skin, the whole arm clear of the bay's rib faces, and of the
+  // cap strips where they stand proud of them at the skin
   const ribs = b.inner ?? [b.sA, b.sB]
-  // The arm's end reaches this far along the span either side of its centre line: half its
-  // width across it and half its thickness along the output's axis, as they lie
+  const cov = st.covering
+  const cap = cov?.capStrips && st.construction !== 'foam' ? Math.max(0, ((cov.capStripWidth || 0) - (st.ribs?.thickness || 0)) / 2) : 0
+  // The arm reaches this far along the span either side of its centre line: half its width
+  // across it and half its thickness along the output's axis, as they lie
   const spread = (t) => Math.abs(v3.cross(L.a, L.armDir(t))[1]) * (A.width / 2) + Math.abs(L.a[1]) * half
-  if (ends.some((p, i) => inWing(p) && (p[1] - spread(armAngle(r, sweep[i])) < ribs[0] || p[1] + spread(armAngle(r, sweep[i])) > ribs[1]))) {
+  const hits = (p, t) => {
+    if (!onChord(p)) return false
+    const atSkin = outside(p) <= 0 && beyondInner(p) > -half
+    if (!atSkin && !inWing(p)) return false
+    const lo = ribs[0] + (atSkin ? cap : 0)
+    const hi = ribs[1] - (atSkin ? cap : 0)
+    return p[1] - spread(t) < lo || p[1] + spread(t) > hi
+  }
+  const into = sweep.some((x) => {
+    const t = armAngle(r, x)
+    const dir = L.armDir(t)
+    return Array.from({ length: 21 }, (_, i) => v3.add(g.pivot, v3.mul(dir, (reach * i) / 20))).some((p) => hits(p, t))
+  })
+  if (into) {
     out.clashes.push('rib')
-    out.warnings.push({ id: `linkage-rib-${b.surface}`, message: `${name}: its arm sweeps into the bay's ribs. Use a shorter arm or an inner hole.` })
+    out.warnings.push({ id: `linkage-rib-${b.surface}`, message: `${name}: its arm runs into the bay's rib${cap > 0 ? ' or its cap strip' : ''}. Use a shorter arm or an inner hole, or move the bay.` })
   }
   return out
 }
