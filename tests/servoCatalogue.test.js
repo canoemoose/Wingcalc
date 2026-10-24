@@ -219,10 +219,12 @@ describe('arms', () => {
     const part = (p) => ARMS.find((a) => a.part === p)
     // A retailer's measured Hitec-fit set
     expect(part('55709').holes[0].radii).toEqual([0.0115, 0.0155, 0.019, 0.0225])
-    // 1.5 in to its outer hole, aluminium at 4.8 mm, three holes
-    expect(part('FSH-T2').holes[0].radii).toEqual([0.0285, 0.0333, 0.0381])
-    // 0.75 in micro aluminium
-    expect(part('55707').holes[0].radii.at(-1)).toBeCloseTo(0.01905, 9)
+    // 1.5 in from the pivot to its tip, the outer hole 2.5 mm in, aluminium at 4.8 mm, three holes
+    expect(part('FSH-T2').holes[0].radii).toEqual([0.026, 0.0308, 0.0356])
+    // 0.75 in micro aluminium: 2 mm in
+    expect(part('55707').holes[0].radii.at(-1)).toBeCloseTo(0.01705, 9)
+    // A double sold by length is that long each side
+    expect(part('FSH-6E').holes[0].radii.at(-1)).toBeCloseTo(0.0229, 9)
   })
 
   it('offers a servo its own maker\'s arms on its spline, or made for it by name', () => {

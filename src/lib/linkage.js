@@ -26,8 +26,9 @@
 // Left out: sail-winch arms and drums (HS-815BB, HS-715BB/765HB, HS-725, Futaba FSH-38), which
 // aren't for control surfaces.
 //
-// Estimating holes. An arm sold by its length (0.75 in, 1 in, 20 mm) has its outermost hole at
-// that radius. Holes step inwards from it at a pitch, 2.4 mm (3/32 in) on micro arms, 3.5 mm on
+// Estimating holes. An arm sold by its length (0.75 in, 1 in, 20 mm) is taken to be that long
+// from the pivot to its tip (rather than overall: unmeasured), its outermost hole 2 mm (micro) or
+// 2.5 mm in from the tip. Holes step inwards from it at a pitch, 2.4 mm (3/32 in) on micro arms, 3.5 mm on
 // standard plastic ones (a retailer's measured Hitec-fit set: 11.5, 15.5, 19, 22.5 mm) and 4.8 mm
 // (3/16 in) on large and aluminium ones (two measured 24T aluminium arms: 19 and 24 mm, 19.75 and
 // 24.25 mm), as far as the boss allows (6, 9 and 12 mm from the pivot); an aluminium arm has
@@ -36,6 +37,9 @@ const PITCH = { micro: 2.4, plastic: 3.5, metal: 4.8 }
 const INNER = { micro: 6, standard: 9, large: 12 }
 const SEAT = { micro: 0.0015, standard: 0.002, large: 0.0025 }
 const mm = (x) => Math.round(x * 100) / 100000
+// The outermost hole of an arm sold by its length, mm: that far to its tip, the hole in from it
+const TIP = { micro: 2, standard: 2.5, large: 2.5 }
+const tip = (length, size) => length - TIP[size]
 
 // A row of holes from the outermost inwards, at most n of them, none nearer than inner (mm)
 const row = (arm, outer, pitch, inner, n = Infinity) => {
@@ -83,25 +87,25 @@ export const ARMS = [
   arm('Hitec', '55725', 'Mega horn set and hardware, 24T (HS-755HB/MG, HS-5765MH)', 'set', 'large', null, { holes: LARGE_SET, basis: LARGE, models: ['HS-755HB', 'HS-755MG', 'HS-5765MH'], source: 'https://hitecrcd.com/hs-5755-5765-mega-horn-set/' }),
   arm('Hitec', '55732', 'H25T heavy duty horn and hardware set, airplane', 'set', 'standard', 'H25T', { holes: STANDARD_SET, basis: RETAILER, source: 'https://hitecrcd.com/h25t-hd-horn-hdwr-airplane/' }),
   arm('Hitec', '55706', 'Micro 25T horn set and mounting hardware', 'set', 'micro', 'Micro 25', { holes: MICRO_SET, basis: MICRO, models: ['HS-65HB', 'HS-65MG', 'HS-5065MG', 'HS-70MG', 'HS-5070MH', 'HS-125MG', 'HS-5125MG'], source: 'https://hitecrcd.com/hs-125mg-5125mg-horn-set/' }),
-  arm('Hitec', '55707', 'MS-ML25 aluminium horn, 0.75 in, Micro 25T', 'single', 'micro', 'Micro 25', { holes: [metal('single', 19.05, INNER.micro)], basis: '0.75 in, its outer hole', source: 'https://hitecrcd.com/hs-125-5125mg-65mg-5065mg-70mg-5070mg-aluminum-horn/' }),
+  arm('Hitec', '55707', 'MS-ML25 aluminium horn, 0.75 in, Micro 25T', 'single', 'micro', 'Micro 25', { holes: [metal('single', tip(19.05, 'micro'), INNER.micro)], basis: '0.75 in, pivot to tip', source: 'https://hitecrcd.com/hs-125-5125mg-65mg-5065mg-70mg-5070mg-aluminum-horn/' }),
   arm('Hitec', '55718', 'Micro horn set, Micro 25T', 'set', 'micro', 'Micro 25', { holes: MICRO_SET, basis: MICRO, source: HITEC_HORNS }),
-  arm('Hitec', '55738', 'R-ML25 aluminium horn, 0.75 in, 25T', 'single', 'standard', null, { holes: [metal('single', 19.05, INNER.standard)], basis: '0.75 in, its outer hole', source: 'https://hitecrcd.com/25t-aluminum-servo-horn/' }),
+  arm('Hitec', '55738', 'R-ML25 aluminium horn, 0.75 in, 25T', 'single', 'standard', null, { holes: [metal('single', tip(19.05, 'standard'), INNER.standard)], basis: '0.75 in, pivot to tip', source: 'https://hitecrcd.com/25t-aluminum-servo-horn/' }),
   arm('Hitec', '56326', 'Micro horn set', 'set', 'micro', null, { holes: MICRO_SET, basis: MICRO, source: HITEC_HORNS }),
   arm('Hitec', '55713', 'Heavy duty horn set (HS-755HB/MG)', 'set', 'large', null, { holes: LARGE_SET, basis: LARGE, models: ['HS-755HB', 'HS-755MG'], source: HITEC_HORNS }),
   arm('Hitec', '55723', 'Mega servo aluminium double-sided horn', 'double', 'large', null, { holes: [metal('each side', 30, INNER.large)], basis: "a large aluminium arm's usual 30 mm", source: HITEC_HORNS }),
 
   arm('Futaba', 'FSH-6X', '4-arm plastic servo horn (horn A)', 'cross', 'standard', 'Φ6', { holes: [row('long', 20, PITCH.plastic, INNER.standard), row('short', 15, PITCH.plastic, INNER.standard)], basis: "a Futaba-fit cross 44 mm across (lindinger.at): long arms' outer hole 20 mm, short 15 mm", inferred: true, source: 'https://futabausa.com/product/fsh-6x/' }),
   arm('Futaba', 'FSH-6S', '6-arm plastic servo horn, star (horn B)', 'star', 'standard', 'Φ6', { holes: [row('each arm', 14, PITCH.plastic, INNER.standard)], basis: "a star's usual 14 mm arms", inferred: true, source: 'https://futabausa.com/product/fsh-6s/' }),
-  arm('Futaba', 'FSH-6E', '1 in double plastic horn (horn E)', 'double', 'standard', 'Φ6', { holes: [row('each side', 25.4, PITCH.plastic, INNER.standard)], basis: '1 in, its outer hole', inferred: true, source: 'https://futabausa.com/product/fsh-6e/' }),
+  arm('Futaba', 'FSH-6E', '1 in double plastic horn (horn E)', 'double', 'standard', 'Φ6', { holes: [row('each side', tip(25.4, 'standard'), PITCH.plastic, INNER.standard)], basis: '1 in, pivot to tip, each side', inferred: true, source: 'https://futabausa.com/product/fsh-6e/' }),
   arm('Futaba', 'FSH-6F', 'Plastic double horn', 'double', 'standard', 'Φ6', { holes: [row('each side', 22, PITCH.plastic, INNER.standard)], basis: "a standard double arm's usual 22 mm a side", inferred: true, source: FUTABA_HORNS }),
   arm('Futaba', 'FSH-6T', 'Heavy duty T horn', 'tee', 'standard', 'Φ6', { holes: [row('long', 22, PITCH.plastic, INNER.standard), row('short', 12, PITCH.plastic, INNER.standard)], basis: "a T horn's usual 22 mm arm and 12 mm cross-bar", inferred: true, source: FUTABA_HORNS }),
   arm('Futaba', 'FSH-6G', 'Large round plastic horn (horn G)', 'disc', 'standard', 'Φ6', { holes: [row('disc', 17, PITCH.plastic, 7)], basis: 'a large round horn about 40 mm across', inferred: true, source: 'https://futabausa.com/product/fsh-6g/' }),
   arm('Futaba', 'FSH-6R', 'Medium round wheel horn (horn C)', 'disc', 'standard', 'Φ6', { holes: [row('disc', 12.5, PITCH.plastic, 7)], basis: 'a medium wheel about 30 mm across', inferred: true, source: FUTABA_HORNS }),
   arm('Futaba', 'FSH-6W', 'Small round horn, standard stock', 'disc', 'standard', 'Φ6', { holes: [row('disc', 9, PITCH.micro, INNER.micro)], basis: 'a small round horn about 22 mm across', inferred: true, source: FUTABA_HORNS }),
-  arm('Futaba', 'FSH-T1', '1 in single aluminium horn (blue, red or silver)', 'single', 'standard', null, { holes: [metal('single', 25.4, INNER.standard)], basis: '1 in, its outer hole', source: FUTABA_HORNS }),
-  arm('Futaba', 'FSH-T2', '1.5 in single aluminium horn (blue, red or silver)', 'single', 'standard', null, { holes: [metal('single', 38.1, INNER.standard)], basis: '1.5 in, its outer hole', source: FUTABA_HORNS }),
-  arm('Futaba', 'FSH-T4', '20 mm single aluminium horn (blue, red or silver)', 'single', 'standard', null, { holes: [metal('single', 20, INNER.standard)], basis: '20 mm, its outer hole', source: FUTABA_HORNS }),
-  arm('Futaba', 'EBS0170', 'Aluminium clamping horn, 38 mm', 'single', 'standard', null, { holes: [metal('single', 38, INNER.standard)], basis: '38 mm, its outer hole', source: FUTABA_HORNS }),
+  arm('Futaba', 'FSH-T1', '1 in single aluminium horn (blue, red or silver)', 'single', 'standard', null, { holes: [metal('single', tip(25.4, 'standard'), INNER.standard)], basis: '1 in, pivot to tip', source: FUTABA_HORNS }),
+  arm('Futaba', 'FSH-T2', '1.5 in single aluminium horn (blue, red or silver)', 'single', 'standard', null, { holes: [metal('single', tip(38.1, 'standard'), INNER.standard)], basis: '1.5 in, pivot to tip', source: FUTABA_HORNS }),
+  arm('Futaba', 'FSH-T4', '20 mm single aluminium horn (blue, red or silver)', 'single', 'standard', null, { holes: [metal('single', tip(20, 'standard'), INNER.standard)], basis: '20 mm, pivot to tip', source: FUTABA_HORNS }),
+  arm('Futaba', 'EBS0170', 'Aluminium clamping horn, 38 mm', 'single', 'standard', null, { holes: [metal('single', tip(38, 'standard'), INNER.standard)], basis: '38 mm, pivot to tip', source: FUTABA_HORNS }),
   arm('Futaba', 'FSH-63', 'Micro servo horn pack, long type', 'set', 'micro', null, { holes: [row('single', 17, PITCH.micro, INNER.micro)], basis: 'a long micro arm, 17 mm', models: ['S3103', 'S3107', 'S3270SVi'], source: 'https://futabausa.com/product/fsh-63/' }),
   arm('Futaba', 'FSH-60', 'S3108 horn and screw pack', 'set', 'micro', null, { holes: MICRO_SET, basis: MICRO, models: ['S3108', 'S3108M'], source: 'https://futabausa.com/product/fsh-60/' }),
   arm('Futaba', 'FSH-6V', 'S3156 horn variety pack', 'set', 'micro', null, { holes: MICRO_SET, basis: MICRO, models: ['S3156'], source: FUTABA_HORNS }),
