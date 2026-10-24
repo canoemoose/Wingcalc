@@ -84,25 +84,23 @@ describe('a bay\'s frame', () => {
   it('tells which servos fit the bay\'s depth', () => {
     const choices = servoChoices(f, servoOptions(), 'side', 2)
     expect(choices.some((o) => o.fits)).toBe(true)
-    // Upright, a standard servo is too tall for a 12% wing's aileron bay... or it fits: either
-    // way the reason names both depths
-    const tall = servoChoices({ ...f, room: 0.01 }, servoOptions(), 'upright', 2)
+    // In a bay only 5 mm deep nothing fits, and the reason names both depths
+    const tall = servoChoices({ ...f, room: 0.005 }, servoOptions(), 'side', 2)
     const no = tall.find((o) => !o.fits)
-    expect(no.reason).toMatch(/^Needs \d+ mm of depth, the bay has 10 mm$/)
+    expect(no.reason).toMatch(/^Needs \d+ mm of depth, the bay has 5 mm$/)
     expect(servoFits({ room: 0.05 }, installedServo('micro')).ok).toBe(true)
   })
 })
 
-describe('an upright servo', () => {
-  it('solves with its arm swinging level', () => {
-    const a = build([{ surface: 1, mounting: 'upright' }])
-    const f = bayFrame(a, a.bays[0])
-    const c = configureBay(f, a.bays[0].servo, DEFAULT_LINK)
+describe('a flat servo', () => {
+  it('drives the surface once it is turned a quarter, its output along the span', () => {
+    // Unturned, its output points along the chord and its arm swings across the span
+    const a = build([{ surface: 1, mounting: 'flat' }])
+    expect(configureBay(bayFrame(a, a.bays[0]), a.bays[0].servo, DEFAULT_LINK).result.ok).toBe(false)
+    const t = build([{ surface: 1, mounting: 'flat', quarterTurn: true }])
+    const c = configureBay(bayFrame(t, t.bays[0]), t.bays[0].servo, DEFAULT_LINK)
     expect(c.result.ok).toBe(true)
     expect(c.result.fits).toBe(true)
-    // The arm's hole stays at the pivot's height: it swings in the wing's plane
-    const g = c.result.points.arm
-    expect(g[2]).toBeCloseTo(f.at.base + a.bays[0].servo.lift + a.bays[0].servo.frame.output.top + c.arm.seat, 9)
   })
 })
 
@@ -166,11 +164,16 @@ describe('the arm and pushrod in the wing', () => {
     expect(arm.hatch).toBe(true)
   })
 
-  it('warns when an upright arm sweeps into the ribs, or through the top skin', () => {
-    expect(ids(linked({ surface: 1, mounting: 'upright' }).l)).toContain('linkage-rib-1')
-    const tall = linked({ surface: 1, mounting: 'upright', class: 'standard' }).l
-    expect(ids(tall)).toContain('linkage-arm-top-1')
-    expect(tall.fit.slots.some((q) => q.what === 'arm' && q.surface === 'top' && !q.hatch)).toBe(true)
+  it('warns when a long arm sweeps through a skin outside the hatch, or into the ribs', () => {
+    // A large arm's outer hole, 30 mm, on a standard servo on its side
+    const long = { surface: 1, mounting: 'side', class: 'standard', link: { arm: 'generic-large', armHole: 3 } }
+    const up = linked(long).l
+    expect(ids(up)).toContain('linkage-arm-top-1')
+    expect(ids(up)).toContain('linkage-rib-1')
+    expect(up.fit.slots.some((q) => q.what === 'arm' && q.surface === 'top' && !q.hatch)).toBe(true)
+    // Pointing down, through the bottom skin beyond the hatch
+    const down = linked({ ...long, link: { ...long.link, facing: 1 } }).l
+    expect(ids(down)).toContain('linkage-arm-bottom-1')
   })
 
   it('warns when the pushrod is still inside the wing at the fixed hinge spar', () => {
@@ -184,7 +187,7 @@ describe('the arm and pushrod in the wing', () => {
   })
 
   it('draws the arm, horn and pushrod as closed, named pieces, flagged where they clash', () => {
-    for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, mounting: 'upright', class: 'standard' }]) {
+    for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, mounting: 'side', class: 'standard', link: { arm: 'generic-large', armHole: 3 } }]) {
       const { a, controls } = linked(bay)
       const links = bayLinkages(a, controls)
       const { parts } = buildParts(a, a.structure)
@@ -204,7 +207,7 @@ describe('the arm and pushrod in the wing', () => {
         expect([...edges.values()].every((n) => n === 2), `${x.kind} closed`).toBe(true)
       }
       const armClash = !!sol.find((x) => x.kind === 'servoArm').clash
-      expect(armClash).toBe(bay.class === 'standard')
+      expect(armClash).toBe(!!bay.link)
     }
   })
 })

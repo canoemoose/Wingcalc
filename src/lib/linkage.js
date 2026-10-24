@@ -186,7 +186,7 @@ export const defaultHorn = (servo) => hornById(HORN_FOR[servo?.class ?? servo?.i
 // up), m: the arm's hole circles about the servo's output axis, the horn's hole swings about the
 // hinge line, and the pushrod between them keeps its length. That's a spatial four-bar (two
 // revolutes joined by a rod with a ball or clevis at each end), so it covers an arm swinging in
-// the chord's plane (a servo on its side) and one swinging in the wing's (upright) alike. Both
+// the chord's plane (a servo on its side) and one swinging across the span alike. Both
 // joint equations reduce to a cos t + b sin t = c, solved in closed form (docs/methods.md).
 //
 // Angles: δ, the surface's deflection, positive trailing edge down; θ, the arm's angle about the

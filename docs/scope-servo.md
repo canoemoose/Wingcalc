@@ -108,7 +108,7 @@ Notes from building it:
 - `linkageFit` checks the arm's end over the travel used (skins' inner faces, the bay's rib faces) and the pushrod at mid travel and each end (skins, fixed hinge spar). Slots: the arm through the hatch is expected; through a skin elsewhere is warned; the pushrod's slot is drawn, not warned. Warnings `linkage-rib-`, `linkage-arm-top-`, `linkage-arm-bottom-`, `linkage-spar-`.
 - Flagged in both views: an arm or pushrod that clashes is amber in 3D (`clash` on the solid), the pushrod amber on the plan, and the slots dashed on the plan.
 - Not covered (backlog): slots as cut parts or in the DXF, the horn against the surface's own structure, a measured part size table.
-- Found while building it: the upright default's arm swept into the ribs in an ordinary aileron bay. On its side is now the default mounting (Matt, 24 October 2026: upright servos in a wing aren't really a thing); existing projects that never set a mounting change with it.
+- Found while building it: the upright default's arm swept into the ribs in an ordinary aileron bay. Upright is no longer a mounting (Matt, 24 October 2026: upright servos in a wing aren't really a thing): on its side is the default, and a bay saved upright loads on its side.
 
 ## Out of scope
 

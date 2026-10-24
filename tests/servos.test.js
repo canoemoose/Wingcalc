@@ -110,7 +110,7 @@ describe('Hitec drawings', () => {
 describe('servo shapes', () => {
   const extent = (parts, i) => [Math.min(...parts.filter((p) => p.box).map((p) => p.box[i][0])), Math.max(...parts.filter((p) => p.box).map((p) => p.box[i][1]))]
 
-  it('builds an upright servo: case, lugs either side at their height, output boss and lead', () => {
+  it('builds a servo in its own frame, standing on its base: case, lugs either side at their height, output boss and lead', () => {
     const f = servoFrame(servoById('hitec-hs-645mg'))
     const parts = servoParts(f)
     expect(parts[0]).toEqual({ kind: 'servo', box: [[-0.0204, 0.0204], [-0.01, 0.01], [0, 0.0378]] })
@@ -168,9 +168,9 @@ describe('servoById', () => {
 describe('servoEnvelope', () => {
   const s = { length: 0.03, width: 0.01, height: 0.04, thin: false }
 
-  it('stands an upright servo on its base', () => {
-    expect(servoEnvelope(s)).toEqual({ chord: 0.03, span: 0.01, depth: 0.04 })
-    expect(servoEnvelope(s, 'upright')).toEqual(servoEnvelope(s))
+  it("lies a servo on its side unless it is flat, an older save's upright too", () => {
+    expect(servoEnvelope(s)).toEqual(servoEnvelope(s, 'side'))
+    expect(servoEnvelope(s, 'upright')).toEqual(servoEnvelope(s, 'side'))
   })
 
   it('lies a servo on its side', () => {
@@ -187,7 +187,7 @@ describe('servoEnvelope', () => {
   })
 
   it('names every mounting it accepts', () => {
-    expect(Object.keys(MOUNTINGS)).toEqual(['upright', 'side', 'flat'])
+    expect(Object.keys(MOUNTINGS)).toEqual(['side', 'flat'])
   })
 })
 
@@ -271,12 +271,10 @@ describe('bay settings', () => {
 
 describe('the servo a bay holds', () => {
   it('turns a servo to its mounting: on its side it needs its width of depth, not its height', () => {
-    const up = installedServo('standard', 'upright')
     const side = installedServo('standard', 'side')
-    // Upright it needs its case and the output boss on top of it
-    expect(up.height).toBeCloseTo(up.frame.output.top, 9)
-    expect(up.height).toBeGreaterThan(SERVOS.standard.height)
     expect(side.height).toBe(SERVOS.standard.width)
+    // An older save's upright is on its side
+    expect(installedServo('standard', 'upright')).toMatchObject({ mounting: 'side', height: side.height, width: side.width })
     // On its side its height lies across the span, the boss beyond it, centred on the case
     expect(side.width).toBeGreaterThanOrEqual(SERVOS.standard.height)
     expect(side.lugHeight).toBeLessThan(side.height)

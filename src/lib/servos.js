@@ -11,7 +11,8 @@
 //   enabled   false once removed (default true: every surface has a bay)
 //   class     a servo: a class from SERVOS or a Hitec id, or null for the class that suits the
 //             model's weight
-//   mounting  'side' (default: its arm swings fore and aft), 'upright' or 'flat': see MOUNTINGS
+//   mounting  'side' (default: its arm swings fore and aft) or 'flat': see MOUNTINGS. Anything
+//             else (an older save's 'upright') is read as on its side
 //   along     where its centre is, m from the surface's inner end (surface.from), along the
 //             surface; null for a third of the way out along it
 //   at        the older panel-relative position, m from the panel's inner end; used only when
@@ -121,7 +122,7 @@ export const SERVO_HEADROOM = 0.002
 //   id, model, maker   the picker's id ('hitec-' + the model), the model name, 'Hitec'
 //   class              the generic class it's sized as, for plate and lead hole
 //   body               [length, width, height] of the case, m: length along the lugs (and the
-//                      chord, upright), width across, height from the base to the top of the
+//                      chord, on its side), width across, height from the base to the top of the
 //                      case or its gear tower, not counting the output spline
 //   lugSpan            the mounting lugs' overall length, m
 //   lugThickness       the lugs' thickness, m
@@ -288,16 +289,19 @@ export const FUTABA = FUTABA_FIGURES.map(futaba)
 export const CATALOGUE = [...HITEC, ...FUTABA]
 
 // The mounting a servo goes in, and the envelope it takes up in the wing: chord (along the
-// chord), span (across the span) and depth (from the skin inward). Upright stands the case on
-// its base; side lies it on its side; flat lays a thin wing servo in the wing's plane, its long
-// side across the span. Any servo may lie flat; the thin wing servos are simply the ones built for it.
-export const MOUNTINGS = { upright: 'Upright', side: 'On its side', flat: 'Flat (wing servo)' }
+// chord), span (across the span) and depth (from the skin inward). Side lies it on its side, its
+// arm swinging fore and aft; flat lays a thin wing servo in the wing's plane, its long side across
+// the span. Any servo may lie flat; the thin wing servos are simply the ones built for it. There's
+// no upright: a servo standing on its base would swing its arm across the span, into the bay's
+// ribs, which nobody builds.
+export const MOUNTINGS = { side: 'On its side', flat: 'Flat (wing servo)' }
+// A mounting as one of MOUNTINGS: anything else (an older save's 'upright') on its side
+export const mountingOf = (m) => (MOUNTINGS[m] ? m : 'side')
 
-export function servoEnvelope(servo, mounting = 'upright') {
+export function servoEnvelope(servo, mounting = 'side') {
   const [l, w, h] = servo.body ?? [servo.length, servo.width, servo.height]
-  if (mounting === 'side') return { chord: l, span: h, depth: w }
-  if (mounting === 'flat') return { chord: h, span: l, depth: w }
-  return { chord: l, span: w, depth: h }
+  if (mountingOf(mounting) === 'flat') return { chord: h, span: l, depth: w }
+  return { chord: l, span: h, depth: w }
 }
 
 // A catalogue entry by its id, or a generic class by its key (as { id, ...class }), or null
@@ -361,11 +365,11 @@ export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 // { quarter, yaw }, the servo turned in plan about its case's centre: a quarter turn (its length
 // across the span rather than along the chord), then yaw radians more (anticlockwise from above,
 // x towards s), as a bay square to its hinge is.
-export function installedServo(id, mounting = 'upright', mass = 0, turn = {}) {
+export function installedServo(id, mounting = 'side', mass = 0, turn = {}) {
   const found = servoById(id) ?? { id: defaultServoClass(mass), ...SERVOS[defaultServoClass(mass)] }
   const cls = SERVOS[found.class] ?? SERVOS[found.id] ?? SERVOS.micro
   const frame = servoFrame(found)
-  const mount = MOUNTINGS[mounting] ? mounting : 'upright'
+  const mount = mountingOf(mounting)
   const yaw = Number.isFinite(turn.yaw) ? turn.yaw : 0
   const base = {
     ...cls,
@@ -455,7 +459,7 @@ function partRanges(p) {
 }
 
 // The height of the mount plate's underside (placed parts, the case on z = 0): the top of the
-// lugs that lie flat in the wing's plane (an upright servo's, or a wing servo's laid flat),
+// lugs that lie flat in the wing's plane (a wing servo's laid flat),
 // the highest of them; with none lying flat (an ordinary servo on its side or flat, whose lugs
 // stand on edge), half way up the servo.
 function plateHeight(parts, t, zs) {
@@ -566,9 +570,9 @@ export function servoParts(frame) {
 // { axis: 'x' | 's' | 'z', x, s, z (the centre, the axis's own one unused), r, from, to }.
 // at: { x, s, base }, the case's centre along the chord, the bay's centre across the span (the
 // case's too) and the height the servo stands on (its lowest point; the case's base is lift
-// above it). Upright, its length runs along the chord with the lead end aft; on its side, the
-// same with its height across the span; flat, its height runs along the chord, output aft, and
-// its length across the span. A quarter turn (servo.quarter) turns all that a quarter about the
+// above it). On its side, its length runs along the chord with the lead end aft and its height
+// across the span; flat, its height runs along the chord, output aft, and its length across the
+// span. A quarter turn (servo.quarter) turns all that a quarter about the
 // case's centre, exactly, so boxes stay boxes; a yaw (servo.yaw, radians) more is carried by
 // each part as turn { yaw, x, s }, the turn about the case's centre its box or cylinder is to
 // be drawn with (planCorners, turnedSlice).
@@ -605,9 +609,8 @@ export function placeServo(servo, at) {
 // Frame (x along the case, y across it, z up its height) to wing (x, s, z) for a mounting: which
 // frame axis each wing axis takes, and the offset from the case's centre on its base
 function mountMap(mounting, f) {
-  if (mounting === 'side') return { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
-  if (mounting === 'flat') return { x: ['z', -f.height / 2], s: ['x', 0], z: ['y', f.width / 2] }
-  return { x: ['x', 0], s: ['y', 0], z: ['z', 0] }
+  if (mountingOf(mounting) === 'flat') return { x: ['z', -f.height / 2], s: ['x', 0], z: ['y', f.width / 2] }
+  return { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
 }
 
 // A placed part turned a quarter (x towards s) about at, exactly: x' = at.x - (s - at.s),
@@ -723,7 +726,8 @@ export function partSpan(p) {
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  return { surface: surfaceId, enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null, ...(saved ?? {}) }
+  const b = { surface: surfaceId, enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null, ...(saved ?? {}) }
+  return { ...b, mounting: mountingOf(b.mounting) }
 }
 
 // controls with one surface's bay settings changed. Settings that come back to the defaults

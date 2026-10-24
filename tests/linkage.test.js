@@ -109,7 +109,7 @@ describe('differential from the throws', () => {
   })
 })
 
-describe('an upright servo on a swept hinge', () => {
+describe('an arm swinging across the span, on a swept hinge', () => {
   // The arm swings in the wing's plane, the horn in the chord's: a spatial linkage
   const geom = {
     pivot: [-0.08, 0.02, 0.012],
@@ -156,24 +156,25 @@ describe('an upright servo on a swept hinge', () => {
 describe('hole positions as installed', () => {
   it('puts the arm on the output axis, a seat above the spline, turned with the mounting', () => {
     const at = { x: 0.1, s: 0.3, base: -0.01 }
-    const up = installedServo('hitec-hs-645mg', 'upright')
-    const p = outputPivot(up, at, 0.002)
-    expect(p.axis).toEqual([0, 0, 1])
-    expect(p.pivot[0]).toBeCloseTo(at.x + up.frame.output.offset, 9)
-    expect(p.pivot[1]).toBeCloseTo(at.s, 9)
-    expect(p.pivot[2]).toBeCloseTo(at.base + up.lift + up.frame.output.top + 0.002, 9)
-    // On its side the output points along the span; flat, along the chord
-    expect(outputPivot(installedServo('hitec-hs-645mg', 'side'), at).axis).toEqual([0, 1, 0])
+    // On its side the output points along the span, from the case's mid-height
+    const side = installedServo('hitec-hs-645mg', 'side')
+    const f = side.frame
+    const p = outputPivot(side, at, 0.002)
+    expect(p.axis).toEqual([0, 1, 0])
+    expect(p.pivot[0]).toBeCloseTo(at.x + f.output.offset, 9)
+    expect(p.pivot[1]).toBeCloseTo(at.s - f.height / 2 + Math.max(f.height, f.output.top) + 0.002, 9)
+    expect(p.pivot[2]).toBeCloseTo(at.base + side.lift + f.width / 2, 9)
+    // Flat, along the chord
     expect(outputPivot(installedServo('hitec-hs-645mg', 'flat'), at).axis).toEqual([1, 0, 0])
     // Turned a quarter in plan
-    const q = outputPivot(installedServo('hitec-hs-645mg', 'upright', 0, { quarter: true }), at, 0.002)
+    const q = outputPivot(installedServo('hitec-hs-645mg', 'side', 0, { quarter: true }), at, 0.002)
     expect(q.ref[0]).toBeCloseTo(0, 9)
     expect(q.ref[1]).toBeCloseTo(1, 9)
   })
 
   it('stands on the output boss as drawn, however the servo is turned and mounted', () => {
     const at = { x: 0.1, s: 0.3, base: -0.01 }
-    for (const mounting of ['upright', 'side', 'flat']) {
+    for (const mounting of ['side', 'flat']) {
       for (const turn of [{}, { quarter: true }, { yaw: 0.2 }, { quarter: true, yaw: -0.3 }]) {
         const v = installedServo('hitec-hs-645mg', mounting, 0, turn)
         const p = outputPivot(v, at, 0)

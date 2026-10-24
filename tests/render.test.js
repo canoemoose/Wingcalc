@@ -382,18 +382,19 @@ describe('app render', () => {
     }
     const dialogue = (bay, link) => {
       const { a } = analysed([bay])
-      const props = { system: 'metric', frame: bayFrame(a, a.bays[0]), title: a.bays[0].label, bay: { class: bay.class ?? null, mounting: bay.mounting ?? 'upright', link }, autoClass: 'micro', mass: 2 }
+      const props = { system: 'metric', frame: bayFrame(a, a.bays[0]), title: a.bays[0].label, bay: { class: bay.class ?? null, mounting: bay.mounting ?? 'side', link }, autoClass: 'micro', mass: 2 }
       return renderToString(createSSRApp({ render: () => h('div', { class: 'wingcalc' }, [h(ServoConfigurator, props)]) }))
     }
 
-    it('renders for a servo on its side, upright, and with chosen holes on the bottom face', async () => {
+    it('renders for a servo on its side, flat, and with chosen holes on the bottom face', async () => {
       const side = await dialogue({ surface: 1, mounting: 'side' }, { ...DEFAULT_LINK })
       expect(side).toContain('servo and linkage, ')
       expect(side).toContain('Use this')
       expect(side).toContain('Du-Bro 848')
       expect(side).toContain('Servo travel')
-      const upright = await dialogue({ surface: 1 }, { ...DEFAULT_LINK })
-      expect(upright).toContain('seen edge-on')
+      // Flat and unturned, its arm swings across the span: seen edge-on
+      const flat = await dialogue({ surface: 1, mounting: 'flat' }, { ...DEFAULT_LINK })
+      expect(flat).toContain('seen edge-on')
       await dialogue({ surface: 1, mounting: 'side', class: 'futaba-s3102' }, { ...DEFAULT_LINK, hornFace: 'bottom', armHole: 0, hornHole: 0, travel: 60 })
       expect(warn).not.toHaveBeenCalled()
     })

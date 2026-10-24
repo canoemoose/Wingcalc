@@ -106,7 +106,7 @@ export function assemblyGeometry(frame, servo, { arm, armRow, horn }, armIndex, 
 }
 
 // The facing whose arm points towards the horn's face (up for a top horn), or 1 where neither
-// does more than the other (an upright servo's arm swings level)
+// does more than the other (a flat servo's arm swings across the span)
 function autoFacing(frame, servo, parts, face) {
   const want = face === 'bottom' ? -1 : 1
   let best = 1

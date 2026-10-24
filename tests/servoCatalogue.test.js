@@ -165,7 +165,7 @@ describe('Futaba catalogue', () => {
 
   it('installs every servo every way up, and the side view says where its figures come from', () => {
     for (const s of FUTABA) {
-      for (const m of ['upright', 'side', 'flat']) {
+      for (const m of ['side', 'flat']) {
         const v = installedServo(s.id, m)
         expect(v.height, `${s.model} ${m}`).toBeGreaterThan(0)
         expect(v.run, `${s.model} ${m}`).toBeGreaterThan(0)
@@ -178,11 +178,13 @@ describe('Futaba catalogue', () => {
   })
 
   it('installs in a bay like any catalogue servo', () => {
-    const v = installedServo('futaba-s-u300', 'upright')
+    const v = installedServo('futaba-s-u300', 'side')
     expect(v.label).toBe('S-U300')
     expect(v.maker).toBe('Futaba')
     expect(v.length).toBeCloseTo(0.0404, 9)
-    expect(v.height).toBeGreaterThan(0.036)
+    // On its side, its height across the span and its width deep
+    expect(v.width).toBeGreaterThan(0.036)
+    expect(v.height).toBeCloseTo(0.0198, 9)
     expect(servoById('futaba-s3150').thin).toBe(true)
     // Laid flat, a slim servo needs little depth
     expect(installedServo('futaba-s3150', 'flat').height).toBeLessThan(0.015)
