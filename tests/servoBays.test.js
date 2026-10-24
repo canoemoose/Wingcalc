@@ -523,15 +523,48 @@ describe('servo bays in the exports and the 3D view', () => {
     expect(csv).toContain('Hatch rail, Servo bay SB1')
   })
 
+  it("cuts the plate's hole to the servo's shape, half a millimetre clear, not to the box round it", () => {
+    const area = (poly) => Math.abs(poly.reduce((t, p, i) => t + p[0] * poly[(i + 1) % poly.length][1] - poly[(i + 1) % poly.length][0] * p[1], 0)) / 2
+    for (const [id, pose] of [['micro', {}], ['hitec-hs-5125mg', {}], ['hitec-hs-645mg', { rotate: true }], ['standard', { flip: true, yaw: 0.2 }]]) {
+      const v = installedServo(id, 2, pose)
+      const { cutPoly, cutRects, cut } = v.plan
+      const tag = `${id} ${JSON.stringify(pose)}`
+      // Each corner of the outline is a corner or an edge of one of the parts' cuts
+      for (const [x, q] of cutPoly) {
+        const onEdge = cutRects.some((r) => {
+          const xs = r.map((c) => c[0] * Math.cos(-(v.yaw ?? 0)) - c[1] * Math.sin(-(v.yaw ?? 0)))
+          const ss = r.map((c) => c[0] * Math.sin(-(v.yaw ?? 0)) + c[1] * Math.cos(-(v.yaw ?? 0)))
+          const px = x * Math.cos(-(v.yaw ?? 0)) - q * Math.sin(-(v.yaw ?? 0))
+          const ps = x * Math.sin(-(v.yaw ?? 0)) + q * Math.cos(-(v.yaw ?? 0))
+          const [x0, x1, s0, s1] = [Math.min(...xs), Math.max(...xs), Math.min(...ss), Math.max(...ss)]
+          const inside = px > x0 - 1e-9 && px < x1 + 1e-9 && ps > s0 - 1e-9 && ps < s1 + 1e-9
+          return inside && Math.min(px - x0, x1 - px, ps - s0, s1 - ps) < 1e-9
+        })
+        expect(onEdge, tag).toBe(true)
+      }
+      // No bigger than the parts' cuts together, and smaller than the box round them where a boss,
+      // lug or lead sticks out of the case
+      const sum = cutRects.reduce((t, r) => t + area(r), 0)
+      expect(area(cutPoly), tag).toBeLessThanOrEqual(sum + 1e-12)
+      if (!pose.yaw) expect(area(cutPoly), tag).toBeLessThan((cut.x[1] - cut.x[0]) * (cut.s[1] - cut.s[0]) * 0.97)
+    }
+    // A micro servo on its side: its lugs stand on edge through the plate, so the hole is the
+    // case's width (with the gap) except at the lugs' notches, not the lugs' span everywhere
+    const m = installedServo('micro', 2).plan
+    const xs = m.cutPoly.map((p) => p[0])
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(0.03)
+    expect(m.cutPoly.length).toBeGreaterThan(4)
+  })
+
   it('builds a servo and a mount plate in 3D, the servo standing inside the skins', () => {
     const m = wing3d(res.a, res.st, res.parts)
-    // Per bay: the case and its two lugs, the output boss and the lead; the plate in four strips
-    // round the case's cut-out
+    // Per bay: the case and its two lugs, the output boss and the lead; the plate in strips round
+    // the cut-out, split where its outline steps for the lugs, the boss and the lead
     const n = res.a.bays.length
     expect(m.solids.filter((s) => s.kind === 'servo')).toHaveLength(3 * n)
     expect(m.solids.filter((s) => s.kind === 'servoOutput')).toHaveLength(n)
     expect(m.solids.filter((s) => s.kind === 'servoLead')).toHaveLength(n)
-    expect(m.solids.filter((s) => s.kind === 'plate')).toHaveLength(4 * n)
+    expect(m.solids.filter((s) => s.kind === 'plate').length).toBeGreaterThanOrEqual(4 * n)
     for (const b of res.a.bays) {
       const box = servoBox(res.a, res.st, b)
       expect(box.top).toBeCloseTo(box.base + b.servo.height, 9)

@@ -553,7 +553,9 @@ function bayDepth(a, structure, b) {
 
 // A built bay's servo and mount plate: the servo's solids placed (servos.js placeServo), standing
 // on servoBox's base with its case centred on the bay's, and the plate as pieces of ply round its
-// cut-out (turned with the servo), each { s0, s1, x(s) -> [x0, x1] }, from z to z + thickness.
+// cut-out (turned with the servo), each { s0, s1, x(s) -> [x0, x1] }, from z to z + thickness. The
+// cut-out follows the servo (b.cutRects, a rectangle per part through the plate), so the pieces
+// beside it are split along the span wherever its outline steps or turns.
 export function servoBayParts(a, structure, b) {
   const box = servoBox(a, structure, b)
   const parts = placeServo(b.servo, { x: (b.case.x0 + b.case.x1) / 2, s: b.s, base: box.base })
@@ -569,10 +571,21 @@ export function servoBayParts(a, structure, b) {
     const cs1 = Math.min(p.s1, Math.max(...poly.map((q) => q[1])))
     whole(p.s0, cs0)
     whole(cs1, p.s1)
-    const at = (s) => xRangeAt(poly, Math.min(cs1 - 1e-7, Math.max(cs0 + 1e-7, s))) ?? [p.x0, p.x0]
-    if (cs1 - cs0 > 1e-4) {
-      pieces.push({ s0: cs0, s1: cs1, x: (s) => [p.x0, Math.max(p.x0, at(s)[0])], turned: !!b.cutPoly })
-      pieces.push({ s0: cs0, s1: cs1, x: (s) => [Math.min(p.x1, at(s)[1]), p.x1], turned: !!b.cutPoly })
+    const cuts = b.cutRects?.length ? b.cutRects : [poly]
+    const turned = !!b.servo?.yaw
+    // Where the cut-out is at s: the span across the parts' cuts there, kept within [lo, hi]
+    const at = (s, lo, hi) => {
+      const q = Math.min(hi - 1e-7, Math.max(lo + 1e-7, s))
+      const rs = cuts.map((c) => xRangeAt(c, q)).filter(Boolean)
+      return rs.length ? [Math.min(...rs.map((r) => r[0])), Math.max(...rs.map((r) => r[1]))] : [p.x0, p.x0]
+    }
+    // Split at every corner along the span, so each piece's edge is straight
+    const ends = [...new Set([cs0, cs1, ...cuts.flatMap((c) => c.map((q) => q[1]))])].filter((s) => s >= cs0 && s <= cs1).sort((m, n) => m - n)
+    for (let i = 0; i + 1 < ends.length; i++) {
+      const [lo, hi] = [ends[i], ends[i + 1]]
+      if (hi - lo < 1e-4) continue
+      pieces.push({ s0: lo, s1: hi, x: (s) => [p.x0, Math.max(p.x0, at(s, lo, hi)[0])], turned })
+      pieces.push({ s0: lo, s1: hi, x: (s) => [Math.min(p.x1, at(s, lo, hi)[1]), p.x1], turned })
     }
   }
   return { parts, plate: { z, thickness: p.thickness, pieces: pieces.filter((q) => q.x((q.s0 + q.s1) / 2)[1] - q.x((q.s0 + q.s1) / 2)[0] > 1e-4) } }

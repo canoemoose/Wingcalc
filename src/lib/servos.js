@@ -405,10 +405,12 @@ export function installedServo(id, mass = 0, pose = {}) {
   const flat = platePlan(square, plateZ - lift, cls.plate, found.pilot ?? cls.pilot)
   const rot = ([x, q]) => turnPoint([x, q], yaw)
   const rect = (xs, ss) => [[xs[0], ss[0]], [xs[1], ss[0]], [xs[1], ss[1]], [xs[0], ss[1]]].map(rot)
-  const cutPoly = flat.cut ? rect(flat.cut.x, flat.cut.s) : null
+  // The cut-out's outline, and each part's cut in it, turned with the servo
+  const cutPoly = flat.cut ? rectsOutline(flat.rects).map(rot) : null
   const plan = {
     cut: cutPoly ? { x: rangeOf(cutPoly, 0), s: rangeOf(cutPoly, 1) } : null,
     cutPoly,
+    cutRects: flat.rects.map((c) => rect(c.x, c.s)),
     screws: flat.screws.map(rot),
     short: flat.short,
   }
@@ -479,9 +481,41 @@ function plateHeight(parts, t, zs) {
   return (zs[0] + zs[1]) / 2
 }
 
+// The outline of rectangles ({ x, s } ranges) that overlap or touch into one shape, [x, s]
+// corners anticlockwise from above, taking each band along s between their ends as one stretch
+// along x (the servo's parts all join the case, so its cut-out has no gaps across)
+export function rectsOutline(rects) {
+  if (!rects.length) return []
+  const ends = [...new Set(rects.flatMap((r) => r.s))].sort((a, b) => a - b)
+  const bands = []
+  for (let i = 0; i + 1 < ends.length; i++) {
+    const [s0, s1] = [ends[i], ends[i + 1]]
+    if (s1 - s0 < 1e-9) continue
+    const on = rects.filter((r) => r.s[0] <= s0 + 1e-12 && r.s[1] >= s1 - 1e-12)
+    if (!on.length) continue
+    const x = [Math.min(...on.map((r) => r.x[0])), Math.max(...on.map((r) => r.x[1]))]
+    const last = bands.at(-1)
+    if (last && Math.abs(last.s[1] - s0) < 1e-12 && Math.abs(last.x[0] - x[0]) < 1e-12 && Math.abs(last.x[1] - x[1]) < 1e-12) last.s[1] = s1
+    else bands.push({ s: [s0, s1], x })
+  }
+  // Up the aft side, back down the front
+  const pts = [...bands.flatMap((b) => [[b.x[1], b.s[0]], [b.x[1], b.s[1]]]), ...[...bands].reverse().flatMap((b) => [[b.x[0], b.s[1]], [b.x[0], b.s[0]]])]
+  // Without repeats or points along a straight edge
+  const out = []
+  for (const p of pts) if (!out.length || Math.hypot(p[0] - out.at(-1)[0], p[1] - out.at(-1)[1]) > 1e-12) out.push(p)
+  if (out.length > 1 && Math.hypot(out[0][0] - out.at(-1)[0], out[0][1] - out.at(-1)[1]) < 1e-12) out.pop()
+  return out.filter((p, i) => {
+    const a = out[(i + out.length - 1) % out.length]
+    const b = out[(i + 1) % out.length]
+    return Math.abs((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0])) > 1e-15
+  })
+}
+
 // The mount plate's cut-out and screw holes, from the case's centre (x) and the bay's (s): the
-// cut-out is the plan of everything that passes through the plate (from z to z + thickness)
-// with CUTOUT_GAP round it; a screw goes through each lug that bears on the plate's underside,
+// cut-out is the plan of each part that passes through the plate (from z to z + thickness),
+// CUTOUT_GAP round it, so it follows the servo (the case, with notches for an output boss, lugs
+// standing on edge or a lead) rather than the box round them all: rects, each { x, s } ranges,
+// and cut, the box round them; a screw goes through each lug that bears on the plate's underside,
 // in the part of the lug the cut-out leaves (so the ply either side of the hole is even), two
 // along it when that part is at least 8 mm long, at a quarter of its length from its middle,
 // else one at its middle, leaving out any the cut-out would take or that would leave less than
@@ -491,19 +525,30 @@ export function platePlan(parts, z, thickness, pilot = 0.001) {
     const r = partRanges(p)
     return r.z[0] < z + thickness - 1e-6 && r.z[1] > z + 1e-6
   })
+  const rects = through.map((p) => {
+    const e = partsExtent([p])
+    return { x: [e.x[0] - CUTOUT_GAP, e.x[1] + CUTOUT_GAP], s: [e.s[0] - CUTOUT_GAP, e.s[1] + CUTOUT_GAP] }
+  })
   const ext = partsExtent(through)
   const cut = through.length ? { x: [ext.x[0] - CUTOUT_GAP, ext.x[1] + CUTOUT_GAP], s: [ext.s[0] - CUTOUT_GAP, ext.s[1] + CUTOUT_GAP] } : null
-  const inCut = ([x, s]) => cut && x > cut.x[0] && x < cut.x[1] && s > cut.s[0] && s < cut.s[1]
-  // A lug's range on one axis with the cut-out's taken off the end it covers
+  const inCut = ([x, s]) => rects.some((c) => x > c.x[0] && x < c.x[1] && s > c.s[0] && s < c.s[1])
+  // How far a point is outside the cut-out (negative inside), by its nearest part
+  const fromCut = ([x, s]) => Math.min(...rects.map((c) => Math.max(c.x[0] - x, x - c.x[1], c.s[0] - s, s - c.s[1])))
+  // A lug's range on one axis with a part's cut taken off the end it covers
   const clip = (r, c) => (!c || r[1] <= c[0] || r[0] >= c[1] ? r : r[1] > c[1] ? [Math.max(r[0], c[1]), r[1]] : r[0] < c[0] ? [r[0], Math.min(r[1], c[0])] : r)
+  const overlaps = (a, b) => a[0] < b[1] && b[0] < a[1]
   const screws = []
   let short = false
   for (const p of parts.slice(1)) {
     if (p.kind !== 'servo' || !p.box || Math.abs(p.box.z[1] - z) > 1e-6) continue
-    // Clip along the axis the lug sticks out of the cut-out on
-    const outX = cut && (p.box.x[0] < cut.x[0] || p.box.x[1] > cut.x[1])
-    const x = outX ? clip(p.box.x, cut.x) : p.box.x
-    const s = !outX && cut ? clip(p.box.s, cut.s) : p.box.s
+    // Clip along the axis the lug sticks out of each cut it overlaps on
+    let x = p.box.x
+    let s = p.box.s
+    for (const c of rects) {
+      if (!overlaps(x, c.x) || !overlaps(s, c.s)) continue
+      if (x[0] < c.x[0] || x[1] > c.x[1]) x = clip(x, c.x)
+      else s = clip(s, c.s)
+    }
     const mid = [(x[0] + x[1]) / 2, (s[0] + s[1]) / 2]
     const lx = x[1] - x[0]
     const ls = s[1] - s[0]
@@ -511,14 +556,14 @@ export function platePlan(parts, z, thickness, pilot = 0.001) {
     for (const q of pts) {
       if (inCut(q)) continue
       // Room for the pilot hole and SCREW_EDGE of ply to the cut-out, or none
-      if (cut && Math.max(cut.x[0] - q[0], q[0] - cut.x[1], cut.s[0] - q[1], q[1] - cut.s[1]) - pilot / 2 < SCREW_EDGE - 1e-9) {
+      if (rects.length && fromCut(q) - pilot / 2 < SCREW_EDGE - 1e-9) {
         short = true
         continue
       }
       screws.push(q)
     }
   }
-  return { cut, screws, short }
+  return { cut, rects, screws, short }
 }
 
 // A servo's shape in its own frame, upright: x along its length from the case's centre

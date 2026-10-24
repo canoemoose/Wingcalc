@@ -1238,6 +1238,7 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
       cut: cut ? { x0: xc + cut.x[0], x1: xc + cut.x[1], s0: b.s + cut.s[0], s1: b.s + cut.s[1] } : null,
       // The cut-out, the case and the whole servo in plan, turned with the servo ([x, s])
       cutPoly: sv.plan?.cutPoly?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
+      cutRects: sv.plan?.cutRects?.map((q) => q.map(([x, s]) => [xc + x, b.s + s])) ?? null,
       body: sv.caseOutline?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
       footprint: sv.outline?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
       screws: (sv.plan?.screws ?? []).map(([x, s]) => [xc + x, b.s + s]),
