@@ -150,6 +150,8 @@ describe('a servo turned round or over', () => {
   })
 })
 
+const yawOf = (l) => l.bay.servo.yaw ?? 0
+
 describe("every bay's linkage, and its warnings", () => {
   it('lines the horn up with the servo by default, on a raked hinge too, so the pushrod runs in both their planes', () => {
     // An aileron whose hinge runs from 65% to 85% of the chord: about 12° to the span
@@ -170,6 +172,11 @@ describe("every bay's linkage, and its warnings", () => {
       // at neutral; at the servo's midpoint the surface is turned a little, and on a raked hinge
       // that swings the horn's hole a touch along the span)
       expect(l.c.rodAngle, square).toBeLessThan(2)
+      const geom = assemblyGeometry(l.frame, l.bay.servo, l.c, l.c.armHole, l.c.hornHole, l.c.face)
+      const along = [Math.cos(yawOf(l)), Math.sin(yawOf(l))]
+      const d = [geom.horn[0] - geom.pivot[0], geom.horn[1] - geom.pivot[1]]
+      // At neutral, the horn's hole on the line from the arm's holes along the case, to 0.01 mm
+      expect(Math.abs(d[0] * along[1] - d[1] * along[0]), square).toBeLessThan(1e-5)
       const yaw = l.bay.servo.yaw
       const rod = [l.c.result.points.horn[0] - l.c.result.points.arm[0], l.c.result.points.horn[1] - l.c.result.points.arm[1]]
       expect(Math.abs(Math.atan2(rod[1], rod[0]) - yaw), square).toBeLessThan(0.035)
@@ -185,7 +192,7 @@ describe("every bay's linkage, and its warnings", () => {
     const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, link }] })
     const a = build([{ surface: 1 }])
     const l = bayLinkages(a, controls(null)).get(1)
-    expect(l.c.rodAngle).toBeLessThan(1)
+    expect(l.c.rodAngle).toBeLessThan(0.5)
     expect(l.warnings).toEqual([])
     // 60 mm along the hinge from in line, its turn left to line up: still in the horn's plane
     const lined = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06 })).get(1)

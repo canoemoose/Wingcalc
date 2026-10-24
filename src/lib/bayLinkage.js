@@ -63,8 +63,9 @@ export function bayFrame(a, b, link = DEFAULT_LINK) {
   const at = { x: (b.case.x0 + b.case.x1) / 2, s: b.s, base: box.base }
   const range = [surface.s0 + HORN_END, surface.s1 - HORN_END]
   const clamp = (v) => Math.min(range[1], Math.max(range[0], v))
-  // In line with the servo: from the output along the case, aft, to the hinge line in plan
-  const [px, ps] = outputPivot(b.servo, at, 0).pivot
+  // In line with the servo: from the arm's holes on the output (its seat beyond the spline's top),
+  // along the case, aft, to the hinge line in plan
+  const [px, ps] = outputPivot(b.servo, at, resolveLink(b.servo, link).arm.seat).pivot
   const yaw = b.servo.yaw ?? 0
   const along = [Math.cos(yaw), Math.sin(yaw)]
   const t = (surface.hingeX(ps) - px) / (along[0] - surface.slope * along[1])
