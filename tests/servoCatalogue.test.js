@@ -190,17 +190,39 @@ describe('Futaba catalogue', () => {
 })
 
 describe('arms', () => {
-  it('has unique ids, known kinds, and no hole positions until measured', () => {
+  it('has unique ids, known kinds, and estimated holes', () => {
     const ids = ARMS.map((a) => a.id)
     expect(new Set(ids).size).toBe(ids.length)
     for (const a of ARMS) {
       expect(['Hitec', 'Futaba']).toContain(a.maker)
       expect(['single', 'double', 'cross', 'star', 'tee', 'disc', 'set']).toContain(a.kind)
-      expect(a.holes).toBeNull()
+      expect(['micro', 'standard', 'large']).toContain(a.size)
       expect(a.source).toMatch(/^https:\/\//)
       // An arm with neither a spline nor named servos can't be offered for anything
       if (!a.spline) expect(Array.isArray(a.models)).toBe(true)
+      expect(a.estimated).toBe(true)
+      expect(a.basis.length, a.part).toBeGreaterThan(5)
+      expect(a.seat).toBeGreaterThan(0.001)
+      expect(a.seat).toBeLessThan(0.003)
+      expect(a.holes.length, a.part).toBeGreaterThan(0)
+      for (const row of a.holes) {
+        expect(row.radii.length, `${a.part} ${row.arm}`).toBeGreaterThan(0)
+        // Nearest first, clear of the boss, within a large arm's reach
+        for (let i = 1; i < row.radii.length; i++) expect(row.radii[i]).toBeGreaterThan(row.radii[i - 1])
+        expect(row.radii[0], a.part).toBeGreaterThanOrEqual(a.size === 'micro' ? 0.006 : 0.0065)
+        expect(row.radii.at(-1), a.part).toBeLessThanOrEqual(0.0381)
+      }
     }
+  })
+
+  it('estimates holes from the published length or the measured sets', () => {
+    const part = (p) => ARMS.find((a) => a.part === p)
+    // A retailer's measured Hitec-fit set
+    expect(part('55709').holes[0].radii).toEqual([0.0115, 0.0155, 0.019, 0.0225])
+    // 1.5 in to its outer hole, aluminium at 4.8 mm, three holes
+    expect(part('FSH-T2').holes[0].radii).toEqual([0.0285, 0.0333, 0.0381])
+    // 0.75 in micro aluminium
+    expect(part('55707').holes[0].radii.at(-1)).toBeCloseTo(0.01905, 9)
   })
 
   it('offers a servo its own maker\'s arms on its spline, or made for it by name', () => {
@@ -228,13 +250,21 @@ describe('arms', () => {
 })
 
 describe('horns', () => {
-  it('lists each horn once, sized, with heights in metres and no hole positions until measured', () => {
+  it('lists each horn once, sized, with estimated holes below its tip', () => {
     const ids = HORNS.map((h) => h.id)
     expect(new Set(ids).size).toBe(ids.length)
     for (const h of HORNS) {
       expect(['micro', 'mini', 'standard', 'large']).toContain(h.size)
-      if (h.height != null) expect(h.height).toBeLessThan(0.05)
-      expect(h.holes).toBeNull()
+      expect(h.height).toBeLessThan(0.05)
+      expect(h.estimated).toBe(true)
+      expect(h.holes.length).toBeGreaterThan(0)
+      for (let i = 1; i < h.holes.length; i++) expect(h.holes[i]).toBeGreaterThan(h.holes[i - 1])
+      expect(h.holes[0], h.part).toBeGreaterThan(h.height * 0.3)
+      expect(h.holes.at(-1), h.part).toBeLessThan(h.height - 0.0015)
     }
+    // Du-Bro's 1-1/8 in horn: four holes, 3.5 mm apart, the top one 2.5 mm under its tip
+    const dubro = HORNS.find((h) => h.part === '105')
+    expect(dubro.holes).toEqual([0.0155, 0.019, 0.0225, 0.026])
+    expect(HORNS.find((h) => h.part === 'GPMQ3901').heightEstimated).toBe(true)
   })
 })

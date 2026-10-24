@@ -1,6 +1,6 @@
 # Wingcalc: servo configurator — scope
 
-From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Draft, not started.
+From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 and 2 done; step 3 (the configurator) next.
 
 ## Objective
 
@@ -47,8 +47,8 @@ Saved with the bay in `controls.bays` (anything new also in the defaults, so old
 
 ## Steps
 
-1. **Catalogue schema and data** (1½ rounds). *Done 18 October 2026, except hole positions: see below.* New fields on the Hitec entries. Futaba: the S3001 and every current analogue and digital standard, mini, micro and wing servo, read from Futaba's drawings the same way as the Hitec set, one request at a time with the same etiquette as the aerofoil fetch. Every arm each model is offered with. Generic horns. A backlog entry lists every model or arm whose figures couldn't be found. Tests: every servo has the fields and at least one arm, and every arm it lists exists and matches its spline.
-2. **Linkage geometry** (½ round, pure, in `linkage.js`). Arm hole and horn hole positions in 3D from the placement; pushrod length at neutral; achieved surface angle for a given servo angle (closed form for the four-bar linkage, not a small-angle ratio), so up and down throws, differential and mm at the trailing edge; mechanical advantage; the servo angle needed for each designed throw, its midpoint and the travel needed each way (decision 4); squareness at the midpoint; mirrored side by reflection. Horn height is measured from the centre-line pivot. Tests against hand-worked cases.
+1. **Catalogue schema and data** (1½ rounds). *Done 18 October 2026; hole positions estimated in step 2.* New fields on the Hitec entries. Futaba: the S3001 and every current analogue and digital standard, mini, micro and wing servo, read from Futaba's drawings the same way as the Hitec set, one request at a time with the same etiquette as the aerofoil fetch. Every arm each model is offered with. Generic horns. A backlog entry lists every model or arm whose figures couldn't be found. Tests: every servo has the fields and at least one arm, and every arm it lists exists and matches its spline.
+2. **Linkage geometry** (½ round, pure, in `linkage.js`). *Done 24 October 2026: see below.* Arm hole and horn hole positions in 3D from the placement; pushrod length at neutral; achieved surface angle for a given servo angle (closed form for the four-bar linkage, not a small-angle ratio), so up and down throws, differential and mm at the trailing edge; mechanical advantage; the servo angle needed for each designed throw, its midpoint and the travel needed each way (decision 4); squareness at the midpoint; mirrored side by reflection. Horn height is measured from the centre-line pivot. Tests against hand-worked cases.
 3. **Configurator** (1 round). A centred dialogue from the bay (`ServoConfigurator.vue`), laid out in columns like a Finder column view: Servo › Arm › Horn, each filtering the next (the servo's own arms). Travel (±45° or ±60°) is a switch beside the linkage type. Linkage type is a small switch, not a column, while there's only pushrod. Below the columns, a side-on drawing of the assembly (SVG, from the same geometry):
    - holes are picked by clicking them on the arm or horn, and the arm is dragged round to choose which way it faces; its angle at surface neutral is shown, from the throws;
    - hole pairs that give the designed throws within the chosen travel are highlighted, the one using the most of it marked as best (finest control); the rest show how far off they are;
@@ -66,8 +66,16 @@ About 5½ rounds in all.
 - `src/lib/servoCatalogue.js` holds the published figures; `servos.js` builds `HITEC`, `FUTABA` and `CATALOGUE` from them, each entry with `ratings`, `gears`, `digital`, `spline` ({ type, teeth }) and `current`. 29 Hitec and 31 Futaba servos.
 - Futaba's dimensioned drawings are on futaba.uk: 19 models carry their figures (`drawing` in `servoCatalogue.js`; three from a case-mate's drawing, by futaba.uk's spare case sets); the rest carry `estimated: ['lugs', 'output', 'lead']` and take those from their class (`servoFrame`), and three drawn ones `estimated: ['lead']`.
 - `src/lib/linkage.js` holds `ARMS` (27, Hitec and Futaba), `HORNS` (9 control horns) and `armsFor(servo)`. Compatibility is by the maker's spline name, or by a horn set naming the servo, rather than a stored list per servo: one rule, and a new arm reaches every servo it fits.
-- **No hole positions anywhere**: no maker publishes them. Step 2's geometry needs them measured (backlog, "Servo catalogue"). Until then, step 3 could take an arm's and a horn's hole positions as typed-in figures.
 - Generic horns were not added: with no published heights to base them on, they'd be invented.
+
+### Step 2 as built (24 October 2026)
+
+- **Hole positions are estimated** (Matt: estimate from published geometry), every arm and horn marked `estimated`, each arm with its `basis`. Rules in `docs/methods.md`: outer hole at the length in the part's name, pitches 2.4 / 3.5 / 4.8 mm from the few published measurements, a retailer's measured Hitec-fit set used as it is. Measured figures replace them when Sam has them (backlog).
+- `linkage.js`: `outputPivot` (the arm's pivot, axis and reference as installed, any mounting, with a plan `yaw` ready for decision 7), `hingeAt`, `hornHole`, `linkage` (the joint equations both ways, closed form), `solveAssembly` (midpoint, pushrod length, travel needed, achieved and full-travel throws in degrees and mm, neutral arm angle, mechanical advantage, arm and horn squareness, hole points for drawing), `mirrorGeometry`, `splineError`.
+- It's a spatial four-bar rather than a planar one, so the same code covers an arm swinging in the chord's plane (on its side) or the wing's (upright), and a swept or tapered hinge.
+- The midpoint is solved by the surface angle there (the arm's tangent from the horn's hole), not by the arm's angle: with arm and horn both square to the pushrod, the arm-angle form is degenerate.
+- Found: 'flat' mounting puts the output axis along the chord, so no linkage works until step 4's quarter turn (backlog).
+- Tests: `tests/linkage.test.js` (a parallelogram, a half-length arm against the hand-worked 43.2°, differential, a spatial upright case, the mirrored half, a catalogue assembly, hole positions as installed, spline teeth).
 
 ## Out of scope
 
