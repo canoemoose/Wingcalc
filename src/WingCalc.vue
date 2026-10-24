@@ -28,6 +28,7 @@ import Structure3D from './components/Structure3D.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
+import { bayLinkages } from './lib/bayLinkage.js'
 import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf, fillManualRibs } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit, wing3d, wingPieces } from './lib/wing3d.js'
@@ -736,10 +737,15 @@ const gussetRoom = computed(() => {
   const r = structureResult.value
   return r ? gussetFit(r.a, r.a.structure, r.parts) : null
 })
+// Each servo bay's linkage (bayLinkage.js), for the bay settings, the plan and the warnings; and
+// the bay whose servo configurator is open (from its settings or the plan), by surface id
+const bayLinks = computed(() => (structureResult.value ? bayLinkages(structureResult.value.a, input.controls) : new Map()))
+const configuringBay = ref(null)
 const structureWarnings = computed(() => {
   const r = structureResult.value
   if (!r) return []
   const out = [...r.a.warnings]
+  for (const l of bayLinks.value.values()) out.push(...l.warnings)
   const g = input.structure.gussets
   for (const edge of ['le', 'te']) {
     const fit = gussetRoom.value?.[edge]
@@ -1330,7 +1336,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :warnings="placedWarnings.sections"
           >
             <template #surfaces>
-              <SurfaceStructure v-model:controls="input.controls" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" />
+              <SurfaceStructure v-model:controls="input.controls" v-model:configuring="configuringBay" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" :linkages="bayLinks" />
             </template>
           </StructureEditor>
           <ul v-if="placedWarnings.rest.length" class="wc-warnings">
@@ -1366,6 +1372,8 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               </div>
               <StructurePlan
                 v-model:structure="input.structure"
+                v-model:controls="input.controls"
+                :linkages="bayLinks"
                 :analysis="structureResult.a"
                 :parts="structureResult.parts"
                 :selected="selectedPart"
@@ -1373,6 +1381,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 :editable="input.structure.ribs.spacing === 'manual'"
                 @select="selectedPart = $event"
                 @commit="history.commit"
+                @configure="configuringBay = $event"
               />
             </article>
             <article class="wc-card wc-structure-main__wide" :class="{ 'wc-card--expanded': expandedCard === '3d' }" data-card="3d">

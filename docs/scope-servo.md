@@ -1,6 +1,6 @@
 # Wingcalc: servo configurator — scope
 
-From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 to 3 done; step 4 (placement on the plan) next.
+From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 to 4 done; step 5 (3D and fit check for the arm, horn and pushrod) next.
 
 ## Objective
 
@@ -85,6 +85,22 @@ About 5½ rounds in all.
 - Additions to the brief: the **mounting switch** is in the dialogue too (it changes the linkage more than anything); **generic arms** (`GENERIC_ARMS`) for generic classes and servos whose maker's arms aren't known, so every servo can be configured; a default horn by class.
 - Differences: holes are picked in the drawing or the table (the brief had the drawing only), because an upright servo's arm is seen edge-on in a side view. The fit check is depth only, judged where the current servo stands (not the run between spar and hinge, nor the width between the wing's ribs); another servo is solved in the current one's place until the bay is laid out again.
 - Checked in the running app (dev server, driven by script in a hidden pane): opens full width, every control and the drag work, no console errors, Use this is one undo step. Not looked at by eye: Matt to check the drawing and layout.
+
+### Step 4 as built (24 October 2026)
+
+1. **Servo turn** (`servos.js`): bay settings `square` ('chord' or 'hinge') and `quarterTurn`. `placeBays` works out the yaw (square to the hinge: −atan(hinge slope)) and passes `{ quarter, yaw }` to `installedServo`. `placeServo` applies the quarter turn exactly (boxes stay boxes, axes swap) and tags each part with the residual yaw (`turn`); `servoPoint`/`servoDir` give the same transform for single points, which `outputPivot` now uses. Extents, plate cut-out (`plan.cutPoly`, `plan.cut` its bounding box) and screws are worked out turned.
+2. **Bay geometry turned**: `bayLayouts` keeps `cut` as the bounding box and adds `cutPoly`, `body` and `footprint` (turned outlines); the plate part's hole is `cutPoly` (ribs.js); the DXF plan draws the turned outlines; wing3d sweeps turned solids and the plate round a turned cut-out.
+3. **Horn position**: `link.hornAt` (m along the surface from its inner end, null for square to the hinge from the servo's output) and `link.hornAngle` (degrees from square to the hinge). `bayFrame` puts the hinge point there.
+4. **Linkages computed once** in WingCalc (`bayLinkages`), passed to SurfaceStructure, the plan and the warnings (ids `linkage-…`, shown under Control surfaces).
+5. **Plan**: servo turned, arm, pushrod and horn drawn; a servo handle (drag along the span: `along`) and a horn handle (drag along the hinge: `hornAt`); a click on either opens the configurator (WingCalc holds which bay is open). One commit per drag.
+6. **Inspector**: Servo square to (chord / hinge), Turned a quarter, Horn (position), Horn turned from square.
+
+Notes from building it:
+- Turning the cut-out moves its corners towards the rib faces, so the bay's width is now `installedServo().bayWidth`: the servo and its clearance, or the turned cut-out and the plate's edge, whichever is wider (unchanged for an unturned servo).
+- `servoBayParts` returns the plate as `pieces` ({ s0, s1, x(s) }) rather than axis-aligned strips, so the 3D plate and the section cut follow a turned cut-out.
+- The default horn station is square to the hinge from the servo's output, not the bay's centre: on a servo on its side the output stands out along the span.
+- Pushrod off the horn's plane is warned over 10° (`ROD_OFF_SQUARE`); the arm's squareness needs no warning (it's square at the midpoint by construction).
+- Checked in the running app by script (hidden pane, viewport emulated): a click on a handle opens the configurator, both drags move and commit once, the warning appears under Control surfaces, the turn settings redraw the servo, undo steps back through each. Not looked at by eye.
 
 ## Out of scope
 

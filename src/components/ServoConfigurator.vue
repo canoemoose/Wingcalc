@@ -7,7 +7,7 @@
 // hands back the bay's class, mounting and link in one go (one undo step).
 import { ref, reactive, computed, nextTick, onMounted, useId } from 'vue'
 import SegmentedField from './SegmentedField.vue'
-import { MOUNTINGS, servoOptions, installedServo, placeServo, SERVOS } from '../lib/servos.js'
+import { MOUNTINGS, servoOptions, installedServo, placeServo, planCorners, SERVOS } from '../lib/servos.js'
 import { HORNS, linkage, splineError } from '../lib/linkage.js'
 import { configureBay, assemblyGeometry, servoChoices, linkSummary, TRAVELS } from '../lib/bayLinkage.js'
 import { format, defaultUnit } from '../lib/units.js'
@@ -30,7 +30,7 @@ const id = useId()
 const RAD = Math.PI / 180
 const draft = reactive({ cls: props.bay.class ?? '', mounting: props.bay.mounting ?? 'upright', link: { ...props.bay.link } })
 
-const servo = computed(() => installedServo(draft.cls || props.autoClass, draft.mounting, props.mass))
+const servo = computed(() => installedServo(draft.cls || props.autoClass, draft.mounting, props.mass, props.frame.turn))
 const config = computed(() => configureBay(props.frame, servo.value, draft.link))
 const result = computed(() => config.value.result)
 
@@ -113,7 +113,7 @@ const drawing = computed(() => {
     .filter((p) => p.box)
     .map((p) => {
       const pts = []
-      for (const x of p.box.x) for (const z of p.box.z) pts.push(P([x, f.s, z]))
+      for (const [x, q] of planCorners(p)) for (const z of p.box.z) pts.push(P([x, q, z]))
       const xs = pts.map((q) => q[0])
       const ys = pts.map((q) => q[1])
       return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), kind: p.kind }

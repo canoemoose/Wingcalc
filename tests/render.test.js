@@ -13,7 +13,8 @@ import { analyseStructure, defaultStructure, MODES } from '../src/lib/structure.
 import { buildParts } from '../src/lib/ribs.js'
 import { normalisePanels } from '../src/lib/wing.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
-import { bayFrame, linkOf, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
+import { bayFrame, linkOf, bayLinkages, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
+import StructurePlan from '../src/components/StructurePlan.vue'
 import ServoConfigurator from '../src/components/ServoConfigurator.vue'
 import SurfaceStructure from '../src/components/SurfaceStructure.vue'
 
@@ -394,6 +395,19 @@ describe('app render', () => {
       const upright = await dialogue({ surface: 1 }, { ...DEFAULT_LINK })
       expect(upright).toContain('seen edge-on')
       await dialogue({ surface: 1, mounting: 'side', class: 'futaba-s3102' }, { ...DEFAULT_LINK, hornFace: 'bottom', armHole: 0, hornHole: 0, travel: 60 })
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('draws each linkage on the plan, turned and with its horn moved', async () => {
+      for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, square: 'hinge', quarterTurn: true, mounting: 'flat', link: { hornAt: 0.05, hornAngle: 10 } }]) {
+        const { a, controls } = analysed([bay])
+        const parts = buildParts(a, a.structure, {}).parts
+        const html = await renderToString(
+          createSSRApp({ render: () => h(StructurePlan, { analysis: a, parts, structure: a.structure, controls, linkages: bayLinkages(a, controls), 'onUpdate:structure': () => {}, 'onUpdate:controls': () => {} }) }),
+        )
+        expect(html).toContain('wc-sp__rod')
+        expect(html).toContain('drag along the hinge to move the horn')
+      }
       expect(warn).not.toHaveBeenCalled()
     })
 

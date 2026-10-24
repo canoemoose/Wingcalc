@@ -8,7 +8,7 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { bayOf, setBay, installedServo, servoOptions } from '../src/lib/servos.js'
-import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
+import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, ROD_OFF_SQUARE, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
 
 // A deep wing (one 0.9 m panel, 450 to 400 mm chord, 2 kg) with an aileron
 function build(bays = []) {
@@ -32,8 +32,16 @@ describe('a bay\'s frame', () => {
 
   it('puts the hinge on the centre line at the bay, with the faces either side', () => {
     expect(b.ok).toBe(true)
-    expect(f.s).toBe(b.s)
-    expect(f.hinge.point[0]).toBeCloseTo(f.surface.hingeX(b.s), 9)
+    // By default square to the hinge from the servo's output: on its side the output stands
+    // out from the case along the span
+    expect(f.bayS).toBe(b.s)
+    expect(f.s).toBe(f.square)
+    expect(f.s).toBeGreaterThan(b.s)
+    const at = bayFrame(a, b, { ...DEFAULT_LINK, hornAt: 0.1 })
+    expect(at.s).toBeCloseTo(f.surface.s0 + 0.1, 9)
+    // Kept on the surface, clear of its ends
+    expect(bayFrame(a, b, { ...DEFAULT_LINK, hornAt: -1 }).s).toBeCloseTo(f.range[0], 9)
+    expect(f.hinge.point[0]).toBeCloseTo(f.surface.hingeX(f.s), 9)
     expect(f.faces.top).toBeGreaterThan(0.002)
     expect(f.faces.top).toBeCloseTo(f.faces.bottom, 9)
     // 25% of a chord about 0.43 m
@@ -93,6 +101,37 @@ describe('an upright servo', () => {
     // The arm's hole stays at the pivot's height: it swings in the wing's plane
     const g = c.result.points.arm
     expect(g[2]).toBeCloseTo(f.at.base + a.bays[0].servo.lift + a.bays[0].servo.frame.output.top + c.arm.seat, 9)
+  })
+})
+
+describe("every bay's linkage, and its warnings", () => {
+  it('runs the pushrod square to the horn by default, and warns when the horn is moved off it', () => {
+    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, mounting: 'side', link }] })
+    const a = build([{ surface: 1, mounting: 'side' }])
+    const l = bayLinkages(a, controls(null)).get(1)
+    expect(l.c.rodAngle).toBeLessThan(1)
+    expect(l.warnings).toEqual([])
+    // 60 mm along the hinge from square: well off the horn's plane
+    const moved = bayLinkages(a, controls({ hornAt: l.frame.square - l.frame.surface.s0 + 0.06 })).get(1)
+    expect(moved.c.rodAngle).toBeGreaterThan(ROD_OFF_SQUARE)
+    expect(moved.warnings.map((w) => w.id)).toContain('linkage-square-1')
+    // Turning the horn to meet it clears it
+    const turned = bayLinkages(a, controls({ hornAt: l.frame.square - l.frame.surface.s0 + 0.06, hornAngle: -moved.c.rodAngle })).get(1)
+    const turnedOther = bayLinkages(a, controls({ hornAt: l.frame.square - l.frame.surface.s0 + 0.06, hornAngle: moved.c.rodAngle })).get(1)
+    expect(Math.min(turned.c.rodAngle, turnedOther.c.rodAngle)).toBeLessThan(1)
+  })
+
+  it('warns when the holes need more travel than the servo has', () => {
+    const a = build([{ surface: 1, mounting: 'side' }])
+    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, mounting: 'side', link }] })
+    // A pair that doesn't fit within ±45°
+    const { cells } = bayLinkages(a, controls(null)).get(1).c.matrix
+    let pair = null
+    cells.forEach((row, i) => row.forEach((r, j) => (pair ??= r.ok && !r.fits ? { armHole: i, hornHole: j } : null)))
+    expect(pair).not.toBeNull()
+    const l = bayLinkages(a, controls(pair)).get(1)
+    expect(l.warnings.map((w) => w.id)).toContain('linkage-travel-1')
+    expect(l.warnings[0].message).toMatch(/more than its ±45°/)
   })
 })
 

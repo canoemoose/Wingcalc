@@ -12,14 +12,15 @@
 //   travel    the servo's travel each way, degrees: 45 (standard) or 60 (extended end points)
 //   facing    1 or -1, which way the arm points, or null for the one towards the horn's face
 //   linkage   'pushrod' (the only type so far)
-// The horn sits on the hinge at the bay's own span station, so the pushrod runs square to the
-// hinge until the plan places it (docs/scope-servo.md, step 4).
+//   hornAt    where the horn is along the hinge, m from the surface's inner end (flat, along the
+//             span), or null for square to the hinge from the servo's output
+//   hornAngle the horn turned in plan from square to the hinge, degrees
 
 import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly } from './linkage.js'
-import { installedServo, servoById, SERVO_HEADROOM } from './servos.js'
+import { installedServo, servoById, bayOf, SERVO_HEADROOM } from './servos.js'
 import { servoBox, surfaceHeight } from './wing3d.js'
 
-export const DEFAULT_LINK = { arm: null, armRow: 0, armHole: null, horn: null, hornHole: null, hornFace: 'top', travel: 45, facing: null, linkage: 'pushrod' }
+export const DEFAULT_LINK = { arm: null, armRow: 0, armHole: null, horn: null, hornHole: null, hornFace: 'top', travel: 45, facing: null, linkage: 'pushrod', hornAt: null, hornAngle: 0 }
 export const TRAVELS = [45, 60]
 
 export const linkOf = (bay) => ({ ...DEFAULT_LINK, ...(bay?.link ?? {}) })
@@ -31,35 +32,50 @@ export function savedLink(link) {
   return Object.keys(out).length ? out : null
 }
 
-// What a built bay gives the linkage: where its servo stands, the hinge at the bay's station
-// (on the centre line, with the faces' offsets from it), the surface's depth there and its
-// designed throws. a: analyseStructure's result; b: one of its bays (ok). null if the bay isn't
-// built or its surface isn't.
-export function bayFrame(a, b) {
+// What a built bay gives the linkage: where its servo stands and how it's turned, the hinge at
+// the horn's station (on the centre line, with the faces' offsets from it), the surface's depth
+// there and its designed throws. a: analyseStructure's result; b: one of its bays (ok); link: its
+// link (for where the horn is). null if the bay isn't built or its surface isn't.
+//   s, square   the horn's station, flat s, and the one square to the hinge from the output
+//   range       the stations the horn can take, [s0, s1]: on the surface, clear of its ends
+//   bayS        the bay's own station
+export function bayFrame(a, b, link = DEFAULT_LINK) {
   if (!a || !b?.ok || !b.case) return null
   const surface = (a.surfaces ?? []).find((r) => r.id === b.surface && r.ok)
   if (!surface) return null
-  const s = b.s
+  const box = servoBox(a, a.structure, b)
+  const at = { x: (b.case.x0 + b.case.x1) / 2, s: b.s, base: box.base }
+  const range = [surface.s0 + HORN_END, surface.s1 - HORN_END]
+  const clamp = (v) => Math.min(range[1], Math.max(range[0], v))
+  // The foot of the square from the output to the hinge line in plan
+  const [px, ps] = outputPivot(b.servo, at, 0).pivot
+  const square = clamp(ps - (surface.slope * (surface.hingeX(ps) - px)) / (1 + surface.slope ** 2))
+  const s = Number.isFinite(link.hornAt) ? clamp(surface.s0 + link.hornAt) : square
   const x = surface.hingeX(s)
   const upper = surfaceHeight(a, s, x, 'upper')
   const lower = surfaceHeight(a, s, x, 'lower')
   const z = (upper + lower) / 2
   const sec = a.section(s)
-  const box = servoBox(a, a.structure, b)
   return {
     surface,
     label: surface.label ?? '',
     s,
+    square,
+    range,
+    bayS: b.s,
     hinge: hingeAt(surface, s, z),
     faces: { top: upper - z, bottom: z - lower },
     depth: sec.xl + sec.c - x,
     up: surface.up ?? 0,
     down: surface.down ?? 0,
-    at: { x: (b.case.x0 + b.case.x1) / 2, s, base: box.base },
+    at,
+    turn: { quarter: !!b.servo.quarter, yaw: b.servo.yaw ?? 0 },
     mounting: b.servo.mounting,
     room: b.room,
   }
 }
+// The least a horn's centre keeps from its surface's ends, m
+export const HORN_END = 0.008
 
 // Whether a servo fits the bay where it is: the depth it needs (its own, or its plate's top,
 // plus the headroom) against the depth the bay has. { ok, need, room }
@@ -144,7 +160,63 @@ export function configureBay(frame, servo, link) {
     armHole = armHole ?? pick.armHole
     hornHole = hornHole ?? pick.hornHole
   }
-  return { ...parts, face, travel, facing, matrix, armHole, hornHole, result: matrix.cells[armHole][hornHole] }
+  const result = matrix.cells[armHole][hornHole]
+  return { ...parts, face, travel, facing, matrix, armHole, hornHole, result, rodAngle: rodAngle(frame, result, link.hornAngle) }
+}
+
+// The pushrod's angle in plan from the horn's plane (square to the hinge, turned by hornAngle
+// degrees), at the servo's midpoint, degrees, or null if it's not solved
+function rodAngle(frame, r, hornAngle = 0) {
+  if (!r?.ok) return null
+  const d = [r.points.horn[0] - r.points.arm[0], r.points.horn[1] - r.points.arm[1]]
+  const h = frame.hinge.axis
+  const t = ((hornAngle || 0) * Math.PI) / 180
+  // Square to the hinge, aft, turned
+  const sq = [h[1], -h[0]]
+  const plane = [sq[0] * Math.cos(t) - sq[1] * Math.sin(t), sq[0] * Math.sin(t) + sq[1] * Math.cos(t)]
+  const n = Math.hypot(...d) * Math.hypot(...plane)
+  if (!(n > 0)) return null
+  const c = Math.abs((d[0] * plane[0] + d[1] * plane[1]) / n)
+  return (Math.acos(Math.min(1, c)) * 180) / Math.PI
+}
+
+// How far the pushrod may run off the horn's plane in plan before it's warned, degrees
+export const ROD_OFF_SQUARE = 10
+
+// Every built bay's linkage on a control surface: Map of surface id -> { bay, frame, c (as
+// configureBay), warnings ([{ id, message }]) }. a: analyseStructure's result; controls: the
+// wing's (for each bay's link).
+export function bayLinkages(a, controls) {
+  const out = new Map()
+  for (const b of a?.bays ?? []) {
+    if (b.brake) continue
+    const link = linkOf(bayOf(controls, b.surface))
+    const frame = bayFrame(a, b, link)
+    if (!frame) continue
+    const c = configureBay(frame, b.servo, link)
+    out.set(b.surface, { bay: b, frame, c, link, warnings: linkWarnings(b, frame, c) })
+  }
+  return out
+}
+
+function linkWarnings(b, frame, c) {
+  const r = c.result
+  const name = `${b.label} (${frame.label})`
+  if (!r.ok) return [{ id: `linkage-reach-${b.surface}`, message: `${name}: its arm and horn holes can't give the designed throws without the arm passing dead centre. Choose other holes in Servo and linkage.` }]
+  const out = []
+  if (!r.fits) {
+    out.push({
+      id: `linkage-travel-${b.surface}`,
+      message: `${name}: the designed throws need ±${r.travelNeeded.toFixed(0)}° of servo travel, more than its ±${c.travel}°, so it reaches only ${r.achieved.up.toFixed(0)}° up and ${r.achieved.down.toFixed(0)}° down. Use an arm hole further out or a horn hole lower down${c.travel === 45 ? ', or extended end points' : ''}.`,
+    })
+  }
+  if (c.rodAngle != null && c.rodAngle > ROD_OFF_SQUARE) {
+    out.push({
+      id: `linkage-square-${b.surface}`,
+      message: `${name}: the pushrod runs ${c.rodAngle.toFixed(0)}° off the horn's plane, which binds the clevis. Move the horn along the hinge, turn it to line up, or square the servo to the hinge.`,
+    })
+  }
+  return out
 }
 
 // The pair that fits using the most travel, or, with none fitting, the one needing the least,
@@ -165,7 +237,7 @@ function nearestFit(cells, armHole, hornHole) {
 // The servos the picker lists, each with whether it fits the bay (and why not)
 export function servoChoices(frame, options, mounting, mass) {
   return options.map((o) => {
-    const v = installedServo(o.value, mounting, mass)
+    const v = installedServo(o.value, mounting, mass, frame.turn)
     const f = servoFits(frame, v)
     const mm = (x) => `${(x * 1000).toFixed(0)} mm`
     return { ...o, fits: f.ok, reason: f.ok ? '' : `Needs ${mm(f.need)} of depth, the bay has ${mm(Math.max(0, f.room))}` }

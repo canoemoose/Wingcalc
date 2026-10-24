@@ -2545,6 +2545,44 @@
   gap: 8px;
   margin-top: 18px;
 }
+/* Servo linkages on the structure plan */
+.wc-sp__arm,
+.wc-sp__horn {
+  stroke: var(--wc-text);
+  stroke-width: 3;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.wc-sp__rod {
+  stroke: var(--wc-accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.wc-sp__link--warn .wc-sp__rod {
+  stroke: var(--wc-warn);
+  stroke-width: 2.5;
+}
+.wc-sp__handle {
+  fill: var(--wc-bg);
+  stroke: var(--wc-accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  cursor: ew-resize;
+}
+.wc-sp__handle:hover {
+  fill: color-mix(in srgb, var(--wc-accent) 25%, var(--wc-bg));
+}
+.wc-sp__link--warn .wc-sp__handle {
+  stroke: var(--wc-warn);
+}
+.wc-sp__handle--preview {
+  fill: none;
+  stroke-dasharray: 3 2;
+  pointer-events: none;
+}
+
 /* The servo configurator: a large centred dialogue (ServoConfigurator.vue) */
 .wc-config {
   width: min(1180px, 100%);
