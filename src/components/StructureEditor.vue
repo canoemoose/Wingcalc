@@ -37,6 +37,8 @@ const props = defineProps({
   coveringMass: { type: Number, default: null },
   // The root chord, m: a length typed into a percent-of-chord box is a share of it
   rootChord: { type: Number, default: null },
+  // The wing's panels, root outward (their ids key each panel's own sheet thickness)
+  panels: { type: Array, default: () => [] },
   idPrefix: { type: String, default: 'wcs' },
   // Warnings to show in each section, by section (warnings.js bySection): { spar: [{ id, message }], ... }
   warnings: { type: Object, default: () => ({}) },
@@ -350,6 +352,11 @@ const halvesHint = computed(() =>
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 // A brace's own thickness, else the one older saves set for all
 const braceT = (name) => st.value.braces.thicknesses?.[name] ?? st.value.braces.thickness ?? null
+// A panel's own sheet thickness; blank removes it, so the panel takes the wing's
+function setPanelThickness(panelId, v) {
+  const { [panelId]: _, ...rest } = st.value.covering.panelThickness ?? {}
+  set('covering.panelThickness', Number.isFinite(v) && v > 0 ? { ...rest, [panelId]: v } : rest)
+}
 const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000).toFixed(1)} mm` : 'Too shallow to brace')
 </script>
 
@@ -566,9 +573,25 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           :model-value="st.covering.sheetThickness"
           quantity="thin"
           :system="system"
-          label="Sheeting thickness"
+          :label="panels.length > 1 ? 'Sheeting thickness, the wing' : 'Sheeting thickness'"
           @update:model-value="set('covering.sheetThickness', $event)"
         />
+        <template v-if="panels.length > 1">
+          <div class="wc-structure-editor__pair">
+            <UnitInput
+              v-for="(p, i) in panels"
+              :key="p.id"
+              :id="id(`sheetp${p.id}`)"
+              :model-value="st.covering.panelThickness?.[p.id] ?? null"
+              quantity="thin"
+              :system="system"
+              :label="`Panel ${i + 1}`"
+              :placeholder="mm(st.covering.sheetThickness)"
+              @update:model-value="setPanelThickness(p.id, $event)"
+            />
+          </div>
+          <p class="wc-field__hint">Each panel's own sheeting, root outward. Blank takes the wing's.</p>
+        </template>
         <SelectField
           :id="id('sheetm')"
           :model-value="st.covering.sheetMaterial"
@@ -847,7 +870,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         <p class="wc-field__hint">
           A rib that must be at a set distance from the root rib. Give it a second distance and it's a sheeted hard point:
           a rib there too, and every bay between sheeted across the whole chord on the top, the bottom or both, for a wing
-          joiner, a tow hook or a launch peg.
+          joiner, a tow hook or a launch peg. Its sheeting has a thickness of its own; on a D-box it runs back from the
+          D-box sheeting, which can be a different thickness in those bays.
         </p>
         <div v-for="h in hardList.rows(st.ribs.hardPoints)" :key="h.id" class="wc-structure-editor__row" @focusin="hardList.focusin" @focusout="hardList.focusout">
           <UnitInput
@@ -887,9 +911,30 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
               :options="HARD_SHEET"
               @update:model-value="updateIn('ribs.hardPoints', h.id, 'sheet', $event)"
             />
+            <div v-if="Number.isFinite(h.to) && h.to > (h.d ?? 0) && (h.sheet ?? 'none') !== 'none'" class="wc-structure-editor__pair">
+              <UnitInput
+                :id="id(`hp${h.id}t`)"
+                :model-value="h.thickness ?? null"
+                quantity="thin"
+                :system="system"
+                label="Its sheeting"
+                :placeholder="mm(st.covering.sheetThickness || 0.0015)"
+                @update:model-value="updateIn('ribs.hardPoints', h.id, 'thickness', $event)"
+              />
+              <UnitInput
+                v-if="st.covering.type !== 'open'"
+                :id="id(`hp${h.id}dt`)"
+                :model-value="h.dboxThickness ?? null"
+                quantity="thin"
+                :system="system"
+                :label="st.covering.type === 'dbox' ? 'D-box sheeting here' : 'Wing sheeting here'"
+                placeholder="As elsewhere"
+                @update:model-value="updateIn('ribs.hardPoints', h.id, 'dboxThickness', $event)"
+              />
+            </div>
           </div>
         </div>
-        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '', sheet: 'both' })">
+        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '', sheet: 'both', thickness: st.covering.sheetThickness || 0.0015, dboxThickness: null })">
           Add hard point
         </button>
       </div>

@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -264,15 +264,17 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   }
 
   // Sheeted hard points over this rib: the rib is inset by their sheeting where they cover it
+  // (behind any D-box sheeting on that side, each at its own thickness)
   const patches = split?.side === 'moving' ? [] : hardPatches(structure, a.rootS).filter((h) => rib.s >= h.s0 - 1e-6 && rib.s <= h.s1 + 1e-6)
-  const patchT = patchSheet(structure).thickness
-  const patchAt = (q, side) => (patches.some((h) => h.sides.includes(side) && q >= h.from - 1e-9 && q <= h.to + 1e-9) ? patchT : 0)
+  const patchAt = (q, side) => patches.reduce((m, h) => Math.max(m, q >= h.from - 1e-9 && q <= h.to + 1e-9 ? patchThicknessAt(structure, h, side, q, sparXiRear) : 0), 0)
+  // The skin over the rib at q on one side: a hard point's sheet where one covers it, else the
+  // covering's (sheeting at this span position's thickness, or cap strips)
+  const skinOver = (q, side) => patchAt(q, side) || skinAt(structure, q, sparXiRear, side, a.section(rib.s).c, true, rib.s)
   // Where the skin over the rib changes (cap strips starting, sheeting ending, a hard point's
   // edge), the rib's edge steps square instead of ramping between samples: two more samples, a
   // hair either side of each change
   {
-    const c = a.section(rib.s).c
-    const skin = (q, side) => Math.max(skinAt(structure, q, sparXiRear, side, c), patchAt(q, side))
+    const skin = skinOver
     const lerp = (i, t) => ({ u: us[i] + (us[i + 1] - us[i]) * t, up: prof.up[i] + (prof.up[i + 1] - prof.up[i]) * t, lo: prof.lo[i] + (prof.lo[i + 1] - prof.lo[i]) * t, xi: prof.xi[i] + (prof.xi[i + 1] - prof.xi[i]) * t })
     const rows = []
     for (let i = 0; i < us.length; i++) {
@@ -307,8 +309,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const du = us[i1] - us[i0] || 1e-9
     const su = (prof.up[i1] - prof.up[i0]) / du
     const sl = (prof.lo[i1] - prof.lo[i0]) / du
-    const tUp = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'top', a.section(rib.s).c), patchAt(prof.xi[i], 'top'))
-    const tLo = Math.max(skinAt(structure, prof.xi[i], sparXiRear, 'bottom', a.section(rib.s).c), patchAt(prof.xi[i], 'bottom'))
+    const tUp = skinOver(prof.xi[i], 'top')
+    const tLo = skinOver(prof.xi[i], 'bottom')
     // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
     const mid = (prof.up[i] + prof.lo[i]) / 2
     upIn[i] = Math.max(mid, prof.up[i] - tUp * Math.sqrt(1 + su * su))
@@ -414,7 +416,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const upper = []
   const lower = []
   const holes = []
-  const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS)
+  const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS, rib.s)
   // The moving surface's part is behind the main spar: nothing of it to notch
   if (movingSide) {
     // no spar notches
@@ -1047,7 +1049,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       ],
     })
     if (sheeted) {
-      const th = structure.covering.sheetThickness
+      const th = sheetThicknessAt(structure, (bay.hatch.s0 + bay.hatch.s1) / 2)
       parts.push({
         id: `${bay.name}-H`,
         name: `${bay.name}-H`,
@@ -1276,6 +1278,10 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     let k = 1
     for (const [key, list] of panels) {
       if (list.length < 2) continue
+      // The panel's own thickness (in its middle), and any hard point's bays in it that differ
+      const sMid = (list[0].s + list.at(-1).s) / 2
+      const panelT = sheetThicknessAt({ ...structure, hardBays: [] }, sMid)
+      const own = (structure.hardBays ?? []).filter((h) => h.dboxThickness > 0 && h.s1 > list[0].s + 1e-6 && h.s0 < list.at(-1).s - 1e-6 && Math.abs(h.dboxThickness - panelT) > 1e-9)
       for (const surface of ['upper', 'lower']) {
         const widths = list.map((p) => ({ s: p.s, w: sheetWidth(a, structure, p.s, surface) }))
         const s0 = widths[0].s
@@ -1285,7 +1291,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           name: `S${k}`,
           group: 'sheeting',
           material: cov.sheetMaterial,
-          thickness: cov.sheetThickness,
+          thickness: panelT,
           qty: both ? 2 : 1,
           outline: clean(outline),
           holes: [],
@@ -1294,7 +1300,10 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           // Where it goes, for picking it in the 3D view
           span: [s0, widths.at(-1).s],
           surface,
-          notes: [`${surface === 'upper' ? 'Top' : 'Bottom'} sheeting, ${key}, developed from the ribs; approximate, cut oversize and trim`],
+          notes: [
+            `${surface === 'upper' ? 'Top' : 'Bottom'} sheeting, ${key}, developed from the ribs; approximate, cut oversize and trim`,
+            ...own.map((h) => `Over ${h.label} it's ${(h.dboxThickness * 1000).toFixed(1)} mm: cut that stretch from that sheet`),
+          ],
         })
         k++
       }
@@ -1303,13 +1312,14 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
 
   // Sheeted hard points: one template per surface, developed approximately as its plan shape
   for (const h of hardPatches(structure, a.rootS)) {
-    const ps = patchSheet(structure)
-    const widthAt = (s) => {
-      const span = patchSpan(a, structure, s)
-      return span ? span[1] - span[0] : 0
-    }
+    const ps = patchSheet(structure, h)
     const L = h.s1 - h.s0
     for (const side of h.sides) {
+      // Behind any D-box sheeting on this side
+      const widthAt = (s) => {
+        const span = patchSpan(a, structure, s, side)
+        return span ? span[1] - span[0] : 0
+      }
       const name = `HP${h.id}${side === 'top' ? 'T' : 'B'}`
       parts.push({
         id: name,
@@ -1327,7 +1337,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         holes: [],
         etch: [],
         label: null,
-        notes: [`${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, across the whole chord between the edge stock (to the hinge spar beside a control surface); approximate, cut oversize and trim`],
+        notes: [`${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, across the chord ${structure.covering.type === 'dbox' && sheetExtent(structure, side, 0.3) ? 'from the D-box sheeting back' : 'between the edge stock'} (to the hinge spar beside a control surface); approximate, cut oversize and trim`],
       })
     }
   }
@@ -1341,7 +1351,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     // A foam wing has no tip rib: the deepest the section gets at the tip
     const tipSec = a.section(a.tipS)
     const tipDepth = tipSec ? Math.max(...Array.from({ length: 41 }, (_, i) => tipSec.depth(i / 40))) : 0
-    const depth = tipRib ? bounds(tipRib.rib.outline).h + 2 * (cov.type === 'open' ? 0 : cov.sheetThickness || 0) : foam ? tipDepth : 0
+    const depth = tipRib ? bounds(tipRib.rib.outline).h + 2 * (cov.type === 'open' ? 0 : sheetThicknessAt(structure, a.tipS)) : foam ? tipDepth : 0
     parts.push({
       id: 'T1',
       name: 'T1',
@@ -1445,7 +1455,7 @@ function sheetWidth(a, structure, s, surface) {
   const sec = a.section(s)
   if (!sec) return 0
   // From the leading edge stock, or over an inset strip where it meets it (edgeStock.js)
-  const inset = structure.le.inset ? insetSheetStarts(structure.le.inset.item, sec, structure.covering.sheetThickness || 0) : null
+  const inset = structure.le.inset ? insetSheetStarts(structure.le.inset.item, sec, sheetThicknessAt(structure, s)) : null
   const side = surface === 'upper' ? 'top' : 'bottom'
   // A turned leading edge: where its leaning face meets this surface
   const turned = structure.le.face?.[`${side}Xi`]

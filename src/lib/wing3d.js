@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -257,7 +257,7 @@ export function insetHeight(a, structure, s, x, which, caps = true) {
   const up = surfaceHeight(a, s, x, 'upper')
   const lo = surfaceHeight(a, s, x, 'lower')
   // Never past the middle: right at the nose (a sheeted nose) the skin is the whole depth
-  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom', sec.c, caps) * Math.sqrt(1 + slope * slope))
+  const t = Math.min((up - lo) / 2, skinAt(structure, (x - sec.xl) / sec.c, rear, which === 'upper' ? 'top' : 'bottom', sec.c, caps, s) * Math.sqrt(1 + slope * slope))
   return which === 'upper' ? up - t : lo + t
 }
 
@@ -365,7 +365,7 @@ export function sheetSection(a, structure, s, which) {
   if (!sec || !(sec.c > 1e-4)) return null
   const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
   // From the leading edge stock, or over an inset strip where it meets it
-  const inset = structure.le.inset ? insetSheetStarts(structure.le.inset.item, sec, structure.covering.sheetThickness || 0) : null
+  const inset = structure.le.inset ? insetSheetStarts(structure.le.inset.item, sec, sheetThicknessAt(structure, s)) : null
   const turned = structure.le.face?.[which === 'upper' ? 'topXi' : 'bottomXi']
   const x0 = sec.xl + (inset ? inset[which === 'upper' ? 'top' : 'bottom'] : Number.isFinite(turned) ? turned * sec.c : structure.le.width)
   // Each surface's sheet runs to its own end (a D-box side may stop short of the spar, or be off)
@@ -378,13 +378,14 @@ export function sheetSection(a, structure, s, which) {
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, structure, s, x, which)])]
 }
 
-// A sheeted hard point's sheet at s on one surface: over the whole chord it covers (patchSpan),
-// its thickness in from the outer surface, measured square to it.
-export function patchSection(a, structure, s, which) {
-  const span = patchSpan(a, structure, s)
+// A sheeted hard point's sheet at s on one surface: over the chord it covers (patchSpan: behind
+// any D-box sheeting on that side), its own thickness in from the outer surface, measured square
+// to it. patch from hardPatches.
+export function patchSection(a, structure, s, which, patch = null) {
+  const span = patchSpan(a, structure, s, which === 'upper' ? 'top' : 'bottom')
   if (!span) return null
   const [x0, x1] = span
-  const t = patchSheet(structure).thickness
+  const t = patchSheet(structure, patch).thickness
   const d = 1e-4
   const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
   const inner = (x) => {
@@ -777,7 +778,7 @@ export function sectionAt(a, structure, parts, s) {
   // Sheeted hard points the cut passes through
   for (const h of hardPatches(st, a.rootS)) {
     if (s < h.s0 - 1e-9 || s > h.s1 + 1e-9) continue
-    for (const side of h.sides) add('sheet', patchSection(a, st, s, side === 'top' ? 'upper' : 'lower'))
+    for (const side of h.sides) add('sheet', patchSection(a, st, s, side === 'top' ? 'upper' : 'lower', h))
   }
   if (isFoam(st)) {
     const sec = a.section(s)
@@ -1083,7 +1084,7 @@ export function wing3d(a, structure, parts, linkages = null) {
   for (const h of hardPatches(st, a.rootS)) {
     for (const side of h.sides) {
       const which = side === 'top' ? 'upper' : 'lower'
-      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st).material })
+      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which, h), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st, h).material })
     }
   }
   add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), null, { id: 'le', name: 'Leading edge', material: st.le.material, section: { outline: leSection(a, st, (s0 + s1) / 2) } })

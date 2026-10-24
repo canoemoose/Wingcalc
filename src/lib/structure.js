@@ -165,6 +165,9 @@ export function defaultStructure() {
     covering: {
       type: 'dbox', // 'open' | 'dbox' | 'sheeted'
       sheetThickness: 0.0015,
+      // The sheeting's thickness on one panel, by the panel's id ({ 2: 0.001 }); a panel not
+      // listed (or null) takes sheetThickness. See sheetThicknessAt.
+      panelThickness: {},
       sheetMaterial: 'balsa-medium',
       capStrips: true,
       capStripWidth: 0.006,
@@ -197,9 +200,11 @@ export function defaultStructure() {
       rootPitch: 0.05,
       tipPitch: 0.09,
       manual: [], // { id, d }: distance from the root rib
-      // { id, d, label, to, sheet }: ribs that must be there, at d from the root rib and, if to
-      // is set, at to as well, the bays between them sheeted over the whole chord on the top,
-      // bottom or both (sheet; 'none' leaves them open). See hardPatches.
+      // { id, d, label, to, sheet, thickness, dboxThickness }: ribs that must be there, at d from
+      // the root rib and, if to is set, at to as well, the bays between them sheeted over the
+      // whole chord on the top, bottom or both (sheet; 'none' leaves them open), thickness thick
+      // (null: the covering's sheet thickness, as older saves had it), and the covering's own
+      // sheeting in those bays dboxThickness thick (null: as elsewhere). See hardPatches.
       hardPoints: [],
       rootJoint: 'one-piece', // 'one-piece' (continuous through the centreline) | 'two-piece'
       lightening: false,
@@ -327,37 +332,92 @@ export function hardPoints(sampler, structure, extra = []) {
 
 // The sheeted hard points: each hard point that runs from d to a second distance `to`, a rib at
 // each end, sheeted on its top, bottom or both, as { id, label, s0, s1 (flat span positions),
-// from, to (chord fractions: always the whole chord, 0 to 1), sides: ['top', 'bottom'] }. The
-// sheet covers the bays between, any number of them, over the whole chord: from the leading
-// edge stock to the trailing edge stock, or to a control surface's fixed hinge spar
-// (patchSpan). It's the covering's sheeting (its thickness and material; 1.5 mm balsa if none
-// is set), laid over the ribs, so the ribs there are inset by it.
+// from, to (chord fractions: always the whole chord, 0 to 1), sides: ['top', 'bottom'],
+// thickness, material, dboxThickness }. The sheet covers the bays between, any number of them,
+// over the chord the covering doesn't sheet itself (patchThicknessAt): from the leading edge
+// stock, or behind a D-box's sheeting, to the trailing edge stock or a control surface's fixed
+// hinge spar (patchSpan). Its thickness is its own (the covering's if it has none; 1.5 mm balsa
+// if neither is set), laid over the ribs, so the ribs there are inset by it. The covering's own
+// sheeting in those bays is dboxThickness thick where that's set (sheetThicknessAt).
 export function hardPatches(structure, rootS) {
   const out = []
+  const cov = structure.covering ?? {}
   for (const h of structure.ribs?.hardPoints ?? []) {
     if (!Number.isFinite(h.d) || !Number.isFinite(h.to) || !(h.to > h.d + 1e-4)) continue
     const sides = h.sheet === 'both' ? ['top', 'bottom'] : h.sheet === 'top' || h.sheet === 'bottom' ? [h.sheet] : []
     if (!sides.length) continue
-    out.push({ id: h.id, label: h.label || 'Hard point', s0: rootS + h.d, s1: rootS + h.to, from: 0, to: 1, sides })
+    out.push({
+      id: h.id,
+      label: h.label || 'Hard point',
+      s0: rootS + h.d,
+      s1: rootS + h.to,
+      from: 0,
+      to: 1,
+      sides,
+      thickness: h.thickness > 0 ? h.thickness : cov.sheetThickness || 0.0015,
+      material: cov.sheetMaterial || 'balsa-medium',
+      dboxThickness: h.dboxThickness > 0 ? h.dboxThickness : null,
+    })
   }
   return out
 }
 // Where a hard point's sheet runs across the chord at span position s, as plan positions
-// [x0, x1]: from the back of the leading edge stock to the front of the trailing edge stock, or
-// alongside a control surface to the rear face of its fixed hinge spar. a from analyseStructure
-// (its section and surfaces), structure the resolved one.
-export function patchSpan(a, structure, s) {
+// [x0, x1]: from the back of the leading edge stock (on a side with D-box sheeting, from the end
+// of that sheeting) to the front of the trailing edge stock, or alongside a control surface to
+// the rear face of its fixed hinge spar. a from analyseStructure (its section and surfaces),
+// structure the resolved one, side 'top' or 'bottom' (without one, the whole chord).
+export function patchSpan(a, structure, s, side = null) {
   const sec = a.section(s)
   if (!sec || !(sec.c > 1e-4)) return null
-  const x0 = sec.xl + Math.min(structure.le.width || 0, sec.c / 2)
+  let x0 = sec.xl + Math.min(structure.le.width || 0, sec.c / 2)
+  if (side && structure.covering.type === 'dbox') {
+    const [, rear] = lineFaces(a.sparX, sparWidth(structure.spar))
+    const ext = sheetExtent(structure, side, (rear(s) - sec.xl) / sec.c)
+    if (ext) x0 = Math.max(x0, sec.xl + ext.to * sec.c)
+  }
   const sf = (a.surfaces ?? []).find((x) => x.ok && s >= x.s0 - 1e-9 && s <= x.s1 + 1e-9)
   const x1 = sf ? sf.faces.fixedRear(s) : sec.xl + sec.c - Math.min(structure.te.width || 0, sec.c / 2)
   return x1 > x0 ? [x0, x1] : null
 }
-export const patchSheet = (structure) => ({
-  thickness: structure.covering.sheetThickness || 0.0015,
-  material: structure.covering.sheetMaterial || 'balsa-medium',
+// A hard point's sheet: its thickness and material (patch from hardPatches; without one, the
+// covering's, as every hard point had before they had their own)
+export const patchSheet = (structure, patch = null) => ({
+  thickness: patch?.thickness ?? (structure.covering.sheetThickness || 0.0015),
+  material: patch?.material ?? (structure.covering.sheetMaterial || 'balsa-medium'),
 })
+// A hard point's sheet thickness on one side at chord fraction q, or 0: it covers the chord
+// where the covering has no sheeting of its own on that side, and on a fully sheeted wing
+// replaces it. sparXiRear as for skinAt.
+export function patchThicknessAt(structure, patch, side, q, sparXiRear) {
+  if (!patch?.sides.includes(side)) return 0
+  if (structure.covering.type === 'dbox') {
+    const ext = sheetExtent(structure, side, sparXiRear)
+    if (ext && q <= ext.to + 1e-9) return 0
+  }
+  return patch.thickness
+}
+
+// The covering's sheet thickness at flat span position s: in a sheeted hard point's bays its
+// dboxThickness if it has one, else the panel's own (covering.panelThickness, which
+// resolveSheeting turns into sheetPanels, { s1, thickness } root outward), else the wing's.
+// Without s (or before the structure is resolved), the wing's.
+export function sheetThicknessAt(structure, s = null) {
+  const base = structure.covering.sheetThickness || 0
+  if (!Number.isFinite(s)) return base
+  for (const h of structure.hardBays ?? []) if (h.dboxThickness > 0 && s >= h.s0 - 1e-6 && s <= h.s1 + 1e-6) return h.dboxThickness
+  const p = (structure.sheetPanels ?? []).find((x) => s <= x.s1 + 1e-9)
+  return p?.thickness > 0 ? p.thickness : base
+}
+// The structure with its per-panel sheet thicknesses and hard-point bays laid out along the span,
+// for sheetThicknessAt. panels: the wing's panels (for their ids), in sampler.ends order.
+export function resolveSheeting(structure, sampler, panels, rootS) {
+  const by = structure.covering?.panelThickness ?? {}
+  const sheetPanels = sampler.ends.map((e, i) => {
+    const t = by[panels?.[i]?.id]
+    return { s1: e.outer.s, thickness: Number.isFinite(t) && t > 0 ? t : null }
+  })
+  return { ...structure, sheetPanels, hardBays: hardPatches(structure, rootS) }
+}
 
 // Two ribs within 3 mm of each other are one rib; keep the more important kind.
 const RANK = { root: 0, tip: 1, break: 2, hard: 3, manual: 4, normal: 5 }
@@ -625,35 +685,39 @@ export function capStripStart(structure, chord, side = null) {
 
 // chord (m) is the station's chord; it's only needed for a null capStripStart. caps false
 // leaves the cap strips out: hinge spars stand the full height of a rib and its capping, the
-// strips stopping at them, so only sheeting covers them.
-export function skinAt(structure, q, sparXiRear, side, chord, caps = true) {
+// strips stopping at them, so only sheeting covers them. s, the flat span position, picks the
+// sheet thickness there (a panel's own, a hard point's bays'; sheetThicknessAt); without it, the
+// wing's.
+export function skinAt(structure, q, sparXiRear, side, chord, caps = true, s = null) {
   const cov = structure.covering
   // Cap strips stop short of the leading edge (capStripStart), so the rib's nose is uncovered
   const strip = caps && cov.capStrips && q >= capStripStart(structure, chord, side) - 1e-9 ? cov.capStripThickness || 0 : 0
-  if (cov.type === 'sheeted') return cov.sheetThickness || 0
+  const sheet = sheetThicknessAt(structure, s)
+  if (cov.type === 'sheeted') return sheet
   if (cov.type === 'dbox') {
-    if (!side) return q <= sparXiRear ? cov.sheetThickness || 0 : strip
+    if (!side) return q <= sparXiRear ? sheet : strip
     const ext = sheetExtent(structure, side, sparXiRear)
-    return ext && q <= ext.to ? cov.sheetThickness || 0 : strip
+    return ext && q <= ext.to ? sheet : strip
   }
   return strip
 }
 
 // Skin thickness over the spar: sheeting, or cap strips on an open wing (they run over
-// the caps). With a side, that surface's own skin.
-export function skinAtSpar(structure, side) {
+// the caps). With a side, that surface's own skin; with s, the sheet thickness there.
+export function skinAtSpar(structure, side, s = null) {
   // The spar is under whatever covers the ribs there: the rib notches are cut from below it.
   // On an open wing that's the cap strips, which start ahead of the spar.
   if (structure.covering.type === 'open') return structure.covering.capStrips ? structure.covering.capStripThickness || 0 : 0
   // Tested at the spar itself (not the nose), so a null cap-strip start still lies ahead of it
-  return skinAt(structure, sparFraction(structure), 1, side)
+  return skinAt(structure, sparFraction(structure), 1, side, undefined, true, s)
 }
 
 // Spar properties at a station with outside depth h (m) at the spar. Returns null where
-// there's no spar (beyond a short tube) or what's there doesn't fit.
-export function sparSection(structure, h, dFromRoot = 0) {
+// there's no spar (beyond a short tube) or what's there doesn't fit. s, the flat span position,
+// for the sheet thickness there.
+export function sparSection(structure, h, dFromRoot = 0, s = null) {
   const sp = structure.spar
-  const skin = skinAtSpar(structure)
+  const skin = skinAtSpar(structure, undefined, s)
   const inner = h - 2 * skin
   // No spar at all (a foam wing): the skins carry the bending
   if (sp.type === 'none') return { type: 'none', inner }
@@ -750,11 +814,11 @@ export function sheetSpacing(E, t, b, sigma) {
 export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot = 0, strips = 12 }) {
   const els = []
   const cov = structure.covering
-  const sp = sparSection(structure, sec.depth(sparXi), dFromRoot)
+  const sp = sparSection(structure, sec.depth(sparXi), dFromRoot, sec.s)
   // Each surface's own skin: a D-box may sheet one side only
   const at = sec.surf(sparXi)
-  const top = at.upper - skinAtSpar(structure, 'top')
-  const bot = at.lower + skinAtSpar(structure, 'bottom')
+  const top = at.upper - skinAtSpar(structure, 'top', sec.s)
+  const bot = at.lower + skinAtSpar(structure, 'bottom', sec.s)
   if (sp.type === 'caps' || sp.type === 'box') {
     const tc = structure.spar.capThickness
     const I0 = (sp.b * tc ** 3) / 12
@@ -777,7 +841,7 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
     lower: cov.type !== 'open' && cov.sheetThickness > 0 ? sheetExtent(structure, 'bottom', sparXi, { leXi, teXi }) : null,
   }
   if (ext.upper || ext.lower) {
-    const t = cov.sheetThickness
+    const t = sheetThicknessAt(structure, sec.s)
     const E = material(cov.sheetMaterial).E
     for (const surface of ['upper', 'lower']) {
       const e = ext[surface]
@@ -816,11 +880,11 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
     const A = st.width * st.height
     const I0 = (st.width * st.height ** 3) / 12
     if (st.surface !== 'lower') {
-      const t = f.upper - skinAt(structure, st.position, rear, 'top', sec.c)
+      const t = f.upper - skinAt(structure, st.position, rear, 'top', sec.c, true, sec.s)
       els.push({ part: 'stringer', surface: 'upper', E, A, z: t - st.height / 2, I0, top: t, bottom: t - st.height })
     }
     if (st.surface !== 'upper') {
-      const b = f.lower + skinAt(structure, st.position, rear, 'bottom', sec.c)
+      const b = f.lower + skinAt(structure, st.position, rear, 'bottom', sec.c, true, sec.s)
       els.push({ part: 'stringer', surface: 'lower', E, A, z: b + st.height / 2, I0, top: b + st.height, bottom: b })
     }
   }
@@ -917,8 +981,8 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    const top = skinAt(structure, q, 0, 'top', sec.c, false)
-    const bot = skinAt(structure, q, 0, 'bottom', sec.c, false)
+    const top = skinAt(structure, q, 0, 'top', sec.c, false, s)
+    const bot = skinAt(structure, q, 0, 'bottom', sec.c, false, s)
     return Math.max(0, f.upper - f.lower - top - bot)
   }
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
@@ -1024,7 +1088,7 @@ export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }
     if (!sec || !(sec.c > 1e-4)) return 0
     const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
     const f = sec.surf(q)
-    return Math.max(0, f.upper - f.lower - skinAt(structure, q, 0, 'top', sec.c) - skinAt(structure, q, 0, 'bottom', sec.c))
+    return Math.max(0, f.upper - f.lower - skinAt(structure, q, 0, 'top', sec.c, true, s) - skinAt(structure, q, 0, 'bottom', sec.c, true, s))
   }
   const built = surfaces.filter((x) => x.ok)
   for (const r of list) {
@@ -1201,16 +1265,16 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
           const x = x0 + ((x1 - x0) * k) / 6
           const q = Math.min(1, Math.max(0, (x - sec.xl) / sec.c))
           const f = sec.surf(q)
-          base = Math.max(base, f.lower + skinAt(structure, q, xiRear, 'bottom', sec.c))
-          ceil = Math.min(ceil, f.upper - skinAt(structure, q, xiRear, 'top', sec.c))
+          base = Math.max(base, f.lower + skinAt(structure, q, xiRear, 'bottom', sec.c, true, s))
+          ceil = Math.min(ceil, f.upper - skinAt(structure, q, xiRear, 'top', sec.c, true, s))
         }
         for (const st of structure.stringers ?? []) {
           if (!Number.isFinite(st.position) || !(st.width > 0) || !(st.height > 0)) continue
           const xs = sec.xl + st.position * sec.c
           if (xs + st.width / 2 <= x0 || xs - st.width / 2 >= x1) continue
           const f = sec.surf(st.position)
-          if (st.surface !== 'upper') base = Math.max(base, f.lower + skinAt(structure, st.position, xiRear, 'bottom', sec.c) + st.height)
-          if (st.surface !== 'lower') ceil = Math.min(ceil, f.upper - skinAt(structure, st.position, xiRear, 'top', sec.c) - st.height)
+          if (st.surface !== 'upper') base = Math.max(base, f.lower + skinAt(structure, st.position, xiRear, 'bottom', sec.c, true, s) + st.height)
+          if (st.surface !== 'lower') ceil = Math.min(ceil, f.upper - skinAt(structure, st.position, xiRear, 'top', sec.c, true, s) - st.height)
         }
       }
       return ceil - base
@@ -1357,10 +1421,13 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const checkAt = [s0, ...sampler.ends.map((e) => e.outer.s).filter((s) => s > s0 && s < sTip), sTip]
   const edges = resolveEdges(structure, section, checkAt)
   structure = applyEdges(structure, edges)
+  // Each panel's sheet thickness and the hard points' bays along the span (sheetThicknessAt)
+  structure = resolveSheeting(structure, sampler, wing.panels, s0)
   const cov = structure.covering
   const sheet = material(cov.sheetMaterial)
-  // The sheeting's modulus for buckling between ribs, stiffened by any laminate over it
-  const sheetE = laminatedSheetE(sheet.E, cov.sheetThickness, finishOf(cov).laminate)
+  // The sheeting's modulus for buckling between ribs, stiffened by any laminate over it, for a
+  // sheet t thick
+  const sheetE = (t) => laminatedSheetE(sheet.E, t, finishOf(cov).laminate)
   const ms = (allow, actual) => (actual > 0 ? allow / (actual * sf) - 1 : Infinity)
 
   // Control surfaces, each with a rib at both ends, then the air brakes, then the servo bays on
@@ -1393,6 +1460,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const V = loadAt(pos.rows, s, 'V')
     const Mn = neg ? Math.abs(loadAt(neg.rows, s, 'M')) : 0
     const { els, spar: sp } = sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot: s - s0 })
+    const tSheet = sheetThicknessAt(structure, s)
     const row = { s, d: s - s0, c: sec.c, h, sparXi, M, V, Mneg: Mn, spar: sp.type, fits: sp.fits ?? false, ms: {}, limit: Infinity }
     stations.push(row)
     // A built-up wing past the end of a short tube spar has nothing to check; a foam wing has no
@@ -1413,7 +1481,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       const n = 24
       let sumD = 0
       for (let i = 0; i < n; i++) sumD += sec.depth(leXi + ((teXi - leXi) * (i + 0.5)) / n)
-      const skins = 2 * (cov.sheetThickness || 0)
+      const skins = 2 * tSheet
       const d = Math.max(1e-6, sumD / n - skins)
       row.coreTau = coreShearStress(V, { width: (teXi - leXi) * sec.c, d })
       row.ms.coreShear = ms(core.shear, row.coreTau)
@@ -1443,7 +1511,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     }
     }
     // Sheeting: crushing, and buckling between ribs panel by panel
-    if (cov.type !== 'open' && cov.sheetThickness > 0) {
+    if (cov.type !== 'open' && tSheet > 0) {
       const strips = els.filter((e) => e.part === 'sheet')
       const sheetC = strips.reduce((m, e) => Math.max(m, comp(e.E, e.top), comp(e.E, e.bottom)), 0)
       row.sheetStress = sheetC
@@ -1451,7 +1519,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       if (foam) {
         row.sigma = sheetC
         // A skin on a foam core doesn't buckle between supports: it wrinkles into the core
-        row.wrinkle = wrinklingStress(sheetE, core)
+        row.wrinkle = wrinklingStress(sheetE(tSheet), core)
         row.ms.wrinkling = ms(row.wrinkle, sheetC)
         continue
       }
@@ -1460,7 +1528,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
           const inPanel = strips.filter((e) => e.surface === surface && e.x >= x0 && e.x <= x1)
           if (!inPanel.length) continue
           const avg = inPanel.reduce((acc, e) => acc + comp(e.E, e.z), 0) / inPanel.length
-          row.limit = Math.min(row.limit, sheetSpacing(sheetE, cov.sheetThickness, (x1 - x0) * sec.c, avg * sf))
+          row.limit = Math.min(row.limit, sheetSpacing(sheetE(tSheet), tSheet, (x1 - x0) * sec.c, avg * sf))
         }
       }
     }
@@ -1523,7 +1591,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     if (Number.isFinite(r.limit) && a > 0) r.ms.spacing = r.limit / a - 1
     if ((r.spar === 'caps' || r.spar === 'box') && a > 0 && r.tau > 0) {
       // Web shear buckling: a panel between ribs (a) by the web height
-      const sp = sparSection(structure, r.h, r.d)
+      const sp = sparSection(structure, r.h, r.d, r.s)
       r.ms.webBuckling = webBuckling(sp, a) / (r.tau * sf) - 1
     }
   }

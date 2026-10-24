@@ -1331,6 +1331,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             v-model:structure="input.structure"
             :system="system"
             :root-chord="input.rootChord"
+            :panels="input.panels"
             :auto-spar="autoSpar"
             :brace-needs="braceNeeds"
             :rib-distances="ribDistances"

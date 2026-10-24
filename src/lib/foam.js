@@ -73,7 +73,7 @@ export function foamStructure(structure) {
   return {
     ...structure,
     spar: { ...structure.spar, type: 'none', webThickness: 0 },
-    covering: { ...structure.covering, type: 'sheeted', sheetThickness: f.skin.thickness, sheetMaterial: f.skin.material, capStrips: false },
+    covering: { ...structure.covering, type: 'sheeted', sheetThickness: f.skin.thickness, panelThickness: {}, sheetMaterial: f.skin.material, capStrips: false },
     stringers: [],
     ribs: { ...structure.ribs, thickness: 0, spacing: 'uniform', manual: [], hardPoints: [], lightening: false, jigTabs: false },
     gussets: { ...structure.gussets, le: false, te: false },
