@@ -146,7 +146,9 @@ export function defaultStructure() {
     construction: 'built-up',
     foam: defaultFoam(),
     spar: {
-      type: 'caps', // 'caps' (caps + shear web) | 'box' | 'tube' | 'solid'
+      // 'caps' (caps + a shear web on their leading-edge face) | 'box' (a second web on their
+      // trailing-edge face too) | 'tube' | 'solid'
+      type: 'caps',
       position: null, // chord fraction at each panel end; null = the section's thickest point
       capWidth: 0.006,
       capThickness: 0.003,
@@ -629,6 +631,19 @@ export function lineFaces(line, w) {
   return [(s) => line(s) - halfAt(s), (s) => line(s) + halfAt(s)]
 }
 
+// The thickness of a caps spar's shear web, 0 for any other spar (or none set)
+export const webThicknessOf = (sp) => ((sp.type === 'caps' || sp.type === 'box') && sp.webThickness > 0 ? sp.webThickness : 0)
+// The spar's outside faces in plan with its shear webs on: [front(s), rear(s)]. A caps spar's
+// web is glued to the caps' leading-edge face and a box spar's second web to their trailing-edge
+// face, so each stands proud of the caps by the web's thickness, square to the spar.
+export function sparOuterFaces(line, sp) {
+  const w = sparWidth(sp)
+  const tw = webThicknessOf(sp)
+  const [front] = lineFaces(line, w + 2 * tw)
+  const [, rear] = lineFaces(line, w + (sp.type === 'box' ? 2 * tw : 0))
+  return [front, rear]
+}
+
 // Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
 // to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
 // and stringers sit under it, so ribs, stringers and the 3D view all agree.
@@ -733,7 +748,7 @@ export function sparSection(structure, h, dFromRoot = 0, s = null) {
     const d = sp.solidDepth
     return { type: 'solid', inner, I: (b * d ** 3) / 12, c: d / 2, fits: d <= inner + 1e-9, mat: material(sp.solidMaterial), b }
   }
-  // Caps (+ one web, or two for a box)
+  // Caps (+ one web on their front face, or a second on their rear face for a box)
   const b = sp.capWidth
   const tc = sp.capThickness
   const d = inner - tc // between cap centroids
@@ -742,6 +757,8 @@ export function sparSection(structure, h, dFromRoot = 0, s = null) {
     type: sp.type,
     inner,
     d,
+    // The web stands the full depth inside the skins, beside the caps
+    webH: inner,
     area,
     I: 2 * area * (d / 2) ** 2 + (2 * b * tc ** 3) / 12,
     c: inner / 2,
@@ -760,10 +777,12 @@ function eulerSpacing(E, b, sigma) {
   return Math.PI * b * Math.sqrt(E / (12 * sigma))
 }
 
-// Shear buckling stress of a web panel between ribs a apart, with web height d.
+// Shear buckling stress of a web panel between ribs a apart, as tall as the web (webH: the
+// depth inside the skins; d, between the cap centroids, for a section without one).
 export function webBuckling(sp, a) {
-  const b = Math.min(a, sp.d)
-  const l = Math.max(a, sp.d)
+  const h = sp.webH ?? sp.d
+  const b = Math.min(a, h)
+  const l = Math.max(a, h)
   const ks = 5.35 + 4 * (b / l) ** 2
   return ks * plateK(sp.web.E * WEB_STIFFNESS_RATIO) * (sp.tw / b) ** 2
 }
@@ -771,7 +790,7 @@ export function webBuckling(sp, a) {
 // The largest rib spacing at which the web carries shear stress tau without buckling, or
 // Infinity if it holds at any spacing.
 function webSpacing(sp, tau) {
-  if (!(tau > 0) || !(sp.d > 0)) return Infinity
+  if (!(tau > 0) || !((sp.webH ?? sp.d) > 0)) return Infinity
   if (webBuckling(sp, 1e3) >= tau) return Infinity
   let lo = 1e-4
   let hi = 1e3
@@ -972,7 +991,7 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
   const list = resolveSurfaces(sampler, controls?.surfaces)
   const h = structure.hinges
   const t = structure.ribs.thickness || 0
-  const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const [, sparRear] = sparOuterFaces(sparX, structure.spar)
   const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
   // Depth between the skins at plan position x: the hinge spars' depth, so any sheeting but
   // not the cap strips, which stop at the spars
@@ -1080,7 +1099,7 @@ const BRAKE_PROBLEMS = {
 export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }, controls, surfaces = []) {
   const t = structure.ribs.thickness || 0
   const list = resolveBrakes(sampler, controls?.brakes, { ribThickness: t })
-  const [sparFront, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const [sparFront, sparRear] = sparOuterFaces(sparX, structure.spar)
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
   // Depth between the skins at plan position x
   const depthAt = (s, x) => {
@@ -1152,7 +1171,7 @@ export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }
 // of an air brake's box. A bay alongside its own brake shares a rib with it, so only an
 // overlap of the two in plan counts. Adds to each brake's warnings.
 export function brakeBayClashes(brakes, bays, { sparX, structure }) {
-  const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const [, sparRear] = sparOuterFaces(sparX, structure.spar)
   for (const r of brakes.filter((x) => x.ok)) {
     for (const b of bays.filter((x) => x.ok)) {
       const over = b.sA < r.inner[1] - 1e-4 && b.sB > r.inner[0] + 1e-4 && b.plate.x0 < r.bx[1] && b.plate.x1 > r.bx[0]
@@ -1199,7 +1218,7 @@ const BAY_PROBLEMS = {
 // room (the depth there, between the skins), need and warnings.
 export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, surfaces, bays) {
   const t = structure.ribs.thickness || 0
-  const [, sparRear] = lineFaces(sparX, sparWidth(structure.spar))
+  const [, sparRear] = sparOuterFaces(sparX, structure.spar)
   const built = new Map((surfaces ?? []).filter((r) => r.ok).map((r) => [r.id, r]))
   for (const b of bays) {
     b.warnings = []
@@ -1628,7 +1647,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       mode: 'webShear',
       message: foam
         ? `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Try a thicker web or a stronger web material.`
-        : `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${sp.type === 'caps' ? ', or a box spar (two webs)' : ''}.`,
+        : `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${sp.type === 'caps' ? ", or a second web on the caps' trailing-edge face" : ''}.`,
     })
   }
   if (summary.modes.sheet?.ms < 0) {

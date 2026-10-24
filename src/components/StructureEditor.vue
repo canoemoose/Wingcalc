@@ -86,9 +86,9 @@ const fm = computed(() => st.value.foam ?? defaultFoam())
 const sheetSize = computed(() => SKIN_SHEETS[fm.value.skin.material] ?? SKIN_SHEETS.default)
 const lengthText = (v) => format(v, 'length', defaultUnit(props.system, 'length'))
 
+// A box spar is caps and web with a second web on the caps' rear face (the checkbox below)
 const SPAR_TYPES = [
   { value: 'caps', label: 'Caps and web' },
-  { value: 'box', label: 'Box' },
   { value: 'tube', label: 'Tube' },
   { value: 'solid', label: 'Solid' },
 ]
@@ -248,7 +248,7 @@ const summaries = computed(() => {
       ? `Tube ${mm(sp.tubeDiameter)}, ${mm(sp.tubeWall)} wall`
       : sp.type === 'solid'
         ? `Solid ${size(sp.solidWidth, sp.solidDepth)} ${mat(sp.solidMaterial)}`
-        : `${sp.type === 'box' ? 'Box' : 'Caps and web'}, ${size(sp.capWidth, sp.capThickness)} ${mat(sp.capMaterial)}`
+        : `Caps and ${sp.type === 'box' ? 'two webs' : 'web'}, ${size(sp.capWidth, sp.capThickness)} ${mat(sp.capMaterial)}`
   const covering = `${
     cov.type === 'open'
       ? `Open${cov.capStrips ? ', cap strips' : ''}`
@@ -486,7 +486,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
     </InspectorSection>
 
     <InspectorSection v-if="!foam" title="Spar" fold-key="structure:spar" :warnings="warnIn('spar')" :summary="summaries.spar">
-      <SegmentedField :model-value="st.spar.type" label="Type" :options="SPAR_TYPES" @update:model-value="set('spar.type', $event)" />
+      <SegmentedField :model-value="st.spar.type === 'box' ? 'caps' : st.spar.type" label="Type" :options="SPAR_TYPES" @update:model-value="set('spar.type', $event)" />
       <UnitInput
         :id="id('sparpos')"
         :model-value="st.spar.position"
@@ -516,13 +516,13 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           quantity="thin"
           :system="system"
           label="Shear web thickness"
-          :hint="
-            st.spar.type === 'box'
-              ? 'Two webs between the caps, flush with their front and rear faces, fitted between the ribs, grain vertical.'
-              : 'One web between the caps, flush with their front face, fitted between the ribs, grain vertical.'
-          "
+          hint="Glued to the caps' leading-edge face, the rib's full height less any sheeting, fitted between the ribs, grain vertical."
           @update:model-value="set('spar.webThickness', $event)"
         />
+        <label class="wc-check wc-structure-editor__check">
+          <input type="checkbox" :checked="st.spar.type === 'box'" @change="set('spar.type', $event.target.checked ? 'box' : 'caps')" />
+          Second web on the caps' trailing-edge face
+        </label>
         <SelectField :id="id('webm')" :model-value="st.spar.webMaterial" label="Web material" :options="SHEET" @update:model-value="set('spar.webMaterial', $event)" />
       </template>
       <template v-else-if="st.spar.type === 'tube'">

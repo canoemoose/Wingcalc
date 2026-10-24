@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, sparOuterFaces, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -320,26 +320,24 @@ export function sparBoxes(a, structure, s) {
   return [Array.from({ length: 16 }, (_, k) => [x + ((x1 - x0) / 2) * Math.cos((2 * Math.PI * k) / 16), mid + r * Math.sin((2 * Math.PI * k) / 16)])]
 }
 
-// The shear web(s) at s: between the caps (from the top of the lower cap to the bottom of the
-// upper), flush with the caps' front face, and with the rear face too for a box spar, so a
-// box closes. Fitted between the ribs, as the W parts are cut.
+// The shear web(s) at s: glued to the caps' leading-edge face, and a box spar's second web to
+// their trailing-edge face, each standing the rib's full height less any sheeting (from the inset
+// lower surface to the inset upper one, as the ribs are cut), so it covers the caps' faces as
+// well as the gap between them. Fitted between the ribs, as the W parts are cut.
 export function webBoxes(a, structure, s) {
   const sp = structure.spar
   // No web at all (a foam wing without one): nothing, not a sliver of no thickness
   if ((sp.type !== 'caps' && sp.type !== 'box') || !(sp.webThickness > 0)) return []
-  const [up, lo] = sparBoxes(a, structure, s)
   const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
-  const [innerFront, innerRear] = lineFaces(a.sparX, Math.max(0, sparWidth(sp) - 2 * sp.webThickness))
-  const h0 = lo[2][1] // top of the lower cap
-  const h1 = up[0][1] // bottom of the upper cap
+  const [outFront, outRear] = sparOuterFaces(a.sparX, sp)
   const box = (xa, xb) => [
-    [xa, h0],
-    [xb, h0],
-    [xb, h1],
-    [xa, h1],
+    [xa, insetHeight(a, structure, s, xa, 'lower')],
+    [xb, insetHeight(a, structure, s, xb, 'lower')],
+    [xb, insetHeight(a, structure, s, xb, 'upper')],
+    [xa, insetHeight(a, structure, s, xa, 'upper')],
   ]
-  const out = [box(front(s), innerFront(s))]
-  if (sp.type === 'box') out.push(box(innerRear(s), rear(s)))
+  const out = [box(outFront(s), front(s))]
+  if (sp.type === 'box') out.push(box(rear(s), outRear(s)))
   return out
 }
 
@@ -980,8 +978,11 @@ export function bracePlates(a, structure, parts) {
   for (const p of parts.filter((q) => q.group === 'braces' && q.at)) {
     const { s: sb, inner, outer, depths, centre } = p.at
     const t = p.thickness
-    const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
-    const [outFront, outRear] = lineFaces(a.sparX, sparWidth(sp) + 2 * t)
+    // On the spar's faces, outside any shear web on them
+    const [front, rear] = sparOuterFaces(a.sparX, sp)
+    const k = (s) => lineFaces(a.sparX, 2)[1](s) - a.sparX(s) // x per unit square to the spar
+    const outFront = (s) => front(s) - t * k(s)
+    const outRear = (s) => rear(s) + t * k(s)
     const mid = (s) => {
       const x = a.sparX(s)
       return (insetHeight(a, structure, s, x, 'upper') + insetHeight(a, structure, s, x, 'lower')) / 2
@@ -1063,7 +1064,7 @@ export function wing3d(a, structure, parts, linkages = null) {
     const n = webBoxes(a, st, from).length
     for (let k = 0; k < n; k++) {
       const piece = { id: `web-${i}-${k}`, name: `Shear web, ${ribList[i - 1].name} to ${ribList[i].name}${n > 1 ? (k ? ', rear' : ', front') : ''}`, material: sp.webMaterial }
-      add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [`W${i}`] }, piece)
+      add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [k ? `W${i}-R` : `W${i}`] }, piece)
     }
   }
 

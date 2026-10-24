@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -551,11 +551,13 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // the label and lightening holes keep clear of them.
   const leadBlocks = []
   const leadFails = []
+  const [, sparOuterRear] = sparOuterFaces(a.sparX, sp)
   if (!movingSide) {
     for (const ld of leads) {
       const D = ld.diameter
       const m = Math.max(MIN_MATERIAL, ld.margin ?? MIN_MATERIAL)
-      const fx = (s) => sparRearX(clampS(s)) + ld.offset + D / 2
+      // Behind the spar's rear face, or a box spar's rear web, as the bay places its lead
+      const fx = (s) => sparOuterRear(clampS(s)) + ld.offset + D / 2
       // Never closer to the spar's notch or hole than the margin, along this rib
       const u0 = Math.max(crossing(fx, uSpar + (fx(rib.s) - xs0) / cs), uSpar1 + m + D / 2)
       let placed = null
@@ -660,11 +662,23 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     }
   }
 
-  // Height between the cap notch floors: what a shear web here has to fill
+  // Height between the cap notch floors
   const capGap =
     !movingSide && (sp.type === 'caps' || sp.type === 'box')
       ? Math.min(top(uSpar0), top(uSpar1)) - sp.capThickness - (Math.max(bot(uSpar0), bot(uSpar1)) + sp.capThickness)
       : null
+  // The shear webs' height where they meet this rib: the rib's full height (less any sheeting)
+  // in the middle of each web, the front one on the caps' leading-edge face and a box spar's
+  // second on their trailing-edge face ([front, rear], null where there's none)
+  let webHeights = null
+  if (!movingSide && capGap != null && webThicknessOf(sp) > 0) {
+    const [outFront, outRear] = sparOuterFaces(a.sparX, sp)
+    const tw = webThicknessOf(sp)
+    const uF = crossing(outFront, uSpar0 - tw)
+    const uR = crossing(outRear, uSpar1 + tw)
+    const mid = (u) => top(u) - bot(u)
+    webHeights = [mid((uF + uSpar0) / 2), sp.type === 'box' ? mid((uSpar1 + uR) / 2) : null]
+  }
 
   return {
     ok: true,
@@ -678,6 +692,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     sparU: uSpar,
     sparNotch: [uSpar0, uSpar1],
     capGap,
+    webHeights,
     // The rib's outer and inset surfaces, for drawing cap strips on it
     surfaces: { us, up: prof.up, lo: prof.lo, upIn, loIn },
     // Where each surface's cap strips start from the LE side: a D-box side with sheeting
@@ -1229,38 +1244,42 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     })
   }
 
-  // Shear webs, one piece per bay (two for a box spar), vertical grain (part y is the height)
+  // Shear webs, one piece per bay on the caps' leading-edge face (and a second on their
+  // trailing-edge face for a box spar, cut to its own height as W1-R), vertical grain (part y is
+  // the height): the rib's full height less any sheeting at each end
   const sp = structure.spar
-  if (sp.type === 'caps' || sp.type === 'box') {
+  if ((sp.type === 'caps' || sp.type === 'box') && webThicknessOf(sp) > 0) {
     const ribList = parts.filter((p) => p.group === 'ribs')
     for (let i = 1; i < ribList.length; i++) {
       const pa = ribList[i - 1]
       const pb = ribList[i]
-      // Exactly the gap between the caps where they pass through each rib
-      const hOf = (p) => Math.max(0, p.rib.capGap ?? 0)
       const len = Math.max(0, pb.s - pa.s - r.thickness)
       if (len < 0.003) continue
-      const ha = hOf(pa)
-      const hb = hOf(pb)
-      parts.push({
-        id: `W${i}`,
-        name: `W${i}`,
-        group: 'webs',
-        material: sp.webMaterial,
-        thickness: sp.webThickness,
-        qty: (sp.type === 'box' ? 2 : 1) * (both ? 2 : 1),
-        grainAngle: Math.PI / 2,
-        outline: [
-          [0, 0],
-          [len, 0],
-          [len, hb],
-          [0, ha],
-        ],
-        holes: [],
-        etch: [],
-        label: null,
-        notes: [`Between ${pa.name} and ${pb.name}, grain vertical`],
-      })
+      for (const k of sp.type === 'box' ? [0, 1] : [0]) {
+        const hOf = (p) => Math.max(0, p.rib.webHeights?.[k] ?? 0)
+        const ha = hOf(pa)
+        const hb = hOf(pb)
+        const id = k ? `W${i}-R` : `W${i}`
+        parts.push({
+          id,
+          name: id,
+          group: 'webs',
+          material: sp.webMaterial,
+          thickness: sp.webThickness,
+          qty: both ? 2 : 1,
+          grainAngle: Math.PI / 2,
+          outline: [
+            [0, 0],
+            [len, 0],
+            [len, hb],
+            [0, ha],
+          ],
+          holes: [],
+          etch: [],
+          label: null,
+          notes: [`Between ${pa.name} and ${pb.name}, on the spar caps' ${k ? 'trailing' : 'leading'}-edge face, the rib's full height less any sheeting, grain vertical`],
+        })
+      }
     }
   }
 

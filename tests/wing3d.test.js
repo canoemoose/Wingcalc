@@ -174,9 +174,11 @@ describe('3D wing', () => {
             expect(Math.abs(X - up[side][0]), `${p.name} ${label} cap wall`).toBeLessThan(1e-6)
             expect(Math.abs(zs[1] - up[0][1]), `${p.name} ${label} upper cap floor`).toBeLessThan(floorTol)
             expect(Math.abs(zs[2] - lo[2][1]), `${p.name} ${label} lower cap floor`).toBeLessThan(floorTol)
+            // The web on the caps' front face stands the rib's full height there
             const [web] = webBoxes(a, st, S)
-            expect(web[0][1]).toBeCloseTo(lo[2][1], 9)
-            expect(web[2][1]).toBeCloseTo(up[0][1], 9)
+            expect(web[1][0]).toBeCloseTo(up[0][0], 9)
+            expect(web[1][1]).toBeCloseTo(insetHeight(a, st, S, web[1][0], 'lower'), 9)
+            expect(web[2][1]).toBeCloseTo(insetHeight(a, st, S, web[1][0], 'upper'), 9)
           })
           for (const [u, edge] of [
             [r.uA, (sec) => sec.xl + st.le.width],
@@ -190,18 +192,28 @@ describe('3D wing', () => {
     }
   })
 
-  it('cuts the shear webs to the gap between the caps at each rib', () => {
-    const { a, st, parts } = build()
-    const ribs = parts.filter((q) => q.group === 'ribs')
-    for (const web of parts.filter((q) => q.group === 'webs')) {
-      const i = Number(web.name.slice(1))
-      const [, , [, hb], [, ha]] = web.outline
-      for (const [rib, h] of [
-        [ribs[i - 1], ha],
-        [ribs[i], hb],
-      ]) {
-        const [up, lo] = sparBoxes(a, st, rib.s)
-        expect(Math.abs(h - (up[0][1] - lo[2][1])), `${web.name} at ${rib.name}`).toBeLessThan(1e-6)
+  it("cuts the shear webs to the rib's full height (less the sheeting) at each rib", () => {
+    for (const type of ['caps', 'box']) {
+      const { a, st, parts } = build((x) => (x.spar.type = type))
+      const ribs = parts.filter((q) => q.group === 'ribs')
+      const webs = parts.filter((q) => q.group === 'webs')
+      // One per bay, and a box spar's rear web as a part of its own
+      expect(webs.filter((w) => w.name.endsWith('-R')).length).toBe(type === 'box' ? webs.length / 2 : 0)
+      for (const web of webs) {
+        const i = Number(web.name.slice(1).replace('-R', ''))
+        const k = web.name.endsWith('-R') ? 1 : 0
+        const [, , [, hb], [, ha]] = web.outline
+        for (const [rib, h] of [
+          [ribs[i - 1], ha],
+          [ribs[i], hb],
+        ]) {
+          const box = webBoxes(a, st, rib.s)[k]
+          const mid = (box[0][0] + box[1][0]) / 2
+          const full = insetHeight(a, st, rib.s, mid, 'upper') - insetHeight(a, st, rib.s, mid, 'lower')
+          expect(Math.abs(h - full), `${web.name} at ${rib.name}`).toBeLessThan(2e-5)
+          // Taller than the gap between the caps: it covers their faces too
+          expect(h).toBeGreaterThan(rib.rib.capGap + 1.5 * st.spar.capThickness)
+        }
       }
     }
   })
@@ -324,7 +336,7 @@ describe('3D wing', () => {
     expect(sectionAt(a, st, parts, ribs[3].s).pieces.some((p) => p.kind === 'web')).toBe(false)
   })
 
-  it('puts the shear webs between the caps, flush with their faces', () => {
+  it("puts the shear web on the caps' leading-edge face (and a box spar's second on their trailing-edge face), full height", () => {
     for (const type of ['caps', 'box']) {
       const { a, st } = build((x) => (x.spar.type = type), swept)
       for (const s of [0.1, 0.4, 0.6]) {
@@ -332,17 +344,22 @@ describe('3D wing', () => {
         const webs = webBoxes(a, st, s)
         expect(webs).toHaveLength(type === 'box' ? 2 : 1)
         const [capFront, capRear] = [up[0][0], up[1][0]]
-        // Front web from the caps' front face back by the web thickness; on a swept spar both
-        // are wider in x by the same factor, so it's the same fraction of the cap
-        expect(webs[0][0][0]).toBeCloseTo(capFront, 9)
+        // Front web ahead of the caps' front face by the web thickness; on a swept spar both are
+        // wider in x by the same factor
         const stretch = (capRear - capFront) / st.spar.capWidth
-        expect(webs[0][1][0] - capFront).toBeCloseTo(st.spar.webThickness * stretch, 6)
-        if (type === 'box') expect(webs[1][1][0]).toBeCloseTo(capRear, 9)
-        // Between the caps, top to bottom
+        expect(webs[0][1][0]).toBeCloseTo(capFront, 9)
+        expect(capFront - webs[0][0][0]).toBeCloseTo(st.spar.webThickness * stretch, 6)
+        if (type === 'box') {
+          expect(webs[1][0][0]).toBeCloseTo(capRear, 9)
+          expect(webs[1][1][0] - capRear).toBeCloseTo(st.spar.webThickness * stretch, 6)
+        }
+        // From the inset lower surface to the inset upper one: past both caps
         for (const w of webs) {
-          expect(w[0][1]).toBeCloseTo(lo[2][1], 9)
-          expect(w[2][1]).toBeCloseTo(up[0][1], 9)
-          expect(w[1][0]).toBeLessThanOrEqual(capRear + 1e-9)
+          expect(w[0][1]).toBeCloseTo(insetHeight(a, st, s, w[0][0], 'lower'), 9)
+          expect(w[3][1]).toBeCloseTo(insetHeight(a, st, s, w[0][0], 'upper'), 9)
+          // (level with the caps' outer faces, give or take the section's slope across the web)
+          expect(w[0][1]).toBeLessThan(lo[2][1] - st.spar.capThickness + 3e-4)
+          expect(w[3][1]).toBeGreaterThan(up[0][1] + st.spar.capThickness - 3e-4)
         }
       }
     }
