@@ -385,6 +385,7 @@ export function installedServo(id, mass = 0, pose = {}) {
     frame,
     rotate: !!pose.rotate,
     flip: !!pose.flip,
+    face: pose.face === 'top' ? 'top' : 'bottom',
     yaw,
     lift: 0,
   }
@@ -401,15 +402,23 @@ export function installedServo(id, mass = 0, pose = {}) {
   const tip = servoPoint(base, { x: 0, s: 0, base: 0 }, [f.output.offset, 0, Math.max(f.height, f.output.top)])[1]
   const armS = tip + ARM_ROOM * servoDir(base, [0, 0, 1])[1]
   const across = [Math.min(ext.s[0], armS), Math.max(ext.s[1], armS)]
-  const plateZ = plateHeight(square, frame.lugThickness, cls.plate, ext.z) + lift
-  const flat = platePlan(square, plateZ - lift, cls.plate, found.pilot ?? cls.pilot)
+  const face = pose.face === 'top' ? 'top' : 'bottom'
+  const plateZ = plateHeight(square, frame.lugThickness, cls.plate, ext.z, face) + lift
+  const pilot = found.pilot ?? cls.pilot
+  const flat = platePlan(square, plateZ - lift, cls.plate, pilot)
+  const blocks = screwBlocks(square, frame.lugThickness, plateZ - lift, cls.plate, face, servoDir(base, [0, 0, 1])[1])
   const rot = ([x, q]) => turnPoint([x, q], yaw)
   const rect = (xs, ss) => [[xs[0], ss[0]], [xs[1], ss[0]], [xs[1], ss[1]], [xs[0], ss[1]]].map(rot)
+  const cut = cutout(flat.rects, yaw)
   const plan = {
-    ...cutout(flat.rects, yaw),
-    // Each part's cut, square to the servo, for a bay to add the arm's to (cutout)
+    ...cut,
+    // Each part's cut, and the screw holes, square to the servo, for a bay to add the arm's cut to
+    // (cutout, screwsClear)
     rects: flat.rects,
-    screws: flat.screws.map(rot),
+    screwsSquare: flat.screws,
+    screws: screwsClear(flat.screws, cut.bands, pilot).map(rot),
+    // Blocks an ordinary servo on its side screws to (screwBlocks), square to the servo
+    blocks,
     short: flat.short,
   }
   return {
@@ -470,55 +479,136 @@ function partRanges(p) {
 }
 
 // The height of the mount plate's underside (placed parts, the case on z = 0), the plate
-// `thickness` thick, clear of the lead (a cable doesn't go through a plate): on the lugs that lie
-// flat in the wing's plane (a wing servo's), on top of them, or under them where the lead would pass
-// through on top; with none lying flat (an ordinary servo on its side, whose lugs stand on edge),
-// half way up the servo, or the nearest height to that the lead clears.
-function plateHeight(parts, t, thickness, zs) {
+// `thickness` thick. The servo goes into the plate from the side its arm faces (the horn's `face`:
+// from below for a horn underneath), so the plate is on the far side of what holds it: on the lugs
+// that lie flat in the wing's plane (a wing servo's), their far side; with lugs standing on edge
+// (an ordinary servo on its side), whose screws run along the span through the case's middle into
+// blocks glued to the plate, beyond those screws by SCREW_ROOM, and clear of the lead (a cable
+// doesn't go through a plate). Where there's no room for that, half way up.
+function plateHeight(parts, t, thickness, zs, face = 'bottom') {
   const flat = parts.slice(1).filter((p) => p.kind === 'servo' && p.box && Math.abs(p.box.z[1] - p.box.z[0] - t) < 1e-6)
+  const fromAbove = face === 'top'
+  if (flat.length) return fromAbove ? Math.min(...flat.map((p) => p.box.z[0])) - thickness : Math.max(...flat.map((p) => p.box.z[1]))
   const through = (z) => parts.some((p) => p.kind === 'servoLead' && partRanges(p).z[0] < z + thickness - 1e-6 && partRanges(p).z[1] > z + 1e-6)
-  let tries
-  if (flat.length) tries = [Math.max(...flat.map((p) => p.box.z[1])), Math.min(...flat.map((p) => p.box.z[0])) - thickness].filter((z) => z >= zs[0] - 1e-9)
-  else {
-    const mid = (zs[0] + zs[1]) / 2
-    const n = Math.floor((zs[1] - zs[0] - thickness) / 0.00025)
-    tries = Array.from({ length: Math.max(0, n) + 1 }, (_, i) => zs[0] + i * 0.00025).sort((p, q) => Math.abs(p - mid) - Math.abs(q - mid))
-    tries.unshift(mid)
+  const screw = lugScrewHeight(parts)
+  const step = 0.00025
+  if (!fromAbove) {
+    for (let z = screw + SCREW_ROOM; z + thickness <= zs[1] + 1e-9; z += step) if (!through(z)) return z
+  } else {
+    for (let z = screw - SCREW_ROOM - thickness; z >= zs[0] - 1e-9; z -= step) if (!through(z)) return z
   }
-  return tries.find((z) => !through(z)) ?? tries[0] ?? (zs[0] + zs[1]) / 2
+  return (zs[0] + zs[1]) / 2
+}
+// Room between a lug screw's axis and the plate, m: the screw's thread and a little wood
+export const SCREW_ROOM = 0.0025
+// The height of an on-edge lug's screw: through the middle of the case's width (placed parts)
+const lugScrewHeight = (parts) => (parts[0].box.z[0] + parts[0].box.z[1]) / 2
+
+// The blocks an ordinary servo on its side screws to: one beside each lug standing on edge, on the
+// lug's side towards the case's base (where its screw comes out), glued to the plate's face towards
+// the arm and running past the screw by BLOCK.past, BLOCK.depth along the span and the lug's
+// length beyond the case along the chord, kept clear of the lead's stub. Each { x, s, z } ranges
+// (placed parts, about the case's centre, square to the servo) and screw, its pilot hole's
+// [x, z] (the hole runs along the span). None for a servo whose lugs lie flat.
+export const BLOCK = { depth: 0.006, past: 0.003 }
+function screwBlocks(parts, t, z, thickness, face, axisS) {
+  const lugs = parts.slice(1).filter((p) => p.kind === 'servo' && p.box && Math.abs(p.box.z[1] - p.box.z[0] - t) > 1e-6 && p.box.s[1] - p.box.s[0] <= t + 1e-6)
+  if (!lugs.length) return []
+  const screw = lugScrewHeight(parts)
+  const zs = face === 'top' ? [z + thickness, screw + BLOCK.past] : [screw - BLOCK.past, z]
+  const lead = parts.find((p) => p.kind === 'servoLead')
+  return lugs.map((lug) => {
+    const x = lug.box.x
+    // The case's base is towards -s when its output points +s
+    let sr = axisS > 0 ? [lug.box.s[0] - BLOCK.depth, lug.box.s[0]] : [lug.box.s[1], lug.box.s[1] + BLOCK.depth]
+    const L = lead && partRanges(lead)
+    if (L && L.x[0] < x[1] && L.x[1] > x[0] && L.z[0] < zs[1] && L.z[1] > zs[0] && L.s[0] < sr[1] && L.s[1] > sr[0]) {
+      sr = axisS > 0 ? [Math.max(sr[0], L.s[1] + CUTOUT_GAP), sr[1]] : [sr[0], Math.min(sr[1], L.s[0] - CUTOUT_GAP)]
+    }
+    return { x, s: sr, z: zs, screw: [(x[0] + x[1]) / 2, screw] }
+  })
 }
 
-// A mount plate's cut-out from its parts' cuts ({ x, s } ranges about the case's centre, square to
-// the servo), turned by yaw: cutPoly, the outline ([x, s] corners), cutRects, each cut's corners,
-// and cut, the box round them ({ x, s } ranges); all null with no cuts
-export function cutout(rects, yaw = 0) {
-  if (!rects?.length) return { cut: null, cutPoly: null, cutRects: null }
-  const rot = ([x, q]) => turnPoint([x, q], yaw)
-  const cutPoly = rectsOutline(rects).map(rot)
-  return {
-    cut: { x: rangeOf(cutPoly, 0), s: rangeOf(cutPoly, 1) },
-    cutPoly,
-    cutRects: rects.map((c) => [[c.x[0], c.s[0]], [c.x[1], c.s[0]], [c.x[1], c.s[1]], [c.x[0], c.s[1]]].map(rot)),
-  }
-}
+// The least width of ply left between the plate's cut-outs, m: a narrower sliver between two
+// notches is cut away with them
+export const MIN_PLY = 0.004
 
-// The outline of rectangles ({ x, s } ranges) that overlap or touch into one shape, [x, s]
-// corners anticlockwise from above, taking each band along s between their ends as one stretch
-// along x (the servo's parts all join the case, so its cut-out has no gaps across)
-export function rectsOutline(rects) {
+// The plate's cut-out from its parts' cuts ({ x, s } ranges), as bands along s, each one stretch
+// along x (the servo's parts all join the case, so it has no gaps across), with any sliver of ply
+// narrower than MIN_PLY between two notches (or two cuts) cut away: [{ s, x }]
+export function cutBands(rects) {
   if (!rects.length) return []
   const ends = [...new Set(rects.flatMap((r) => r.s))].sort((a, b) => a - b)
-  const bands = []
+  let bands = []
   for (let i = 0; i + 1 < ends.length; i++) {
     const [s0, s1] = [ends[i], ends[i + 1]]
     if (s1 - s0 < 1e-9) continue
     const on = rects.filter((r) => r.s[0] <= s0 + 1e-12 && r.s[1] >= s1 - 1e-12)
     if (!on.length) continue
-    const x = [Math.min(...on.map((r) => r.x[0])), Math.max(...on.map((r) => r.x[1]))]
-    const last = bands.at(-1)
-    if (last && Math.abs(last.s[1] - s0) < 1e-12 && Math.abs(last.x[0] - x[0]) < 1e-12 && Math.abs(last.x[1] - x[1]) < 1e-12) last.s[1] = s1
-    else bands.push({ s: [s0, s1], x })
+    const prev = bands.at(-1)
+    // A gap along s between two cuts: a sliver if it's narrow, cut away below
+    if (prev && s0 - prev.s[1] > 1e-12 && s0 - prev.s[1] < MIN_PLY) bands.push({ s: [prev.s[1], s0], x: [...prev.x], gap: true })
+    bands.push({ s: [s0, s1], x: [Math.min(...on.map((r) => r.x[0])), Math.max(...on.map((r) => r.x[1]))] })
   }
+  for (const b of bands) if (b.gap) b.x = [b.x[1], b.x[0]] // nothing cut yet: filled from its neighbours
+  // Ply poking into the cut-out between two notches, less than MIN_PLY along s, is cut away to
+  // the shallower of the two
+  for (let pass = 0; pass < 20; pass++) {
+    let changed = false
+    for (let i = 1; i + 1 < bands.length; i++) {
+      const [a, b, c] = [bands[i - 1], bands[i], bands[i + 1]]
+      if (b.s[1] - b.s[0] >= MIN_PLY) continue
+      const hi = Math.min(a.x[1], c.x[1])
+      const lo = Math.max(a.x[0], c.x[0])
+      if (b.x[1] < hi - 1e-12) {
+        b.x[1] = hi
+        changed = true
+      }
+      if (b.x[0] > lo + 1e-12) {
+        b.x[0] = lo
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  bands = bands.filter((b) => b.x[1] > b.x[0] + 1e-12).map(({ s, x }) => ({ s, x }))
+  // Neighbours alike merged
+  const out = []
+  for (const b of bands) {
+    const last = out.at(-1)
+    if (last && Math.abs(last.s[1] - b.s[0]) < 1e-12 && Math.abs(last.x[0] - b.x[0]) < 1e-12 && Math.abs(last.x[1] - b.x[1]) < 1e-12) last.s[1] = b.s[1]
+    else out.push({ s: [...b.s], x: [...b.x] })
+  }
+  return out
+}
+
+// How far a point is outside a cut-out's bands (negative inside), by the nearest
+const fromBands = (bands, [x, s]) => Math.min(...bands.map((c) => Math.max(c.x[0] - x, x - c.x[1], c.s[0] - s, s - c.s[1])))
+// The screw holes (square to the servo) that keep SCREW_EDGE of ply from the cut-out
+export const screwsClear = (screws, bands, pilot) => screws.filter((q) => !bands.length || fromBands(bands, q) - pilot / 2 >= SCREW_EDGE - 1e-9)
+
+// A mount plate's cut-out from its parts' cuts ({ x, s } ranges about the case's centre, square to
+// the servo), turned by yaw: cutPoly, the outline ([x, s] corners), cutRects, its bands' corners
+// (cutBands: the parts' cuts with slivers between them cut away), bands themselves, square to the
+// servo, and cut, the box round them ({ x, s } ranges); all null with no cuts
+export function cutout(rects, yaw = 0) {
+  if (!rects?.length) return { cut: null, cutPoly: null, cutRects: null, bands: [] }
+  const rot = ([x, q]) => turnPoint([x, q], yaw)
+  const bands = cutBands(rects)
+  const cutPoly = bandsOutline(bands).map(rot)
+  return {
+    cut: { x: rangeOf(cutPoly, 0), s: rangeOf(cutPoly, 1) },
+    cutPoly,
+    cutRects: bands.map((c) => [[c.x[0], c.s[0]], [c.x[1], c.s[0]], [c.x[1], c.s[1]], [c.x[0], c.s[1]]].map(rot)),
+    bands,
+  }
+}
+
+// The outline of rectangles ({ x, s } ranges) that overlap or touch into one shape (cutBands),
+// [x, s] corners anticlockwise from above
+export const rectsOutline = (rects) => bandsOutline(cutBands(rects))
+function bandsOutline(bands) {
+  if (!bands.length) return []
   // Up the aft side, back down the front
   const pts = [...bands.flatMap((b) => [[b.x[1], b.s[0]], [b.x[1], b.s[1]]]), ...[...bands].reverse().flatMap((b) => [[b.x[0], b.s[1]], [b.x[0], b.s[0]]])]
   // Without repeats or points along a straight edge
@@ -860,9 +950,10 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     const cls = chosen ? cfg.class : defaultServoClass(mass)
     // Square to the hinge: its length turned from the chord by the hinge line's angle in plan
     const yaw = cfg.square === 'hinge' && Number.isFinite(r.slope) ? -Math.atan(r.slope) : 0
-    const servo = installedServo(cls, mass, { rotate: cfg.rotate, flip: cfg.flip, yaw })
     // The face its horn and arm are on (bayLinkage.js DEFAULT_LINK), which its servo sits against
+    // and goes into its plate from
     const face = cfg.link?.hornFace === 'top' ? 'top' : 'bottom'
+    const servo = installedServo(cls, mass, { rotate: cfg.rotate, flip: cfg.flip, yaw, face })
     const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, face, link: r.beside ? null : cfg.link, fore: r.beside ? null : cfg.fore, inset: r.beside ? 0 : cfg.inset ?? 0, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {

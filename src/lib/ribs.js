@@ -1020,8 +1020,11 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     for (const [x, s] of bay.screws ?? []) holes.push(circle(u(s), v(x), sv.pilot / 2, 12))
     // The least ply left round the cut-out
     const ply = c ? Math.min(u(c.s0), len - u(c.s1), v(c.x0), wid - v(c.x1)) : Math.min(len, wid) / 2
+    const from = bay.face === 'top' ? 'above' : 'below'
     const fixing = bay.screws?.length
-      ? 'The servo goes in from below, its lugs screwed up into the plate'
+      ? `The servo goes in from ${from}, the side its arm faces, its lugs screwed ${bay.face === 'top' ? 'down' : 'up'} into the plate`
+      : bay.blocks?.length
+      ? `The servo goes in from ${from}, the side its arm faces; its lugs stand on edge, so it screws through them along the span into the ${bay.blocks.length} spruce blocks glued to the plate's ${bay.face === 'top' ? 'top' : 'underside'} where marked (see the cut list), a pilot hole in each at the lug's hole`
       : sv.plan?.short
       ? `The servo's lugs are too short to screw through the plate with a millimetre of ply round the pilot hole: fix it with a strap or blocks over its lugs`
       : "The servo's lugs stand on edge in this mounting, so none bears on the plate: fix it with blocks glued beside its lugs, or another mounting"
@@ -1034,7 +1037,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       qty: both ? 2 : 1,
       outline: rect(0, 0, len, wid),
       holes,
-      etch: [],
+      // Where the screw blocks go
+      etch: (bay.blocks ?? []).map((k) => [...k.corners, k.corners[0]].map(([x, s]) => [u(s), v(x)])),
       label: null,
       bay,
       notes: [
@@ -1621,6 +1625,18 @@ function stripCutList(a, structure, parts, both) {
       length: br.length,
       qty: sides,
       note: 'Along the front edge of the plate, half on the plate and half on the frame',
+    })
+  }
+  // The blocks an ordinary servo on its side screws to, beside each lug
+  for (const bay of (a.bays ?? []).filter((x) => x.ok && x.blocks?.length)) {
+    const k = bay.blocks[0]
+    out.push({
+      item: `Servo screw block, ${bay.label}`,
+      material: 'spruce',
+      size: k.size,
+      length: k.length,
+      qty: bay.blocks.length * sides,
+      note: `Glued to the mount plate beside each lug, where marked on it; a ${Math.round((bay.servo.pilot ?? 0.001) * 10000) / 10} mm pilot hole along the span through each, at its lug's screw hole`,
     })
   }
   // A sheeted wing's servo hatch screws to a rail along each of the opening's chordwise edges

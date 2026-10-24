@@ -588,7 +588,15 @@ export function servoBayParts(a, structure, b) {
       pieces.push({ s0: lo, s1: hi, x: (s) => [Math.min(p.x1, at(s, lo, hi)[1]), p.x1], turned })
     }
   }
-  return { parts, plate: { z, thickness: p.thickness, pieces: pieces.filter((q) => q.x((q.s0 + q.s1) / 2)[1] - q.x((q.s0 + q.s1) / 2)[0] > 1e-4) } }
+  // The blocks an ordinary servo on its side screws to, glued to the plate (servos.js screwBlocks),
+  // placed and turned as the servo is
+  const at = { x: (b.case.x0 + b.case.x1) / 2, s: b.s, z: box.base + (b.servo.lift ?? 0) }
+  const yaw = b.servo.yaw ?? 0
+  const blocks = (b.servo.plan?.blocks ?? []).map((k) => {
+    const block = { kind: 'servoBlock', box: { x: k.x.map((v) => at.x + v), s: k.s.map((v) => at.s + v), z: k.z.map((v) => at.z + v) } }
+    return Math.abs(yaw) > 1e-9 ? { ...block, turn: { yaw, x: at.x, s: at.s } } : block
+  })
+  return { parts, blocks, plate: { z, thickness: p.thickness, pieces: pieces.filter((q) => q.x((q.s0 + q.s1) / 2)[1] - q.x((q.s0 + q.s1) / 2)[0] > 1e-4) } }
 }
 
 // A flat plate from z to z + t in the wing's flat frame: the rectangle p ({ x0, x1, s0, s1 }), with
@@ -798,8 +806,8 @@ export function sectionAt(a, structure, parts, s) {
   // Servos and their mount plates, where the cut crosses them
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     if (s < b.sA || s > b.sB) continue
-    const { parts: sp, plate } = servoBayParts(a, st, b)
-    for (const p of sp) add(p.kind, partSlice(p, s))
+    const { parts: sp, plate, blocks } = servoBayParts(a, st, b)
+    for (const p of [...sp, ...blocks]) add(p.kind, partSlice(p, s))
     for (const q of plate.pieces) {
       if (s < q.s0 || s > q.s1) continue
       const [x0, x1] = q.x(s)
@@ -1126,12 +1134,14 @@ export function wing3d(a, structure, parts, linkages = null) {
   // its lugs, round its cut-out
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const rect = (x0, x1, z0, z1) => [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]
-    const { parts: sp, plate } = servoBayParts(a, st, b)
+    const { parts: sp, plate, blocks } = servoBayParts(a, st, b)
     // The plate is cut as the bay's plate part (a foam wing's: the pocket's template); the servo is bought
     const pick = { ids: [b.name, `${b.name}-T`] }
     const servo = { id: `servo-${b.name}`, name: `${b.servo.label} servo, ${b.name}`, servo: b.servo }
     const platePiece = { id: `plate-${b.name}`, name: `Servo plate, ${b.name}`, material: 'ply-birch' }
     for (const p of sp) add(p.kind, servoSolid(a, p), null, servo)
+    // Its screw blocks, strip stock (in the cut list), so pieces with no part
+    blocks.forEach((p, k) => add(p.kind, servoSolid(a, p), null, { id: `block-${b.name}-${k}`, name: `Servo screw block, ${b.name}`, material: 'spruce' }))
     // One solid: the plate's rectangle with the cut-out through it (the strips when the cut-out
     // reaches the plate's edge)
     const p = b.plate

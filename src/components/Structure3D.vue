@@ -254,6 +254,7 @@ const COLOURS = {
   brakeBox: 0xc9a46a,
   blade: 0x7f8c97,
   plate: 0xa8794a,
+  servoBlock: 0xd9b77e,
   teMoving: 0xe3c48f,
   tab: 0x8fa3ad,
   core: 0xe9e5d8,
@@ -409,7 +410,7 @@ function build() {
         ? groups.core
         : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead' || s.kind === 'servoArm' || s.kind === 'horn' || s.kind === 'pushrod'
         ? groups.servos
-        : s.kind === 'plate'
+        : s.kind === 'plate' || s.kind === 'servoBlock'
         ? groups.servoPlates
         : s.kind === 'brakeBox' || s.kind === 'blade'
         ? groups.brakes

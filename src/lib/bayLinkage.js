@@ -125,7 +125,7 @@ export function bayFrame(a, b, link = DEFAULT_LINK) {
     up: surface.up ?? 0,
     down: surface.down ?? 0,
     at,
-    pose: { rotate: !!sv.rotate, flip: !!sv.flip, yaw: sv.yaw ?? 0 },
+    pose: { rotate: !!sv.rotate, flip: !!sv.flip, yaw: sv.yaw ?? 0, face: sv.face },
     box,
     insetMax: Math.max(0, box.ceil - box.floor - tall),
     chord: { xl: bayChord.xl, c: bayChord.c },

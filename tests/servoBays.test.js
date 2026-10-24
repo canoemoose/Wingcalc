@@ -10,7 +10,7 @@ import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
 import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox, plateSolid } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC, xRangeAt } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC, xRangeAt, cutBands, MIN_PLY, SCREW_ROOM } from '../src/lib/servos.js'
 import { bayLinkages } from '../src/lib/bayLinkage.js'
 
 function inside(poly, [x, y]) {
@@ -575,6 +575,96 @@ describe('servo bays in the exports and the 3D view', () => {
     // A wing servo's plate is still on its flat lugs, with its screw holes
     const w = installedServo('hitec-hs-5125mg', 2)
     expect(w.plan.screws.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('leaves no sliver of ply narrower than MIN_PLY between notches in the cut-out', () => {
+    // Two cuts with a 2 mm tooth of ply between them along s, and a 2 mm gap: both cut away
+    const bands = cutBands([
+      { x: [0, 0.02], s: [0, 0.02] },
+      { x: [0.005, 0.01], s: [0.02, 0.022] },
+      { x: [0, 0.02], s: [0.022, 0.03] },
+      { x: [0, 0.004], s: [0.032, 0.04] },
+    ])
+    expect(bands.map((b) => [b.s, b.x])).toEqual([[[0, 0.03], [0, 0.02]], [[0.03, 0.032], [0, 0.004]], [[0.032, 0.04], [0, 0.004]]].map(([s, x]) => [s, x]).reduce((out, b) => {
+      // (the last two merge: alike)
+      const last = out.at(-1)
+      if (last && last[1][0] === b[1][0] && last[1][1] === b[1][1] && last[0][1] === b[0][0]) last[0] = [last[0][0], b[0][1]]
+      else out.push(b)
+      return out
+    }, []))
+    // Every servo's plate, every way round: no band shorter than MIN_PLY sits narrower than both
+    // its neighbours (a tooth of ply poking in)
+    for (const id of ['micro', 'standard', 'hitec-hs-65mg', 'hitec-hs-5125mg', 'hitec-hs-645mg', 'futaba-s3150']) {
+      for (const pose of [{}, { rotate: true }, { face: 'top' }, { flip: true, face: 'top' }]) {
+        const b = installedServo(id, 2, pose).plan.bands
+        for (let i = 1; i + 1 < b.length; i++) {
+          if (b[i].s[1] - b[i].s[0] >= MIN_PLY) continue
+          const tag = `${id} ${JSON.stringify(pose)} band ${i}`
+          expect(b[i].x[1] >= Math.min(b[i - 1].x[1], b[i + 1].x[1]) - 1e-12, tag).toBe(true)
+          expect(b[i].x[0] <= Math.max(b[i - 1].x[0], b[i + 1].x[0]) + 1e-12, tag).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('has the servo go into the plate from the side its arm faces, the plate on the far side of its lugs or screws', () => {
+    for (const id of ['hitec-hs-5125mg', 'hitec-hs-125mg', 'hitec-d145sw']) {
+      // Flat lugs: a horn underneath puts the plate on top of them (the servo goes in from below,
+      // its lugs bearing on the plate's underside); a horn on top, under them
+      const parts = (v) => placeServo({ ...v, lift: 0 }, { x: 0, s: 0, base: 0 })
+      const below = installedServo(id, 2, { face: 'bottom' })
+      const above = installedServo(id, 2, { face: 'top' })
+      const flat = (v) => parts(v).filter((p) => p.kind === 'servo' && p.box && Math.abs(p.box.z[1] - p.box.z[0] - v.lugThickness) < 1e-6)
+      const zb = below.lugHeight + below.lugThickness - below.lift
+      const za = above.lugHeight + above.lugThickness - above.lift
+      expect(Math.max(...flat(below).map((p) => p.box.z[1])), id).toBeCloseTo(zb, 9)
+      expect(Math.min(...flat(above).map((p) => p.box.z[0])), id).toBeCloseTo(za + above.plate, 9)
+      expect(below.plan.blocks, id).toEqual([])
+    }
+  })
+
+  it('gives an ordinary servo blocks to screw to beside its lugs, glued to the plate on the arm side, clear of the servo', () => {
+    for (const id of ['micro', 'mini', 'standard', 'hitec-hs-65mg', 'hitec-hs-645mg', 'hitec-hs-85mg']) {
+      for (const face of ['bottom', 'top']) {
+        const v = installedServo(id, 2, { face })
+        const tag = `${id} ${face}`
+        const blocks = v.plan.blocks
+        expect(blocks.length, tag).toBe(2)
+        const z = v.lugHeight + v.lugThickness - v.lift
+        const parts = placeServo({ ...v, lift: 0, yaw: 0 }, { x: 0, s: 0, base: 0 })
+        const kase = parts[0].box
+        const screw = (kase.z[0] + kase.z[1]) / 2
+        for (const k of blocks) {
+          // Against the plate, on the arm's side of it, past the screw
+          if (face === 'bottom') {
+            expect(k.z[1], tag).toBeCloseTo(z, 9)
+            expect(k.z[0], tag).toBeLessThan(screw)
+          } else {
+            expect(k.z[0], tag).toBeCloseTo(z + v.plate, 9)
+            expect(k.z[1], tag).toBeGreaterThan(screw)
+          }
+          expect(k.screw[1], tag).toBeCloseTo(screw, 9)
+          // Not through any of the servo's parts
+          for (const p of parts) {
+            const r = partsExtent([p])
+            const hit = r.x[0] < k.x[1] - 1e-9 && r.x[1] > k.x[0] + 1e-9 && r.s[0] < k.s[1] - 1e-9 && r.s[1] > k.s[0] + 1e-9 && r.z[0] < k.z[1] - 1e-9 && r.z[1] > k.z[0] + 1e-9
+            expect(hit, `${tag}: block through ${p.kind}`).toBe(false)
+          }
+        }
+        // The plate clear of the screws, on the far side from the arm
+        if (face === 'bottom') expect(z).toBeGreaterThanOrEqual(screw + SCREW_ROOM - 1e-9)
+        else expect(z + v.plate).toBeLessThanOrEqual(screw - SCREW_ROOM + 1e-9)
+      }
+    }
+    // In the cut list, and marked on the plate
+    const r = build({ bays: [{ surface: aileron.id, class: 'micro' }, { surface: flap.id, enabled: false }] })
+    const b = r.a.bays.find((x) => x.surface === aileron.id)
+    const plate = r.parts.find((p) => p.name === b.name)
+    expect(plate.etch).toHaveLength(2)
+    expect(plate.notes.join(' ')).toMatch(/spruce blocks/)
+    expect(r.cutList.some((x) => /Servo screw block/.test(x.item))).toBe(true)
+    // And in 3D
+    expect(wing3d(r.a, r.st, r.parts).solids.filter((x) => x.kind === 'servoBlock')).toHaveLength(2)
   })
 
   it('cuts a slot in the plate where the arm swings through it, so the arm clears it', () => {

@@ -30,7 +30,7 @@ import { G } from './calc.js'
 import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES, isRound } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
-import { placeBays, servoMasses, fitBaysToRibs, servoById, cutout, BAY_MARGIN, SERVO_HEADROOM, PLATE_EDGE, CUTOUT_GAP } from './servos.js'
+import { placeBays, servoMasses, fitBaysToRibs, servoById, cutout, screwsClear, turnPoint, BAY_MARGIN, SERVO_HEADROOM, PLATE_EDGE, CUTOUT_GAP } from './servos.js'
 import { armsFor, armById, outputPivot, PART_SIZES } from './linkage.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
@@ -1166,7 +1166,11 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
     const half = (sv.run ?? sv.lugSpan) / 2
     // The plate's cut-out: the servo's, and a slot where its arm passes through the plate
     const armCut = armPlateCut(sv, b.link)
-    const plan = sv.plan && armCut ? { ...sv.plan, ...cutout([...sv.plan.rects, armCut], sv.yaw) } : sv.plan
+    let plan = sv.plan
+    if (plan && armCut) {
+      const withArm = cutout([...plan.rects, armCut], sv.yaw)
+      plan = { ...plan, ...withArm, screws: screwsClear(plan.screwsSquare ?? [], withArm.bands, sv.pilot ?? 0.001).map(([x, s]) => turnPoint([x, s], sv.yaw ?? 0)) }
+    }
     const cut = plan?.cut
     const pf = Math.min(-half - BAY_MARGIN, cut ? cut.x[0] - PLATE_EDGE : -Infinity)
     const pr = Math.max(half + BAY_MARGIN, cut ? cut.x[1] + PLATE_EDGE : Infinity)
@@ -1245,7 +1249,14 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
       cutRects: plan?.cutRects?.map((q) => q.map(([x, s]) => [xc + x, b.s + s])) ?? null,
       body: sv.caseOutline?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
       footprint: sv.outline?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
-      screws: (sv.plan?.screws ?? []).map(([x, s]) => [xc + x, b.s + s]),
+      screws: (plan?.screws ?? []).map(([x, s]) => [xc + x, b.s + s]),
+      // The screw blocks' footprints on the plate ([x, s] corners, turned with the servo), and
+      // each one's size: along the span, its height, and its length along the chord
+      blocks: (sv.plan?.blocks ?? []).map((k) => ({
+        corners: [[k.x[0], k.s[0]], [k.x[1], k.s[0]], [k.x[1], k.s[1]], [k.x[0], k.s[1]]].map((q) => turnPoint(q, sv.yaw ?? 0)).map(([x, s]) => [xc + x, b.s + s]),
+        size: [k.s[1] - k.s[0], k.z[1] - k.z[0]],
+        length: k.x[1] - k.x[0],
+      })),
       hatch: { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1] },
       room,
       need,
