@@ -116,7 +116,7 @@ function apply(sid, { class: cls, mounting, link }) {
       </label>
       <template v-if="bayFor(s).enabled">
         <SelectField :id="id(`${s.id}-servo`)" :model-value="bayFor(s).class ?? ''" label="Servo" :options="SERVO_OPTIONS" @update:model-value="setBayFor(s, { class: $event || null })" />
-        <SegmentedField :model-value="bayFor(s).mounting ?? 'upright'" label="Mounted" :options="mountOptions()" @update:model-value="setBayFor(s, { mounting: $event })" />
+        <SegmentedField :model-value="bayFor(s).mounting ?? 'side'" label="Mounted" :options="mountOptions()" @update:model-value="setBayFor(s, { mounting: $event })" />
         <UnitInput
           :id="id(`${s.id}-bay`)"
           :model-value="bayAlong(s)"

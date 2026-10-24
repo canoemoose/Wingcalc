@@ -102,7 +102,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'upright', square: 'chord', quarterTurn: false, along: null, at: null, link: null })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
@@ -148,7 +148,10 @@ describe('where a bay goes', () => {
     expect(b2.s).toBeCloseTo(0.5 + 0.35 / 3, 9)
     const v = SERVOS.micro // 2 kg: micro
     expect(b1.class).toBe('micro')
-    expect(b1.width).toBeCloseTo(v.width + 2 * SERVO_CLEARANCE, 9)
+    // On its side by default: as wide as its height
+    expect(b1.servo.mounting).toBe('side')
+    expect(b1.width).toBeCloseTo(b1.servo.width + 2 * SERVO_CLEARANCE, 9)
+    expect(b1.servo.width).toBeGreaterThanOrEqual(v.height)
     // The ribs' centres are half the gap and half a rib out from the centre
     expect(b1.sB - b1.sA).toBeCloseTo(b1.width + 0.002, 9)
     expect((b1.sA + b1.sB) / 2).toBeCloseTo(b1.s, 9)
@@ -193,7 +196,7 @@ describe('where a bay goes', () => {
 })
 
 describe('built servo bays', () => {
-  const res = build()
+  const res = build({ bays: [{ surface: aileron.id, mounting: 'upright' }, { surface: flap.id, mounting: 'upright' }] })
   const [b1, b2] = res.a.bays
 
   it("sits each tray between two of the wing's own ribs when the servo fits, with none between", () => {
@@ -539,7 +542,7 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
   const boxes = (parts, kind) => parts.filter((p) => p.kind === kind && p.box).map((p) => p.box)
 
   it('stands upright with its lugs at their height, along the bay, and its output on top', () => {
-    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-85mg' }, { surface: flap.id, enabled: false }] })
+    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-85mg', mounting: 'upright' }, { surface: flap.id, enabled: false }] })
     const b = res.a.bays.find((x) => x.ok)
     expect(b.servo.lugHeight).toBeCloseTo(0.0192, 9)
     expect(b.servo.lugThickness).toBeCloseTo(0.002, 9)

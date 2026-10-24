@@ -95,7 +95,7 @@ describe('a bay\'s frame', () => {
 
 describe('an upright servo', () => {
   it('solves with its arm swinging level', () => {
-    const a = build()
+    const a = build([{ surface: 1, mounting: 'upright' }])
     const f = bayFrame(a, a.bays[0])
     const c = configureBay(f, a.bays[0].servo, DEFAULT_LINK)
     expect(c.result.ok).toBe(true)
@@ -167,8 +167,8 @@ describe('the arm and pushrod in the wing', () => {
   })
 
   it('warns when an upright arm sweeps into the ribs, or through the top skin', () => {
-    expect(ids(linked({ surface: 1 }).l)).toContain('linkage-rib-1')
-    const tall = linked({ surface: 1, class: 'standard' }).l
+    expect(ids(linked({ surface: 1, mounting: 'upright' }).l)).toContain('linkage-rib-1')
+    const tall = linked({ surface: 1, mounting: 'upright', class: 'standard' }).l
     expect(ids(tall)).toContain('linkage-arm-top-1')
     expect(tall.fit.slots.some((q) => q.what === 'arm' && q.surface === 'top' && !q.hatch)).toBe(true)
   })
@@ -184,7 +184,7 @@ describe('the arm and pushrod in the wing', () => {
   })
 
   it('draws the arm, horn and pushrod as closed, named pieces, flagged where they clash', () => {
-    for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, class: 'standard' }]) {
+    for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, mounting: 'upright', class: 'standard' }]) {
       const { a, controls } = linked(bay)
       const links = bayLinkages(a, controls)
       const { parts } = buildParts(a, a.structure)

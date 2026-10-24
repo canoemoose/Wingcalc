@@ -28,7 +28,7 @@ const emit = defineEmits(['apply', 'cancel'])
 
 const id = useId()
 const RAD = Math.PI / 180
-const draft = reactive({ cls: props.bay.class ?? '', mounting: props.bay.mounting ?? 'upright', link: { ...props.bay.link } })
+const draft = reactive({ cls: props.bay.class ?? '', mounting: props.bay.mounting ?? 'side', link: { ...props.bay.link } })
 
 const servo = computed(() => installedServo(draft.cls || props.autoClass, draft.mounting, props.mass, props.frame.turn))
 const config = computed(() => configureBay(props.frame, servo.value, draft.link))

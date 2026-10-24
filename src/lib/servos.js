@@ -11,7 +11,7 @@
 //   enabled   false once removed (default true: every surface has a bay)
 //   class     a servo: a class from SERVOS or a Hitec id, or null for the class that suits the
 //             model's weight
-//   mounting  'upright' (default), 'side' or 'flat': see MOUNTINGS
+//   mounting  'side' (default: its arm swings fore and aft), 'upright' or 'flat': see MOUNTINGS
 //   along     where its centre is, m from the surface's inner end (surface.from), along the
 //             surface; null for a third of the way out along it
 //   at        the older panel-relative position, m from the panel's inner end; used only when
@@ -723,7 +723,7 @@ export function partSpan(p) {
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  return { surface: surfaceId, enabled: true, class: null, mounting: 'upright', square: 'chord', quarterTurn: false, along: null, at: null, link: null, ...(saved ?? {}) }
+  return { surface: surfaceId, enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null, ...(saved ?? {}) }
 }
 
 // controls with one surface's bay settings changed. Settings that come back to the defaults
@@ -731,14 +731,14 @@ export function bayOf(controls, surfaceId) {
 export function setBay(controls, surfaceId, patch) {
   const next = { ...bayOf(controls, surfaceId), ...patch }
   const rest = (controls.bays ?? []).filter((b) => b.surface !== surfaceId)
-  const upright = !next.mounting || next.mounting === 'upright'
+  const side = !next.mounting || next.mounting === 'side'
   const link = next.link && Object.keys(next.link).length ? next.link : null
   const hinge = next.square === 'hinge'
-  const same = next.enabled && !next.class && upright && !hinge && !next.quarterTurn && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
+  const same = next.enabled && !next.class && side && !hinge && !next.quarterTurn && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
-  if (!upright) entry.mounting = next.mounting
+  if (!side) entry.mounting = next.mounting
   if (hinge) entry.square = 'hinge'
   if (next.quarterTurn) entry.quarterTurn = true
   if (Number.isFinite(next.along)) entry.along = next.along
