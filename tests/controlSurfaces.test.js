@@ -269,10 +269,11 @@ describe('control surfaces in the structure', () => {
   it('bevels the moving hinge spar from each throw', () => {
     const { a } = build({ surfaces: [{ ...aileron, up: 25, down: 10 }] })
     const sf = a.surfaces[0]
-    expect(sf.bevel.bottom).toBeGreaterThan(sf.bevel.top)
+    // Down swings the bottom face forward, up the top: the 25° up throw bevels the top
+    expect(sf.bevel.top).toBeGreaterThan(sf.bevel.bottom)
     // At least the full throw each side, more if the gap alone wouldn't clear it
-    expect(sf.bevel.bottom).toBeCloseTo(Math.max(25, bevelAngle(25, sf.gap, sf.depth.moving / 2)), 9)
-    expect(sf.bevel.top).toBeCloseTo(Math.max(10, bevelAngle(10, sf.gap, sf.depth.moving / 2)), 9)
+    expect(sf.bevel.top).toBeCloseTo(Math.max(25, bevelAngle(25, sf.gap, sf.depth.moving / 2)), 9)
+    expect(sf.bevel.bottom).toBeCloseTo(Math.max(10, bevelAngle(10, sf.gap, sf.depth.moving / 2)), 9)
   })
 
   it('refuses a hinge line in front of the main spar or behind the trailing edge stock, with a warning', () => {

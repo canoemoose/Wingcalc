@@ -1576,7 +1576,7 @@ function stripCutList(a, structure, parts, both) {
     }
   }
   // Each control surface's two hinge spars: the fixed side's square, the moving side's
-  // bevelled to a point at the centre line (top face for the down throw, bottom for up),
+  // bevelled to a point at the centre line (bottom face for the down throw, top for up),
   // both slotted for the tabs. Depth: the deepest the section gets along them, to sand down.
   const h = structure.hinges
   const deg = (v) => `${Math.ceil(v - 1e-6)}°`
@@ -1599,7 +1599,7 @@ function stripCutList(a, structure, parts, both) {
         size: [structure.te.width, up(sf.depth.moving)],
         length: (sf.moving[1] - sf.moving[0]) * k,
         qty: sides,
-        note: `Cut from the trailing edge stock; bevel its front face to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+        note: `Cut from the trailing edge stock; bevel its front face to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.up)}° up, ${Math.round(sf.down)}° down, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
       })
       continue
     }
@@ -1609,7 +1609,7 @@ function stripCutList(a, structure, parts, both) {
       size: [h.movingWidth, up(sf.depth.moving)],
       length: (sf.moving[1] - sf.moving[0]) * k,
       qty: sides,
-      note: `Bevel the front to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.down)}° down, ${Math.round(sf.up)}° up, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+      note: `Bevel the front to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.up)}° up, ${Math.round(sf.down)}° down, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
     })
   }
   // A spoiler's hinge: a strip of hinge tape along its front edge

@@ -896,7 +896,7 @@ const offsetLine = (r, d) => {
 // built ones: faces (plan lines x(s): fixedFront, fixedRear, apex, movingRear), fixed (the
 // fixed hinge spar's span [s, s]), moving (the moving surface's span), endRibs (the moving
 // surface's end rib stations), depth (the deepest each hinge spar gets, between the skins),
-// bevel ({ top, bottom }, degrees from square: the top face clears the down throw), tabs (s
+// bevel ({ top, bottom }, degrees from square: the bottom face clears the down throw, the top the up), tabs (s
 // of each tab's centre), slot (how deep each tab goes into each spar) and warnings.
 export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS }, controls) {
   const list = resolveSurfaces(sampler, controls?.surfaces)
@@ -950,7 +950,7 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     // a stiff hinge), or more where the gap alone wouldn't clear it: a surface cut from the
     // trailing edge stock is bevelled like any other, though its depth is small enough that the
     // gap would clear it square
-    const bevel = { top: Math.max(r.down, bevelAngle(r.down, g, movingDepth / 2)), bottom: Math.max(r.up, bevelAngle(r.up, g, movingDepth / 2)) }
+    const bevel = { top: Math.max(r.up, bevelAngle(r.up, g, movingDepth / 2)), bottom: Math.max(r.down, bevelAngle(r.down, g, movingDepth / 2)) }
     // Tabs along the moving surface's span, measured along the hinge. Each lies square to the
     // hinge, so on a raked hinge its nearest corner to an end is tabLength/2 × slope further
     // along it than its half width: the end ones go in that far plus tabInset, which is to

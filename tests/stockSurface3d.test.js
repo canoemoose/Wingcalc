@@ -37,8 +37,8 @@ describe('a surface cut from the trailing edge stock, in 3D', () => {
     expect(P[0][0]).toBeCloseTo(xa, 9)
     expect(Math.min(...P.map((p) => p[0]))).toBeGreaterThanOrEqual(xa - 1e-9)
     // Bevelled to the throws: only the point itself is at the apex, the faces running back from it
-    expect(sf.bevel.top).toBeGreaterThanOrEqual(sf.down)
-    expect(sf.bevel.bottom).toBeGreaterThanOrEqual(sf.up)
+    expect(sf.bevel.top).toBeGreaterThanOrEqual(sf.up)
+    expect(sf.bevel.bottom).toBeGreaterThanOrEqual(sf.down)
     expect(P.filter((p) => Math.abs(p[0] - xa) < 1e-6).length).toBe(1)
   })
   it('is what the section cut shows behind the hinge', () => {
