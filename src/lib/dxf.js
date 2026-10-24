@@ -23,7 +23,7 @@ import { hingeTabOutline } from './controlSurfaces.js'
 
 export function defaultExportOptions() {
   return {
-    parts: { ribs: true, surfaces: true, hinges: true, servos: true, brakes: true, gussets: true, braces: true, webs: true, sheeting: false, tip: true, templates: true, skins: false, pockets: true },
+    parts: { ribs: true, surfaces: true, hinges: true, servos: true, brakes: true, gussets: true, braces: true, webs: true, spars: true, sheeting: false, tip: true, templates: true, skins: false, pockets: true },
     machine: 'laser', // 'laser' | 'router'
     kerf: 0.00015, // m
     toolDiameter: 0.003175, // m
@@ -53,6 +53,7 @@ const GROUP_TITLES = {
   gussets: 'Gussets',
   braces: 'Dihedral braces',
   webs: 'Shear webs',
+  spars: 'Spar templates',
   sheeting: 'Sheeting',
   tip: 'Tip block',
   templates: 'Hot-wire templates',
@@ -641,7 +642,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   // Ribs, at their thickness, between the stock (or the hinge spars), the control surfaces'
   // own with them
   const t = structure.ribs.thickness
-  for (const p of parts.filter((q) => q.group === 'ribs' || q.group === 'surfaces')) {
+  for (const p of parts.filter((q) => (q.group === 'ribs' && !q.of) || q.group === 'surfaces')) {
     const r = p.rib
     const ang = (r.angle * Math.PI) / 180
     const d = [Math.sin(ang), Math.cos(ang)] // (ds, dx), aft

@@ -116,7 +116,8 @@ const present = ref({})
 const shown = (l) => l.id === 'outlines' || l.id === 'mirror' || !!present.value[l.id]
 
 // Section
-const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s))
+// One per station: the piece of a split rib behind the spar (of) goes with its rib
+const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs' && !p.of).sort((p, q) => p.s - q.s))
 const bays = computed(() =>
   ribs.value.slice(1).map((r, i) => ({ value: i, label: `${ribs.value[i].name}–${r.name}`, s: (ribs.value[i].s + r.s) / 2 })),
 )

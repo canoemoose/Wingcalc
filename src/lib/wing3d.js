@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, sparOuterFaces, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, sparOuterFaces, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -322,10 +322,11 @@ export function sparBoxes(a, structure, s) {
   if (sp.type === 'caps' || sp.type === 'box') {
     return [seated(a, structure, s, x0, x1, sp.capThickness, 'upper'), seated(a, structure, s, x0, x1, sp.capThickness, 'lower')]
   }
-  if (sp.type === 'solid' && sp.solidMount !== 'through') return [seated(a, structure, s, x0, x1, sp.solidDepth, sp.solidMount === 'top' ? 'upper' : 'lower')]
+  // A solid spar tapers where the ribs are too thin for it (structure.js solidTaper)
+  if (sp.type === 'solid' && sp.solidMount !== 'through') return [seated(a, structure, s, x0, x1, solidDepthAt(sp, s), sp.solidMount === 'top' ? 'upper' : 'lower')]
   const mid = (insetHeight(a, structure, s, x, 'upper') + insetHeight(a, structure, s, x, 'lower')) / 2
   if (sp.type === 'solid') {
-    const d = sp.solidDepth / 2
+    const d = solidDepthAt(sp, s) / 2
     return [
       [
         [x0, mid - d],
@@ -1070,6 +1071,12 @@ export function wing3d(a, structure, parts, linkages = null) {
     const outer = sweepRings(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[0], 40, sparEnds)
     const inner = sweepRings(a, s0, sparEnd, (s) => tubeBore(a, st, s), 40, sparEnds)
     if (outer && inner && outer.length === inner.length) add('spar', tubeLoft(outer, inner), null, { id: 'spar', name: 'Spar tube', material: sp.tubeMaterial, section: { outline: sparBoxes(a, st, (s0 + sparEnd) / 2)[0], holes: [tubeBore(a, st, (s0 + sparEnd) / 2)].filter(Boolean) } })
+  } else if (sp.type === 'solid' && parts.some((p) => p.group === 'spars')) {
+    // Tapered: a piece per panel, each cut from its spar template
+    panelRuns(a).forEach((r, k) => {
+      const ext = [k === 0 ? sparEnds[0] : 0, r.to >= s1 - 1e-9 ? sparEnds[1] : 0]
+      add('spar', sweep(a, r.from, r.to, (s) => sparBoxes(a, st, s)[0], 20, { extend: ext }), { ids: [`SP${k + 1}`] }, { id: `spar-${k}`, name: `Spar, ${r.name}`, material: sp.solidMaterial, section: { outline: sparBoxes(a, st, (r.from + r.to) / 2)[0] } })
+    })
   } else {
     const caps = sp.type === 'caps' || sp.type === 'box'
     for (let k = 0; k < nSpar; k++) {
@@ -1077,7 +1084,7 @@ export function wing3d(a, structure, parts, linkages = null) {
       add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }), null, piece)
     }
   }
-  const ribList = parts.filter((p) => p.group === 'ribs').sort((p, q) => p.s - q.s)
+  const ribList = parts.filter((p) => p.group === 'ribs' && !p.of).sort((p, q) => p.s - q.s)
   for (let i = 1; i < ribList.length; i++) {
     const from = ribList[i - 1].s + ribList[i - 1].thickness / 2
     const to = ribList[i].s - ribList[i].thickness / 2
@@ -1246,7 +1253,8 @@ export function wing3d(a, structure, parts, linkages = null) {
     const centre = p.s < 1e-9 && st.ribs.rootJoint !== 'two-piece' // shared by both halves
     // surface: one of a control surface's own ribs, drawn with it
     ribs.push({ id: p.id, name: p.name, kind: p.kind, outline: p.outline, holes: p.holes, thickness: t, matrix: place(t), centre, surface: p.group === 'surfaces' })
-    if (strips && r.surfaces) {
+    // (a split rib's strips go with the piece ahead of the spar, which carries the whole rib's)
+    if (strips && r.surfaces && !p.of) {
       const { us, up, lo, upIn, loIn } = r.surfaces
       const at = (arr, u) => {
         let i = 1

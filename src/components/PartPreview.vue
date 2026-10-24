@@ -135,6 +135,7 @@ const GROUPS = {
   gussets: 'Gussets',
   braces: 'Dihedral braces',
   webs: 'Shear webs',
+  spars: 'Spar templates',
   sheeting: 'Sheeting',
   tip: 'Tip',
   templates: 'Hot-wire templates',

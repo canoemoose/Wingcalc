@@ -38,14 +38,22 @@ Autonomous: work through, test, run the app, commit by concern, questions batche
 
 ## Status
 
-- [ ] 2.1
-- [ ] 2.6
-- [ ] 2.4
-- [ ] 2.5
-- [ ] 2.2
-- [ ] 2.3
+- [x] 2.1 cap strips (ec78956)
+- [x] 2.6 per-panel sheeting, hard-point sheet and D-box thickness (b8d5794)
+- [x] 2.4 web on the caps' leading-edge face, optional second web (72671d2)
+- [x] 2.5 carbon strip, rod and tube, on a skin or inside (37d0f12)
+- [x] 2.2 tapered solid spar, per-rib margin or split
+- [x] 2.3 spar templates (SP1 per panel) in the parts export
+
+Checked in the running app (driven through its state, the browser pane hidden): every new field renders, a per-rib
+split takes effect, the DXF parts, plan and cut-list CSV build, and switching spar type, covering, profile and
+construction raises no errors. Not checked by eye: layout of the new fields, the 3D view and the plan drawing.
 
 ## Open questions (for the end-of-task batch)
 
 - 2.2 "split the rib at the spar's maximum height": read as the spar keeping its full depth (as much as the rib allows) and the rib cut in two, fore and aft of it. Confirm.
-- 2.2 applies to solid spars. A caps spar follows the section already; a tube can't taper (it keeps its fit warning).
+- 2.2 applies to solid spars only. A caps spar follows the section already; a tube can't taper (it keeps its fit warning).
+- 2.2 the strength check takes the margin's (shallower) spar everywhere unless every thin rib is split, because it runs before the ribs are placed.
+- 2.6 "D-box sheeting thickness in bays with hard-point sheeting": read as the hard point's sheet covering the chord behind the D-box, the D-box keeping its own (settable) thickness ahead of it. On a fully sheeted wing the hard point's sheet replaces the sheeting on its sides.
+- 2.4 the box spar type is now the "second web" checkbox under Caps and web; saves keep 'box' and show it ticked.
+- Brace plates now sit outside the webs; the brace's depth is still sized between the caps.

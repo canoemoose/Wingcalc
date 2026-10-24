@@ -39,6 +39,8 @@ const props = defineProps({
   rootChord: { type: Number, default: null },
   // The wing's panels, root outward (their ids key each panel's own sheet thickness)
   panels: { type: Array, default: () => [] },
+  // A solid spar's depth at each rib (structure.js solidTaper): { name, inner, thin, fit, depth }
+  sparFits: { type: Array, default: () => [] },
   idPrefix: { type: String, default: 'wcs' },
   // Warnings to show in each section, by section (warnings.js bySection): { spar: [{ id, message }], ... }
   warnings: { type: Object, default: () => ({}) },
@@ -375,6 +377,17 @@ const halvesHint = computed(() =>
 const autoSparText = computed(() => (Number.isFinite(props.autoSpar) ? `${(props.autoSpar * 100).toFixed(1)} (thickest point)` : 'auto'))
 // A brace's own thickness, else the one older saves set for all
 const braceT = (name) => st.value.braces.thicknesses?.[name] ?? st.value.braces.thickness ?? null
+// A solid spar too deep for a rib: keep the margin of rib round it, or split the rib at it
+const RIB_FITS = [
+  { value: 'margin', label: 'Keep rib round it', title: 'The spar tapers so the rib keeps its least material above and below' },
+  { value: 'split', label: 'Split the rib', title: 'The rib is cut in two either side of the spar, which takes its full depth' },
+]
+const thinRibs = computed(() => (st.value.spar.type === 'solid' ? props.sparFits.filter((t) => t.thin) : []))
+// One rib's fit; the wing's own choice clears it, so the rib follows the wing's again
+function setRibFit(name, fit) {
+  const { [name]: _, ...rest } = st.value.spar.ribFits ?? {}
+  set('spar.ribFits', fit === (st.value.spar.thinRibs ?? 'margin') ? rest : { ...rest, [name]: fit })
+}
 // A panel's own sheet thickness; blank removes it, so the panel takes the wing's
 function setPanelThickness(panelId, v) {
   const { [panelId]: _, ...rest } = st.value.covering.panelThickness ?? {}
@@ -577,6 +590,31 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           ]"
           @update:model-value="set('spar.solidMount', $event)"
         />
+        <UnitInput
+          :id="id('ribmargin')"
+          :model-value="st.spar.ribMargin ?? 0.004"
+          quantity="thin"
+          :system="system"
+          :label="st.spar.solidMount === 'through' ? 'Least rib above and below the spar' : 'Least rib beside the notch'"
+          hint="Where the spar is deeper than a rib can hold with this much rib left, it tapers to fit."
+          @update:model-value="set('spar.ribMargin', $event ?? 0.004)"
+        />
+        <SegmentedField :model-value="st.spar.thinRibs ?? 'margin'" label="At those ribs" :options="RIB_FITS" @update:model-value="set('spar.thinRibs', $event)" />
+        <template v-if="thinRibs.length">
+          <SegmentedField
+            v-for="t in thinRibs"
+            :key="t.name"
+            :model-value="t.fit"
+            :label="`${t.name}: ${mm(t.inner)} of room, spar ${mm(t.depth)}`"
+            :options="RIB_FITS"
+            @update:model-value="setRibFit(t.name, $event)"
+          />
+          <p class="wc-field__hint">
+            The spar tapers straight between the ribs; the export has a template for it (SP1 and on). Splitting a rib cuts it
+            in two either side of the spar (R5A ahead, R5B behind) and lets the spar take the rib's full depth there.
+          </p>
+        </template>
+        <p v-else class="wc-field__hint">Every rib holds the full spar with that much rib to spare.</p>
       </template>
     </InspectorSection>
 

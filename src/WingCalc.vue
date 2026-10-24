@@ -669,7 +669,7 @@ const thumbs = computed(() => {
   if (!r || input.geometryMode !== 'panels') return null
   return { plan: planThumb(r.a, r.a.structure, r.parts), iso: isoThumb(r.a, r.a.structure, r.parts) }
 })
-const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs') ?? [])
+const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs' && !p.of) ?? [])
 const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
 // The ribs between the fixed ones, as distances from the root rib: where manual spacing starts
 const ribDistances = computed(() => {
@@ -1332,6 +1332,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :system="system"
             :root-chord="input.rootChord"
             :panels="input.panels"
+            :spar-fits="structureResult?.a.structure.spar.taper ?? []"
             :auto-spar="autoSpar"
             :brace-needs="braceNeeds"
             :rib-distances="ribDistances"

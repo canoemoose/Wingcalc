@@ -46,7 +46,8 @@ const controls = defineModel('controls', { type: Object, default: null })
 
 const a = computed(() => props.analysis)
 const flat = computed(() => flatPanels(a.value.wing))
-const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs'))
+// One per station: the piece of a split rib behind the spar (of) goes with its rib
+const ribs = computed(() => props.parts.filter((p) => p.group === 'ribs' && !p.of))
 // The control surfaces' own ribs, behind their hinges
 const surfaceRibs = computed(() => props.parts.filter((p) => p.group === 'surfaces'))
 const lengthUnit = computed(() => defaultUnit(props.system, 'length'))

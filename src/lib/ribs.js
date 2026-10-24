@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -417,6 +417,10 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const lower = []
   const holes = []
   const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS, rib.s)
+  // A solid spar's depth at this rib (tapered where the rib is too thin for it: structure.js
+  // solidTaper), and whether the rib is split in two at it
+  const fitHere = sp.type === 'solid' && !movingSide ? (sp.taper ?? []).find((t) => Math.abs(t.s - rib.s) < 1e-6) : null
+  const splitAtSpar = fitHere?.fit === 'split'
   // The moving surface's part is behind the main spar: nothing of it to notch
   if (movingSide) {
     // no spar notches
@@ -424,8 +428,18 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     upper.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
     lower.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
   } else if (sp.type === 'solid') {
-    const d = sp.solidDepth
-    if (sp.solidMount === 'top') upper.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
+    const d = fitHere ? fitHere.depth : solidDepthAt(sp, rib.s)
+    if (fitHere?.thin) {
+      const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+      notes.push(
+        splitAtSpar
+          ? `Split at the spar: the spar is ${mm(d)} deep here, the rib cut in two either side of it`
+          : `The spar tapers to ${mm(d)} here, leaving ${mm(ribMarginOf(sp))} of rib ${sp.solidMount === 'through' ? 'above and below it' : sp.solidMount === 'top' ? 'below it' : 'above it'}`,
+      )
+    }
+    if (splitAtSpar) {
+      // Cut in two at the spar's faces, below, once the outline is walked
+    } else if (sp.solidMount === 'top') upper.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
     else if (sp.solidMount === 'bottom') lower.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
     else {
       const mid = (top(uSpar) + bot(uSpar)) / 2
@@ -437,7 +451,9 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const r = sp.tubeDiameter / 2 + 0.0001
     holes.push(circle(0, 0, 1).map(([x, y]) => [(uSpar0 + uSpar1) / 2 + x * (halfSpar + 0.0001), mid + y * r]))
   }
-  if (!movingSide && sparHere.type !== 'none' && sparHere.fits === false) notes.push("The spar doesn't fit at this rib")
+  // (a solid spar tapered to this rib fits it by design, unless it tapers to nothing)
+  const tapered = fitHere?.thin && fitHere.depth >= 0.001
+  if (!movingSide && sparHere.type !== 'none' && sparHere.fits === false && !tapered) notes.push("The spar doesn't fit at this rib")
   // Stringers and reinforcement: notched in from the skin they're on, or through a hole (round for
   // a rod or tube) where they run inside the wing. Inside ones are placed once the notches are
   // all known, below.
@@ -540,6 +556,13 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     if (!notched) notes.push('The leading-edge rod is deeper than the rib at its notch')
   }
 
+  // Split at a solid spar: the rib ahead of it and the rib behind it, each its own piece
+  let rearOutline = null
+  if (splitAtSpar) {
+    rearOutline = clean(clipPolygon(outline, ([u]) => u - uSpar1))
+    outline = clean(clipPolygon(outline, ([u]) => uSpar0 - u))
+  }
+
   // Engraved: where to cut each tab off, along the rib's lower edge
   const etch = tabs.map((t) => [
     [t.u0, bot(t.u0)],
@@ -603,16 +626,14 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // there), and the lightening holes keep clear of it
   const name = rib.name ?? ''
   const edge = 0.0015
-  let best = null
-  for (const [from, to, pref] of [
-    [uSolid + edge, Math.min(uB, uSpar0) - edge, 1.1],
-    [Math.max(uSolid, uSpar1) + edge, uB - edge, 1],
-  ]) {
+  // The tallest label (up to 5 mm) reading `text` that fits clear in the stretch from..to
+  const labelIn = (text, from, to, pref) => {
+    let best = null
     for (let u0 = from; u0 < to; u0 += 0.001) {
       // The tallest label (up to 5 mm) whose box fits clear from here
       let h = 0.005
       for (let it = 0; it < 4 && h >= 0.0015; it++) {
-        const u1 = u0 + textWidth(name, h)
+        const u1 = u0 + textWidth(text, h)
         if (u1 > to) {
           h *= (to - u0) / (u1 - u0)
           continue
@@ -623,18 +644,33 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
         h = fit
       }
       if (h < 0.0015) continue
-      const u1 = u0 + textWidth(name, h)
+      const u1 = u0 + textWidth(text, h)
       if (u1 > to) continue
       if ([...leadBlocks, ...keepClear].some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
       const c = clearOver(u0, u1, edge)
       if (c.t - c.b < h) continue
-      if (!best || h * pref > best.h * best.pref + 1e-9) best = { u0, u1, h, pref, z: (c.t + c.b) / 2 - h / 2 }
+      if (!best || h * pref > best.h * best.pref + 1e-9) best = { text, u0, u1, h, pref, z: (c.t + c.b) / 2 - h / 2 }
     }
+    return best
   }
+  const fronts = [uSolid + edge, Math.min(uB, uSpar0) - edge]
+  const rears = [Math.max(uSolid, uSpar1) + edge, uB - edge]
+  let best
+  let rearBest = null
+  if (splitAtSpar) {
+    // A split rib's pieces: A ahead of the spar, B behind it, each labelled
+    best = labelIn(`${name}A`, ...fronts, 1)
+    rearBest = labelIn(`${name}B`, ...rears, 1)
+  } else {
+    const f = labelIn(name, ...fronts, 1.1)
+    const b = labelIn(name, ...rears, 1)
+    best = !f ? b : !b ? f : b.h * b.pref > f.h * f.pref + 1e-9 ? b : f
+  }
+  const text = splitAtSpar ? `${name}A` : name
   const label = best
-    ? { text: name, u: best.u0, z: best.z, h: best.h }
-    : { text: name, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
-  const labelBox = best ? [best.u0, best.u1] : null
+    ? { text, u: best.u0, z: best.z, h: best.h }
+    : { text, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
+  const labelBoxes = [best, rearBest].filter(Boolean).map((x) => [x.u0, x.u1])
 
   // Lightening holes, in the open stretches either side of the spar (not on the root,
   // break or tip ribs, which take the joining loads), clear of the label
@@ -646,7 +682,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       [Math.max(uSolid, uSpar1) + m, uB - m],
     ]) {
       let open = [[from, to]]
-      for (const [b0, b1] of [labelBox, ...leadBlocks, ...keepClear].filter(Boolean)) {
+      for (const [b0, b1] of [...labelBoxes, ...leadBlocks, ...keepClear]) {
         open = open.flatMap(([f, t2]) => (b1 + m > f && b0 - m < t2 ? [[f, b0 - m], [b1 + m, t2]] : [[f, t2]]))
       }
       stretches.push(...open.filter(([f, t2]) => t2 > f))
@@ -713,6 +749,16 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     sparNotch: [uSpar0, uSpar1],
     capGap,
     webHeights,
+    // Split at a solid spar: the piece behind it ({ outline, holes, etch, label }); the rib's own
+    // outline, holes and engraving are then the piece ahead of it
+    rear: rearOutline
+      ? {
+          outline: rearOutline,
+          holes: holes.filter((h) => Math.min(...h.map((p) => p[0])) >= uSpar1 - 1e-9),
+          etch: etch.filter((e) => e[0][0] >= uSpar1 - 1e-9),
+          label: rearBest ? { text: rearBest.text, u: rearBest.u0, z: rearBest.z, h: rearBest.h } : { text: `${name}B`, u: uSpar1 + 0.003, z: (top(uSpar1 + 0.003) + bot(uSpar1 + 0.003)) / 2 - 0.00075, h: 0.0015 },
+        }
+      : null,
     // The rib's outer and inset surfaces, for drawing cap strips on it
     surfaces: { us, up: prof.up, lo: prof.lo, upIn, loIn },
     // Where each surface's cap strips start from the LE side: a D-box side with sheeting
@@ -740,8 +786,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     uA,
     uB,
     outline,
-    holes,
-    etch,
+    holes: rearOutline ? holes.filter((h) => Math.max(...h.map((p) => p[0])) <= uSpar0 + 1e-9) : holes,
+    etch: rearOutline ? etch.filter((e) => e[0][0] < uSpar0) : etch,
     label,
     notes,
     leadFails,
@@ -970,11 +1016,36 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       outline: b.outline,
       holes: b.holes,
       etch: b.etch,
-      label: { ...b.label, text: rb.name },
+      // A rib split at a solid spar is labelled by piece (R5A, and R5B behind the spar)
+      label: b.rear ? b.label : { ...b.label, text: rb.name },
       notes,
       cant,
       rib: b,
     })
+    // The piece of a split rib behind the spar: a part of its own at the same station, `of` its
+    // rib (anything that wants one rib per station skips it: see ribStations)
+    if (b.rear) {
+      parts.push({
+        id: `${rb.name}B`,
+        name: `${rb.name}B`,
+        group: 'ribs',
+        material: r.material,
+        thickness: r.thickness,
+        qty: qtyOf(rb.s),
+        s: rb.s,
+        kind: rb.kind,
+        sourceId: rb.id ?? null,
+        split: !!across,
+        of: rb.name,
+        outline: b.rear.outline,
+        holes: b.rear.holes,
+        etch: b.rear.etch,
+        label: b.rear.label,
+        notes: [`${rb.name} behind the spar (${rb.name}A is ahead of it)`, ...notes.filter((n) => !/^Split at the spar/.test(n))],
+        cant,
+        rib: b,
+      })
+    }
   }
 
   // Each control surface's own ribs: one at each end (a gap clear of the wing's end ribs) and
@@ -1269,7 +1340,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   // the height): the rib's full height less any sheeting at each end
   const sp = structure.spar
   if ((sp.type === 'caps' || sp.type === 'box') && webThicknessOf(sp) > 0) {
-    const ribList = parts.filter((p) => p.group === 'ribs')
+    const ribList = parts.filter((p) => p.group === 'ribs' && !p.of)
     for (let i = 1; i < ribList.length; i++) {
       const pa = ribList[i - 1]
       const pb = ribList[i]
@@ -1306,7 +1377,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   // Sheeting templates (developed, approximate) per panel and surface
   const cov = structure.covering
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
-    const ribList = parts.filter((p) => p.group === 'ribs')
+    const ribList = parts.filter((p) => p.group === 'ribs' && !p.of)
     const panels = new Map()
     for (const p of ribList) {
       for (const key of panelKeysOf(a, p.s)) {
@@ -1346,6 +1417,47 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         })
         k++
       }
+    }
+  }
+
+  // A solid spar tapered to fit thin ribs: a template per panel (SP1 root outward), its outline the
+  // spar's depth along its length (flat span from the panel's inner end), straight between the
+  // ribs. Centred on the spar's centre line through a slot, its top edge straight under a top
+  // notch, its bottom edge over a bottom one, as it sits in the ribs.
+  const taper = structure.spar.type === 'solid' && !foam ? structure.spar.taper ?? [] : []
+  if (taper.some((t) => t.depth < structure.spar.solidDepth - 1e-6)) {
+    const D = structure.spar.solidDepth
+    const mount = structure.spar.solidMount
+    const depthAt = (s) => solidDepthAt(structure.spar, s)
+    let k = 1
+    for (const run of sparRuns(a)) {
+      const ss = [...new Set([run.from, ...taper.map((t) => t.s).filter((s) => s > run.from + 1e-6 && s < run.to - 1e-6), run.to])]
+      const pts = ss.map((s) => [s - run.from, depthAt(s)])
+      const y = (d, edge) => (mount === 'top' ? (edge === 'top' ? D : D - d) : mount === 'bottom' ? (edge === 'top' ? d : 0) : D / 2 + (edge === 'top' ? d / 2 : -d / 2))
+      const outline = clean([...pts.map(([u, d]) => [u, y(d, 'bottom')]), ...[...pts].reverse().map(([u, d]) => [u, y(d, 'top')])])
+      const dIn = depthAt(run.from)
+      const dOut = depthAt(run.to)
+      const thin = taper.filter((t) => t.thin && t.s >= run.from - 1e-6 && t.s <= run.to + 1e-6)
+      const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+      parts.push({
+        id: `SP${k}`,
+        name: `SP${k}`,
+        group: 'spars',
+        material: structure.spar.solidMaterial,
+        thickness: structure.spar.solidWidth,
+        qty: both ? 2 : 1,
+        outline,
+        holes: [],
+        etch: [],
+        label: null,
+        // Where it goes, for picking it in the 3D view
+        span: [run.from, run.to],
+        notes: [
+          `Spar, ${run.name}: cut from ${mm(D)} stock, ${mm(dIn)} deep at its inner end to ${mm(dOut)} at its outer end, straight between the ribs. ${mount === 'top' ? 'Its top edge stays straight (it sits in top notches)' : mount === 'bottom' ? 'Its bottom edge stays straight (it sits in bottom notches)' : 'Taper it equally top and bottom (it sits centred in the rib slots)'}`,
+          ...(thin.length ? [`Tapered to fit ${thin.map((t) => t.name).join(', ')}`] : []),
+        ],
+      })
+      k++
     }
   }
 
@@ -1440,7 +1552,7 @@ export function gussetsAt(a, structure, parts) {
   const g = structure.gussets
   const edges = gussetEdges(structure)
   if (!edges.length || !(g.size > 0)) return []
-  const ribs = parts.filter((q) => q.group === 'ribs').sort((p, q) => p.s - q.s)
+  const ribs = parts.filter((q) => q.group === 'ribs' && !q.of).sort((p, q) => p.s - q.s)
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
   const gets = (p, edge) => !(g.where === 'ends' && isPlainRib(p.kind)) && !(edge === 'te' && p.split)
   const facesSurface = (p, side) => {
@@ -1515,6 +1627,18 @@ function sheetWidth(a, structure, s, surface) {
   return len
 }
 
+// The spar's runs, one per panel (and the centre section), root outward, as { name, from, to }:
+// the panels a spar template is cut for (as wing3d.js panelRuns)
+export function sparRuns(a) {
+  const out = []
+  if (a.rootS < a.sampler.half - 1e-6) out.push({ name: 'centre section', from: a.rootS, to: a.sampler.half })
+  a.sampler.ends.forEach((e, i) => {
+    const from = Math.max(a.rootS, e.inner.s)
+    if (e.outer.s - from > 1e-4) out.push({ name: `panel ${i + 1}`, from, to: e.outer.s })
+  })
+  return out
+}
+
 // Angle (degrees) between a rib and the LE or TE stock in plan, on the rib's outboard side.
 function gussetAngle(a, s, edge, rib) {
   const h = 1e-3
@@ -1549,7 +1673,7 @@ function stripCutList(a, structure, parts, both) {
   const out = []
   const sides = both ? 2 : 1
   // Every rib that gets cap strips: the wing's, and the control surfaces' own
-  const ribs = parts.filter((p) => p.group === 'ribs' || p.group === 'surfaces')
+  const ribs = parts.filter((p) => (p.group === 'ribs' && !p.of) || p.group === 'surfaces')
   const span = a.tipS - a.rootS
   const panelSpans = []
   const half = a.sampler.half
@@ -1581,7 +1705,9 @@ function stripCutList(a, structure, parts, both) {
     if (sp.type === 'caps' || sp.type === 'box') {
       out.push({ item: `Spar caps, ${p.name}`, material: sp.capMaterial, size: [sp.capWidth, sp.capThickness], length: sparLen, qty: 2 * sides })
     } else if (sp.type === 'solid') {
-      out.push({ item: `Spar, ${p.name}`, material: sp.solidMaterial, size: [sp.solidWidth, sp.solidDepth], length: sparLen, qty: sides })
+      // Tapered: cut to its templates (SP parts), which carry its weight
+      const cut = parts.some((q) => q.group === 'spars')
+      out.push({ item: `Spar, ${p.name}`, material: sp.solidMaterial, size: [sp.solidWidth, sp.solidDepth], length: sparLen, qty: sides, ...(cut ? { cutToParts: true, note: 'Cut to its spar templates (SP parts)' } : {}) })
     }
     // Edge stock: a catalogue part at its own size, custom at the depth the section needs, or
     // a rod or dowel at its diameter; nothing for a sheeted nose
@@ -1806,7 +1932,7 @@ function estimateWeight(parts, cutList, covered, structure, halves, servoMass = 
     add(p.group, area * p.thickness * rho * p.qty * fill)
   }
   for (const c of cutList) {
-    if (c.buy || c.block) continue
+    if (c.buy || c.block || c.cutToParts) continue
     const rho = (MATERIALS[c.material] ?? MATERIALS['balsa-medium']).density
     let section = c.size[0] * c.size[1]
     if (c.triangular) section /= 2

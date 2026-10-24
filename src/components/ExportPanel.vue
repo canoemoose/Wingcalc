@@ -43,6 +43,7 @@ const GROUPS = [
   { id: 'gussets', label: 'Corner gussets' },
   { id: 'braces', label: 'Dihedral braces' },
   { id: 'webs', label: 'Shear webs' },
+  { id: 'spars', label: 'Spar templates (tapered spar)' },
   { id: 'sheeting', label: 'Sheeting templates (approximate)' },
   { id: 'tip', label: 'Tip block template' },
   { id: 'templates', label: 'Hot-wire templates' },
