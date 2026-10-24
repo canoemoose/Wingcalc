@@ -1202,18 +1202,29 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
       }
       return ceil - base
     }
-    // Where it goes in the free stretch: the deepest place, the rearmost if several are as deep
-    // (a millimetre in hand), so the pushrod to the horn is short
+    // Where it goes in the free stretch: where it's set (b.fore, from the leading edge), kept in
+    // the stretch; else the deepest place, the rearmost if several are as deep (a millimetre in
+    // hand), so the pushrod to the horn is short
     const lo = free[0] - pf
     const hi = free[1] - pr
     let xc = hi
     let room = depthFrom(hi)
-    for (let k = 1; k <= 16; k++) {
-      const x = hi - ((hi - lo) * k) / 16
-      const d = depthFrom(x)
-      if (d > room + 0.001) {
-        room = d
-        xc = x
+    const sec = b.fore ? section(b.s) : null
+    if (sec) {
+      const want = sec.xl + (b.fore.by === 'chord' ? b.fore.value * sec.c : b.fore.value)
+      xc = Math.min(hi, Math.max(lo, want))
+      room = depthFrom(xc)
+      if (Math.abs(xc - want) > 0.0005) {
+        b.warnings.push(`${b.label}'s servo can't go ${mm(want - sec.xl)} from the leading edge: its case's centre has to be between ${mm(lo - sec.xl)} and ${mm(hi - sec.xl)} there, clear of the leads behind the spar and the hinge spar, so it's at ${mm(xc - sec.xl)}.`)
+      }
+    } else {
+      for (let k = 1; k <= 16; k++) {
+        const x = hi - ((hi - lo) * k) / 16
+        const d = depthFrom(x)
+        if (d > room + 0.001) {
+          room = d
+          xc = x
+        }
       }
     }
     // The plate's top must be under the upper skin too

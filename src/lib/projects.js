@@ -68,8 +68,8 @@ export function migrate(state) {
   if (!Array.isArray(input.controls.surfaces)) input.controls.surfaces = []
   if (!Array.isArray(input.controls.bays)) input.controls.bays = []
   if (!Array.isArray(input.controls.brakes)) input.controls.brakes = []
-  // Upright servos were dropped as a mounting: a bay saved upright is on its side, the default
-  input.controls.bays = input.controls.bays.map(({ mounting, ...b }) => (mounting === 'upright' || mounting == null ? b : { ...b, mounting }))
+  // Every servo lies on its side now: an older bay's mounting (upright, flat) and quarter turn go
+  input.controls.bays = input.controls.bays.map(({ mounting, quarterTurn, ...b }) => b)
   // Edge stock saved before the catalogue keeps its own width, rather than an auto pick
   for (const k of ['le', 'te']) {
     const saved = s.input?.structure?.[k]

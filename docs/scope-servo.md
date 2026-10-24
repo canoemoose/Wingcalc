@@ -2,6 +2,8 @@
 
 From Matt's brief of 18 October 2026 ("WinCalc – Servo Configurator Brief"), revised against the code as it stands. Steps 1 to 5 done (docs, step 6, kept up with each). Remaining: the open questions below, and the backlog's follow-ups.
 
+The second round (`docs/scope-servo-v2.md`, 24 October 2026) supersedes the mountings and decision 7's quarter turn (every servo on its side, turned round or upside down instead) and the linkage in the wing (the pushrod now runs outside it).
+
 ## Objective
 
 Replace a bay's servo picker with a configurator for the whole servo-to-surface assembly (servo, arm, linkage, horn), placed on the plan as a linked pair, with the throw it actually gives worked out live and checked against the throw the surface was designed for. The 3D view shows the result and stays view-only.

@@ -102,7 +102,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
@@ -126,11 +126,10 @@ describe('servo bay settings', () => {
     saved.input.controls.surfaces = [aileron]
     saved.input.controls.bays = [{ surface: 1, class: 'mini', at: 0.4 }]
     expect(migrate(JSON.parse(JSON.stringify(saved))).input.controls.bays).toEqual([{ surface: 1, class: 'mini', at: 0.4 }])
-    // Upright was dropped as a mounting: a bay saved upright is on its side, the default
-    saved.input.controls.bays = [{ surface: 1, class: 'mini', mounting: 'upright' }, { surface: 2, mounting: 'flat' }]
+    // Every servo lies on its side: an older save's mounting and quarter turn go
+    saved.input.controls.bays = [{ surface: 1, class: 'mini', mounting: 'upright' }, { surface: 2, mounting: 'flat', quarterTurn: true }]
     const m = migrate(JSON.parse(JSON.stringify(saved))).input.controls
-    expect(m.bays).toEqual([{ surface: 1, class: 'mini' }, { surface: 2, mounting: 'flat' }])
-    expect(bayOf({ bays: [{ surface: 1, mounting: 'upright' }] }, 1).mounting).toBe('side')
+    expect(m.bays).toEqual([{ surface: 1, class: 'mini' }, { surface: 2 }])
   })
 })
 
@@ -153,8 +152,7 @@ describe('where a bay goes', () => {
     expect(b2.s).toBeCloseTo(0.5 + 0.35 / 3, 9)
     const v = SERVOS.micro // 2 kg: micro
     expect(b1.class).toBe('micro')
-    // On its side by default: as wide as its height
-    expect(b1.servo.mounting).toBe('side')
+    // On its side: as wide as its height
     expect(b1.width).toBeCloseTo(b1.servo.width + 2 * SERVO_CLEARANCE, 9)
     expect(b1.servo.width).toBeGreaterThanOrEqual(v.height)
     // The ribs' centres are half the gap and half a rib out from the centre
@@ -548,7 +546,6 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
   it('lies on its side, its lugs at their height across the span and its output along it', () => {
     const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-85mg' }, { surface: flap.id, enabled: false }] })
     const b = res.a.bays.find((x) => x.ok)
-    expect(b.servo.mounting).toBe('side')
     const parts = placeServo(b.servo, at(b))
     const [kase, ...lugs] = boxes(parts, 'servo')
     // The case is the drawing's 29 by 13 by 29.4 mm, its height across the span centred on the
@@ -584,45 +581,36 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
     expect((lead.s[0] + lead.s[1]) / 2).toBeCloseTo(b.s - h / 2 + 0.004, 9)
   })
 
-  it('lays a wing servo flat, its lugs across the span and the bay as wide as them', () => {
-    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-125mg', mounting: 'flat' }, { surface: flap.id, enabled: false }] })
-    const b = res.a.bays.find((x) => x.ok)
-    expect(b).toBeTruthy()
-    // 42 mm across the lugs and the clearance each side; along the chord its 34 mm, the 6 mm tab
-    // and the output boss, centred on the case (23 mm each way, the tab's end the farther)
-    expect(b.servo.width).toBeCloseTo(0.042, 9)
-    expect(b.width).toBeCloseTo(0.042 + 2 * SERVO_CLEARANCE, 9)
-    expect(b.lugs.x1 - b.lugs.x0).toBeCloseTo(0.046, 9)
-    expect(b.servo.height).toBeCloseTo(0.01, 9)
-    const parts = placeServo(b.servo, at(b, 0.01))
-    const all = boxes(parts, 'servo')
-    // Every case and lug part inside the bay across the span and the lug run along the chord,
-    // and within its 10 mm thickness above the base
-    for (const p of all) {
-      expect(p.s[0]).toBeGreaterThanOrEqual(b.sA + res.st.ribs.thickness / 2 - 1e-9)
-      expect(p.s[1]).toBeLessThanOrEqual(b.sB - res.st.ribs.thickness / 2 + 1e-9)
-      expect(p.x[0]).toBeGreaterThanOrEqual(b.lugs.x0 - 1e-9)
-      expect(p.x[1]).toBeLessThanOrEqual(b.lugs.x1 + 1e-9)
-      expect(p.z[0]).toBeGreaterThanOrEqual(0.01 - 1e-9)
-      expect(p.z[1]).toBeLessThanOrEqual(0.02 + 1e-9)
+  it('turns round and over: the output forward or aft, inboard or outboard, the case where it was', () => {
+    const base = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-125mg' }, { surface: flap.id, enabled: false }] })
+    const b0 = base.a.bays.find((x) => x.ok)
+    const out0 = placeServo(b0.servo, at(b0)).find((p) => p.kind === 'servoOutput').cylinder
+    const mid = (b0.case.x0 + b0.case.x1) / 2
+    // Unturned: the output aft of the case's centre and outboard of it
+    expect(out0.x).toBeGreaterThan(mid)
+    expect(out0.from).toBeGreaterThan(b0.s)
+    for (const [pose, aft, outboard] of [[{ rotate: true }, false, false], [{ flip: true }, true, false], [{ rotate: true, flip: true }, false, true]]) {
+      const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-125mg', ...pose }, { surface: flap.id, enabled: false }] })
+      const b = res.a.bays.find((x) => x.ok)
+      const tag = JSON.stringify(pose)
+      expect(b.servo, tag).toMatchObject(pose)
+      // The same room, so the same bay
+      expect(b.width, tag).toBeCloseTo(b0.width, 9)
+      expect(b.case.x0, tag).toBeCloseTo(b0.case.x0, 9)
+      const parts = placeServo(b.servo, at(b))
+      const out = parts.find((p) => p.kind === 'servoOutput').cylinder
+      expect(out.x > (b.case.x0 + b.case.x1) / 2, tag).toBe(aft)
+      expect(out.from > b.s, tag).toBe(outboard)
+      // Every part within the case's own height, base up
+      for (const p of parts.filter((q) => q.box)) {
+        expect(p.box.z[0], tag).toBeGreaterThanOrEqual(-1e-9)
+        expect(p.box.z[1], tag).toBeLessThanOrEqual(b.servo.height + 1e-9)
+      }
     }
-    // The lugs lie in the wing's plane, mid-thickness, 2 mm thick
-    const lugs = all.slice(1)
-    for (const l of lugs) expect(l.z[1] - l.z[0]).toBeCloseTo(0.002, 9)
-    // The output boss points aft along the chord
-    const out = parts.find((p) => p.kind === 'servoOutput').cylinder
-    expect(out.axis).toBe('x')
-    expect(out.from).toBeCloseTo(b.case.x1, 9)
-    expect(out.to).toBeLessThanOrEqual(b.lugs.x1 + 1e-9)
-    expect(out.to).toBeGreaterThan(out.from)
-    // In 3D: the case, its upper pair of lugs and its tab, the boss and the lead
-    const m = wing3d(res.a, res.st, res.parts)
-    expect(m.solids.filter((s) => s.kind === 'servo')).toHaveLength(4)
-    expect(m.solids.filter((s) => s.kind === 'servoOutput')).toHaveLength(1)
   })
 
   it('gives a feather servo its gear tower, and lies a servo on its side across the span', () => {
-    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-65mg', mounting: 'side' }, { surface: flap.id, enabled: false }] })
+    const res = build({ bays: [{ surface: aileron.id, class: 'hitec-hs-65mg' }, { surface: flap.id, enabled: false }] })
     const b = res.a.bays.find((x) => x.ok)
     const parts = placeServo(b.servo, at(b))
     const tower = parts.find((p) => p.kind === 'servo' && p.cylinder).cylinder
@@ -739,54 +727,78 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
     }
   }
 
-  for (const mounting of ['side', 'flat']) {
-    it(`fits every servo ${mounting}`, () => {
+  // On the lower skin (a bottom horn, the default), upside down under the upper skin (a top
+  // horn), and turned round, inset from it
+  for (const [label, set] of [['on the lower skin', {}], ['upside down under the upper skin', { flip: true, link: { hornFace: 'top' } }], ['turned round, inset 3 mm from the upper skin', { rotate: true, inset: 0.003, link: { hornFace: 'top' } }]]) {
+    it(`fits every servo ${label}`, () => {
       for (const id of ids) {
-        const res = build({ bays: [{ surface: aileron.id, class: id, mounting }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
-        check(res, res.a.bays.find((x) => x.surface === aileron.id), `${id} ${mounting}`)
+        const res = build({ bays: [{ surface: aileron.id, class: id, ...set }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
+        const b = res.a.bays.find((x) => x.surface === aileron.id)
+        check(res, b, `${id} ${label}`)
+        const box = servoBox(res.a, res.st, b)
+        const tall = Math.max(b.servo.height, b.servo.lugHeight + b.servo.lugThickness + b.servo.plate)
+        if (!set.link) expect(box.base, id).toBeCloseTo(box.floor, 9)
+        else expect(box.base + tall, id).toBeCloseTo(box.ceil - (set.inset ?? 0), 9)
       }
     })
   }
 
   // A raked aileron (hinge at 65% inboard, 85% out: about 12° to the span) and some servos of
-  // each kind, turned a quarter and square to the hinge
+  // each kind, square to the hinge, turned round or over too
   const raked = { ...aileron, hingeIn: 0.65, hingeOut: 0.85 }
   const someIds = ['micro', 'standard', 'hitec-hs-645mg', 'hitec-hs-85mg', 'hitec-hs-125mg', 'hitec-d89mw']
-  for (const turn of [{ quarterTurn: true }, { square: 'hinge' }, { square: 'hinge', quarterTurn: true }]) {
-    for (const mounting of ['side', 'flat']) {
-      it(`fits a servo ${mounting}, ${turn.square === 'hinge' ? 'square to the hinge' : 'square to the chord'}${turn.quarterTurn ? ', turned a quarter' : ''}`, () => {
-        for (const id of someIds) {
-          const res = build({ surfaces: [raked, flap], bays: [{ surface: aileron.id, class: id, mounting, ...turn }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
-          const b = res.a.bays.find((x) => x.surface === aileron.id)
-          if (b.problem === 'forward') continue
-          check(res, b, `${id} ${mounting} ${JSON.stringify(turn)}`)
-          // Turned as asked: its edges at the hinge's angle when square to it, and its sides
-          // swapped from the servo's unturned when quartered
-          const sf = res.a.surfaces.find((x) => x.id === aileron.id)
-          const [p0, p1, p2] = b.body
-          const ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0])
-          const yaw = turn.square === 'hinge' ? -Math.atan(sf.slope) : 0
-          expect(Math.abs(Math.cos(ang - yaw)), `${id} ${mounting}: turned`).toBeCloseTo(1, 6)
-          const flat = installedServo(id, mounting, 3)
-          const along = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
-          const across = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-          expect(along, `${id} ${mounting}: along`).toBeCloseTo(turn.quarterTurn ? flat.caseWidth : flat.length, 9)
-          expect(across, `${id} ${mounting}: across`).toBeCloseTo(turn.quarterTurn ? flat.length : flat.caseWidth, 9)
-        }
-      })
-    }
+  for (const turn of [{ square: 'hinge' }, { square: 'hinge', rotate: true }, { square: 'hinge', flip: true }]) {
+    it(`fits a servo square to the hinge${turn.rotate ? ', turned round' : turn.flip ? ', upside down' : ''}`, () => {
+      for (const id of someIds) {
+        const res = build({ surfaces: [raked, flap], bays: [{ surface: aileron.id, class: id, ...turn }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
+        const b = res.a.bays.find((x) => x.surface === aileron.id)
+        if (b.problem === 'forward') continue
+        check(res, b, `${id} ${JSON.stringify(turn)}`)
+        // Turned as asked: its edges at the hinge's angle
+        const sf = res.a.surfaces.find((x) => x.id === aileron.id)
+        const [p0, p1, p2] = b.body
+        const ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+        expect(Math.abs(Math.cos(ang + Math.atan(sf.slope))), `${id}: turned`).toBeCloseTo(1, 6)
+        const v = installedServo(id, 3)
+        expect(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), `${id}: along`).toBeCloseTo(v.length, 9)
+        expect(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), `${id}: across`).toBeCloseTo(v.caseWidth, 9)
+      }
+    })
   }
 
-  it('screws a flat wing servo up into the plate, and leaves one on its side to be fixed another way', () => {
-    const at = (id, mounting) => build({ bays: [{ surface: aileron.id, class: id, mounting }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16 }).a.bays.find((x) => x.surface === aileron.id)
-    expect(at('hitec-hs-125mg', 'flat').screws.length).toBeGreaterThanOrEqual(4)
-    // On its side an ordinary servo's lugs stand on edge: none bears on the plate
-    expect(at('hitec-hs-85mg', 'side').screws).toEqual([])
+  it('puts the servo where it is set along the chord, in mm or as a share of it, kept between the spar and the hinge spar', () => {
+    const bay = (fore) => build({ bays: [{ surface: aileron.id, class: 'micro', fore }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16 }).a
+    const centre = (b) => (b.case.x0 + b.case.x1) / 2
+    const pick = (a) => a.bays.find((x) => x.surface === aileron.id)
+    const auto = pick(bay(null))
+    // Too far forward: as far forward as it goes, and warned
+    const front = pick(bay({ value: 0, by: 'length' }))
+    expect(front.warnings.some((w) => /can't go 0\.0 mm from the leading edge/.test(w))).toBe(true)
+    expect(centre(front)).toBeLessThanOrEqual(centre(auto) + 1e-9)
+    // Too far back: as far back as it goes
+    const back = pick(bay({ value: 1, by: 'chord' }))
+    expect(centre(back)).toBeGreaterThan(centre(front))
+    // Between them, where it's asked, by length or as a share of the chord at the bay
+    const a = bay(null)
+    const sec = a.section(auto.s)
+    const x = (centre(front) + centre(back)) / 2
+    const byLength = pick(bay({ value: x - sec.xl, by: 'length' }))
+    expect(centre(byLength)).toBeCloseTo(x, 9)
+    expect(byLength.warnings.filter((w) => /leading edge/.test(w))).toEqual([])
+    const byChord = pick(bay({ value: (x - sec.xl) / sec.c, by: 'chord' }))
+    expect(centre(byChord)).toBeCloseTo(x, 9)
   })
 
-  for (const [label, turn] of [['', {}], [', turned square to a raked hinge', { square: 'hinge' }], [', turned a quarter', { quarterTurn: true }]]) it(`draws the servos and plates as closed solids, and fills them in the section cut${label}`, () => {
+  it('screws a wing servo up into the plate by its flat lugs, and leaves an ordinary one to be fixed another way', () => {
+    const at = (id) => build({ bays: [{ surface: aileron.id, class: id }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16 }).a.bays.find((x) => x.surface === aileron.id)
+    expect(at('hitec-hs-125mg').screws.length).toBeGreaterThanOrEqual(4)
+    // On its side an ordinary servo's lugs stand on edge: none bears on the plate
+    expect(at('hitec-hs-85mg').screws).toEqual([])
+  })
+
+  for (const [label, turn] of [['', {}], [', turned square to a raked hinge', { square: 'hinge' }], [', turned round and over', { rotate: true, flip: true }]]) it(`draws the servos and plates as closed solids, and fills them in the section cut${label}`, () => {
     const surfaces = [{ ...aileron, hingeIn: 0.65, hingeOut: 0.85 }, flap]
-    const res = build({ surfaces, bays: [{ surface: aileron.id, class: 'hitec-hs-645mg', ...turn }, { surface: flap.id, class: 'hitec-hs-125mg', mounting: turn.quarterTurn ? 'side' : 'flat', ...turn }], wingEdit: big, airfoilThickness: 16 })
+    const res = build({ surfaces, bays: [{ surface: aileron.id, class: 'hitec-hs-645mg', ...turn }, { surface: flap.id, class: 'hitec-hs-125mg', ...turn }], wingEdit: big, airfoilThickness: 16 })
     const m = wing3d(res.a, res.st, res.parts)
     const kinds = ['servo', 'servoOutput', 'servoLead', 'plate']
     const solids = m.solids.filter((s) => kinds.includes(s.kind))

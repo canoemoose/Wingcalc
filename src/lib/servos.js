@@ -11,15 +11,22 @@
 //   enabled   false once removed (default true: every surface has a bay)
 //   class     a servo: a class from SERVOS or a Hitec id, or null for the class that suits the
 //             model's weight
-//   mounting  'side' (default: its arm swings fore and aft) or 'flat': see MOUNTINGS. Anything
-//             else (an older save's 'upright') is read as on its side
+//   rotate    true for the servo turned half round about the vertical: the output at the front
+//             of the case and its shaft pointing inboard (installedServo)
+//   flip      true for it upside down (half round about the chord): its shaft pointing inboard
+//   fore      where the case's centre is along the chord, from the leading edge at the bay's
+//             station: { value, by } with by 'length' (value in m) or 'chord' (a fraction of the
+//             chord there); null for the deepest spot between the spar and the hinge spar
+//   inset     the gap from the inside of the skin on the horn's face to the servo, m; null (0)
+//             for as close as it goes
 //   along     where its centre is, m from the surface's inner end (surface.from), along the
 //             surface; null for a third of the way out along it
 //   at        the older panel-relative position, m from the panel's inner end; used only when
 //             along is not set (saves from before along)
 //   square    'chord' (default) or 'hinge': the servo's length square to the chord (along it) or
 //             square to the surface's hinge line in plan, so the pushrod meets the horn square
-//   quarterTurn  true to turn it a quarter in plan from there (its length across the span)
+// An older save's mounting ('upright', 'flat') and quarterTurn are ignored: every servo lies on
+// its side, square to the chord or the hinge.
 //   link      the servo's linkage to its surface, as differs from the defaults (bayLinkage.js
 //             DEFAULT_LINK): arm, horn, holes, travel; null for the defaults
 
@@ -288,19 +295,13 @@ export const FUTABA = FUTABA_FIGURES.map(futaba)
 // Every maker's servo, Hitec first
 export const CATALOGUE = [...HITEC, ...FUTABA]
 
-// The mounting a servo goes in, and the envelope it takes up in the wing: chord (along the
-// chord), span (across the span) and depth (from the skin inward). Side lies it on its side, its
-// arm swinging fore and aft; flat lays a thin wing servo in the wing's plane, its long side across
-// the span. Any servo may lie flat; the thin wing servos are simply the ones built for it. There's
-// no upright: a servo standing on its base would swing its arm across the span, into the bay's
-// ribs, which nobody builds.
-export const MOUNTINGS = { side: 'On its side', flat: 'Flat (wing servo)' }
-// A mounting as one of MOUNTINGS: anything else (an older save's 'upright') on its side
-export const mountingOf = (m) => (MOUNTINGS[m] ? m : 'side')
-
-export function servoEnvelope(servo, mounting = 'side') {
+// How a servo lies in the wing: always on its side, its length along the chord, its height
+// across the span (the output's shaft along the span) and its thin width upright, so its arm
+// swings fore and aft and comes out through a skin. There's no upright (its arm would swing into
+// the bay's ribs) and no flat (its shaft would run along the chord). The envelope it takes up:
+// chord (along the chord), span (across the span) and depth (from the skin inward).
+export function servoEnvelope(servo) {
   const [l, w, h] = servo.body ?? [servo.length, servo.width, servo.height]
-  if (mountingOf(mounting) === 'flat') return { chord: h, span: l, depth: w }
   return { chord: l, span: h, depth: w }
 }
 
@@ -342,7 +343,7 @@ export function defaultServoClass(mass) {
 export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 
 // The servo a bay holds, in the generic classes' fields (which the bay geometry reads) and turned
-// to its mounting, sized by everything drawn of it (servoParts: case, tower, lugs, output boss and
+// to lie on its side, sized by everything drawn of it (servoParts: case, tower, lugs, output boss and
 // lead stub), so a bay that fits these fits the whole servo:
 //   length         the case along the chord
 //   caseWidth      the case across the span
@@ -360,17 +361,18 @@ export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 //                  turned with the servo) and its screw holes ([x, s]), see platePlan
 //   outline        the whole servo's outline in plan, [x, s] corners from the case's centre
 //   caseOutline    the case's, likewise
-//   quarter, yaw   how it's turned in plan (turn)
-// id is a Hitec id or a class; anything else takes the class that suits the model's mass. turn:
-// { quarter, yaw }, the servo turned in plan about its case's centre: a quarter turn (its length
-// across the span rather than along the chord), then yaw radians more (anticlockwise from above,
-// x towards s), as a bay square to its hinge is.
-export function installedServo(id, mounting = 'side', mass = 0, turn = {}) {
+//   rotate, flip   how it's turned over (pose)
+//   yaw            how it's turned in plan (pose)
+// id is a Hitec id or a class; anything else takes the class that suits the model's mass. pose:
+// { rotate, flip, yaw }: rotate turns it half round about the vertical (the output at the other
+// end of the case, its shaft pointing the other way along the span), flip half round about the
+// chord (upside down, the shaft the other way along the span), and yaw radians more in plan about
+// its case's centre (anticlockwise from above, x towards s), as a bay square to its hinge is.
+export function installedServo(id, mass = 0, pose = {}) {
   const found = servoById(id) ?? { id: defaultServoClass(mass), ...SERVOS[defaultServoClass(mass)] }
   const cls = SERVOS[found.class] ?? SERVOS[found.id] ?? SERVOS.micro
   const frame = servoFrame(found)
-  const mount = mountingOf(mounting)
-  const yaw = Number.isFinite(turn.yaw) ? turn.yaw : 0
+  const yaw = Number.isFinite(pose.yaw) ? pose.yaw : 0
   const base = {
     ...cls,
     ...found,
@@ -378,8 +380,8 @@ export function installedServo(id, mounting = 'side', mass = 0, turn = {}) {
     lugSpan: frame.lugSpan,
     lugThickness: frame.lugThickness,
     frame,
-    mounting: mount,
-    quarter: !!turn.quarter,
+    rotate: !!pose.rotate,
+    flip: !!pose.flip,
     yaw,
     lift: 0,
   }
@@ -564,30 +566,31 @@ export function servoParts(frame) {
   return parts
 }
 
-// A bay's servo drawn in the wing: servoParts turned to the bay's mounting and placed, as
+// A bay's servo drawn in the wing: servoParts turned to lie on its side and placed, as
 // { kind, box } with box { x: [x0, x1], s: [s0, s1], z: [z0, z1] } (plan x along the chord,
 // flat s along the span, z the height in the section), or { kind, cylinder } with cylinder
 // { axis: 'x' | 's' | 'z', x, s, z (the centre, the axis's own one unused), r, from, to }.
 // at: { x, s, base }, the case's centre along the chord, the bay's centre across the span (the
 // case's too) and the height the servo stands on (its lowest point; the case's base is lift
-// above it). On its side, its length runs along the chord with the lead end aft and its height
-// across the span; flat, its height runs along the chord, output aft, and its length across the
-// span. A quarter turn (servo.quarter) turns all that a quarter about the
-// case's centre, exactly, so boxes stay boxes; a yaw (servo.yaw, radians) more is carried by
-// each part as turn { yaw, x, s }, the turn about the case's centre its box or cylinder is to
-// be drawn with (planCorners, turnedSlice).
+// above it). On its side, its length runs along the chord with the lead end aft, its height
+// across the span with the output outboard and its width upright; rotated (servo.rotate) the lead
+// end is forward and the output inboard, flipped (servo.flip) it's upside down with the output
+// inboard, and both together the lead end forward, the output outboard. A yaw (servo.yaw,
+// radians) is carried by each part as turn { yaw, x, s }, the turn about the case's centre its
+// box or cylinder is to be drawn with (planCorners, turnedSlice).
 export function placeServo(servo, at) {
   const f = servo.frame ?? servoFrame(servo)
-  const m = mountMap(servo.mounting, f)
+  const m = mountMap(servo, f)
   const origin = { x: at.x, s: at.s, z: at.base + (servo.lift ?? 0) }
   const idx = { x: 0, y: 1, z: 2 }
+  const ordered = (a, b) => (a <= b ? [a, b] : [b, a])
   const range = (axis, box) => {
-    const [from, by] = m[axis]
-    return box[idx[from]].map((v) => origin[axis] + by + v)
+    const [from, by, k] = m[axis]
+    return ordered(...box[idx[from]].map((v) => origin[axis] + by + k * v))
   }
   const point = (axis, p) => {
-    const [from, by] = m[axis]
-    return origin[axis] + by + p[from]
+    const [from, by, k] = m[axis]
+    return origin[axis] + by + k * p[from]
   }
   const yaw = servo.yaw ?? 0
   const turn = Math.abs(yaw) > 1e-9 ? { yaw, x: at.x, s: at.s } : null
@@ -598,31 +601,22 @@ export function placeServo(servo, at) {
       const c = p.cylinder
       const axis = Object.keys(m).find((k) => m[k][0] === 'z')
       const centre = { x: c.x, y: c.y, z: 0 }
-      const [from, to] = c.z.map((v) => origin[axis] + m[axis][1] + v)
+      const [from, to] = ordered(...c.z.map((v) => origin[axis] + m[axis][1] + m[axis][2] * v))
       out = { kind: p.kind, cylinder: { axis, x: point('x', centre), s: point('s', centre), z: point('z', centre), r: c.r, from, to } }
     }
-    if (servo.quarter) out = quarterTurn(out, at)
     return turn ? { ...out, turn } : out
   })
 }
 
-// Frame (x along the case, y across it, z up its height) to wing (x, s, z) for a mounting: which
-// frame axis each wing axis takes, and the offset from the case's centre on its base
-function mountMap(mounting, f) {
-  if (mountingOf(mounting) === 'flat') return { x: ['z', -f.height / 2], s: ['x', 0], z: ['y', f.width / 2] }
-  return { x: ['x', 0], s: ['z', -f.height / 2], z: ['y', f.width / 2] }
-}
-
-// A placed part turned a quarter (x towards s) about at, exactly: x' = at.x - (s - at.s),
-// s' = at.s + (x - at.x)
-function quarterTurn(p, at) {
-  const X = (s) => at.x - (s - at.s)
-  const S = (x) => at.s + (x - at.x)
-  if (p.box) return { ...p, box: { x: [X(p.box.s[1]), X(p.box.s[0])], s: [S(p.box.x[0]), S(p.box.x[1])], z: p.box.z } }
-  const c = p.cylinder
-  const axis = c.axis === 'x' ? 's' : c.axis === 's' ? 'x' : 'z'
-  const [from, to] = c.axis === 'x' ? [S(c.from), S(c.to)] : c.axis === 's' ? [X(c.to), X(c.from)] : [c.from, c.to]
-  return { ...p, cylinder: { ...c, axis, x: X(c.s), s: S(c.x), from, to } }
+// Frame (x along the case, y across it, z up its height) to wing (x, s, z) on its side, turned as
+// the servo is (rotate, flip): which frame axis each wing axis takes, the offset from the case's
+// centre on its base, and the sign. Rotating half round about the vertical turns x and s round;
+// flipping half round about the chord turns s and z round.
+function mountMap(servo, f) {
+  const kx = servo.rotate ? -1 : 1
+  const ks = !!servo.rotate !== !!servo.flip ? -1 : 1
+  const kz = servo.flip ? -1 : 1
+  return { x: ['x', 0, kx], s: ['z', -ks * (f.height / 2), ks], z: ['y', f.width / 2, kz] }
 }
 
 // A point or a direction in the servo's own frame (servoFrame: x along the case towards the
@@ -630,20 +624,19 @@ function quarterTurn(p, at) {
 // placed as placeServo places it.
 export function servoPoint(servo, at, p) {
   const f = servo.frame ?? servoFrame(servo)
-  const m = mountMap(servo.mounting, f)
+  const m = mountMap(servo, f)
   const idx = { x: 0, y: 1, z: 2 }
-  const local = ['x', 's', 'z'].map((k) => m[k][1] + p[idx[m[k][0]]])
-  const [x, q] = planTurn(servo, [local[0], local[1]])
+  const local = ['x', 's', 'z'].map((k) => m[k][1] + m[k][2] * p[idx[m[k][0]]])
+  const [x, q] = turnPoint([local[0], local[1]], servo.yaw ?? 0)
   return [at.x + x, at.s + q, at.base + (servo.lift ?? 0) + local[2]]
 }
 export function servoDir(servo, d) {
-  const m = mountMap(servo.mounting, servo.frame ?? servoFrame(servo))
+  const m = mountMap(servo, servo.frame ?? servoFrame(servo))
   const idx = { x: 0, y: 1, z: 2 }
-  const local = ['x', 's', 'z'].map((k) => d[idx[m[k][0]]])
-  const [x, q] = planTurn(servo, [local[0], local[1]])
+  const local = ['x', 's', 'z'].map((k) => m[k][2] * d[idx[m[k][0]]])
+  const [x, q] = turnPoint([local[0], local[1]], servo.yaw ?? 0)
   return [x, q, local[2]]
 }
-const planTurn = (servo, p) => turnPoint(turnPoint(p, servo.quarter ? Math.PI / 2 : 0), servo.yaw ?? 0)
 
 // A placed part's outline in plan, [x, s] corners, turned with it: a box's, or the rectangle a
 // cylinder covers in plan
@@ -726,8 +719,9 @@ export function partSpan(p) {
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  const b = { surface: surfaceId, enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null, ...(saved ?? {}) }
-  return { ...b, mounting: mountingOf(b.mounting) }
+  const { mounting, quarterTurn, ...rest } = saved ?? {}
+  const b = { surface: surfaceId, enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, ...rest }
+  return { ...b, fore: foreOf(b.fore) }
 }
 
 // controls with one surface's bay settings changed. Settings that come back to the defaults
@@ -735,20 +729,30 @@ export function bayOf(controls, surfaceId) {
 export function setBay(controls, surfaceId, patch) {
   const next = { ...bayOf(controls, surfaceId), ...patch }
   const rest = (controls.bays ?? []).filter((b) => b.surface !== surfaceId)
-  const side = !next.mounting || next.mounting === 'side'
   const link = next.link && Object.keys(next.link).length ? next.link : null
   const hinge = next.square === 'hinge'
-  const same = next.enabled && !next.class && side && !hinge && !next.quarterTurn && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
+  const fore = foreOf(next.fore)
+  const inset = next.inset > 0 ? next.inset : null
+  const same = next.enabled && !next.class && !hinge && !next.rotate && !next.flip && !fore && !inset && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
-  if (!side) entry.mounting = next.mounting
   if (hinge) entry.square = 'hinge'
-  if (next.quarterTurn) entry.quarterTurn = true
+  if (next.rotate) entry.rotate = true
+  if (next.flip) entry.flip = true
+  if (fore) entry.fore = fore
+  if (inset) entry.inset = inset
   if (Number.isFinite(next.along)) entry.along = next.along
   if (Number.isFinite(next.at)) entry.at = next.at
   if (link) entry.link = link
   return { ...controls, bays: same ? rest : [...rest, entry] }
+}
+
+// A bay's fore setting as saved, or null: { value, by } with a finite value and by 'length' or
+// 'chord'
+export function foreOf(f) {
+  if (!f || !Number.isFinite(f.value)) return null
+  return { value: f.value, by: f.by === 'chord' ? 'chord' : 'length' }
 }
 
 // controls without the bay settings of a surface that's gone
@@ -764,7 +768,9 @@ export const dropBay = (controls, surfaceId) => ({ ...controls, bays: (controls.
 // inner one, or failing that on the box's outer side. Named SB1, SB2 … root outward. ok is
 // false, with a problem, if it can't be placed: 'surface' (its host isn't built), 'span' (the
 // ribs would be off the panel) or 'overlap' (it clashes with a bay before it). beyond says it
-// sticks out past the ends of its surface. Only the ok ones are built and weighed.
+// sticks out past the ends of its surface. Only the ok ones are built and weighed. face (the
+// horn's, which the servo sits against), fore and inset are the settings structure.js bayLayouts
+// and wing3d.js servoBox place it by.
 export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.002 }) {
   const out = []
   const idOrder = (a, b) => (typeof a.id === 'number' && typeof b.id === 'number' ? a.id - b.id : String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true }))
@@ -778,8 +784,10 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     const cls = chosen ? cfg.class : defaultServoClass(mass)
     // Square to the hinge: its length turned from the chord by the hinge line's angle in plan
     const yaw = cfg.square === 'hinge' && Number.isFinite(r.slope) ? -Math.atan(r.slope) : 0
-    const servo = installedServo(cls, cfg.mounting, mass, { quarter: !!cfg.quarterTurn, yaw })
-    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, ok: false, problem: null }
+    const servo = installedServo(cls, mass, { rotate: cfg.rotate, flip: cfg.flip, yaw })
+    // The face its horn and arm are on (bayLinkage.js DEFAULT_LINK), which its servo sits against
+    const face = cfg.link?.hornFace === 'top' ? 'top' : 'bottom'
+    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, face, fore: r.beside ? null : cfg.fore, inset: r.beside ? 0 : cfg.inset ?? 0, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {
       bay.problem = 'surface'

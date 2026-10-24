@@ -509,11 +509,23 @@ export function movingSparSection(a, structure, sf, s) {
   return [[xa, mid], meet(sf.bevel.bottom, 'lower'), [xr, lo(xr)], [xr, up(xr)], meet(sf.bevel.top, 'upper')]
 }
 
-// Where a servo stands in its bay: the base height (its lowest point), the highest the lower
-// skin's inside (or a lower stringer's top) gets under its run and along the bay, so it never
-// pokes through either, and the ceiling, the lowest the upper skin's inside (or an upper
-// stringer's underside) gets.
+// Where a servo stands in its bay: the floor, the highest the lower skin's inside (or a lower
+// stringer's top) gets under its run and along the bay, the ceiling, the lowest the upper skin's
+// inside (or an upper stringer's underside) gets, and the base height (its lowest point) between
+// them: against the skin on its horn's face (b.face), b.inset from it, kept between the two (on
+// the floor where it doesn't fit). top is its highest point, the plate's top where that's higher.
 export function servoBox(a, structure, b) {
+  const { floor, ceil } = bayDepth(a, structure, b)
+  const sv = b.servo
+  const height = Math.max(sv.height, sv.lugHeight + sv.lugThickness + (sv.plate ?? 0))
+  const inset = Math.max(0, b.inset ?? 0)
+  const want = b.face === 'top' ? ceil - height - inset : floor + inset
+  const base = Math.max(floor, Math.min(ceil - height, want))
+  return { base, floor, ceil, top: base + sv.height }
+}
+
+// The floor and ceiling a bay's servo has, as servoBox
+function bayDepth(a, structure, b) {
   let base = -Infinity
   let ceil = Infinity
   for (const s of [b.sA, (b.sA + b.sB) / 2, b.sB]) {
@@ -536,7 +548,7 @@ export function servoBox(a, structure, b) {
       }
     }
   }
-  return { base, ceil, top: base + b.servo.height }
+  return { floor: base, ceil }
 }
 
 // A built bay's servo and mount plate: the servo's solids placed (servos.js placeServo), standing
@@ -1030,7 +1042,7 @@ export function wing3d(a, structure, parts, linkages = null) {
   // Each servo's arm, horn and pushrod at surface neutral (bayLinkage.js linkageSolids, in the
   // flat frame): bought, so pieces with no part; flagged where they clash (linkageFit)
   const LINK_NAMES = { servoArm: 'Servo arm', horn: 'Control horn', pushrod: 'Pushrod' }
-  const LINK_CLASH = { servoArm: ['rib', 'arm-top', 'arm-bottom'], pushrod: ['spar'], horn: [] }
+  const LINK_CLASH = { servoArm: ['rib', 'inside'], pushrod: ['rod', 'inside'], horn: [] }
   for (const [, l] of linkages ?? []) {
     for (const sol of l.solids ?? []) {
       const mesh = loft(

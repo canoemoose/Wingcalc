@@ -154,29 +154,40 @@ describe('an arm swinging across the span, on a swept hinge', () => {
 })
 
 describe('hole positions as installed', () => {
-  it('puts the arm on the output axis, a seat above the spline, turned with the mounting', () => {
+  it('puts the arm on the output axis, a seat above the spline, turned with the servo', () => {
     const at = { x: 0.1, s: 0.3, base: -0.01 }
-    // On its side the output points along the span, from the case's mid-height
-    const side = installedServo('hitec-hs-645mg', 'side')
+    // On its side the output points outboard along the span, from the case's mid-height
+    const side = installedServo('hitec-hs-645mg')
     const f = side.frame
     const p = outputPivot(side, at, 0.002)
     expect(p.axis).toEqual([0, 1, 0])
     expect(p.pivot[0]).toBeCloseTo(at.x + f.output.offset, 9)
     expect(p.pivot[1]).toBeCloseTo(at.s - f.height / 2 + Math.max(f.height, f.output.top) + 0.002, 9)
     expect(p.pivot[2]).toBeCloseTo(at.base + side.lift + f.width / 2, 9)
-    // Flat, along the chord
-    expect(outputPivot(installedServo('hitec-hs-645mg', 'flat'), at).axis).toEqual([1, 0, 0])
-    // Turned a quarter in plan
-    const q = outputPivot(installedServo('hitec-hs-645mg', 'side', 0, { quarter: true }), at, 0.002)
-    expect(q.ref[0]).toBeCloseTo(0, 9)
-    expect(q.ref[1]).toBeCloseTo(1, 9)
+    expect(p.ref).toEqual([1, 0, 0])
+    // Rotated half round about the vertical: the output at the other end, pointing inboard
+    const r = outputPivot(installedServo('hitec-hs-645mg', 0, { rotate: true }), at, 0.002)
+    expect(r.axis[1]).toBe(-1)
+    expect(r.pivot[0]).toBeCloseTo(at.x - f.output.offset, 9)
+    expect(r.pivot[1]).toBeCloseTo(at.s - (p.pivot[1] - at.s), 9)
+    expect(r.pivot[2]).toBeCloseTo(p.pivot[2], 9)
+    // Flipped (upside down): the output inboard, still at the back
+    const u = outputPivot(installedServo('hitec-hs-645mg', 0, { flip: true }), at, 0.002)
+    expect(u.axis[1]).toBe(-1)
+    expect(u.pivot[0]).toBeCloseTo(p.pivot[0], 9)
+    expect(u.pivot[1]).toBeCloseTo(r.pivot[1], 9)
+    // Both: at the front, outboard
+    const b = outputPivot(installedServo('hitec-hs-645mg', 0, { rotate: true, flip: true }), at, 0.002)
+    expect(b.axis[1]).toBe(1)
+    expect(b.pivot[0]).toBeCloseTo(r.pivot[0], 9)
+    expect(b.pivot[1]).toBeCloseTo(p.pivot[1], 9)
   })
 
-  it('stands on the output boss as drawn, however the servo is turned and mounted', () => {
+  it('stands on the output boss as drawn, however the servo is turned', () => {
     const at = { x: 0.1, s: 0.3, base: -0.01 }
-    for (const mounting of ['side', 'flat']) {
-      for (const turn of [{}, { quarter: true }, { yaw: 0.2 }, { quarter: true, yaw: -0.3 }]) {
-        const v = installedServo('hitec-hs-645mg', mounting, 0, turn)
+    for (const pose of [{}, { rotate: true }, { flip: true }, { rotate: true, flip: true }]) {
+      for (const yaw of [0, 0.2, -0.3]) {
+        const v = installedServo('hitec-hs-645mg', 0, { ...pose, yaw })
         const p = outputPivot(v, at, 0)
         const boss = placeServo(v, at).find((x) => x.kind === 'servoOutput')
         const c = boss.cylinder
@@ -188,7 +199,7 @@ describe('hole positions as installed', () => {
           const t = boss.turn
           ;[ex, es] = turnPoint([ex - t.x, es - t.s], t.yaw).map((d, k) => d + (k ? t.s : t.x))
         }
-        const tag = `${mounting} ${JSON.stringify(turn)}`
+        const tag = `${JSON.stringify(pose)} ${yaw}`
         expect(p.pivot[0], tag).toBeCloseTo(ex, 9)
         expect(p.pivot[1], tag).toBeCloseTo(es, 9)
         expect(p.pivot[2], tag).toBeCloseTo(end[2], 9)
@@ -209,7 +220,7 @@ describe('hole positions as installed', () => {
 
 describe('a catalogue assembly', () => {
   it('solves an HS-645MG on its side, a Hitec arm and a Du-Bro horn, for an aileron', () => {
-    const servo = installedServo('hitec-hs-645mg', 'side')
+    const servo = installedServo('hitec-hs-645mg')
     const arm = ARMS.find((a) => a.part === '55709')
     const horn = HORNS.find((h) => h.part === '105')
     // A straight hinge at x = 0.2, the case's centre 60 mm ahead of it, its output on the

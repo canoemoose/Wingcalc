@@ -26,7 +26,7 @@ import { hingeTabOutline } from '../lib/controlSurfaces.js'
 import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan } from '../lib/structure.js'
 import { setBay, bayOf } from '../lib/servos.js'
 import { linkage } from '../lib/linkage.js'
-import { assemblyGeometry, linkOf, savedLink } from '../lib/bayLinkage.js'
+import { assemblyGeometry, linkOf, savedLink, hornOutline } from '../lib/bayLinkage.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import StageZoom from './StageZoom.vue'
 
@@ -498,13 +498,11 @@ const links = computed(() => {
     const L = linkage(g)
     const t0 = r.ok ? ((r.midpoint + r.direction * r.neutralArm) * Math.PI) / 180 : 0
     const arm = L.arm(t0)
-    const h = l.frame.hinge
-    // The horn's plane: square to the hinge, aft, turned by its angle; drawn its height long
-    const ang = ((l.link.hornAngle || 0) * Math.PI) / 180
-    const sq = [h.axis[1], -h.axis[0]]
-    const dir = [sq[0] * Math.cos(ang) - sq[1] * Math.sin(ang), sq[0] * Math.sin(ang) + sq[1] * Math.cos(ang)]
-    const half = (c.horn.height * 0.7) / 2
-    const H = h.point
+    const H = l.frame.hinge.point
+    // The horn in its plane, from its holes' column over the hinge back over its base
+    const horn = hornOutline(l.frame, c.horn, c.face)
+    const front = horn.at(-1)
+    const back = horn[4]
     out.push({
       sid,
       label: `${l.bay.label}, ${l.frame.label}`,
@@ -514,15 +512,15 @@ const links = computed(() => {
       arm: [arm[1], arm[0]],
       horn: [g.horn[1], g.horn[0]],
       hornLine: [
-        [H[1] - dir[1] * half, H[0] - dir[0] * half],
-        [H[1] + dir[1] * half, H[0] + dir[0] * half],
+        [front[1], front[0]],
+        [back[1], back[0]],
       ],
       servoAt: [l.frame.at.s, l.frame.at.x],
-      // Where the arm or pushrod passes through a skin (a slot, or in the hatch)
+      // Where the arm comes out through the skin (a slot in it, or in the hatch)
       slots: (l.fit?.slots ?? []).map((q) => ({
         pts: poly([[q.s0, q.x0], [q.s1, q.x0], [q.s1, q.x1], [q.s0, q.x1]]),
         hatch: q.hatch,
-        title: `${q.what === 'arm' ? 'The arm' : 'The pushrod'} passes through the ${q.surface} ${q.hatch ? 'hatch' : 'skin'} here: cut a slot`,
+        title: `The arm comes out through the ${q.surface} ${q.hatch ? 'hatch' : 'skin'} here: cut a slot`,
       })),
       hingeAt: [H[1], H[0]],
       frame: l.frame,
@@ -800,7 +798,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         sheeted area hatched</template
       ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
       ><template v-if="geom.brakes.length">; air brakes outlined, with the slots or opening in the covering</template
-      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root, and its arm, pushrod and horn (amber where the linkage has a warning), with the slots they need in the skin or hatch dashed. Drag a servo's handle along the span to move it, or its horn's along the hinge; click either to set the servo and linkage</template
+      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root, and its arm, pushrod and horn (amber where the linkage has a warning), with the slot the arm comes out through dashed. Drag a servo's handle along the span to move it, or its horn's along the hinge; click either to set the servo and linkage</template
       ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template
       ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to

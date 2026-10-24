@@ -124,7 +124,7 @@ describe('app render', () => {
     expect(parts2).toContain('A servo bay for this surface')
     expect(parts2).toContain('Mini (the 17 g class)')
     expect(parts2).toContain('HS-65MG, 12 g')
-    expect(parts2).toContain('On its side')
+    expect(parts2).toContain('Servo square to')
     expect(parts2).toContain('wc-sp__servo')
     // The sheeting hatch's pattern lines have a class of their own: the servo hatch outline once
     // shared theirs and was drawn with a stroke a metre wide (a big blue square on the plan)
@@ -380,27 +380,34 @@ describe('app render', () => {
       const a = analyseStructure({ wing: s.input, airfoil, structure: defaultStructure(), mass: s.input.mass, spanwise: perf.spanwise, controls })
       return { a, wing: s.input, controls }
     }
-    const dialogue = (bay, link) => {
-      const { a } = analysed([bay])
-      const props = { system: 'metric', frame: bayFrame(a, a.bays[0]), title: a.bays[0].label, bay: { class: bay.class ?? null, mounting: bay.mounting ?? 'side', link }, autoClass: 'micro', mass: 2 }
+    const dialogue = (bay, problem = '') => {
+      const { a, controls } = analysed([bay])
+      const l = bayLinkages(a, controls).get(1)
+      const props = { system: 'metric', linkage: l, problem, title: l.bay.label, bay: { class: bay.class ?? null, rotate: !!bay.rotate, flip: !!bay.flip, fore: bay.fore ?? null, inset: bay.inset ?? null, link: linkOf(bay) }, autoClass: 'micro', mass: 2 }
       return renderToString(createSSRApp({ render: () => h('div', { class: 'wingcalc' }, [h(ServoConfigurator, props)]) }))
     }
 
-    it('renders for a servo on its side, flat, and with chosen holes on the bottom face', async () => {
-      const side = await dialogue({ surface: 1, mounting: 'side' }, { ...DEFAULT_LINK })
+    it('renders on the lower skin, turned round and over under the upper, placed and inset, and with chosen holes', async () => {
+      const side = await dialogue({ surface: 1 })
       expect(side).toContain('servo and linkage, ')
       expect(side).toContain('Use this')
       expect(side).toContain('Du-Bro 848')
       expect(side).toContain('Servo travel')
-      // Flat and unturned, its arm swings across the span: seen edge-on
-      const flat = await dialogue({ surface: 1, mounting: 'flat' }, { ...DEFAULT_LINK })
-      expect(flat).toContain('seen edge-on')
-      await dialogue({ surface: 1, mounting: 'side', class: 'futaba-s3102' }, { ...DEFAULT_LINK, hornFace: 'bottom', armHole: 0, hornHole: 0, travel: 60 })
+      expect(side).toContain('wc-config__thumb')
+      expect(side).toContain('wc-config__horn')
+      // The summary is plain text, not links
+      expect(side).toMatch(/<p class="wc-config__summary">[^<]* › [^<]* › Du-Bro 848, hole \d<\/p>/)
+      expect(side).not.toContain('Mounted')
+      await dialogue({ surface: 1, rotate: true, flip: true, link: { hornFace: 'top' } })
+      await dialogue({ surface: 1, fore: { value: 0.35, by: 'chord' }, inset: 0.004 })
+      const deep = await dialogue({ surface: 1, inset: 0.02, class: 'futaba-s3102', link: { armHole: 0, hornHole: 0, travel: 60 } }, "Servo bay SB1 isn't built: whatever.")
+      expect(deep).toContain('too far into the bottom skin')
+      expect(deep).toContain('built: whatever')
       expect(warn).not.toHaveBeenCalled()
     })
 
     it('draws each linkage on the plan, turned and with its horn moved', async () => {
-      for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, square: 'hinge', quarterTurn: true, mounting: 'flat', link: { hornAt: 0.05, hornAngle: 10 } }]) {
+      for (const bay of [{ surface: 1 }, { surface: 1, square: 'hinge', rotate: true, link: { hornAt: 0.05, hornAngle: 10, hornFace: 'top' } }]) {
         const { a, controls } = analysed([bay])
         const parts = buildParts(a, a.structure, {}).parts
         const html = await renderToString(
@@ -413,7 +420,7 @@ describe('app render', () => {
     })
 
     it('shows the linkage under each built bay', async () => {
-      const { a, wing, controls } = analysed([{ surface: 1, mounting: 'side' }])
+      const { a, wing, controls } = analysed([{ surface: 1 }])
       const html = await renderToString(
         createSSRApp({ render: () => h(SurfaceStructure, { system: 'metric', wing, mass: 2, controls, analysis: a, 'onUpdate:controls': () => {} }) }),
       )

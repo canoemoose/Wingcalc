@@ -1,18 +1,21 @@
 <script setup>
 // The structural side of each control surface, in the structure editor: its hinge gap and its
-// servo bay (on or off, which servo, how it's mounted and turned, where along the span), and the
-// bay's linkage, set in the servo configurator (ServoConfigurator.vue), with where its horn sits.
+// servo bay (on or off, which servo, square to the chord or the hinge, where along the span), and
+// the bay's servo and linkage, set in the servo configurator (ServoConfigurator.vue), with where
+// its horn sits. While the configurator is open its draft is handed up as `preview` (the controls
+// with the draft bay), which the caller analyses in place of the saved ones.
 // The surface itself
 // (where it is, its depth, its throws) is drawn and set in the wing editor. Every change
 // replaces the whole controls object, so undo/redo and autosave see it.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import UnitInput from './UnitInput.vue'
 import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
 import ParamInput from './ParamInput.vue'
 import { wingSampler } from '../lib/wing.js'
 import { resolveSurfaces } from '../lib/controlSurfaces.js'
-import { SERVOS, MOUNTINGS, bayOf, setBay, servoOptions, servoById, installedServo, defaultServoClass } from '../lib/servos.js'
+import { SERVOS, bayOf, setBay, servoOptions, servoById, installedServo, defaultServoClass } from '../lib/servos.js'
+import { bayProblem } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { bayLinkages, linkOf, savedLink, linkSummary } from '../lib/bayLinkage.js'
 import ServoConfigurator from './ServoConfigurator.vue'
@@ -33,6 +36,8 @@ const props = defineProps({
 const controls = defineModel('controls', { type: Object, required: true })
 // The surface whose bay the servo configurator is open on, or null (the plan opens it too)
 const configuring = defineModel('configuring', { type: [Number, String], default: null })
+// The controls with the configurator's draft bay, while it's open; null otherwise
+const preview = defineModel('preview', { type: Object, default: null })
 
 const sampler = computed(() => wingSampler(props.wing))
 const shown = computed(() =>
@@ -54,7 +59,6 @@ const SERVO_OPTIONS = computed(() => [
   { value: '', label: `Automatic (${SERVOS[autoClass.value].label.toLowerCase()}, for this weight)` },
   ...servoOptions(),
 ])
-const mountOptions = () => Object.entries(MOUNTINGS).map(([value, label]) => ({ value, label }))
 // The bay's centre, m from the surface's inner end. An older save only has `at` (from the panel's
 // inner end), so convert it by the surface's own start.
 const bayAlong = (s) => {
@@ -64,7 +68,7 @@ const bayAlong = (s) => {
 }
 function servoText(s) {
   const b = bayFor(s)
-  const v = linked.value.get(s.id)?.bay.servo ?? installedServo(b.class, b.mounting, props.mass, { quarter: b.quarterTurn })
+  const v = linked.value.get(s.id)?.bay.servo ?? installedServo(b.class, props.mass, { rotate: b.rotate, flip: b.flip })
   const mu = defaultUnit(props.system, 'mass')
   return `${v.label}: ${format(v.mass, 'mass', mu)}, about ${(v.torque / 0.0980665).toFixed(1)} kg·cm. Installed, lugs, output and lead included, it takes ${mm(v.run)} mm along the chord, ${mm(v.width)} mm across the span and ${mm(v.height)} mm of depth.${v.estimated?.includes('lugs') ? ` ${v.maker} publishes no drawing of it, so its lugs and output are placed as a typical ${SERVOS[v.class].label.toLowerCase()} servo's.` : ''}${v.plan?.screws?.length ? '' : ' Its lugs don\'t bear on the plate this way up, so it needs fixing another way (the plate\'s note says how).'}`
 }
@@ -91,15 +95,40 @@ const hornAt = (s) => linkOf(bayFor(s)).hornAt
 // structure editor's window), since the side panel it's opened from would trap a fixed dialogue.
 const rootEl = ref(null)
 const dialogueTarget = computed(() => (configuring.value == null ? null : (rootEl.value?.closest('.wingcalc') ?? 'body')))
+// The bay as saved when the configurator opened (its draft starts there), and the last linkage it
+// had built: a draft that can't be built (a servo too long for the bay, say) keeps showing that,
+// with the reason
+const opened = ref(null)
+let lastBuilt = null
 const open = computed(() => {
   const sid = configuring.value
-  const l = sid == null ? null : linked.value.get(sid)
-  if (!l) return null
-  const b = bayFor({ id: sid })
-  return { sid, frame: l.frame, title: l.bay.label, bay: { class: b.class, mounting: b.mounting, link: linkOf(b) } }
+  if (sid == null) return null
+  const l = linked.value.get(sid)
+  const bay = props.analysis?.bays?.find((x) => x.surface === sid)
+  if (l) lastBuilt = { sid, l }
+  const shown = l ?? (lastBuilt?.sid === sid ? lastBuilt.l : null)
+  if (!shown) return null
+  return { sid, l: shown, problem: l ? '' : bay && !bay.ok ? bayProblem(bay) : '', title: shown.bay.label }
 })
-function apply(sid, { class: cls, mounting, link }) {
-  controls.value = setBay(controls.value, sid, { class: cls, mounting, link: savedLink(link) })
+const draftOf = (b) => ({ class: b.class ?? null, rotate: !!b.rotate, flip: !!b.flip, fore: b.fore, inset: b.inset, link: linkOf(b) })
+function startConfiguring() {
+  const sid = configuring.value
+  opened.value = sid == null ? null : draftOf(bayFor({ id: sid }))
+  lastBuilt = null
+  if (sid == null) preview.value = null
+}
+watch(configuring, startConfiguring, { immediate: true })
+const withDraft = (sid, d) => setBay(controls.value, sid, { class: d.class, rotate: d.rotate, flip: d.flip, fore: d.fore, inset: d.inset, link: savedLink(d.link) })
+function change(sid, d) {
+  preview.value = withDraft(sid, d)
+}
+function apply(sid, d) {
+  controls.value = withDraft(sid, d)
+  preview.value = null
+  configuring.value = null
+}
+function cancel() {
+  preview.value = null
   configuring.value = null
 }
 </script>
@@ -116,7 +145,6 @@ function apply(sid, { class: cls, mounting, link }) {
       </label>
       <template v-if="bayFor(s).enabled">
         <SelectField :id="id(`${s.id}-servo`)" :model-value="bayFor(s).class ?? ''" label="Servo" :options="SERVO_OPTIONS" @update:model-value="setBayFor(s, { class: $event || null })" />
-        <SegmentedField :model-value="bayFor(s).mounting ?? 'side'" label="Mounted" :options="mountOptions()" @update:model-value="setBayFor(s, { mounting: $event })" />
         <UnitInput
           :id="id(`${s.id}-bay`)"
           :model-value="bayAlong(s)"
@@ -130,10 +158,6 @@ function apply(sid, { class: cls, mounting, link }) {
           Measured from the surface's inner end, along the surface; leave it empty for a third of the way along. {{ servoText(s) }}
         </p>
         <SegmentedField :model-value="bayFor(s).square ?? 'chord'" label="Servo square to" :options="squareOptions" @update:model-value="setBayFor(s, { square: $event })" />
-        <label class="wc-check wc-structure-editor__check">
-          <input type="checkbox" :checked="!!bayFor(s).quarterTurn" @change="setBayFor(s, { quarterTurn: $event.target.checked })" />
-          Turned a quarter (its length across the span)
-        </label>
         <template v-if="linked.get(s.id)">
           <p :class="linkWarn(s) ? 'wc-field__warn' : 'wc-field__hint'">Linkage: {{ linkText(s) }}</p>
           <button type="button" class="wc-button" @click="configuring = s.id">Servo and linkage…</button>
@@ -161,17 +185,19 @@ function apply(sid, { class: cls, mounting, link }) {
         <p v-else-if="analysis" class="wc-field__hint">The linkage can be set once the bay is built.</p>
       </template>
     </div>
-    <Teleport v-if="open" :to="dialogueTarget">
+    <Teleport v-if="open && opened" :to="dialogueTarget">
       <ServoConfigurator
         :key="open.sid"
         :system="system"
-        :frame="open.frame"
+        :linkage="open.l"
+        :problem="open.problem"
         :title="open.title"
-        :bay="open.bay"
+        :bay="opened"
         :auto-class="autoClass"
         :mass="mass"
+        @change="change(open.sid, $event)"
         @apply="apply(open.sid, $event)"
-        @cancel="configuring = null"
+        @cancel="cancel"
       />
     </Teleport>
   </div>

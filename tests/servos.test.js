@@ -3,7 +3,7 @@
 // covered in servoBays.test.js.
 import { describe, it, expect } from 'vitest'
 import {
-  SERVOS, SERVO_CLASSES, HITEC, FUTABA, CATALOGUE, MOUNTINGS,
+  SERVOS, SERVO_CLASSES, HITEC, FUTABA, CATALOGUE,
   servoEnvelope, servoById, servoOptions, defaultServoClass, bayOf, setBay, dropBay, installedServo,
   servoFrame, servoParts,
 } from '../src/lib/servos.js'
@@ -166,28 +166,9 @@ describe('servoById', () => {
 })
 
 describe('servoEnvelope', () => {
-  const s = { length: 0.03, width: 0.01, height: 0.04, thin: false }
-
-  it("lies a servo on its side unless it is flat, an older save's upright too", () => {
-    expect(servoEnvelope(s)).toEqual(servoEnvelope(s, 'side'))
-    expect(servoEnvelope(s, 'upright')).toEqual(servoEnvelope(s, 'side'))
-  })
-
-  it('lies a servo on its side', () => {
-    expect(servoEnvelope(s, 'side')).toEqual({ chord: 0.03, span: 0.04, depth: 0.01 })
-  })
-
-  it('gives a flat envelope for a servo that is not a thin wing servo', () => {
-    expect(servoEnvelope(s, 'flat')).toEqual({ chord: 0.04, span: 0.03, depth: 0.01 })
-  })
-
-  it('lays a thin wing servo flat, its long side across the span', () => {
-    const thin = { ...s, thin: true }
-    expect(servoEnvelope(thin, 'flat')).toEqual({ chord: 0.04, span: 0.03, depth: 0.01 })
-  })
-
-  it('names every mounting it accepts', () => {
-    expect(Object.keys(MOUNTINGS)).toEqual(['side', 'flat'])
+  it('lies a servo on its side: its length along the chord, its height across the span', () => {
+    const s = { length: 0.03, width: 0.01, height: 0.04 }
+    expect(servoEnvelope(s)).toEqual({ chord: 0.03, span: 0.04, depth: 0.01 })
   })
 })
 
@@ -237,8 +218,26 @@ describe('defaultServoClass', () => {
 
 describe('bay settings', () => {
   it('gives a surface its defaults when it has no saved bay', () => {
-    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, mounting: 'side', square: 'chord', quarterTurn: false, along: null, at: null, link: null })
+    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null })
     expect(bayOf(undefined, 'aileron').enabled).toBe(true)
+  })
+
+  it("ignores an older save's mounting and quarter turn: every servo lies on its side", () => {
+    const b = bayOf({ bays: [{ surface: 'a', mounting: 'flat', quarterTurn: true, class: 'mini' }] }, 'a')
+    expect(b).not.toHaveProperty('mounting')
+    expect(b).not.toHaveProperty('quarterTurn')
+    expect(b.class).toBe('mini')
+    // and drops them when it's saved again
+    expect(setBay({ bays: [{ surface: 'a', mounting: 'flat', quarterTurn: true }] }, 'a', {}).bays).toEqual([])
+  })
+
+  it('saves the turn, the place along the chord and the inset', () => {
+    const c = setBay({ bays: [] }, 'a', { rotate: true, flip: true, fore: { value: 0.3, by: 'chord' }, inset: 0.002 })
+    expect(c.bays).toEqual([{ surface: 'a', rotate: true, flip: true, fore: { value: 0.3, by: 'chord' }, inset: 0.002 }])
+    expect(bayOf(c, 'a').fore).toEqual({ value: 0.3, by: 'chord' })
+    // A fore with no value, or an inset of nothing, is the default
+    expect(setBay({ bays: [] }, 'a', { fore: { value: null, by: 'length' }, inset: 0 }).bays).toEqual([])
+    expect(bayOf({ bays: [{ surface: 'a', fore: { value: 0.1 } }] }, 'a').fore).toEqual({ value: 0.1, by: 'length' })
   })
 
   it('saves only the settings that differ from the defaults', () => {
@@ -270,28 +269,25 @@ describe('bay settings', () => {
 })
 
 describe('the servo a bay holds', () => {
-  it('turns a servo to its mounting: on its side it needs its width of depth, not its height', () => {
-    const side = installedServo('standard', 'side')
+  it('lies on its side: it needs its width of depth, not its height', () => {
+    const side = installedServo('standard')
     expect(side.height).toBe(SERVOS.standard.width)
-    // An older save's upright is on its side
-    expect(installedServo('standard', 'upright')).toMatchObject({ mounting: 'side', height: side.height, width: side.width })
-    // On its side its height lies across the span, the boss beyond it, centred on the case
+    // Its height lies across the span, the boss beyond it, centred on the case
     expect(side.width).toBeGreaterThanOrEqual(SERVOS.standard.height)
     expect(side.lugHeight).toBeLessThan(side.height)
+    expect(side).toMatchObject({ rotate: false, flip: false, yaw: 0 })
   })
 
-  it('lays a thin Hitec wing servo flat, and lays a thick one flat too', () => {
-    const thin = HITEC.find((s) => s.thin)
-    const flat = installedServo(thin.id, 'flat')
-    expect(flat.mounting).toBe('flat')
-    expect(flat.height).toBe(Math.min(...thin.body))
-    expect(flat.mass).toBe(thin.mass)
-    const thick = HITEC.find((s) => !s.thin)
-    expect(installedServo(thick.id, 'flat').mounting).toBe('flat')
+  it('takes the same room turned round or over', () => {
+    const side = installedServo('hitec-hs-645mg')
+    for (const pose of [{ rotate: true }, { flip: true }, { rotate: true, flip: true }]) {
+      const v = installedServo('hitec-hs-645mg', 0, pose)
+      expect(v).toMatchObject({ run: side.run, width: side.width, height: side.height, ...pose })
+    }
   })
 
   it('falls back to the class that suits the weight for an unknown or empty choice', () => {
-    expect(installedServo(null, 'upright', 5).label).toBe(SERVOS.mini.label)
-    expect(installedServo('no-such-servo', 'upright', 0.4).label).toBe(SERVOS['sub-micro'].label)
+    expect(installedServo(null, 5).label).toBe(SERVOS.mini.label)
+    expect(installedServo('no-such-servo', 0.4).label).toBe(SERVOS['sub-micro'].label)
   })
 })

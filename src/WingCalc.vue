@@ -557,6 +557,11 @@ const rating = computed(() => {
 
 // --- Structure ---------------------------------------------------------------------------
 
+// The controls with the servo configurator's draft bay in place while it's open, so the structure,
+// plan and 3D preview it; null when nothing's being configured (the draft isn't saved or undone)
+const bayDraft = ref(null)
+const liveControls = computed(() => bayDraft.value ?? input.controls)
+
 // Stage A loads and the parts to cut, for a panel wing whose stall the lifting line resolved.
 // A new control surface is the trailing edge stock's width deep (the stock is the surface)
 const surfaceDepth = computed(() => structureResult.value?.a.structure.te.width ?? null)
@@ -564,7 +569,7 @@ const structureResult = computed(() => {
   const spanwise = results.value.perf?.spanwise
   if (!planform.value || !spanwise) return null
   const wing = { fuselageWidth: input.fuselageWidth, rootChord: input.rootChord, panels: input.panels, tip: input.tip }
-  const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise, controls: input.controls })
+  const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise, controls: liveControls.value })
   if (!a) return null
   const o = input.exportOptions
   return { a, ...buildParts(a, a.structure, { handedness: o.handedness, wireKerf: o.wireKerf, leadIn: o.leadIn }) }
@@ -739,7 +744,7 @@ const gussetRoom = computed(() => {
 })
 // Each servo bay's linkage (bayLinkage.js), for the bay settings, the plan and the warnings; and
 // the bay whose servo configurator is open (from its settings or the plan), by surface id
-const bayLinks = computed(() => (structureResult.value ? bayLinkages(structureResult.value.a, input.controls) : new Map()))
+const bayLinks = computed(() => (structureResult.value ? bayLinkages(structureResult.value.a, liveControls.value) : new Map()))
 const configuringBay = ref(null)
 const structureWarnings = computed(() => {
   const r = structureResult.value
@@ -1336,7 +1341,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :warnings="placedWarnings.sections"
           >
             <template #surfaces>
-              <SurfaceStructure v-model:controls="input.controls" v-model:configuring="configuringBay" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" :linkages="bayLinks" />
+              <SurfaceStructure v-model:controls="input.controls" v-model:configuring="configuringBay" v-model:preview="bayDraft" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" :linkages="bayLinks" />
             </template>
           </StructureEditor>
           <ul v-if="placedWarnings.rest.length" class="wc-warnings">

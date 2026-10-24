@@ -8,8 +8,8 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { bayOf, setBay, installedServo, servoOptions } from '../src/lib/servos.js'
-import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, linkageFit, ROD_OFF_SQUARE, DEFAULT_LINK } from '../src/lib/bayLinkage.js'
-import { wing3d } from '../src/lib/wing3d.js'
+import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, linkageFit, ROD_OFF_SQUARE, DEFAULT_LINK, assemblyGeometry, hornOutline } from '../src/lib/bayLinkage.js'
+import { wing3d, surfaceHeight } from '../src/lib/wing3d.js'
 import { buildParts } from '../src/lib/ribs.js'
 
 // A deep wing (one 0.9 m panel, 450 to 400 mm chord, 2 kg) with an aileron
@@ -28,7 +28,7 @@ function build(bays = []) {
 }
 
 describe('a bay\'s frame', () => {
-  const a = build([{ surface: 1, mounting: 'side' }])
+  const a = build([{ surface: 1 }])
   const b = a.bays[0]
   const f = bayFrame(a, b)
 
@@ -63,51 +63,97 @@ describe('a bay\'s frame', () => {
     expect(c.horn.id).toBe('du-bro-848')
     expect(c.result.ok).toBe(true)
     expect(c.result.fits).toBe(true)
-    // The best pair uses the most travel of those that fit
-    const fitting = c.matrix.cells.flat().filter((r) => r.ok && r.fits)
+    // The best pair uses the most travel of those that fit and keep the pushrod outside
+    const fitting = c.matrix.cells.flat().filter((r) => r.ok && r.fits && r.outside)
     expect(c.result.travelNeeded).toBeCloseTo(Math.max(...fitting.map((r) => r.travelNeeded)), 9)
     expect(c.armHole).toBe(c.matrix.best.armHole)
-    // Its arm points up, towards the top horn
-    expect(c.result.points.arm[2]).toBeGreaterThan(f.hinge.point[2] - 0.02)
+    // Its arm points down, to the horn under the surface, and its hole stays outside the wing
+    const pivot = assemblyGeometry(f, b.servo, c, c.armHole, c.hornHole, c.face).pivot
+    expect(c.face).toBe('bottom')
+    expect(c.result.points.arm[2]).toBeLessThan(pivot[2])
+    expect(c.result.outside).toBe(true)
+    expect(c.result.clear).toBeGreaterThanOrEqual(0)
     expect(linkSummary(b.servo, c)).toMatch(/›.*hole \d+ › Du-Bro/)
   })
 
-  it('keeps chosen holes, and the bottom face turns the arm down', () => {
+  it('keeps chosen holes, and the top face turns the arm up', () => {
     const c = configureBay(f, b.servo, { ...DEFAULT_LINK, armHole: 0, hornHole: 0 })
     expect(c.armHole).toBe(0)
     expect(c.hornHole).toBe(0)
-    const under = configureBay(f, b.servo, { ...DEFAULT_LINK, hornFace: 'bottom' })
-    expect(under.result.ok).toBe(true)
-    expect(under.result.points.horn[2]).toBeLessThan(f.hinge.point[2])
+    const over = configureBay(f, b.servo, { ...DEFAULT_LINK, hornFace: 'top' })
+    expect(over.result.ok).toBe(true)
+    expect(over.result.points.horn[2]).toBeGreaterThan(f.hinge.point[2])
+    expect(over.result.points.arm[2]).toBeGreaterThan(f.at.base)
+  })
+
+  it('ranks a pair whose arm hole goes inside the wing below one that stays out', () => {
+    const c = configureBay(f, b.servo, linkOf(b))
+    const cells = c.matrix.cells.flat().filter((r) => r.ok)
+    // The inner holes on a micro arm can't clear the skin from a servo lying on it
+    expect(cells.some((r) => !r.outside)).toBe(true)
+    const best = c.matrix.cells[c.matrix.best.armHole][c.matrix.best.hornHole]
+    expect(best.outside && best.fits).toBe(true)
+  })
+
+  it('draws the section at the horn, the bevel, and a horn on the surface with its holes over the hinge', () => {
+    const o = f.outline
+    // The fixed part runs from ahead of the servo to its hinge spar's rear face, the moving
+    // surface from the apex on the centre line to the trailing edge
+    expect(o.cut).toBeLessThan(f.at.x - b.servo.run / 2)
+    expect(Math.max(...o.fixed.map((p) => p[0]))).toBeCloseTo(f.surface.faces.fixedRear(f.s), 9)
+    expect(o.moving[0][0]).toBeCloseTo(f.surface.faces.apex(f.s), 9)
+    const sec = a.section(f.s)
+    expect(Math.max(...o.moving.map((p) => p[0]))).toBeCloseTo(sec.xl + sec.c, 4)
+    // Each face starts behind the hinge, by the bevel
+    expect(f.meet.top).toBeGreaterThan(0)
+    expect(f.meet.bottom).toBeGreaterThan(0)
+    for (const face of ['top', 'bottom']) {
+      const c = configureBay(f, b.servo, { ...DEFAULT_LINK, hornFace: face })
+      const horn = hornOutline(f, c.horn, face)
+      const u = (p) => (p[0] - f.hinge.point[0]) * f.hornDir[0] + (p[1] - f.hinge.point[1]) * f.hornDir[1]
+      // Its base wholly behind the bevel, on the surface
+      for (const p of horn.slice(0, 5)) expect(u(p)).toBeGreaterThan(f.meet[face])
+      // Its holes' column straddles the hinge line, as high as the horn
+      const tipU = horn.slice(5, 7).map(u)
+      expect(Math.min(...tipU)).toBeLessThan(0)
+      expect(Math.max(...tipU)).toBeGreaterThan(0)
+      const up = face === 'top' ? 1 : -1
+      expect(up * (horn[5][2] - f.hinge.point[2])).toBeCloseTo(f.faces[face] + c.horn.height, 9)
+      // The horn's holes lie on the hinge line, inside the horn
+      const hole = c.result.points.horn
+      expect(hole[0]).toBeGreaterThan(f.hinge.point[0] - 1e-3)
+    }
   })
 
   it('tells which servos fit the bay\'s depth', () => {
-    const choices = servoChoices(f, servoOptions(), 'side', 2)
+    const choices = servoChoices(f, servoOptions(), 2)
     expect(choices.some((o) => o.fits)).toBe(true)
     // In a bay only 5 mm deep nothing fits, and the reason names both depths
-    const tall = servoChoices({ ...f, room: 0.005 }, servoOptions(), 'side', 2)
+    const tall = servoChoices({ ...f, room: 0.005 }, servoOptions(), 2)
     const no = tall.find((o) => !o.fits)
     expect(no.reason).toMatch(/^Needs \d+ mm of depth, the bay has 5 mm$/)
     expect(servoFits({ room: 0.05 }, installedServo('micro')).ok).toBe(true)
   })
 })
 
-describe('a flat servo', () => {
-  it('drives the surface once it is turned a quarter, its output along the span', () => {
-    // Unturned, its output points along the chord and its arm swings across the span
-    const a = build([{ surface: 1, mounting: 'flat' }])
-    expect(configureBay(bayFrame(a, a.bays[0]), a.bays[0].servo, DEFAULT_LINK).result.ok).toBe(false)
-    const t = build([{ surface: 1, mounting: 'flat', quarterTurn: true }])
-    const c = configureBay(bayFrame(t, t.bays[0]), t.bays[0].servo, DEFAULT_LINK)
-    expect(c.result.ok).toBe(true)
-    expect(c.result.fits).toBe(true)
+describe('a servo turned round or over', () => {
+  it('still drives the surface, its arm out through the skin on the horn\'s face', () => {
+    for (const pose of [{ rotate: true }, { flip: true }, { rotate: true, flip: true }]) {
+      const a = build([{ surface: 1, ...pose }])
+      const b = a.bays[0]
+      const f = bayFrame(a, b)
+      expect(f.pose).toMatchObject(pose)
+      const c = configureBay(f, b.servo, linkOf(b))
+      expect(c.result.ok, JSON.stringify(pose)).toBe(true)
+      expect(c.result.fits && c.result.outside, JSON.stringify(pose)).toBe(true)
+    }
   })
 })
 
 describe("every bay's linkage, and its warnings", () => {
   it('runs the pushrod square to the horn by default, and warns when the horn is moved off it', () => {
-    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, mounting: 'side', link }] })
-    const a = build([{ surface: 1, mounting: 'side' }])
+    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, link }] })
+    const a = build([{ surface: 1 }])
     const l = bayLinkages(a, controls(null)).get(1)
     expect(l.c.rodAngle).toBeLessThan(1)
     expect(l.warnings).toEqual([])
@@ -122,8 +168,8 @@ describe("every bay's linkage, and its warnings", () => {
   })
 
   it('warns when the holes need more travel than the servo has', () => {
-    const a = build([{ surface: 1, mounting: 'side' }])
-    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, mounting: 'side', link }] })
+    const a = build([{ surface: 1 }])
+    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, link }] })
     // A pair that doesn't fit within ±45°
     const { cells } = bayLinkages(a, controls(null)).get(1).c.matrix
     let pair = null
@@ -135,7 +181,7 @@ describe("every bay's linkage, and its warnings", () => {
   })
 })
 
-describe('the arm and pushrod in the wing', () => {
+describe('the arm and pushrod outside the wing', () => {
   const linked = (bay) => {
     const a = build([bay])
     const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [bay] }
@@ -143,51 +189,65 @@ describe('the arm and pushrod in the wing', () => {
   }
   const ids = (l) => l.warnings.map((w) => w.id)
 
-  it('lets the pushrod out through a slot in the top skin, ahead of the hinge spar, from a servo on its side', () => {
-    const { l } = linked({ surface: 1, mounting: 'side' })
+  it('brings the arm out through the hatch to a horn underneath, the pushrod outside the wing', () => {
+    const { a, l } = linked({ surface: 1 })
     expect(ids(l)).toEqual([])
-    const rod = l.fit.slots.filter((q) => q.what === 'pushrod')
-    expect(rod).toHaveLength(1)
-    expect(rod[0].surface).toBe('top')
-    expect(rod[0].hatch).toBe(false)
-    // A slot a few millimetres wide, ahead of the hinge
-    expect(rod[0].s1 - rod[0].s0).toBeLessThan(0.006)
-    expect(rod[0].x1 - rod[0].x0).toBeGreaterThan(0.003)
-    expect(rod[0].x1).toBeLessThan(l.frame.hinge.point[0])
+    expect(l.fit.slots).toHaveLength(1)
+    const arm = l.fit.slots[0]
+    expect(arm).toMatchObject({ what: 'arm', surface: 'bottom', hatch: true })
+    // The pushrod is wholly under the lower skin
+    const rod = l.solids.find((x) => x.kind === 'pushrod').rings.flat()
+    for (const [x, s, z] of rod) expect(z).toBeLessThan(surfaceHeight(a, s, x, 'lower'))
   })
 
-  it('takes the arm and pushrod out through the hatch to a horn underneath', () => {
-    const { l } = linked({ surface: 1, mounting: 'side', link: { hornFace: 'bottom' } })
+  it('puts the servo under the upper skin for a horn on top, its arm out through a slot in it', () => {
+    const { a, l } = linked({ surface: 1, link: { hornFace: 'top' } })
     expect(ids(l)).toEqual([])
+    expect(l.frame.box.base).toBeGreaterThan(l.frame.box.floor)
     const arm = l.fit.slots.find((q) => q.what === 'arm')
-    expect(arm.surface).toBe('bottom')
-    expect(arm.hatch).toBe(true)
+    expect(arm).toMatchObject({ surface: 'top', hatch: false })
+    // A slot about the arm's width across the span, ahead of the hinge
+    expect(arm.s1 - arm.s0).toBeLessThan(0.008)
+    expect(arm.x1).toBeLessThan(l.frame.hinge.point[0])
+    const rod = l.solids.find((x) => x.kind === 'pushrod').rings.flat()
+    for (const [x, s, z] of rod) expect(z).toBeGreaterThan(surfaceHeight(a, s, x, 'upper'))
   })
 
-  it('warns when a long arm sweeps through a skin outside the hatch, or into the ribs', () => {
-    // A large arm's outer hole, 30 mm, on a standard servo on its side
-    const long = { surface: 1, mounting: 'side', class: 'standard', link: { arm: 'generic-large', armHole: 3 } }
-    const up = linked(long).l
-    expect(ids(up)).toContain('linkage-arm-top-1')
-    expect(ids(up)).toContain('linkage-rib-1')
-    expect(up.fit.slots.some((q) => q.what === 'arm' && q.surface === 'top' && !q.hatch)).toBe(true)
-    // Pointing down, through the bottom skin beyond the hatch
-    const down = linked({ ...long, link: { ...long.link, facing: 1 } }).l
-    expect(ids(down)).toContain('linkage-arm-bottom-1')
+  it("warns when the arm's hole goes inside the wing, the servo inset too far from the skin", () => {
+    const deep = linked({ surface: 1, inset: 0.02 })
+    expect(deep.l.frame.box.base).toBeGreaterThan(deep.l.frame.box.floor + 0.01)
+    expect(ids(deep.l)).toContain('linkage-inside-1')
+    expect(deep.l.fit.clashes).toContain('inside')
+    expect(deep.l.warnings.find((w) => w.id === 'linkage-inside-1').message).toMatch(/nearer the bottom skin/)
   })
 
-  it('warns when the pushrod is still inside the wing at the fixed hinge spar', () => {
-    const { a, l } = linked({ surface: 1, mounting: 'side' })
-    expect(l.fit.clashes).not.toContain('spar')
-    // The same linkage with the spar's front face 50 mm ahead of the hinge
-    const surface = { ...l.frame.surface, faces: { ...l.frame.surface.faces, fixedFront: (q) => l.frame.surface.hingeX(q) - 0.05 } }
-    const fit = linkageFit(a, l.bay, { ...l.frame, surface }, l.c, l.link)
-    expect(fit.clashes).toContain('spar')
-    expect(fit.warnings.map((w) => w.id)).toContain('linkage-spar-1')
+  it('warns when the pushrod rubs on the skin between the arm and the horn', () => {
+    const { a, l } = linked({ surface: 1 })
+    expect(linkageFit(a, l.bay, l.frame, l.c).clashes).toEqual([])
+    // The same wing with a bulge in its lower surface between the servo and the hinge
+    const x0 = l.c.result.points.arm[0] + 0.01
+    const x1 = l.frame.hinge.point[0] - 0.01
+    const bulged = {
+      ...a,
+      section: (s) => {
+        const sec = a.section(s)
+        return {
+          ...sec,
+          surf: (q) => {
+            const f = sec.surf(q)
+            const x = sec.xl + q * sec.c
+            return x > x0 && x < x1 ? { ...f, lower: f.lower - 0.02 * Math.sin((Math.PI * (x - x0)) / (x1 - x0)) } : f
+          },
+        }
+      },
+    }
+    const fit = linkageFit(bulged, l.bay, l.frame, l.c)
+    expect(fit.clashes).toEqual(['rod'])
+    expect(fit.warnings[0].message).toMatch(/pushrod rubs on the bottom skin/)
   })
 
   it('draws the arm, horn and pushrod as closed, named pieces, flagged where they clash', () => {
-    for (const bay of [{ surface: 1, mounting: 'side' }, { surface: 1, mounting: 'side', class: 'standard', link: { arm: 'generic-large', armHole: 3 } }]) {
+    for (const bay of [{ surface: 1 }, { surface: 1, inset: 0.02 }]) {
       const { a, controls } = linked(bay)
       const links = bayLinkages(a, controls)
       const { parts } = buildParts(a, a.structure)
@@ -207,7 +267,7 @@ describe('the arm and pushrod in the wing', () => {
         expect([...edges.values()].every((n) => n === 2), `${x.kind} closed`).toBe(true)
       }
       const armClash = !!sol.find((x) => x.kind === 'servoArm').clash
-      expect(armClash).toBe(!!bay.link)
+      expect(armClash).toBe(!!bay.inset)
     }
   })
 })
