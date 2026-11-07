@@ -53,6 +53,8 @@ export const MATERIALS = {
   hardwood: { label: 'Hardwood dowel (beech, ramin)', short: 'hardwood', density: 700, E: 10e9, compression: 40e6, tension: 60e6, shear: 7e6 },
   // Polyester film for hinge tabs: weight only
   mylar: { label: 'Mylar (polyester film)', short: 'Mylar', density: 1390, E: 4e9, compression: 50e6, tension: 150e6, shear: 50e6 },
+  // Pin hinges (bought), weighed as nylon
+  nylon: { label: 'Nylon', short: 'nylon', density: 1150, E: 2.5e9, compression: 60e6, tension: 70e6, shear: 40e6 },
   // Foam cores, obechi veneer, carbon tow and template stock (foam.js)
   ...FOAM_MATERIALS,
 }
@@ -249,6 +251,13 @@ export function defaultStructure() {
     // spars are narrower (the spars aren't sized for the Mylar), and each tab is cut 25 mm long
     // along it unless set otherwise.
     hinges: {
+      // 'mylar' (slotted Mylar tabs at the centre line), 'pinned' (pin hinges in holes drilled
+      // at the centre line) or 'live' (the top skin or covering runs over the hinge and flexes;
+      // the surface turns about it, its bottom bevelled for the down throw)
+      type: 'mylar',
+      // Pin hinges: the pin's diameter and its length across the hinge (1/8 in by 1 1/4 in)
+      pinDiameter: 0.0032,
+      pinLength: 0.032,
       fixedWidth: 0.008,
       movingWidth: 0.01,
       material: 'balsa-medium',
@@ -1240,24 +1249,39 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     // a stiff hinge), or more where the gap alone wouldn't clear it: a surface cut from the
     // trailing edge stock is bevelled like any other, though its depth is small enough that the
     // gap would clear it square
-    const bevel = { top: Math.max(r.up, bevelAngle(r.up, g, movingDepth / 2)), bottom: Math.max(r.down, bevelAngle(r.down, g, movingDepth / 2)) }
+    // A live hinge turns about the top skin: the top face needs no bevel (the skin flexes), and
+    // the bottom face's front corner is the whole depth below the pivot
+    const live = h.type === 'live'
+    const pivot = live ? 1 : 0.5
+    const bevel = live
+      ? { top: 0, bottom: Math.max(r.down, bevelAngle(r.down, g, movingDepth)) }
+      : { top: Math.max(r.up, bevelAngle(r.up, g, movingDepth / 2)), bottom: Math.max(r.down, bevelAngle(r.down, g, movingDepth / 2)) }
     // Tabs along the moving surface's span, measured along the hinge. Each lies square to the
     // hinge, so on a raked hinge its nearest corner to an end is tabLength/2 × slope further
     // along it than its half width: the end ones go in that far plus tabInset, which is to
     // that corner
     const k = Math.sqrt(1 + r.slope * r.slope)
-    const reach = h.tabWidth / 2 + (h.tabLength / 2) * Math.abs(r.slope)
-    const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: Math.max(0, h.tabInset) + reach, width: 2 * reach }).map((d) => moving[0] + d / k)
+    // Pins are spaced as tabs are, each pinDiameter wide along the hinge; a live hinge has none
+    const pinned = h.type === 'pinned'
+    const along = pinned ? h.pinDiameter || 0.0032 : h.tabWidth
+    const across = pinned ? h.pinLength || 0.032 : h.tabLength
+    const reach = along / 2 + (across / 2) * Math.abs(r.slope)
+    const tabs = live ? [] : hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: Math.max(0, h.tabInset) + reach, width: 2 * reach }).map((d) => moving[0] + d / k)
     // The tabs go into each hinge spar up to TAB_CLEAR short of its far face: the roll's width
     // across the hinge, trimmed to fit where the narrower spar won't take half of it
     const narrow = stock ? Math.min(h.fixedWidth, structure.te.width || h.fixedWidth) : Math.min(h.fixedWidth, h.movingWidth)
-    const slot = Math.max(0, Math.min((h.tabLength - g) / 2, narrow - TAB_CLEAR))
-    const tabAcross = 2 * slot + g
+    // A pin can't be trimmed: its holes go half its length (less half the gap) into each spar,
+    // and a warning says if that's deeper than the narrower spar is wide
+    const slot = pinned ? Math.max(0, (across - g) / 2) : Math.max(0, Math.min((h.tabLength - g) / 2, narrow - TAB_CLEAR))
+    const tabAcross = pinned ? across : 2 * slot + g
+    if (pinned && slot > narrow - TAB_CLEAR + 1e-9) {
+      r.warnings.push(`The pin hinges on ${r.label} go ${mm(slot)} into each hinge spar, deeper than the narrower spar takes (${mm(narrow)} wide): use shorter pins or wider hinge spars.`)
+    }
     const run = (movingDepth / 2) * Math.tan(Math.max(bevel.top, bevel.bottom) * (Math.PI / 180))
     if (!stock && run > h.movingWidth - 0.001) {
       r.warnings.push(`The bevel on ${r.label}'s hinge spar runs ${mm(run)} back, nearly all of its ${mm(h.movingWidth)} width: use a wider hinge spar on the moving side, or less throw.`)
     }
-    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross })
+    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross, hingeType: h.type ?? 'mylar', pivot, tabAlong: along })
   }
   return list
 }

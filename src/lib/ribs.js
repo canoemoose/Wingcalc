@@ -1206,7 +1206,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   // The Mylar tabs: one part per size across the hinge (the roll's width, trimmed where the
   // hinge spars are narrower), H1 and on
   const tabSizes = new Map()
-  for (const sf of surfaces.filter((x) => x.tabs.length)) {
+  for (const sf of surfaces.filter((x) => x.tabs.length && (x.hingeType ?? 'mylar') === 'mylar')) {
     const across = sf.tabAcross ?? h.tabLength
     const key = Math.round(across * 2000)
     if (!tabSizes.has(key)) tabSizes.set(key, { across, list: [] })
@@ -1954,7 +1954,17 @@ function stripCutList(a, structure, parts, both) {
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
     const k = Math.sqrt(1 + sf.slope * sf.slope)
     const up = (v) => Math.ceil(v * 2000 - 1e-6) / 2000
-    const slots = `${sf.tabs.length} tab slot${sf.tabs.length === 1 ? '' : 's'}, ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line`
+    const type = sf.hingeType ?? 'mylar'
+    const pinD = Math.round((h.pinDiameter || 0.0032) * 10000) / 10
+    const slots =
+      type === 'live'
+        ? 'a live hinge: the top skin or covering runs over the hinge, so leave it whole there and cut only through the bottom'
+        : type === 'pinned'
+          ? `${sf.tabs.length} pin hole${sf.tabs.length === 1 ? '' : 's'}, ${pinD} mm, ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line`
+          : `${sf.tabs.length} tab slot${sf.tabs.length === 1 ? '' : 's'}, ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line`
+    // Where the bevel comes to its point: the centre line, or the top for a live hinge
+    const point = type === 'live' ? 'the top, square at the top and bevelled' : 'a point at the centre line,'
+    const bevelText = type === 'live' ? `${deg(sf.bevel.bottom)} at the bottom from square` : `${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square`
     out.push({
       item: `Hinge spar, fixed side, ${sf.label}`,
       material: h.material,
@@ -1970,7 +1980,7 @@ function stripCutList(a, structure, parts, both) {
         size: [structure.te.width, up(sf.depth.moving)],
         length: (sf.moving[1] - sf.moving[0]) * k,
         qty: sides,
-        note: `Cut from the trailing edge stock; bevel its front face to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.up)}° up, ${Math.round(sf.down)}° down, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+        note: `Cut from the trailing edge stock; bevel its front face to ${point} ${bevelText} (${Math.round(sf.up)}° up, ${Math.round(sf.down)}° down, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
       })
       continue
     }
@@ -1980,7 +1990,19 @@ function stripCutList(a, structure, parts, both) {
       size: [h.movingWidth, up(sf.depth.moving)],
       length: (sf.moving[1] - sf.moving[0]) * k,
       qty: sides,
-      note: `Bevel the front to a point at the centre line, ${deg(sf.bevel.top)} top and ${deg(sf.bevel.bottom)} bottom from square (${Math.round(sf.up)}° up, ${Math.round(sf.down)}° down, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+      note: `Bevel the front to ${point} ${bevelText} (${Math.round(sf.up)}° up, ${Math.round(sf.down)}° down, ${Math.round(sf.gap * 10000) / 10} mm gap); ${slots}`,
+    })
+  }
+  // Pin hinges, bought: one per hole pair
+  const pins = (a.surfaces ?? []).filter((sf) => sf.ok && sf.hingeType === 'pinned').reduce((n, sf) => n + sf.tabs.length, 0)
+  if (pins) {
+    out.push({
+      item: 'Pin hinges',
+      material: 'nylon',
+      size: [h.pinDiameter || 0.0032, h.pinDiameter || 0.0032],
+      length: h.pinLength || 0.032,
+      qty: pins * sides,
+      note: `${(h.pinDiameter * 1000).toFixed(1)} mm pin hinges, ${(h.pinLength * 1000).toFixed(0)} mm long, glued half into each hinge spar at the centre line`,
     })
   }
   // A spoiler's hinge: a strip of hinge tape along its front edge

@@ -77,7 +77,8 @@ export function bayFrame(a, b, link = DEFAULT_LINK) {
   const x = surface.hingeX(s)
   const upper = surfaceHeight(a, s, x, 'upper')
   const lower = surfaceHeight(a, s, x, 'lower')
-  const z = (upper + lower) / 2
+  // The hinge axis: on the centre line, or at the top skin for a live hinge
+  const z = lower + (upper - lower) * (surface.pivot ?? 0.5)
   const sec = a.section(s)
   const n = Math.hypot(surface.slope, 1)
   // Square to the hinge in plan, aft, then turned as set, or else lined up with the pushrod from

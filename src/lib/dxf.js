@@ -627,7 +627,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     for (const fx of [f.apex, f.movingRear]) add('SURFACE', along(sf.moving[0], sf.moving[1], fx))
     for (const s of sf.moving) add('SURFACE', [[s, f.apex(s)], [s, sec(s).xl + sec(s).c]])
     const h = structure.hinges
-    for (const s of sf.tabs) add('HINGE', hingeTabOutline(sf, s, h.tabWidth, sf.tabAcross ?? h.tabLength), true)
+    for (const s of sf.tabs) add('HINGE', hingeTabOutline(sf, s, sf.tabAlong ?? h.tabWidth, sf.tabAcross ?? h.tabLength), true)
   }
   // Servo bays: the hatch opening (the mount plate's outline), the case and the span of its
   // lugs, and the lead's route from the bay's inner rib to the root, behind the main spar

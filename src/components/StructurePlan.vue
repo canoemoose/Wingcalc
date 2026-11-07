@@ -107,7 +107,7 @@ const geom = computed(() => {
       outline: band(sf.moving[0], sf.moving[1], f.apex, te),
       // The Mylar tabs, each a rectangle centred on and square to the hinge line
       tabs: (sf.tabs ?? []).map((s) =>
-        hingeTabOutline(sf, s, st.hinges.tabWidth, sf.tabAcross ?? st.hinges.tabLength).map(([p, q]) => `${p.toFixed(5)},${q.toFixed(5)}`).join(' '),
+        hingeTabOutline(sf, s, sf.tabAlong ?? st.hinges.tabWidth, sf.tabAcross ?? st.hinges.tabLength).map(([p, q]) => `${p.toFixed(5)},${q.toFixed(5)}`).join(' '),
       ),
     })
   }

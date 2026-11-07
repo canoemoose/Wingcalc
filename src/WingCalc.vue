@@ -728,7 +728,8 @@ const surfaceSummary = computed(() => {
   const crowText = crow.available ? (crow.enabled ? 'crow on' : 'crow available') : 'no crow'
   const bays = (structureResult.value?.a.bays ?? []).filter((b) => b.ok).length
   const bayText = bays ? `${bays} servo bay${bays === 1 ? '' : 's'} per side` : 'no servo bays'
-  return `${built.length ? built.join(', ') : 'none built'}, Mylar-tab hinges; ${bayText}; ${crowText}`
+  const hingeText = { pinned: 'pin hinges', live: 'live hinges' }[input.structure.hinges?.type] ?? 'Mylar-tab hinges'
+  return `${built.length ? built.join(', ') : 'none built'}, ${hingeText}; ${bayText}; ${crowText}`
 })
 // The air brakes built, for the structure card
 const brakeSummary = computed(() => {

@@ -362,3 +362,33 @@ describe('hinge tabs on a raked hinge', () => {
     expect((r.moving[1] - Math.max(...ss)) * k).toBeCloseTo(0.005, 9)
   })
 })
+
+describe('hinge types', () => {
+  it('pins at the centre line: no Mylar parts, the pins in the cut list, warned if too long for the spars', () => {
+    const { a } = build({ edit: (st) => (st.hinges.type = 'pinned') })
+    const r = a.surfaces.find((x) => x.ok)
+    expect(r.hingeType).toBe('pinned')
+    expect(r.pivot).toBe(0.5)
+    expect(r.tabs.length).toBeGreaterThanOrEqual(2)
+    expect(r.tabAcross).toBeCloseTo(a.structure.hinges.pinLength, 9)
+    const res = buildParts(a, a.structure)
+    expect(res.parts.some((p) => p.group === 'hinges')).toBe(false)
+    const pins = res.cutList.find((c) => c.item === 'Pin hinges')
+    const count = a.surfaces.filter((x) => x.ok).reduce((n, x) => n + x.tabs.length, 0)
+    expect(pins.qty).toBe(count * 2)
+    // 32 mm pins in 8 mm spars: too deep
+    expect(a.warnings.some((w) => /pin hinges on .* go /.test(w.message))).toBe(true)
+  })
+
+  it('a live hinge turns about the top skin: no tabs, the top square and the bottom bevelled for the down throw', () => {
+    const { a } = build({ edit: (st) => (st.hinges.type = 'live') })
+    const r = a.surfaces.find((x) => x.ok)
+    expect(r.pivot).toBe(1)
+    expect(r.tabs).toEqual([])
+    expect(r.bevel.top).toBe(0)
+    expect(r.bevel.bottom).toBeGreaterThanOrEqual(r.down)
+    const res = buildParts(a, a.structure)
+    expect(res.parts.some((p) => p.group === 'hinges')).toBe(false)
+    expect(res.cutList.find((c) => c.item.startsWith('Hinge spar, fixed side')).note).toContain('live hinge')
+  })
+})

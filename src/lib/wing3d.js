@@ -536,7 +536,8 @@ export function movingSparSection(a, structure, sf, s) {
   const xr = sf.faces.movingRear(s)
   const up = (x) => insetHeight(a, structure, s, x, 'upper', false)
   const lo = (x) => insetHeight(a, structure, s, x, 'lower', false)
-  const mid = (up(xa) + lo(xa)) / 2
+  // The pivot: the centre line, or the top skin for a live hinge
+  const mid = lo(xa) + (up(xa) - lo(xa)) * (sf.pivot ?? 0.5)
   // Where each bevel meets its surface, no further back than the rear face
   const meet = (deg, which) => {
     const k = Math.tan(deg * RAD)
@@ -786,7 +787,7 @@ export function stockSurfaceSection(a, structure, sf, s, k = 8) {
   const te = sec.xl + sec.c
   const up = (x) => surfaceHeight(a, s, x, 'upper')
   const lo = (x) => surfaceHeight(a, s, x, 'lower')
-  const mid = (up(xa) + lo(xa)) / 2
+  const mid = lo(xa) + (up(xa) - lo(xa)) * (sf.pivot ?? 0.5)
   const meet = (deg, h) => {
     const t = Math.tan(deg * RAD)
     let x = xa
@@ -1012,12 +1013,15 @@ export function hingeTabPlates(a, structure) {
   if (!(h?.tabWidth > 0) || !(h?.tabLength > 0)) return []
   const out = []
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
+    // A pin hinge is drawn as a square bar its diameter across
+    const pin = sf.hingeType === 'pinned'
+    const thick = pin ? sf.tabAlong : t
     for (const s of sf.tabs ?? []) {
       const x = sf.hingeX(s)
       const mid = (insetHeight(a, structure, s, x, 'upper', false) + insetHeight(a, structure, s, x, 'lower', false)) / 2
-      const corners = hingeTabOutline(sf, s, h.tabWidth, sf.tabAcross ?? h.tabLength)
+      const corners = hingeTabOutline(sf, s, sf.tabAlong ?? h.tabWidth, sf.tabAcross ?? h.tabLength)
       const ring = (hh) => corners.map(([cs, cx]) => worldPoint(a, Math.min(a.tipS, Math.max(a.rootS, cs)), cx, hh))
-      out.push({ kind: 'tab', surface: sf.id, ...loft([ring(mid - t / 2), ring(mid + t / 2)], { closed: true, caps: 'fan' }) })
+      out.push({ kind: 'tab', surface: sf.id, ...loft([ring(mid - thick / 2), ring(mid + thick / 2)], { closed: true, caps: 'fan' }) })
     }
   }
   return out

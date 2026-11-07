@@ -58,6 +58,11 @@ function set(path, value) {
   structure.value = copy(structure.value, 0)
 }
 const st = computed(() => structure.value)
+const HINGE_TYPES = [
+  { value: 'mylar', label: 'Mylar tabs', title: 'Mylar tabs slotted into both hinge spars at the centre line' },
+  { value: 'pinned', label: 'Pinned', title: 'Pin hinges in holes drilled into both hinge spars at the centre line' },
+  { value: 'live', label: 'Live', title: 'The top skin or covering runs over the hinge and flexes' },
+]
 // The covering; one that wants closer ribs (tissue) brings the most the ribs may be apart down to
 // its own, in the same step
 function setFinish(v) {
@@ -321,7 +326,12 @@ const summaries = computed(() => {
     ribs: `${mm(r.thickness)} ${mat(r.material)}, ${spacing}${r.orientation === 'perpendicular' ? ', square to spar' : ''}`,
     gussets,
     braces: !x.braces.enabled ? 'Off' : `${mat(x.braces.material)}, ${len(x.braces.length)} each side`,
-    hinges: `Mylar tabs, ${size(x.hinges.tabWidth, x.hinges.tabLength)}, ${len(x.hinges.tabSpacing)} apart at most`,
+    hinges:
+      x.hinges.type === 'live'
+        ? 'Live hinges, the top skin'
+        : x.hinges.type === 'pinned'
+          ? `Pin hinges, ${mm(x.hinges.pinDiameter)} × ${mm(x.hinges.pinLength)}, ${len(x.hinges.tabSpacing)} apart at most`
+          : `Mylar tabs, ${size(x.hinges.tabWidth, x.hinges.tabLength)}, ${len(x.hinges.tabSpacing)} apart at most`,
   }
 })
 
@@ -1179,17 +1189,28 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         </div>
         <p class="wc-field__hint">Widths across the hinge line; the depth follows the section.</p>
         <SelectField :id="id('hm')" :model-value="st.hinges.material" label="Hinge spar material" :options="WOOD" @update:model-value="set('hinges.material', $event)" />
-        <div class="wc-structure-editor__pair">
-          <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
-          <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
-        </div>
-        <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, trimmed to fit where the spars are narrower, and each tab is cut this long along the hinge.</p>
-        <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
-        <div class="wc-structure-editor__pair">
+        <SegmentedField :model-value="st.hinges.type ?? 'mylar'" label="Hinges" :options="HINGE_TYPES" @update:model-value="set('hinges.type', $event)" />
+        <template v-if="(st.hinges.type ?? 'mylar') === 'mylar'">
+          <div class="wc-structure-editor__pair">
+            <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
+            <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
+          </div>
+          <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, trimmed to fit where the spars are narrower, and each tab is cut this long along the hinge.</p>
+          <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
+        </template>
+        <template v-else-if="st.hinges.type === 'pinned'">
+          <div class="wc-structure-editor__pair">
+            <UnitInput :id="id('hpd')" :model-value="st.hinges.pinDiameter" quantity="thin" :system="system" label="Pin diameter" @update:model-value="set('hinges.pinDiameter', $event ?? 0.0032)" />
+            <UnitInput :id="id('hpl')" :model-value="st.hinges.pinLength" quantity="thin" :system="system" label="Pin length" @update:model-value="set('hinges.pinLength', $event ?? 0.032)" />
+          </div>
+          <p class="wc-field__hint">Pin hinges glued half into each hinge spar at the centre line, in drilled holes. A warning says if the spars are too narrow for the pins.</p>
+        </template>
+        <p v-else class="wc-field__hint">The top skin or covering runs over the hinge and flexes: the surface turns about the top, and only its bottom is bevelled, for the down throw.</p>
+        <div v-if="st.hinges.type !== 'live'" class="wc-structure-editor__pair">
           <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
           <UnitInput :id="id('hti')" :model-value="st.hinges.tabInset" quantity="length" :system="system" label="In from the ends" @update:model-value="set('hinges.tabInset', $event)" />
         </div>
-        <p class="wc-field__hint">Tabs are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
+        <p v-if="st.hinges.type !== 'live'" class="wc-field__hint">{{ st.hinges.type === 'pinned' ? 'Pins' : 'Tabs' }} are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
       </InspectorSection>
     </InspectorSection>
 
