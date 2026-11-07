@@ -67,4 +67,19 @@ describe('XFOIL engine', () => {
     expect(inc.dClMax).toBeLessThan(0.9)
   })
 
+  // Slow (about 15 s). WebXFOIL leaks wasm stack on every run and used to die with "memory
+  // access out of bounds" at about the 45th run on one module; the engine now puts it back.
+  it('runs 60 polars on one engine, each the same as the first', async () => {
+    const fresh = await createXfoilEngine()
+    expect(fresh.restoresStack).toBe(true)
+    const s = { ...XFOIL_SETTINGS, alphaStep: 2, alphaEnd: 10 }
+    const { coords } = reference('naca2412-il', 200000)
+    const first = fresh.runPolar(coords, 200000, s)
+    expect(first.alpha.length).toBeGreaterThan(5)
+    for (let i = 1; i < 60; i++) {
+      const p = fresh.runPolar(coords, 200000, s)
+      expect(p.cl).toEqual(first.cl)
+      expect(p.cd).toEqual(first.cd)
+    }
+  }, 120000)
 })
