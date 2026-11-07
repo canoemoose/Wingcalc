@@ -45,7 +45,7 @@ onMounted(() => {
     if (!el) return
     let other = 0
     for (const c of el.children) {
-      if (c.tagName.toLowerCase() === 'svg') continue
+      if (c.tagName.toLowerCase() === 'svg' || c.classList.contains('wc-loads__plot')) continue
       const cs = getComputedStyle(c)
       if (cs.position === 'absolute') continue
       other += c.offsetHeight + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom)
@@ -67,7 +67,11 @@ const win = computed(() => {
   const v = props.expanded ? view.value : null
   return v ? v : { d0: 0, d1: span.value }
 })
-const zoomed = computed(() => !!(props.expanded && view.value))
+// Each chart's height in view, as fractions { f0, f1 } of its full scale (the moment's fitted to
+// the span in view, the margins' −1 to +3); null: all of it. m the moment chart, s the margins.
+const yView = ref({ m: null, s: null })
+const yWin = (k) => (props.expanded && yView.value[k]) || { f0: 0, f1: 1 }
+const zoomed = computed(() => !!(props.expanded && (view.value || yView.value.m || yView.value.s)))
 // Never closer in than a fiftieth of the span
 const minWidth = computed(() => span.value / 50)
 function setView(d0, d1) {
@@ -80,15 +84,35 @@ function setView(d0, d1) {
   d0 = Math.min(S - w, Math.max(0, d0))
   view.value = { d0, d1: d0 + w }
 }
-// Zoom by k (over 1 is in) about span position d (the middle of the view without one)
-function zoomBy(k, d = null) {
+function setY(k, f0, f1) {
+  const w = Math.min(1, Math.max(1 / 50, f1 - f0))
+  if (w >= 1 - 1e-9) {
+    yView.value = { ...yView.value, [k]: null }
+    return
+  }
+  f0 = Math.min(1 - w, Math.max(0, f0))
+  yView.value = { ...yView.value, [k]: { f0, f1: f0 + w } }
+}
+// Zoom by k (over 1 is in) about span position d (the middle of the view without one), and the
+// height of chart `only` (both without one) about fraction fy of its scale (the middle without)
+function zoomBy(k, d = null, only = null, fy = null) {
   const { d0, d1 } = win.value
   const at = d ?? (d0 + d1) / 2
   const w = (d1 - d0) / k
   const f = (at - d0) / (d1 - d0)
   setView(at - f * w, at - f * w + w)
+  for (const c of only ? [only] : ['m', 's']) {
+    const { f0, f1 } = yWin(c)
+    const y = fy ?? (f0 + f1) / 2
+    const h = (f1 - f0) / k
+    const g = (y - f0) / (f1 - f0)
+    setY(c, y - g * h, y - g * h + h)
+  }
 }
-const fitSpan = () => (view.value = null)
+const fitSpan = () => {
+  view.value = null
+  yView.value = { m: null, s: null }
+}
 // The span position under a pointer event on either chart, or null off the plot
 function spanAt(e) {
   const r = e.currentTarget.getBoundingClientRect()
@@ -99,25 +123,49 @@ function spanAt(e) {
   const { d0, d1 } = win.value
   return d0 + f * (d1 - d0)
 }
-function onWheel(e) {
+// The fraction of chart k's scale under a pointer event, or null off the plot
+function scaleAt(e, k) {
+  const r = e.currentTarget.getBoundingClientRect()
+  if (!(r.height > 0)) return null
+  const vy = ((e.clientY - r.top) / r.height) * H.value
+  const g = 1 - (vy - M.t) / (H.value - M.t - M.b)
+  if (g < 0 || g > 1) return null
+  const { f0, f1 } = yWin(k)
+  return f0 + g * (f1 - f0)
+}
+function onWheel(e, k) {
   if (!props.expanded) return
   e.preventDefault()
-  const d = spanAt(e)
-  zoomBy(Math.exp(-e.deltaY * 0.0015), d)
+  zoomBy(Math.exp(-e.deltaY * 0.0015), spanAt(e), k, scaleAt(e, k))
 }
-// Drag to pan, once zoomed in
+// Drag to pan, once zoomed in: along the span (both charts) and up and down (this one)
 let drag = null
-function onDown(e) {
+function onDown(e, k) {
   if (!zoomed.value || e.button !== 0) return
   const r = e.currentTarget.getBoundingClientRect()
-  drag = { x: e.clientX, view: { ...win.value }, px: (r.width * (W.value - M.l - M.r)) / W.value }
+  drag = {
+    k,
+    x: e.clientX,
+    y: e.clientY,
+    view: { ...win.value },
+    y0: { ...yWin(k) },
+    px: (r.width * (W.value - M.l - M.r)) / W.value,
+    py: (r.height * (H.value - M.t - M.b)) / H.value,
+  }
   e.currentTarget.setPointerCapture?.(e.pointerId)
 }
 function onMove(e) {
   if (drag) {
     const w = drag.view.d1 - drag.view.d0
-    const dd = (-(e.clientX - drag.x) / Math.max(1, drag.px)) * w
-    setView(drag.view.d0 + dd, drag.view.d1 + dd)
+    if (w < span.value - 1e-9) {
+      const dd = (-(e.clientX - drag.x) / Math.max(1, drag.px)) * w
+      setView(drag.view.d0 + dd, drag.view.d1 + dd)
+    }
+    const h = drag.y0.f1 - drag.y0.f0
+    if (h < 1 - 1e-9) {
+      const df = ((e.clientY - drag.y) / Math.max(1, drag.py)) * h
+      setY(drag.k, drag.y0.f0 + df, drag.y0.f1 + df)
+    }
   }
   onHover(e)
 }
@@ -134,9 +182,12 @@ function onZoomKey(e) {
   e.preventDefault()
 }
 // Each chart's pointer handlers: hover in the card; zoom and pan as well expanded
-const svgOn = computed(() =>
-  props.expanded ? { onPointermove: onMove, onPointerdown: onDown, onPointerup: onUp, onPointercancel: onUp, onWheel } : { onPointermove: onHover },
-)
+const handlers = (k) =>
+  props.expanded
+    ? { onPointermove: onMove, onPointerdown: (e) => onDown(e, k), onPointerup: onUp, onPointercancel: onUp, onWheel: (e) => onWheel(e, k) }
+    : { onPointermove: onHover }
+const svgOnM = computed(() => handlers('m'))
+const svgOnS = computed(() => handlers('s'))
 onMounted(() => props.expanded && typeof window !== 'undefined' && window.addEventListener('keydown', onZoomKey))
 onBeforeUnmount(() => typeof window !== 'undefined' && window.removeEventListener('keydown', onZoomKey))
 
@@ -151,8 +202,17 @@ const chart = computed(() => {
   const seen = st.filter((r) => inView(r.d)).map((r) => Math.max(r.M, r.Mneg ?? 0))
   for (const d of [d0, d1]) seen.push(valueAt((r) => r.M, d) ?? 0, valueAt((r) => r.Mneg, d) ?? 0)
   const mMax = Math.max(...seen, 1e-6)
-  const yM = (v) => H_ - M.b - (v / mMax) * (H_ - M.t - M.b)
-  const yS = (v) => H_ - M.b - ((Math.min(MS_MAX, Math.max(MS_MIN, v)) - MS_MIN) / (MS_MAX - MS_MIN)) * (H_ - M.t - M.b)
+  // Each chart's height in view: a fraction g of its scale to a height on the chart
+  const ym = yWin('m')
+  const ys = yWin('s')
+  const yOf = (g, w) => H_ - M.b - ((g - w.f0) / (w.f1 - w.f0)) * (H_ - M.t - M.b)
+  const yM = (v) => yOf(v / mMax, ym)
+  const sOf = (g) => MS_MIN + g * (MS_MAX - MS_MIN)
+  const yS = (v) => yOf((Math.min(MS_MAX, Math.max(MS_MIN, v)) - MS_MIN) / (MS_MAX - MS_MIN), ys)
+  const signed = (v, dp) => `${v > 1e-9 ? '+' : ''}${v.toFixed(dp)}`
+  const sTop = sOf(ys.f1)
+  const sBot = sOf(ys.f0)
+  const sDp = sTop - sBot < 0.5 ? 2 : sTop - sBot < 3 ? 1 : 0
   const lowest = st.map((r) => {
     let m = Infinity
     let mode = null
@@ -195,6 +255,12 @@ const chart = computed(() => {
     momentNeg: st.some((r) => r.Mneg > 0) ? st.map((r) => `${x(r.d).toFixed(1)},${yM(r.Mneg).toFixed(1)}`).join(' ') : null,
     mMax,
     yM,
+    // The ends of each chart's scale in view, and 0 on the margins when it's in view
+    mTop: (mMax * ym.f1).toFixed(1),
+    mBot: ym.f0 > 1e-9 ? (mMax * ym.f0).toFixed(1) : '0',
+    sTop: signed(sTop, sDp),
+    sBot: signed(sBot, sDp),
+    sZero: 0 > sBot + (sTop - sBot) * 0.08 && 0 < sTop - (sTop - sBot) * 0.08,
     modes,
     zero: yS(0),
     yS,
@@ -284,7 +350,7 @@ function nm(v) {
       <span class="wc-loads__key"><span class="wc-loads__line" aria-hidden="true"></span>at {{ designG }} g</span>
       <span v-if="hasNeg" class="wc-loads__key"><span class="wc-loads__line wc-loads__line--dashed" aria-hidden="true"></span>negative case</span>
     </div>
-    <svg :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" role="img" aria-label="Bending moment along the span" v-bind="svgOn" :class="{ 'wc-loads__pan': zoomed }" @pointerleave="hoverD = null">
+    <svg :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" role="img" aria-label="Bending moment along the span" v-bind="svgOnM" :class="{ 'wc-loads__pan': zoomed }" @pointerleave="hoverD = null">
       <defs>
         <clipPath :id="`${uid}-plot`"><rect :x="M.l" :y="0" :width="W - M.l - M.r" :height="H" /></clipPath>
       </defs>
@@ -295,8 +361,8 @@ function nm(v) {
         <polyline :points="chart.moment" class="wc-svg-curve" />
       </g>
       <line v-for="(x, i) in chart.breakX" :key="'b' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__break" />
-      <text :x="M.l - 4" :y="M.t + 4" text-anchor="end" class="wc-svg-tick">{{ chart.mMax.toFixed(1) }}</text>
-      <text :x="M.l - 4" :y="H - M.b" text-anchor="end" class="wc-svg-tick">0</text>
+      <text :x="M.l - 4" :y="M.t + 4" text-anchor="end" class="wc-svg-tick">{{ chart.mTop }}</text>
+      <text :x="M.l - 4" :y="H - M.b" text-anchor="end" class="wc-svg-tick">{{ chart.mBot }}</text>
       <text :x="M.l" :y="H - 6" class="wc-svg-tick">{{ chart.fromLabel }}</text>
       <text :x="W - M.r" :y="H - 6" text-anchor="end" class="wc-svg-tick">{{ chart.toLabel }}</text>
       <line v-if="readout.x != null" :x1="readout.x" :x2="readout.x" :y1="M.t" :y2="H - M.b" class="wc-loads__cross" />
@@ -312,11 +378,17 @@ function nm(v) {
       </span>
     </p>
     <div class="wc-loads__head"><span class="wc-loads__title">Margin of safety by failure mode</span></div>
-    <svg :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" role="img" aria-label="Lowest margin of safety along the span" v-bind="svgOn" :class="{ 'wc-loads__pan': zoomed }" @pointerleave="hoverD = null">
-      <rect :x="M.l" :y="chart.zero" :width="W - M.l - M.r" :height="H - M.b - chart.zero" class="wc-loads__bad" />
+    <div class="wc-loads__plot">
+    <svg :viewBox="`0 0 ${W} ${H}`" :width="W" :height="H" role="img" aria-label="Lowest margin of safety along the span" v-bind="svgOnS" :class="{ 'wc-loads__pan': zoomed }" @pointerleave="hoverD = null">
+      <defs>
+        <clipPath :id="`${uid}-margins`"><rect :x="M.l" :y="M.t - 1" :width="W - M.l - M.r" :height="H - M.t - M.b + 2" /></clipPath>
+      </defs>
+      <g :clip-path="`url(#${uid}-margins)`">
+        <rect :x="M.l" :y="chart.zero" :width="W - M.l - M.r" :height="Math.max(0, H - chart.zero)" class="wc-loads__bad" />
+        <line :x1="M.l" :x2="W - M.r" :y1="chart.zero" :y2="chart.zero" class="wc-svg-axis" />
+      </g>
       <line v-for="(x, i) in chart.ribX" :key="'r' + i" :x1="x" :x2="x" :y1="M.t" :y2="H - M.b" class="wc-loads__rib" />
-      <line :x1="M.l" :x2="W - M.r" :y1="chart.zero" :y2="chart.zero" class="wc-svg-axis" />
-      <g :clip-path="`url(#${uid}-plot)`">
+      <g :clip-path="`url(#${uid}-margins)`">
         <polyline
           v-for="m in chart.modes"
           :key="m.key"
@@ -325,18 +397,20 @@ function nm(v) {
         >
           <title>{{ m.label }}: lowest {{ m.low >= 0 ? '+' : '' }}{{ m.low.toFixed(2) }}</title>
         </polyline>
+        <circle v-if="chart.worstShown" :cx="chart.x(chart.worst.d)" :cy="chart.yS(chart.worst.m)" r="3.5" class="wc-svg-peak" />
       </g>
-      <circle v-if="chart.worstShown" :cx="chart.x(chart.worst.d)" :cy="chart.yS(chart.worst.m)" r="3.5" class="wc-svg-peak" />
-      <g v-for="b in chart.braces" :key="'brace' + b.name">
+      <g v-for="b in chart.braces" :key="'brace' + b.name" :clip-path="`url(#${uid}-plot)`">
         <title>{{ b.name }}: margin {{ b.margin >= 0 ? '+' : '' }}{{ b.margin.toFixed(2) }}{{ b.off ? ` (off scale, ${b.off} the chart)` : '' }}</title>
         <circle :cx="b.x" :cy="b.y" r="3" class="wc-loads__brace" />
         <text :x="b.x" :y="b.y - 6" text-anchor="middle" class="wc-svg-tick">{{ b.name }}{{ b.off === 'above' ? ' ▲' : b.off === 'below' ? ' ▼' : '' }}</text>
       </g>
-      <text :x="M.l - 4" :y="chart.yS(MS_MAX) + 4" text-anchor="end" class="wc-svg-tick">+{{ MS_MAX }}</text>
-      <text :x="M.l - 4" :y="chart.zero + 3" text-anchor="end" class="wc-svg-tick">0</text>
-      <text :x="M.l - 4" :y="chart.yS(MS_MIN)" text-anchor="end" class="wc-svg-tick">{{ MS_MIN }}</text>
+      <text :x="M.l - 4" :y="M.t + 4" text-anchor="end" class="wc-svg-tick">{{ chart.sTop }}</text>
+      <text v-if="chart.sZero" :x="M.l - 4" :y="chart.zero + 3" text-anchor="end" class="wc-svg-tick">0</text>
+      <text :x="M.l - 4" :y="H - M.b" text-anchor="end" class="wc-svg-tick">{{ chart.sBot }}</text>
       <line v-if="readout.x != null" :x1="readout.x" :x2="readout.x" :y1="M.t" :y2="H - M.b" class="wc-loads__cross" />
     </svg>
+    <StageZoom v-if="expanded" fit-title="Show it all (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitSpan" />
+    </div>
     <p class="wc-loads__readout" aria-live="polite">
       <span class="wc-loads__at">
         <template v-if="readout.at"><strong>{{ readout.at }}</strong> from the root rib:</template>
@@ -350,7 +424,6 @@ function nm(v) {
         <span class="wc-loads__brace-key" aria-hidden="true"></span>Dihedral brace
       </span>
     </p>
-    <StageZoom v-if="expanded" fit-title="Show the whole span (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitSpan" />
     </div>
     <!-- The notes: under the charts when expanded; in the card, behind the info button -->
     <figcaption v-if="expanded || notesOpen" :id="`${uid}-notes`" :class="['wc-figure__caption', { 'wc-loads__notes': !expanded }]">
@@ -367,7 +440,7 @@ function nm(v) {
         Dashed verticals on the moment chart are the dihedral breaks. Brace markers (B1, B2...) sit at their margin; a
         triangle means the margin is off scale (drawn at the edge of the chart).
       </span>
-      <span v-if="expanded">Scroll over either chart to zoom along the span, drag to move along it, F to see it all.</span>
+      <span v-if="expanded">Scroll over a chart to zoom it (both charts move along the span together), drag to move around, F to see it all.</span>
       <span>Bending counts the spar, sheeting, any laminate and the stringers; hinge spars, edge stock, servo trays and hard points are left out, on the safe side.</span>
     </figcaption>
     <!-- Fixed over the page, inside the app so it keeps its theme -->

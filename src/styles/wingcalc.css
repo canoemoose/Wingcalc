@@ -2094,17 +2094,15 @@
   min-height: 360px;
   overflow: hidden;
 }
-/* Expanded, − + Fit sit in the stage's bottom-right corner, beside the margins' readout (kept
-   clear of them) */
-.wc-loads--expanded .wc-loads__stage {
+/* Expanded, − + Fit sit over the margins chart's bottom-right corner, above its span labels */
+.wc-loads__plot {
   position: relative;
+  line-height: 0;
 }
-.wc-loads--expanded .wc-loads__stage > .wc-loads__readout:last-of-type {
-  padding-right: 130px;
-}
-.wc-loads--expanded .wc-stage__corner--br {
-  right: 0;
-  bottom: 0;
+.wc-loads--expanded .wc-loads__plot .wc-stage__corner--br {
+  right: 14px;
+  bottom: 30px;
+  line-height: normal;
 }
 .wc-loads__pan {
   cursor: grab;
