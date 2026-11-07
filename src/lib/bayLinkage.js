@@ -24,6 +24,7 @@ import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot
 
 export { PART_SIZES }
 import { installedServo, servoById, bayOf, SERVO_HEADROOM } from './servos.js'
+import { recutPlate } from './structure.js'
 import { servoBox, surfaceHeight, insetHeight } from './wing3d.js'
 
 export const DEFAULT_LINK = { arm: null, armRow: 0, armHole: null, horn: null, hornHole: null, hornFace: 'bottom', travel: 45, facing: null, linkage: 'pushrod', hornAt: null, hornAngle: null }
@@ -439,6 +440,36 @@ function rodRings(p0, p1, r) {
 // The arm's angle (radians from its reference) with the servo at an angle from its midpoint
 // (degrees, in its turning direction for trailing edge down)
 const armAngle = (r, servoDeg) => ((r.midpoint + r.direction * servoDeg) * Math.PI) / 180
+
+// The arm's swing over the servo's whole travel (±45°, or ±60° with extended end points), as
+// [least, most] angles (radians) from pointing square out through the skin on the horn's face,
+// in the servo's own frame (unturned in plan): what structure.js recutPlate cuts the plate's slot
+// for. Null where the linkage isn't solved.
+export function armSwing(frame, servo, c) {
+  const r = c.result
+  if (!r?.ok) return null
+  const g = assemblyGeometry(frame, servo, c, c.armHole, c.hornHole, c.face)
+  const L = linkage(g)
+  const up = c.face === 'top' ? 1 : -1
+  const yaw = servo.yaw ?? 0
+  const phis = []
+  for (let k = 0; k <= 24; k++) {
+    const [dx, ds, dz] = L.armDir(armAngle(r, -c.travel + (2 * c.travel * k) / 24))
+    // Into the servo's frame: undo its turn in plan
+    const x = dx * Math.cos(yaw) + ds * Math.sin(yaw)
+    phis.push(Math.atan2(x, up * dz))
+  }
+  return [Math.min(...phis), Math.max(...phis)]
+}
+
+// Every bay's plate re-cut for its arm's actual swing (recutPlate), from bayLinkages' entries
+export function fitPlates(links) {
+  for (const l of links.values()) {
+    const phis = armSwing(l.frame, l.bay.servo, l.c)
+    if (phis) recutPlate(l.bay, phis)
+  }
+  return links
+}
 
 // The assembly at surface neutral as solids, each { kind, rings } with rings in the wing's flat
 // frame ([x, s, z]), for wing3d to place: the arm ('servoArm'), the horn ('horn', its outline,

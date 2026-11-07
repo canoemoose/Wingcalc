@@ -28,7 +28,7 @@ import Structure3D from './components/Structure3D.vue'
 import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
-import { bayLinkages } from './lib/bayLinkage.js'
+import { bayLinkages, fitPlates } from './lib/bayLinkage.js'
 import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf, fillManualRibs } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit, wing3d, wingPieces } from './lib/wing3d.js'
@@ -572,7 +572,11 @@ const structureResult = computed(() => {
   const a = analyseStructure({ wing, airfoil: airfoil.value, structure: input.structure, mass: input.mass, spanwise, controls: liveControls.value })
   if (!a) return null
   const o = input.exportOptions
-  return { a, ...buildParts(a, a.structure, { handedness: o.handedness, wireKerf: o.wireKerf, leadIn: o.leadIn }) }
+  // Each servo bay's linkage first: where its arm comes out through the skin is cut in the parts
+  // (and each plate's slot cut for its arm's actual swing)
+  const links = fitPlates(bayLinkages(a, liveControls.value))
+  const slots = [...links.values()].flatMap((l) => (l.fit?.slots ?? []).map((q) => ({ ...q, bay: l.bay.name })))
+  return { a, links, ...buildParts(a, a.structure, { handedness: o.handedness, wireKerf: o.wireKerf, leadIn: o.leadIn, slots }) }
 })
 const structureOpen = ref(false)
 const exportOpen = ref(false)
@@ -744,7 +748,7 @@ const gussetRoom = computed(() => {
 })
 // Each servo bay's linkage (bayLinkage.js), for the bay settings, the plan and the warnings; and
 // the bay whose servo configurator is open (from its settings or the plan), by surface id
-const bayLinks = computed(() => (structureResult.value ? bayLinkages(structureResult.value.a, liveControls.value) : new Map()))
+const bayLinks = computed(() => structureResult.value?.links ?? new Map())
 const configuringBay = ref(null)
 const structureWarnings = computed(() => {
   const r = structureResult.value

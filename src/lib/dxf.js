@@ -540,8 +540,8 @@ export function hatchLines(poly, step) {
 // Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
 // Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE (the
 // fixed hinge spar and the tabs), SURFACE (each moving surface), SERVO, BRAKE.
-// SERVO has each servo bay's hatch opening in the lower surface, its servo (case and lugs) and the
-// line its lead takes through the ribs to the root. BRAKE has each air brake's box (or a spoiler's
+// SERVO has each servo bay's hatch opening in the lower surface, its servo (case and lugs), the slot
+// its arm comes out through and the line its lead takes through the ribs to the root. BRAKE has each air brake's box (or a spoiler's
 // frame and plate), the slots or opening it needs in the covering and a spoiler's hinge line.
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
@@ -646,6 +646,8 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
       lead.push([s, sparBack(s) + b.lead.offset + b.lead.diameter / 2])
     }
     add('SERVO', lead)
+    // The slot its arm comes out through
+    for (const q of parts.find((p) => p.bay === b || p.id === b.name)?.armSlots ?? []) add('SERVO', box(q.x0, q.x1, q.s0, q.s1), true)
     texts.push({ s: b.s, x: b.hatch.x1 + 0.008, text: b.name })
   }
   // Air brakes: the box (its walls, outside) or the spoiler's frame, the slot for each blade or

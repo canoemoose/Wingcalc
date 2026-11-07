@@ -8,17 +8,18 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { bayOf, setBay, installedServo, servoOptions } from '../src/lib/servos.js'
-import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, linkageFit, ROD_OFF_SQUARE, DEFAULT_LINK, assemblyGeometry, hornOutline } from '../src/lib/bayLinkage.js'
+import { bayFrame, configureBay, linkOf, savedLink, servoChoices, servoFits, linkSummary, bayLinkages, linkageFit, armSwing, fitPlates, ROD_OFF_SQUARE, DEFAULT_LINK, assemblyGeometry, hornOutline } from '../src/lib/bayLinkage.js'
 import { wing3d, surfaceHeight } from '../src/lib/wing3d.js'
 import { buildParts } from '../src/lib/ribs.js'
 
 // A deep wing (one 0.9 m panel, 450 to 400 mm chord, 2 kg) with an aileron
-function build(bays = []) {
+function build(bays = [], edit = () => {}) {
   const s = defaultState()
   s.input.rootChord = 0.45
   s.input.panels = normalisePanels([{ id: 1, length: 0.9, tipChord: 0.4, dihedral: 0 }])
   s.input.mass = 2
   const st = defaultStructure()
+  edit(st)
   const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays }
   const airfoil = resolveAirfoil(s.airfoil)
   const g = wingGeometry({ ...s.input, mode: 'panels' })
@@ -337,5 +338,102 @@ describe('the link as saved', () => {
     expect(c.bays).toEqual([{ surface: 1, link: { travel: 60 } }])
     expect(linkOf(bayOf(c, 1)).travel).toBe(60)
     expect(setBay(c, 1, { link: null }).bays).toEqual([])
+  })
+})
+
+describe("the arm's slot in the parts", () => {
+  const slotsFor = (a, controls) => [...bayLinkages(a, controls).values()].flatMap((l) => l.fit.slots.map((q) => ({ ...q, bay: l.bay.name })))
+  const controlsFor = (bay) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [bay] })
+
+  it("cuts it from a sheeted wing's hatch, and notes it on the plate", () => {
+    const bay = { surface: 1 }
+    const a = build([bay], (st) => {
+      st.covering.type = 'sheeted'
+      st.covering.sheetThickness = 0.0015
+    })
+    const slots = slotsFor(a, controlsFor(bay))
+    expect(slots[0]).toMatchObject({ surface: 'bottom', hatch: true })
+    const res = buildParts(a, a.structure, { slots })
+    const hatch = res.parts.find((p) => p.id === 'SB1-H')
+    expect(hatch.holes).toHaveLength(1)
+    const [hole] = hatch.holes
+    const q = slots[0]
+    // Where the slot is, in the hatch's frame (across the span, along the chord from its corner)
+    const us = hole.map(([u]) => u)
+    const vs = hole.map(([, v]) => v)
+    expect(Math.min(...us)).toBeCloseTo(q.s0 - a.bays[0].hatch.s0, 6)
+    expect(Math.max(...vs)).toBeCloseTo(q.x1 - a.bays[0].hatch.x0, 6)
+    const plate = res.parts.find((p) => p.id === 'SB1')
+    expect(plate.notes.some((n) => n.includes('in the hatch (SB1-H)'))).toBe(true)
+    expect(plate.armSlots).toHaveLength(1)
+    // Without the slots, none
+    expect(buildParts(a, a.structure).parts.find((p) => p.id === 'SB1-H').holes).toHaveLength(0)
+  })
+
+  it("cuts a horn-on-top servo's slot from the top sheeting, developed round the surface", () => {
+    const bay = { surface: 1, link: { hornFace: 'top' } }
+    const a = build([bay], (st) => {
+      st.covering.type = 'sheeted'
+      st.covering.sheetThickness = 0.0015
+    })
+    const slots = slotsFor(a, controlsFor(bay))
+    expect(slots[0]).toMatchObject({ surface: 'top', hatch: false })
+    const res = buildParts(a, a.structure, { slots })
+    const top = res.parts.filter((p) => p.group === 'sheeting' && p.surface === 'upper')
+    const cut = top.filter((p) => p.holes.length)
+    expect(cut).toHaveLength(1)
+    const [hole] = cut[0].holes
+    // As long across the span as the slot, and a little longer round the surface than in plan
+    const us = hole.map(([u]) => u)
+    const vs = hole.map(([, v]) => v)
+    expect(Math.max(...us) - Math.min(...us)).toBeCloseTo(slots[0].s1 - slots[0].s0, 9)
+    expect(Math.max(...vs) - Math.min(...vs)).toBeGreaterThanOrEqual(slots[0].x1 - slots[0].x0 - 1e-9)
+    expect(cut[0].notes.some((n) => n.includes("SB1's servo arm"))).toBe(true)
+    expect(res.parts.find((p) => p.id === 'SB1').notes.some((n) => n.includes('in the sheeting'))).toBe(true)
+  })
+
+  it('leaves it to the covering on an open wing', () => {
+    const bay = { surface: 1, link: { hornFace: 'top' } }
+    const a = build([bay])
+    const slots = slotsFor(a, controlsFor(bay))
+    const res = buildParts(a, a.structure, { slots })
+    expect(res.parts.find((p) => p.id === 'SB1').notes.some((n) => n.includes('in the covering once it is on'))).toBe(true)
+  })
+})
+
+describe("the plate's slot for the arm", () => {
+  const controlsFor = (bay) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [bay] })
+
+  it("swings over the servo's whole travel about where the linkage puts the arm", () => {
+    for (const [link, travel] of [[{}, 45], [{ hornFace: 'top' }, 45], [{ travel: 60 }, 60]]) {
+      const bay = { surface: 1, link }
+      const a = build([bay])
+      const l = bayLinkages(a, controlsFor(bay)).get(1)
+      const [lo, hi] = armSwing(l.frame, a.bays[0].servo, l.c)
+      // The servo's travel each way, turned 1:1 into the arm's angle
+      expect(hi - lo, JSON.stringify(link)).toBeCloseTo((2 * travel * Math.PI) / 180, 6)
+      // Near square at neutral, but not exactly (the differential the throws ask for)
+      expect(Math.abs((lo + hi) / 2)).toBeLessThan((10 * Math.PI) / 180)
+    }
+  })
+
+  it('re-cuts the laid-out plate for that swing, leaving the plate and servo where they are', () => {
+    const bay = { surface: 1 }
+    const a = build([bay])
+    const b = a.bays[0]
+    const plate = { ...b.plate }
+    const kase = { ...b.case }
+    const links = fitPlates(bayLinkages(a, controlsFor(bay)))
+    expect(links.get(1).bay).toBe(b)
+    expect(b.armSwing).toHaveLength(2)
+    expect(b.plate).toEqual(plate)
+    expect(b.case).toEqual(kase)
+    // Still a cut-out inside the plate, with ply round it
+    for (const [x, s] of b.cutPoly) {
+      expect(x).toBeGreaterThan(b.plate.x0)
+      expect(x).toBeLessThan(b.plate.x1)
+      expect(s).toBeGreaterThan(b.plate.s0)
+      expect(s).toBeLessThan(b.plate.s1)
+    }
   })
 })

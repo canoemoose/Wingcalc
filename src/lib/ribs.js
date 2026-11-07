@@ -984,7 +984,10 @@ export function braceSizing(a, structure, { both = true } = {}) {
 // structure's weight. handedness: 'right' | 'left' | 'pair'. A foam wing (foam.js) has no ribs;
 // its hot-wire templates, skins and pockets come from foamParts.js, wireKerf and leadIn
 // setting its templates.
-export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_KERF, leadIn = LEAD_IN } = {}) {
+// slots: where each servo's arm comes out through the skin (bayLinkage.js linkageFit), as
+// [{ bay (its name), surface ('top' | 'bottom'), hatch, x0, x1, s0, s1 }], cut from the sheeting
+// or the hatch they're in and noted on the bay's plate.
+export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_KERF, leadIn = LEAD_IN, slots = [] } = {}) {
   const foam = isFoam(structure)
   const r = structure.ribs
   const both = handedness === 'pair'
@@ -1150,6 +1153,20 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   const warnings = []
   const sheeted = structure.covering.type === 'sheeted' && structure.covering.sheetThickness > 0
   const ribNamed = (s) => ribs.find((rb) => Math.abs(rb.s - s) < 1e-3)?.name ?? '?'
+  // Where an arm's slot is cut: in the hatch (a sheeted wing's), the sheeting (named once the
+  // sheeting parts are made, below) or the covering
+  const slotIn = (q) => {
+    if (q.hatch && sheeted) return `in the hatch (${q.bay}-H)`
+    return sheetedAt(q) ? 'in the sheeting (marked on its part)' : 'in the covering once it is on'
+  }
+  const sheetedAt = (q) => {
+    if (foam || !(structure.covering.sheetThickness > 0) || structure.covering.type === 'open') return false
+    const sec = a.section((q.s0 + q.s1) / 2)
+    if (!sec) return false
+    const [, rear] = lineFaces(a.sparX, sparWidth(structure.spar))
+    const ext = sheetExtent(structure, q.surface, (rear((q.s0 + q.s1) / 2) - sec.xl) / sec.c)
+    return !!ext && (q.x0 + q.x1) / 2 <= sec.xl + ext.to * sec.c && (q.x0 + q.x1) / 2 >= sec.xl + ext.from * sec.c
+  }
   // Where a bay's or a brake's parts are glued: between its ribs, or in a foam wing's pocket
   const betweenRibs = (sA, sB) => (foam ? 'into its pocket in the core' : `between ${ribNamed(sA)} and ${ribNamed(sB)}`)
   for (const bay of bays) {
@@ -1183,6 +1200,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       qty: both ? 2 : 1,
       outline: rect(0, 0, len, wid),
       holes,
+      // Where its arm comes out through the skin, in plan (for the plan drawing)
+      armSlots: slots.filter((q) => q.bay === bay.name),
       // Where the screw blocks go
       etch: (bay.blocks ?? []).map((k) => [...k.corners, k.corners[0]].map(([x, s]) => [u(s), v(x)])),
       label: null,
@@ -1190,6 +1209,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       notes: [
         `${bay.label} (${bay.hostLabel || 'control surface'}): mount plate for a ${sv.label.toLowerCase()} servo (${Math.round(sv.mass * 1000)} g), glued ${betweenRibs(bay.sA, bay.sB)}, its ${len >= wid ? 'long side across the span' : 'long side along the chord'}. ${fixing}`,
         `Plate fits the gap between the ${foam ? "pocket's ends" : 'rib faces'} (${(len * 1000).toFixed(1)} mm); the cut-out leaves at least ${(ply * 1000).toFixed(1)} mm of ply all round`,
+        ...slots.filter((q) => q.bay === bay.name).map((q) => `The arm comes out through the ${q.surface} ${q.hatch && sheeted ? 'hatch' : 'skin'}: a slot ${((q.s1 - q.s0) * 1000).toFixed(0)} × ${((q.x1 - q.x0) * 1000).toFixed(0)} mm (across the span by along the chord), cut ${slotIn(q)}`),
       ],
     })
     if (sheeted) {
@@ -1202,7 +1222,10 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         thickness: th,
         qty: both ? 2 : 1,
         outline: rect(0, 0, bay.hatch.s1 - bay.hatch.s0, bay.hatch.x1 - bay.hatch.x0),
-        holes: [],
+        // The arm's slot, where it comes out through the hatch
+        holes: slots
+          .filter((q) => q.bay === bay.name && q.hatch && q.surface === 'bottom')
+          .map((q) => rect(Math.max(0, q.s0 - bay.hatch.s0), Math.max(0, q.x0 - bay.hatch.x0), Math.min(bay.hatch.s1, q.s1) - bay.hatch.s0, Math.min(bay.hatch.x1, q.x1) - bay.hatch.x0)),
         etch: [],
         label: null,
         notes: [`${bay.label} hatch: cut from the lower sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
@@ -1434,6 +1457,14 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         const widths = list.map((p) => ({ s: p.s, w: sheetWidth(a, structure, p.s, surface) }))
         const s0 = widths[0].s
         const outline = [...widths.map((w) => [w.s - s0, 0]).reverse(), ...widths.map((w) => [w.s - s0, w.w])]
+        // The arms' slots through this sheet (not those in a sheeted wing's hatch), developed as
+        // the sheet is: across the span as laid, round the surface from the leading edge stock
+        const side = surface === 'upper' ? 'top' : 'bottom'
+        const cuts = slots.filter((q) => q.surface === side && !(q.hatch && sheeted) && q.s0 >= s0 - 1e-6 && q.s1 <= widths.at(-1).s + 1e-6 && sheetedAt(q))
+        const slotHoles = cuts.map((q) => {
+          const sm = (q.s0 + q.s1) / 2
+          return rect(q.s0 - s0, sheetWidth(a, structure, sm, surface, q.x0), q.s1 - s0, sheetWidth(a, structure, sm, surface, q.x1))
+        })
         parts.push({
           id: `S${k}`,
           name: `S${k}`,
@@ -1442,7 +1473,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           thickness: panelT,
           qty: both ? 2 : 1,
           outline: clean(outline),
-          holes: [],
+          holes: slotHoles,
           etch: [],
           label: null,
           // Where it goes, for picking it in the 3D view
@@ -1451,6 +1482,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           notes: [
             `${surface === 'upper' ? 'Top' : 'Bottom'} sheeting, ${key}, developed from the ribs; approximate, cut oversize and trim`,
             ...own.map((h) => `Over ${h.label} it's ${(h.dboxThickness * 1000).toFixed(1)} mm: cut that stretch from that sheet`),
+            ...cuts.map((q) => `Slot for ${q.bay}'s servo arm; cut it once the sheet is trimmed to the wing`),
           ],
         })
         k++
@@ -1639,8 +1671,8 @@ function panelKeysOf(a, s) {
 }
 
 // Developed width of the sheeting at a rib: surface arc length from the LE stock to the spar
-// (D-box) or the TE stock (fully sheeted).
-function sheetWidth(a, structure, s, surface) {
+// (D-box) or the TE stock (fully sheeted), or to plan position x where that's given.
+function sheetWidth(a, structure, s, surface, x = null) {
   const sec = a.section(s)
   if (!sec) return 0
   // From the leading edge stock, or over an inset strip where it meets it (edgeStock.js)
@@ -1652,7 +1684,7 @@ function sheetWidth(a, structure, s, surface) {
   const sparXi = (a.sparX(s) - sec.xl) / sec.c
   const sp = structure.spar
   const half = (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
-  const q1 = structure.covering.type === 'sheeted' ? 1 - (structure.te.width || 0) / sec.c : sparXi + half / sec.c
+  const q1 = Number.isFinite(x) ? Math.max(q0, (x - sec.xl) / sec.c) : structure.covering.type === 'sheeted' ? 1 - (structure.te.width || 0) / sec.c : sparXi + half / sec.c
   let len = 0
   let prev = null
   for (let i = 0; i <= 60; i++) {

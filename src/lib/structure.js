@@ -1478,7 +1478,10 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
 // about pointing square out through the horn's face (the servo's travel, ±45° or ±60°, and 15°
 // more each way for the differential), wherever it passes through the plate's thickness, with
 // CUTOUT_GAP round it. sv: an installed servo; link: the bay's saved link.
-function armPlateCut(sv, link) {
+// phis: the arm's swing as [least, most] angles (radians) from pointing square out through the
+// skin on the horn's face, in the servo's own frame (bayLinkage.js armSwing, from the solved
+// linkage); without them, the servo's travel and 15° more each way about square.
+function armPlateCut(sv, link, phis = null) {
   const arms = armsFor(servoById(sv.id) ?? sv)
   const arm = (link?.arm && arms.find((x) => x.id === link.arm)) || arms[0] || armById('generic-micro')
   const row = arm.holes[Math.min(Math.max(0, link?.armRow ?? 0), arm.holes.length - 1)]
@@ -1491,10 +1494,11 @@ function armPlateCut(sv, link) {
   const z1 = z0 + (sv.plate ?? 0)
   const up = link?.hornFace === 'top' ? 1 : -1
   const spread = (((link?.travel === 60 ? 60 : 45) + 15) * Math.PI) / 180
+  const [p0, p1] = phis ?? [-spread, spread]
   const xs = []
   const keep = (x, z) => z > z0 - 1e-9 && z < z1 + 1e-9 && xs.push(x)
   for (let i = 0; i <= 24; i++) {
-    const phi = -spread + (2 * spread * i) / 24
+    const phi = p0 + ((p1 - p0) * i) / 24
     const d = [Math.sin(phi), up * Math.cos(phi)]
     const across = [d[1], -d[0]]
     for (let k = 0; k <= 40; k++) {
@@ -1507,6 +1511,27 @@ function armPlateCut(sv, link) {
   const a = Math.sign(axis[1]) || 1
   const ss = [pivot[1] + a * (A.thickness / 2), pivot[1] - a * (arm.seat + A.thickness / 2)]
   return { x: [Math.min(...xs) - CUTOUT_GAP, Math.max(...xs) + CUTOUT_GAP], s: [Math.min(...ss) - CUTOUT_GAP, Math.max(...ss) + CUTOUT_GAP] }
+}
+
+// A laid-out bay's plate re-cut for its arm's actual swing (phis, as armPlateCut takes them),
+// once its linkage is solved: the cut-out, its outline and the screws that stay clear of it. The
+// bay was placed for the wider allowance, so the plate and the servo stay where they are.
+export function recutPlate(b, phis) {
+  const sv = b.servo
+  if (!b.ok || !b.plate || !sv?.plan || !phis) return b
+  const armCut = armPlateCut(sv, b.link, phis)
+  const plan = armCut ? { ...sv.plan, ...cutout([...sv.plan.rects, armCut], sv.yaw) } : sv.plan
+  const screws = screwsClear(sv.plan.screwsSquare ?? [], plan.bands ?? [], sv.pilot ?? 0.001).map(([x, s]) => turnPoint([x, s], sv.yaw ?? 0))
+  const xc = (b.case.x0 + b.case.x1) / 2
+  const cut = plan.cut
+  Object.assign(b, {
+    cut: cut ? { x0: xc + cut.x[0], x1: xc + cut.x[1], s0: b.s + cut.s[0], s1: b.s + cut.s[1] } : null,
+    cutPoly: plan.cutPoly?.map(([x, s]) => [xc + x, b.s + s]) ?? null,
+    cutRects: plan.cutRects?.map((q) => q.map(([x, s]) => [xc + x, b.s + s])) ?? null,
+    screws: screws.map(([x, s]) => [xc + x, b.s + s]),
+    armSwing: phis,
+  })
+  return b
 }
 
 // Why a bay isn't built, with the bay's name.
