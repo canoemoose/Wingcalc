@@ -245,11 +245,12 @@ export function defaultStructure() {
     // across the hinge (the fixed part's, square; the moving surface's, bevelled); tabs are
     // tabWidth along the hinge by tabLength across it, no more than tabSpacing apart, the end
     // ones' nearer edges tabInset in from the ends of the moving surface. The tabs are cut from 25 mm Mylar
-    // roll, 0.2 mm thick: the roll's width goes across the hinge (12.5 mm into each spar, so
-    // the spars are 13 mm wide), and each tab is cut 25 mm long along it unless set otherwise.
+    // roll, 0.2 mm thick: the roll's width goes across the hinge, trimmed to fit where the hinge
+    // spars are narrower (the spars aren't sized for the Mylar), and each tab is cut 25 mm long
+    // along it unless set otherwise.
     hinges: {
-      fixedWidth: 0.013,
-      movingWidth: 0.013,
+      fixedWidth: 0.008,
+      movingWidth: 0.01,
       material: 'balsa-medium',
       tabWidth: 0.025,
       tabLength: 0.025,
@@ -1215,16 +1216,16 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     const k = Math.sqrt(1 + r.slope * r.slope)
     const reach = h.tabWidth / 2 + (h.tabLength / 2) * Math.abs(r.slope)
     const tabs = hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: Math.max(0, h.tabInset) + reach, width: 2 * reach }).map((d) => moving[0] + d / k)
-    const slot = Math.max(0, (h.tabLength - g) / 2)
+    // The tabs go into each hinge spar up to TAB_CLEAR short of its far face: the roll's width
+    // across the hinge, trimmed to fit where the narrower spar won't take half of it
     const narrow = stock ? Math.min(h.fixedWidth, structure.te.width || h.fixedWidth) : Math.min(h.fixedWidth, h.movingWidth)
-    if (slot > narrow + 1e-9) {
-      r.warnings.push(`The hinge tabs on ${r.label} go ${mm(slot)} into each hinge spar, deeper than the narrower spar is wide (${mm(narrow)}): use shorter tabs or wider hinge spars.`)
-    }
+    const slot = Math.max(0, Math.min((h.tabLength - g) / 2, narrow - TAB_CLEAR))
+    const tabAcross = 2 * slot + g
     const run = (movingDepth / 2) * Math.tan(Math.max(bevel.top, bevel.bottom) * (Math.PI / 180))
     if (!stock && run > h.movingWidth - 0.001) {
       r.warnings.push(`The bevel on ${r.label}'s hinge spar runs ${mm(run)} back, nearly all of its ${mm(h.movingWidth)} width: use a wider hinge spar on the moving side, or less throw.`)
     }
-    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot })
+    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross })
   }
   return list
 }
@@ -1232,6 +1233,8 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
 // How close (m) a surface's hinge must be to the trailing edge stock's front face for the stock
 // itself to be the moving surface
 export const STOCK_HINGE = 0.003
+// How far short of a hinge spar's far face its Mylar tabs stop, m
+export const TAB_CLEAR = 0.001
 
 // The built surface whose span (between its end ribs) contains s, strictly, or null.
 export function surfaceAt(surfaces, s) {

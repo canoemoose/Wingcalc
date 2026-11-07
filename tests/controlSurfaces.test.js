@@ -263,7 +263,11 @@ describe('control surfaces in the structure', () => {
     const reach = st.hinges.tabWidth / 2 + (st.hinges.tabLength / 2) * Math.abs(r.slope)
     expect((r.tabs[0] - r.moving[0]) * k).toBeCloseTo(st.hinges.tabInset + reach, 9)
     expect((r.moving[1] - r.tabs.at(-1)) * k).toBeCloseTo(st.hinges.tabInset + reach, 9)
-    expect(r.slot).toBeCloseTo((st.hinges.tabLength - r.gap) / 2, 9)
+    // The roll's width across the hinge, trimmed so the tabs stop a millimetre short of the
+    // narrower spar's far face (8 mm fixed, 10 mm moving to start with)
+    const narrow = Math.min(st.hinges.fixedWidth, st.hinges.movingWidth)
+    expect(r.slot).toBeCloseTo(Math.min((st.hinges.tabLength - r.gap) / 2, narrow - 0.001), 9)
+    expect(r.tabAcross).toBeCloseTo(2 * r.slot + r.gap, 9)
   })
 
   it('bevels the moving hinge spar from each throw', () => {
@@ -285,9 +289,12 @@ describe('control surfaces in the structure', () => {
     expect(aft.a.ribs.some((rb) => rb.kind === 'hard')).toBe(false)
   })
 
-  it('warns when the tabs go deeper than a hinge spar is wide', () => {
-    const { a } = build({ edit: (st) => (st.hinges.tabLength = 0.03) })
-    expect(a.warnings.some((w) => /go 14\.5 mm into each hinge spar/.test(w.message))).toBe(true)
+  it('trims the tabs to fit the hinge spars rather than warning, and keeps the roll whole where they take it', () => {
+    const narrow = build({ edit: (st) => (st.hinges.tabLength = 0.03) })
+    expect(narrow.a.warnings.some((w) => /into each hinge spar/.test(w.message))).toBe(false)
+    for (const r of narrow.a.surfaces.filter((x) => x.ok)) expect(r.slot).toBeCloseTo(0.007, 9)
+    const wide = build({ edit: (st) => Object.assign(st.hinges, { fixedWidth: 0.013, movingWidth: 0.013 }) })
+    for (const r of wide.a.surfaces.filter((x) => x.ok)) expect(r.tabAcross).toBeCloseTo(wide.a.structure.hinges.tabLength, 9)
   })
 })
 

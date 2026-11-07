@@ -1009,7 +1009,7 @@ export function hingeTabPlates(a, structure) {
     for (const s of sf.tabs ?? []) {
       const x = sf.hingeX(s)
       const mid = (insetHeight(a, structure, s, x, 'upper', false) + insetHeight(a, structure, s, x, 'lower', false)) / 2
-      const corners = hingeTabOutline(sf, s, h.tabWidth, h.tabLength)
+      const corners = hingeTabOutline(sf, s, h.tabWidth, sf.tabAcross ?? h.tabLength)
       const ring = (hh) => corners.map(([cs, cx]) => worldPoint(a, Math.min(a.tipS, Math.max(a.rootS, cs)), cx, hh))
       out.push({ kind: 'tab', surface: sf.id, ...loft([ring(mid - t / 2), ring(mid + t / 2)], { closed: true, caps: 'fan' }) })
     }

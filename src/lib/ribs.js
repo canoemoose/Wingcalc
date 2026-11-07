@@ -1166,24 +1166,38 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       })
     })
   }
-  // The Mylar tabs, one size for every hinge
-  const tabCount = surfaces.reduce((n, sf) => n + sf.tabs.length, 0)
-  if (tabCount && h.tabWidth > 0 && h.tabLength > 0) {
-    parts.push({
-      id: 'H1',
-      name: 'H1',
-      group: 'hinges',
-      material: 'mylar',
-      thickness: h.tabThickness || 0.0002,
-      qty: tabCount * (both ? 2 : 1),
-      outline: rect(0, 0, h.tabLength, h.tabWidth),
-      holes: [],
-      etch: [],
-      label: null,
-      notes: [
-        `Mylar hinge tab: ${surfaces.map((sf) => `${sf.tabs.length} on ${sf.name}`).join(', ')}${both ? ', each side' : ''}. Slot ${Math.round(Math.max(...surfaces.map((sf) => sf.slot)) * 2000) / 2} mm deep into each hinge spar at its centre line`,
-      ],
-    })
+  // The Mylar tabs: one part per size across the hinge (the roll's width, trimmed where the
+  // hinge spars are narrower), H1 and on
+  const tabSizes = new Map()
+  for (const sf of surfaces.filter((x) => x.tabs.length)) {
+    const across = sf.tabAcross ?? h.tabLength
+    const key = Math.round(across * 2000)
+    if (!tabSizes.has(key)) tabSizes.set(key, { across, list: [] })
+    tabSizes.get(key).list.push(sf)
+  }
+  if (h.tabWidth > 0 && h.tabLength > 0) {
+    let k = 1
+    for (const { across, list } of [...tabSizes.values()].sort((p, q) => q.across - p.across)) {
+      const count = list.reduce((n, sf) => n + sf.tabs.length, 0)
+      const mmv = (v) => `${Math.round(v * 2000) / 2} mm`
+      const trimmed = across < h.tabLength - 1e-6
+      parts.push({
+        id: `H${k}`,
+        name: `H${k}`,
+        group: 'hinges',
+        material: 'mylar',
+        thickness: h.tabThickness || 0.0002,
+        qty: count * (both ? 2 : 1),
+        outline: rect(0, 0, across, h.tabWidth),
+        holes: [],
+        etch: [],
+        label: null,
+        notes: [
+          `Mylar hinge tab: ${list.map((sf) => `${sf.tabs.length} on ${sf.name}`).join(', ')}${both ? ', each side' : ''}. ${trimmed ? `Cut from ${mmv(h.tabLength)} roll and trimmed to ${mmv(across)} across the hinge to fit the hinge spars` : `${mmv(across)} across the hinge`}. Slot ${mmv(Math.max(...list.map((sf) => sf.slot)))} deep into each hinge spar at its centre line`,
+        ],
+      })
+      k++
+    }
   }
 
   // Servo bays: a ply mount plate between the bay's ribs with a cut-out for the case and pilot

@@ -153,7 +153,10 @@ describe('built-up control surfaces', () => {
     expect(tabs.qty).toBe(count * 2)
     expect(tabs.material).toBe('mylar')
     const b = bounds(tabs.outline)
-    expect(b.w).toBeCloseTo(res.st.hinges.tabLength, 9)
+    // Trimmed across the hinge to fit the spars, and said so
+    expect(b.w).toBeCloseTo(res.a.surfaces[0].tabAcross, 9)
+    expect(b.w).toBeLessThan(res.st.hinges.tabLength)
+    expect(tabs.notes[0]).toContain('trimmed to')
     expect(b.h).toBeCloseTo(res.st.hinges.tabWidth, 9)
     // The surfaces' ribs, the hinge spars and tabs are in the weight
     expect(res.weight.by.surfaces).toBeGreaterThan(0)

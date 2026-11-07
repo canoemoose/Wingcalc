@@ -1183,7 +1183,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
           <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
         </div>
-        <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, and each tab is cut this long along the hinge.</p>
+        <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, trimmed to fit where the spars are narrower, and each tab is cut this long along the hinge.</p>
         <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
         <div class="wc-structure-editor__pair">
           <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
