@@ -259,7 +259,7 @@ describe("a hard point's sheets on the plan DXF", () => {
     })
     const opts = { ...defaultExportOptions(), handedness: 'right' }
     const d = parseDxf(planDxf(a, a.structure, parts, opts).text)
-    for (const [layer, angle] of [['HARDPOINT-TOP', 0], ['HARDPOINT-BOTTOM', 90]]) {
+    for (const [layer, angle] of [['HARDPOINT-TOP', 15], ['HARDPOINT-BOTTOM', 105]]) {
       const h = d.hatches.filter((x) => x.layer === layer)
       expect(h, layer).toHaveLength(1)
       expect(h[0].line.angle).toBe(angle)
@@ -267,6 +267,6 @@ describe("a hard point's sheets on the plan DXF", () => {
     // The left half's hatches run the other way
     const left = parseDxf(planDxf(a, a.structure, parts, { ...opts, handedness: 'left' }).text)
     expect(left.hatches.find((x) => x.layer === 'SHEETING-TOP').line.angle).toBe(135)
-    expect(left.hatches.find((x) => x.layer === 'HARDPOINT-BOTTOM').line.angle).toBe(90)
+    expect(left.hatches.find((x) => x.layer === 'HARDPOINT-BOTTOM').line.angle).toBe(75)
   })
 })

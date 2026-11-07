@@ -596,7 +596,7 @@ export function hatchLines(poly, step, angle = 45) {
 // Plan layers are fixed: OUTLINE (the wing), EDGES (the LE and TE stock's inner edges),
 // STRINGERS (stringers and reinforcement at their width), SPAR, RIBS, TEXT, SHEETING-TOP and
 // SHEETING-BOTTOM (each sheet as it's cut, outlined and hatched at 45° and 135°), HARDPOINT-TOP
-// and HARDPOINT-BOTTOM (sheeted hard points' own sheets, hatched at 0° and 90°), SHEET-NAMES, HINGE (the fixed hinge
+// and HARDPOINT-BOTTOM (sheeted hard points' own sheets, hatched at 15° and 105°), SHEET-NAMES, HINGE (the fixed hinge
 // spar), TABS (Mylar tabs or pin hinges), SURFACE (each moving surface), SERVO (the case and lug
 // span), SERVO-HATCH (its hatch opening, where it has one), SERVO-SLOT (the slot its arm comes
 // out through), SERVO-LEAD (its lead's route through the ribs to the root), BRAKE (each air
@@ -683,7 +683,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   // and named, top and bottom on layers of their own and hatched different ways, so they read
   // apart where they overlap on the plan
   const SHEET_HATCH = { upper: 45, lower: 135 }
-  const PATCH_HATCH = { top: 0, bottom: 90 }
+  const PATCH_HATCH = { top: 15, bottom: 105 }
   for (const p of parts.filter((q) => q.group === 'sheeting' && q.span && !/^HP/.test(q.id))) {
     const side = p.surface === 'upper' ? 'top' : 'bottom'
     const poly = sheetOutline(a, structure, 24, side, p.span)
