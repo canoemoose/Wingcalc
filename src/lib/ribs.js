@@ -474,7 +474,9 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const u0 = crossing(f0, u - w / 2)
     const u1 = crossing(f1, u + w / 2)
     if (u0 < uA || u1 > uB) continue
-    const notch = { u0, u1, depth: h, what: 'stringer' }
+    // A rod or tube's notch is round-bottomed, its sides straight up to the skin: the stock
+    // pushes in from the edge and seats in it
+    const notch = { u0, u1, depth: h, what: 'stringer', round: stringerSize(st).round }
     for (const place of stringerPlaces(st)) {
       if (place === 'upper') upper.push({ ...notch })
       else if (place === 'lower') lower.push({ ...notch })
@@ -516,12 +518,27 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const edgeUs = (list) => list.flatMap((nt) => [nt.u0, nt.u1])
   const breaks = [...new Set([uCutA, uCutB, ...us.filter((u) => u > uCutA && u < uCutB)])]
 
+  // The round part of a round-bottomed notch: from angle t0 to t1 about its stock's centre (at
+  // height zc), its ends left to the straight sides
+  const roundEdge = (nt, zc, t0, t1) => {
+    const ru = (nt.u1 - nt.u0) / 2
+    const rz = nt.depth / 2
+    const um = (nt.u0 + nt.u1) / 2
+    return Array.from({ length: 11 }, (_, i) => t0 + ((t1 - t0) * (i + 1)) / 12).map((t) => [um + ru * Math.cos(t), zc + rz * Math.sin(t)])
+  }
   const topChain = []
   const tops = [...new Set([...breaks, ...edgeUs(upper)])].filter((u) => u >= uCutA && u <= uCutB).sort((p, q) => p - q)
   for (const u of tops) {
     const nt = upper.find((x) => Math.abs(x.u0 - u) < 1e-9)
     const nt1 = upper.find((x) => Math.abs(x.u1 - u) < 1e-9)
-    if (nt) {
+    if (nt?.round) {
+      // Into a round-bottomed notch: down to the stock's centre, round its underside, and up
+      const floor = Math.min(top(nt.u0), top(nt.u1)) - nt.depth
+      const zc = floor + nt.depth / 2
+      topChain.push([u, top(u)], [u, zc], ...roundEdge(nt, zc, Math.PI, 2 * Math.PI))
+    } else if (nt1?.round) {
+      topChain.push([u, Math.min(top(nt1.u0), top(nt1.u1)) - nt1.depth / 2], [u, top(u)])
+    } else if (nt) {
       // Into a notch: down to a flat bottom
       topChain.push([u, top(u)], [u, Math.min(top(nt.u0), top(nt.u1)) - nt.depth])
     } else if (nt1) {
@@ -539,6 +556,12 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     // to the rib's front, where the rib ends over the strip
     if (startItem?.kind === 'floor') botChain.push([startItem.ub, bot(startItem.ub)], [startItem.uTop, startItem.floorAt(startItem.uTop)])
     else if (endItem?.kind === 'floor') botChain.push([u, endItem.floorAt(u)])
+    else if (startItem?.round) {
+      // Into a round-bottomed notch from below (walking back): up to the stock's centre, over its
+      // top, and down
+      const zc = level(startItem) - startItem.depth / 2
+      botChain.push([u, bot(u)], [u, zc], ...roundEdge(startItem, zc, 0, Math.PI))
+    } else if (endItem?.round) botChain.push([u, level(endItem) - endItem.depth / 2], [u, bot(u)])
     else if (startItem) botChain.push([u, bot(u)], [u, level(startItem)])
     else if (endItem) botChain.push([u, level(endItem)], [u, bot(u)])
     else if (!inside(bottomItems, u)) botChain.push([u, bot(u)])

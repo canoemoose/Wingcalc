@@ -95,6 +95,25 @@ describe('carbon reinforcement', () => {
     expect(structureSection(warn.id)).toBe('stringers')
   })
 
+  it("notches a rod on a skin round-bottomed, its sides straight up to the edge, so it pushes in", () => {
+    for (const surface of ['upper', 'lower']) {
+      const d = 0.004
+      const res = build((st) => (st.stringers = [rod({ surface, position: 0.3, width: d, height: d })]))
+      const square = build((st) => (st.stringers = [{ id: 1, profile: 'rect', surface, position: 0.3, width: d, height: d, material: 'balsa-hard' }]))
+      const rib = res.parts.find((p) => p.group === 'ribs')
+      const flat = square.parts.find((p) => p.group === 'ribs')
+      // A round bottom takes less off the rib than a square notch the same size: the corners
+      // a quarter of the square less a quarter circle each, (1 - π/4) d² over two corners
+      const less = Math.abs(polygonArea(rib.outline)) - Math.abs(polygonArea(flat.outline))
+      expect(less, surface).toBeGreaterThan(0)
+      expect(less, surface).toBeCloseTo(((1 - Math.PI / 4) * d * d) / 2, 6)
+      // Its sides are straight and its opening as wide as the rod, so it goes in from the edge:
+      // points on the rib round the rod's centre lie on the rod's circle
+      const us = rib.outline.map(([u]) => u)
+      expect(new Set(us.map((u) => u.toFixed(6))).size).toBeGreaterThan(new Set(flat.outline.map(([u]) => u.toFixed(6))).size)
+    }
+  })
+
   it('leaves a rib built round the rod whole: the hole is inside the outline', () => {
     const { a } = build((st) => (st.stringers = [rod()]))
     const rb = buildRib(a, a.structure, a.ribs[2])
