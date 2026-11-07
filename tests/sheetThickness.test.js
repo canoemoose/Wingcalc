@@ -6,7 +6,7 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure, sheetThicknessAt, skinAt, hardPatches, patchThicknessAt } from '../src/lib/structure.js'
 import { buildParts, buildRib } from '../src/lib/ribs.js'
 import { patchSection, surfaceHeight, insetHeight, sectionAt, wing3d, partFor } from '../src/lib/wing3d.js'
-import { planDxf, parseDxf, defaultExportOptions } from '../src/lib/dxf.js'
+import { planDxf, parseDxf, defaultExportOptions, planEntities } from '../src/lib/dxf.js'
 
 // A two-panel wing (0.4 m then 0.3 m), the structure edited by `edit`
 function build(edit = () => {}) {
@@ -264,9 +264,14 @@ describe("a hard point's sheets on the plan DXF", () => {
       expect(h, layer).toHaveLength(1)
       expect(h[0].line.angle).toBe(angle)
     }
-    // The left half's hatches run the other way
+    // The left half's hatches run the same way on the page
     const left = parseDxf(planDxf(a, a.structure, parts, { ...opts, handedness: 'left' }).text)
-    expect(left.hatches.find((x) => x.layer === 'SHEETING-TOP').line.angle).toBe(135)
-    expect(left.hatches.find((x) => x.layer === 'HARDPOINT-BOTTOM').line.angle).toBe(75)
+    expect(left.hatches.find((x) => x.layer === 'SHEETING-TOP').line.angle).toBe(45)
+    expect(left.hatches.find((x) => x.layer === 'HARDPOINT-BOTTOM').line.angle).toBe(105)
+    // and so do its hatch lines, for the PDF: a top sheet's at 45° on the page
+    const ents = planEntities(a, a.structure, parts, { handedness: 'left' })
+    const line = ents.find((e) => e.layer === 'SHEETING-TOP' && e.hatchLine)
+    const [[x0, y0], [x1, y1]] = line.pts
+    expect(Math.abs(Math.atan2(y1 - y0, x1 - x0) * (180 / Math.PI)) % 180).toBeCloseTo(45, 6)
   })
 })

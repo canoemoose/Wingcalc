@@ -775,8 +775,16 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   const sides = handedness === 'pair' ? [1, -1] : handedness === 'left' ? [-1] : [1]
   const ents = []
   for (const k of sides) {
-    // Mirrored for the left half, a hatch's lines with it
-    for (const e of raw) ents.push({ ...e, pts: e.pts.map(([s, x]) => [k * s * MM, -x * MM]), ...(e.angle != null && k < 0 ? { angle: 180 - e.angle } : {}) })
+    // Mirrored for the left half; a hatch keeps its angle on the page, so both halves read alike
+    // (its lines, for the PDF, drawn afresh at the angle that mirrors back to it)
+    const at = ([s, x]) => [k * s * MM, -x * MM]
+    for (const e of raw) {
+      if (e.hatchLine && k < 0) continue
+      ents.push({ ...e, pts: e.pts.map(at) })
+      if (e.type === 'hatch' && k < 0) {
+        for (const seg of hatchLines(e.pts, HATCH_STEP, 180 - e.angle)) ents.push({ type: 'poly', layer: e.layer, pts: seg.map(at), closed: false, hatchLine: true })
+      }
+    }
     for (const tx of texts) {
       const h = 4
       const w = textWidth(tx.text, h)
