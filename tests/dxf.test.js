@@ -223,6 +223,12 @@ describe('wing export', () => {
     const hatch = d.hatches.filter((p) => p.layer === 'SHEETING')
     expect(hatch).toHaveLength(1)
     expect(hatch[0].pattern).toBe('ANSI31')
+    // Its lines 5 mm apart, square to them: the offset turned with the 45° lines
+    const { angle, offset } = hatch[0].line
+    expect(angle).toBe(45)
+    const dir = [Math.cos(Math.PI / 4), Math.sin(Math.PI / 4)]
+    expect(Math.abs(offset[0] * dir[1] - offset[1] * dir[0])).toBeCloseTo(5, 6)
+    expect(offset[0] * dir[0] + offset[1] * dir[1]).toBeCloseTo(0, 6)
     // Its boundary is the D-box: between the LE stock and the spar's rear face
     const outline = sheetOutline(a, st)
     expect(hatch[0].pts.length).toBe(outline.length)

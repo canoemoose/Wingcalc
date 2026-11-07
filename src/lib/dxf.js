@@ -369,13 +369,33 @@ export function toDxf2000(entities, layers = {}) {
       for (const [x, y] of e.pts) boundary.add(vertex(x, y))
       const paths = new HatchBoundaryPaths()
       paths.addPolylineBoundary(boundary)
-      // ANSI31's lines are 3.175 units apart at scale 1
-      dxf.addHatch(paths, pattern({ name: HatchPredefinedPatterns.ANSI31, scale: (HATCH_STEP * MM) / 3.175 }), { layerName: e.layer })
+      const h = dxf.addHatch(paths, pattern({ name: HatchPredefinedPatterns.ANSI31, scale: ansi31Scale() }), { layerName: e.layer })
+      h.pattern = ansi31
     } else if (e.type === 'poly') {
       dxf.addLWPolyline(e.pts.map((p) => ({ point: v(p) })), { layerName: e.layer, flags: e.closed ? LWPolylineFlags.Closed : LWPolylineFlags.None })
     }
   }
   return dxf.stringify()
+}
+
+// ANSI31 as AutoCAD defines it (acadiso.pat): one family of lines at 45°, 3.175 mm apart, its
+// offset between lines given in the drawing's axes, so turned with the lines. The library's own
+// ANSI31 has a 1.25 offset that isn't turned, which draws lines about 1.4 mm apart whatever the
+// scale; each plan hatch writes this instead (its pattern data, after the scale it shares).
+const ansi31Scale = () => (HATCH_STEP * MM) / 3.175
+function ansi31(dx, fill) {
+  const k = fill.scale || 1
+  const off = (3.175 * k) / Math.SQRT2
+  dx.push(52, 0)
+  dx.push(41, k)
+  dx.push(77, 0)
+  dx.push(78, 1)
+  dx.push(53, 45)
+  dx.push(43, 0)
+  dx.push(44, 0)
+  dx.push(45, -off)
+  dx.push(46, off)
+  dx.push(79, 0)
 }
 
 // Write entities as an R12 DXF. layerNames maps the logical layers to the names wanted;
@@ -833,7 +853,14 @@ export function parseDxf(text) {
       const n = Number(e[93]?.[0] ?? 0)
       const xs = (e[10] ?? []).slice(1, 1 + n)
       const ys = (e[20] ?? []).slice(1, 1 + n)
-      out.hatches.push({ layer: e[8]?.[0], pattern: e[2]?.[0], solid: e[70]?.[0] === '1', pts: xs.map((x, k) => [Number(x), Number(ys[k])]) })
+      out.hatches.push({
+        layer: e[8]?.[0],
+        pattern: e[2]?.[0],
+        solid: e[70]?.[0] === '1',
+        pts: xs.map((x, k) => [Number(x), Number(ys[k])]),
+        // The first pattern line's angle and its offset to the next, in the drawing's axes
+        line: e[53] ? { angle: Number(e[53][0]), offset: [Number(e[45]?.[0]), Number(e[46]?.[0])] } : null,
+      })
     } else if (value === 'LINE') {
       const e = read()
       out.lines.push({ layer: e[8]?.[0], a: [Number(e[10][0]), Number(e[20][0])], b: [Number(e[11][0]), Number(e[21][0])] })
