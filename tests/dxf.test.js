@@ -217,28 +217,35 @@ describe('wing export', () => {
 
   it('hatches the sheeted area on the plan, inside it, and nothing when open', () => {
     const plan = (s) => parseDxf(planDxf(a, s, parts, { ...defaultExportOptions(), handedness: 'right' }).text)
-    // An R2007 file, the sheeted area a real hatch (ANSI31, 45° lines) on its own layer
+    // An R2007 file, each sheet a real hatch (ANSI31, its lines 5 mm apart) as it's cut: one per
+    // sheeting part, top and bottom on layers of their own, hatched at 45° and 135°
     const d = plan(st)
     expect(d.version).toBe('AC1021')
-    const hatch = d.hatches.filter((p) => p.layer === 'SHEETING')
-    expect(hatch).toHaveLength(1)
-    expect(hatch[0].pattern).toBe('ANSI31')
-    // Its lines 5 mm apart, square to them: the offset turned with the 45° lines
-    const { angle, offset } = hatch[0].line
-    expect(angle).toBe(45)
-    const dir = [Math.cos(Math.PI / 4), Math.sin(Math.PI / 4)]
-    expect(Math.abs(offset[0] * dir[1] - offset[1] * dir[0])).toBeCloseTo(5, 6)
-    expect(offset[0] * dir[0] + offset[1] * dir[1]).toBeCloseTo(0, 6)
-    // Its boundary is the D-box: between the LE stock and the spar's rear face
-    const outline = sheetOutline(a, st)
-    expect(hatch[0].pts.length).toBe(outline.length)
-    for (const [x, y] of hatch[0].pts) expect(inside(outline.map(([s, c]) => [s * 1000, -c * 1000]), [x, y], 0.01)).toBe(true)
+    for (const [layer, surface, angle] of [['SHEETING-TOP', 'upper', 45], ['SHEETING-BOTTOM', 'lower', 135]]) {
+      const hatch = d.hatches.filter((p) => p.layer === layer)
+      const sheets = parts.filter((p) => p.group === 'sheeting' && p.surface === surface && !p.id.startsWith('HP'))
+      expect(hatch.length, layer).toBe(sheets.length)
+      expect(hatch.length).toBeGreaterThan(0)
+      for (const h of hatch) {
+        expect(h.pattern).toBe('ANSI31')
+        expect(h.line.angle).toBe(angle)
+        const t = (angle * Math.PI) / 180
+        expect(Math.abs(h.line.offset[0] * Math.sin(t) - h.line.offset[1] * Math.cos(t))).toBeCloseTo(5, 6)
+        // Within that side's sheeting
+        const outline = sheetOutline(a, st, 80, surface === 'upper' ? 'top' : 'bottom')
+        for (const [x, y] of h.pts) expect(inside(outline.map(([s, c]) => [s * 1000, -c * 1000]), [x, y], 0.05)).toBe(true)
+      }
+      // Each outlined too, on the same layer
+      expect(d.polylines.filter((p) => p.layer === layer && p.closed)).toHaveLength(sheets.length)
+    }
+    // Each named on the plan
+    expect(d.polylines.some((p) => p.layer === 'SHEET-NAMES')).toBe(true)
     // No loose hatch lines in the DXF (the PDF and preview still draw them)
-    expect(d.polylines.some((p) => p.layer === 'SHEETING')).toBe(false)
+    expect(d.polylines.some((p) => /^SHEETING/.test(p.layer) && !p.closed)).toBe(false)
     const ents = planEntities(a, st, parts, { handedness: 'right' })
-    expect(ents.filter((e) => e.layer === 'SHEETING' && e.hatchLine).length).toBeGreaterThan(20)
+    expect(ents.filter((e) => /^SHEETING/.test(e.layer) && e.hatchLine).length).toBeGreaterThan(20)
     const open = { ...st, covering: { ...st.covering, type: 'open' } }
-    expect(plan(open).hatches.some((p) => p.layer === 'SHEETING')).toBe(false)
+    expect(plan(open).hatches.some((p) => /^SHEETING/.test(p.layer))).toBe(false)
   })
 
   it('clips hatch lines to a polygon at 45°, a step apart', () => {

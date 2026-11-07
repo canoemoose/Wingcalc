@@ -369,7 +369,7 @@ export function toDxf2000(entities, layers = {}) {
       for (const [x, y] of e.pts) boundary.add(vertex(x, y))
       const paths = new HatchBoundaryPaths()
       paths.addPolylineBoundary(boundary)
-      const h = dxf.addHatch(paths, pattern({ name: HatchPredefinedPatterns.ANSI31, scale: ansi31Scale() }), { layerName: e.layer })
+      const h = dxf.addHatch(paths, pattern({ name: HatchPredefinedPatterns.ANSI31, scale: ansi31Scale(), angle: (e.angle ?? 45) - 45 }), { layerName: e.layer })
       h.pattern = ansi31
     } else if (e.type === 'poly') {
       dxf.addLWPolyline(e.pts.map((p) => ({ point: v(p) })), { layerName: e.layer, flags: e.closed ? LWPolylineFlags.Closed : LWPolylineFlags.None })
@@ -383,18 +383,21 @@ export function toDxf2000(entities, layers = {}) {
 // ANSI31 has a 1.25 offset that isn't turned, which draws lines about 1.4 mm apart whatever the
 // scale; each plan hatch writes this instead (its pattern data, after the scale it shares).
 const ansi31Scale = () => (HATCH_STEP * MM) / 3.175
+// The pattern turned by fill.angle (52): its lines at 45° plus that.
 function ansi31(dx, fill) {
   const k = fill.scale || 1
-  const off = (3.175 * k) / Math.SQRT2
-  dx.push(52, 0)
+  const turn = fill.angle ?? 0
+  const t = ((45 + turn) * Math.PI) / 180
+  const gap = 3.175 * k
+  dx.push(52, turn)
   dx.push(41, k)
   dx.push(77, 0)
   dx.push(78, 1)
-  dx.push(53, 45)
+  dx.push(53, 45 + turn)
   dx.push(43, 0)
   dx.push(44, 0)
-  dx.push(45, -off)
-  dx.push(46, off)
+  dx.push(45, -gap * Math.sin(t))
+  dx.push(46, gap * Math.cos(t))
   dx.push(79, 0)
 }
 
@@ -562,24 +565,27 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
 const HATCH_STEP = 0.005
 
 // Hatch lines at 45° clipped to a closed polygon, step apart: [[p0, p1], ...]
-export function hatchLines(poly, step) {
-  // In rotated coordinates (v = s − x, w = s + x) the hatch lines are w = const
-  const r = poly.map(([s, x]) => [s - x, s + x])
+// angle: the lines' direction on the drawing, degrees (45 runs up to the right, the leading edge
+// at the top); poly and the lines in plan, [s, x]
+export function hatchLines(poly, step, angle = 45) {
+  const t = (angle * Math.PI) / 180
+  const c = Math.cos(t)
+  const n = Math.sin(t)
+  // On the drawing (s, −x), turned so the lines run along u: u along them, w across
+  const r = poly.map(([sp, x]) => [sp * c - x * n, -sp * n - x * c])
   const ws = r.map(([, w]) => w)
   const out = []
-  const k = step * Math.SQRT2
-  for (let w = Math.ceil(Math.min(...ws) / k) * k; w < Math.max(...ws); w += k) {
+  for (let w = Math.ceil(Math.min(...ws) / step) * step; w < Math.max(...ws); w += step) {
     const hits = []
     for (let i = 0; i < r.length; i++) {
-      const [v0, w0] = r[i]
-      const [v1, w1] = r[(i + 1) % r.length]
-      if (w0 <= w !== w1 <= w) hits.push(v0 + ((w - w0) * (v1 - v0)) / (w1 - w0))
+      const [u0, w0] = r[i]
+      const [u1, w1] = r[(i + 1) % r.length]
+      if (w0 <= w !== w1 <= w) hits.push(u0 + ((w - w0) * (u1 - u0)) / (w1 - w0))
     }
     hits.sort((p, q) => p - q)
-    for (let i = 0; i + 1 < hits.length; i += 2) {
-      const back = ([v, ww]) => [(v + ww) / 2, (ww - v) / 2]
-      out.push([back([hits[i], w]), back([hits[i + 1], w])])
-    }
+    // Back to plan: drawing (X, Y) = (u c − w n, u n + w c), plan (s, x) = (X, −Y)
+    const back = (u) => [u * c - w * n, -(u * n + w * c)]
+    for (let i = 0; i + 1 < hits.length; i += 2) out.push([back(hits[i]), back(hits[i + 1])])
   }
   return out
 }
@@ -588,8 +594,9 @@ export function hatchLines(poly, step) {
 // at its thickness, with rib names, and each control surface's hinge spars, ends and tabs.
 // Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
 // Plan layers are fixed: OUTLINE (the wing), EDGES (the LE and TE stock's inner edges),
-// STRINGERS (stringers and reinforcement at their width), SPAR, RIBS, TEXT, SHEETING (the sheeted
-// area, hatched), HARDPOINT (sheeted hard points, outlined and hatched), HINGE (the fixed hinge
+// STRINGERS (stringers and reinforcement at their width), SPAR, RIBS, TEXT, SHEETING-TOP and
+// SHEETING-BOTTOM (each sheet as it's cut, outlined and hatched at 45° and 135°), HARDPOINT-TOP
+// and HARDPOINT-BOTTOM (sheeted hard points' own sheets, hatched at 0° and 90°), SHEET-NAMES, HINGE (the fixed hinge
 // spar), TABS (Mylar tabs or pin hinges), SURFACE (each moving surface), SERVO (the case and lug
 // span), SERVO-HATCH (its hatch opening, where it has one), SERVO-SLOT (the slot its arm comes
 // out through), SERVO-LEAD (its lead's route through the ribs to the root), BRAKE (each air
@@ -600,11 +607,23 @@ export function hatchLines(poly, step) {
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
   const add = (layer, pts, closed = false) => raw.push({ type: 'poly', layer, pts, closed })
+  const texts = []
+  // A sheet's name in the middle of its stretch along the span, a third of the way across it
+  // from the front for a top sheet and from the back for a bottom one, so a top and a bottom
+  // sheet's names don't land on each other
+  const sheetLabel = (text, poly, side) => {
+    const half = poly.length / 2
+    const k = Math.floor(half / 2)
+    const sm = poly[k][0]
+    const xf = poly[k][1]
+    const xb = poly[poly.length - 1 - k][1]
+    texts.push({ s: sm, x: side === 'top' ? xf + (xb - xf) / 3 : xb - (xb - xf) / 3, text, layer: 'SHEET-NAMES' })
+  }
   // A hatched area: its boundary as a hatch (the plan DXF fills it with a real hatch) and the
   // hatch lines themselves, marked, for the PDF and the preview, which draw lines
-  const hatched = (layer, poly) => {
-    raw.push({ type: 'hatch', layer, pts: poly, closed: true })
-    for (const seg of hatchLines(poly, HATCH_STEP)) raw.push({ type: 'poly', layer, pts: seg, closed: false, hatchLine: true })
+  const hatched = (layer, poly, angle = 45) => {
+    raw.push({ type: 'hatch', layer, pts: poly, closed: true, angle })
+    for (const seg of hatchLines(poly, HATCH_STEP, angle)) raw.push({ type: 'poly', layer, pts: seg, closed: false, hatchLine: true })
   }
   const flat = flatPanels(a.wing)
   // Outline, panel by panel, with the fuselage section (one-piece wings) and the tip
@@ -660,21 +679,31 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     const r = line(rear)
     if (f.length > 1 && r.length > 1) add('STRINGERS', [...f, ...r.reverse()], true)
   }
-  // Sheeting (D-box or fully sheeted), hatched
-  const sheet = sheetOutline(a, structure)
-  if (sheet) hatched('SHEETING', sheet)
-  // Sheeted hard points, hatched over the chord they sheet (on a fully sheeted wing the
-  // sheeting's own hatch already covers them)
-  if (structure.covering.type !== 'sheeted') {
-    for (const p of hardPatches(structure, a.rootS)) {
-      const ss = Array.from({ length: 13 }, (_, i) => p.s0 + ((p.s1 - p.s0) * i) / 12)
-      const spans = ss.map((s) => p.sides.map((sd) => patchSpan(a, structure, s, sd)).filter(Boolean))
-      if (spans.some((x) => !x.length)) continue
-      const front = ss.map((s, i) => [s, Math.min(...spans[i].map((x) => x[0]))])
-      const back = ss.map((s, i) => [s, Math.max(...spans[i].map((x) => x[1]))])
-      const poly = [...front, ...back.reverse()]
-      add('HARDPOINT', poly, true)
-      hatched('HARDPOINT', poly)
+  // Sheeting, as it's cut: each sheet (S1 and on, a hard point's own D-box among them) outlined
+  // and named, top and bottom on layers of their own and hatched different ways, so they read
+  // apart where they overlap on the plan
+  const SHEET_HATCH = { upper: 45, lower: 135 }
+  const PATCH_HATCH = { top: 0, bottom: 90 }
+  for (const p of parts.filter((q) => q.group === 'sheeting' && q.span && !/^HP/.test(q.id))) {
+    const side = p.surface === 'upper' ? 'top' : 'bottom'
+    const poly = sheetOutline(a, structure, 24, side, p.span)
+    if (!poly) continue
+    const layer = `SHEETING-${side.toUpperCase()}`
+    add(layer, poly, true)
+    hatched(layer, poly, SHEET_HATCH[p.surface])
+    sheetLabel(p.id, poly, side)
+  }
+  // Sheeted hard points' own sheets (HP1T, HP1B …), likewise, each side by itself
+  for (const h of hardPatches(structure, a.rootS)) {
+    for (const side of h.sides) {
+      const ss = Array.from({ length: 13 }, (_, i) => h.s0 + ((h.s1 - h.s0) * i) / 12)
+      const spans = ss.map((s) => patchSpan(a, structure, s, side))
+      if (spans.some((x) => !x)) continue
+      const poly = [...ss.map((s, i) => [s, spans[i][0]]), ...[...ss].reverse().map((s, i) => [s, spans[ss.length - 1 - i][1]])]
+      const layer = `HARDPOINT-${side.toUpperCase()}`
+      add(layer, poly, true)
+      hatched(layer, poly, PATCH_HATCH[side])
+      sheetLabel(`HP${h.id}${side === 'top' ? 'T' : 'B'}`, poly, side)
     }
   }
   // Control surfaces: both hinge spars' faces, the moving surface's ends (the gap clear of the
@@ -691,7 +720,6 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   }
   // Servo bays: the hatch opening (the mount plate's outline), the case and the span of its
   // lugs, and the lead's route from the bay's inner rib to the root, behind the main spar
-  const texts = []
   const sparBack = (s) => a.sparX(s) + (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const box = (x0, x1, s0, s1) => [[s0, x0], [s1, x0], [s1, x1], [s0, x1]]
@@ -747,11 +775,12 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   const sides = handedness === 'pair' ? [1, -1] : handedness === 'left' ? [-1] : [1]
   const ents = []
   for (const k of sides) {
-    for (const e of raw) ents.push({ ...e, pts: e.pts.map(([s, x]) => [k * s * MM, -x * MM]) })
+    // Mirrored for the left half, a hatch's lines with it
+    for (const e of raw) ents.push({ ...e, pts: e.pts.map(([s, x]) => [k * s * MM, -x * MM]), ...(e.angle != null && k < 0 ? { angle: 180 - e.angle } : {}) })
     for (const tx of texts) {
       const h = 4
       const w = textWidth(tx.text, h)
-      for (const pts of strokeText(tx.text, k * tx.s * MM - w / 2, -tx.x * MM, h)) ents.push({ type: 'poly', layer: 'TEXT', pts, closed: false })
+      for (const pts of strokeText(tx.text, k * tx.s * MM - w / 2, -tx.x * MM, h)) ents.push({ type: 'poly', layer: tx.layer ?? 'TEXT', pts, closed: false })
     }
   }
   return ents
@@ -766,8 +795,11 @@ export function planDxf(a, structure, parts, opts, baseName = 'wing') {
     SPAR: 1,
     RIBS: 5,
     TEXT: 8,
-    SHEETING: 9,
-    HARDPOINT: 252,
+    'SHEETING-TOP': 9,
+    'SHEETING-BOTTOM': 8,
+    'SHEET-NAMES': 8,
+    'HARDPOINT-TOP': 252,
+    'HARDPOINT-BOTTOM': 253,
     HINGE: 6,
     TABS: 216,
     SURFACE: 6,

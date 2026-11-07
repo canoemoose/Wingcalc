@@ -6,6 +6,7 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure, sheetThicknessAt, skinAt, hardPatches, patchThicknessAt } from '../src/lib/structure.js'
 import { buildParts, buildRib } from '../src/lib/ribs.js'
 import { patchSection, surfaceHeight, insetHeight, sectionAt, wing3d, partFor } from '../src/lib/wing3d.js'
+import { planDxf, parseDxf, defaultExportOptions } from '../src/lib/dxf.js'
 
 // A two-panel wing (0.4 m then 0.3 m), the structure edited by `edit`
 function build(edit = () => {}) {
@@ -247,5 +248,25 @@ describe('the D-box sheet over a hard point in 3D', () => {
     // The bottom sheet, which the hard point doesn't sheet, isn't split there
     const bottoms = w.solids.filter((q) => q.kind === 'sheet' && q.piece?.id.startsWith('sheet-lower'))
     expect(bottoms.length).toBeLessThan(tops.length)
+  })
+})
+
+describe("a hard point's sheets on the plan DXF", () => {
+  it('outlines and hatches each side on its own layer, at its own angle, mirrored on the left half', () => {
+    const { a, parts } = build((st) => {
+      st.covering.type = 'dbox'
+      st.ribs.hardPoints = [{ id: 1, d: 0.1, to: 0.2, label: 'Joiner', sheet: 'both', thickness: 0.003 }]
+    })
+    const opts = { ...defaultExportOptions(), handedness: 'right' }
+    const d = parseDxf(planDxf(a, a.structure, parts, opts).text)
+    for (const [layer, angle] of [['HARDPOINT-TOP', 0], ['HARDPOINT-BOTTOM', 90]]) {
+      const h = d.hatches.filter((x) => x.layer === layer)
+      expect(h, layer).toHaveLength(1)
+      expect(h[0].line.angle).toBe(angle)
+    }
+    // The left half's hatches run the other way
+    const left = parseDxf(planDxf(a, a.structure, parts, { ...opts, handedness: 'left' }).text)
+    expect(left.hatches.find((x) => x.layer === 'SHEETING-TOP').line.angle).toBe(135)
+    expect(left.hatches.find((x) => x.layer === 'HARDPOINT-BOTTOM').line.angle).toBe(90)
   })
 })

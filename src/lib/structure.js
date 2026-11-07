@@ -1156,7 +1156,8 @@ function sheetPanels(structure, surface, sparXi, leXi, teXi) {
 // the spar's rear face (D-box) or the TE stock (fully sheeted). Null when it's open. With a
 // side ('top' or 'bottom'), that surface's own sheeting only; without, the larger of the two
 // sheeted surfaces, so the plan shows whichever side reaches furthest aft.
-export function sheetOutline(a, structure, n = 80, side = null) {
+// range: [s0, s1] along the flat span to outline only that stretch (one sheet's), else the wing
+export function sheetOutline(a, structure, n = 80, side = null, range = null) {
   const cov = structure.covering.type
   if (cov !== 'dbox' && cov !== 'sheeted') return null
   const d = structure.covering.dbox ?? {}
@@ -1170,7 +1171,8 @@ export function sheetOutline(a, structure, n = 80, side = null) {
   const sides = (side ? [side] : ['top', 'bottom']).filter((sd) => cov === 'sheeted' || d[sd] !== false)
   if (!sides.length) return null
   const back = (s) => Math.max(...sides.map((sd) => backAt(s, sd)))
-  const ss = Array.from({ length: n + 1 }, (_, i) => a.rootS + ((a.tipS - a.rootS) * i) / n)
+  const [r0, r1] = range ?? [a.rootS, a.tipS]
+  const ss = Array.from({ length: n + 1 }, (_, i) => r0 + ((r1 - r0) * i) / n)
   return [...ss.map((s) => [s, sec(s).xl + structure.le.width]), ...[...ss].reverse().map((s) => [s, back(s)])]
 }
 
