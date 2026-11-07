@@ -2,20 +2,18 @@
 
 Open questions and notes that don't belong in the public docs.
 
-## Bundled polar data licence
-
-airfoiltools.com publishes no terms of use: a privacy policy and a footer reading "Copyright © 2026 All Rights Reserved", but no licence for reuse. The polars in `src/data/airfoils.json` are its own XFOIL output and presumably fall under that notice. The UIUC Airfoil Coordinates Database is publicly available, but neither its database page nor its home page states terms or a licence.
-
-The app is now public on GitHub Pages. Options:
-
-- Ask airfoiltools.com (via its contact page) for permission to redistribute the polars.
-- Regenerate the bundled polars ourselves with the same WebXFOIL build the app runs, from the UIUC coordinates. Removes the airfoiltools question; UIUC remains.
-
-Background on where the bundled and computed polars differ: `docs/scope-xfoil-wasm.md`.
-
 ## Design booklet
 
 Requested in the 17 October feedback: a complete downloadable design booklet for a wing, with its equations typeset LaTeX-style. Spec to follow from Matt and Sam; nothing built yet.
+
+## From the 25 October review (gone through 7 November)
+
+- **Flaps:** is the 3° progressive-stall allowance reasonable? It sets the flapped and crow CLmax on most wings; check it against a flown model.
+- **Crow:** offer it whenever the wing could use it (today only when it's switched on), and save the chosen Configuration with the project (today it isn't).
+- **Air brakes:** they need rethinking as a whole ("still a load of nonsense", Matt). Among it: the servo beside the brake box (as built) or inside it; their servo bays are still set in the wing editor, while control surfaces' moved to the structure editor.
+- **3D solid export** (STEP or similar) for CNC, very much later. G-code is out.
+- **Thin the caps** at a thin rib: the caps are still listed at full thickness in the cut list, with the rib's note saying to sand them down towards it.
+- **Live hinges** turn about the top skin only; a hinge on the bottom skin (for surfaces that mostly go up) isn't offered.
 
 ## From the 17 October feedback round
 
