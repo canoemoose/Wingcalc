@@ -45,10 +45,11 @@ const emit = defineEmits(['select', 'view'])
 
 const wrapEl = ref(null)
 const status = ref('Loading the 3D view…')
-// The covering (film, tissue, cloth) is never drawn: a skin that thin over thicker parts
-// renders badly, and the structure is what the view is for. Sheeting is structure, so it is.
-const show = ref({ core: true, sheeting: true, capStrips: true, ribs: true, surfaces: true, hinges: true, gussets: true, braces: true, spar: true, edges: true, tip: true, stringers: true, servos: true, servoPlates: true, brakes: true, outlines: true, mirror: false })
+// The covering (film, tissue, cloth) is off to start with: the structure is what the view is
+// for. Turned on, it's a see-through tint over the whole wing, and it never takes clicks.
+const show = ref({ covering: false, core: true, sheeting: true, capStrips: true, ribs: true, surfaces: true, hinges: true, gussets: true, braces: true, spar: true, edges: true, tip: true, stringers: true, servos: true, servoPlates: true, brakes: true, outlines: true, mirror: false })
 const LAYERS = [
+  { id: 'covering', label: 'Covering' },
   { id: 'core', label: 'Foam core' },
   { id: 'sheeting', label: 'Sheeting' },
   { id: 'capStrips', label: 'Cap strips' },
@@ -263,8 +264,38 @@ const COLOURS = {
 }
 // Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
 // hidden to see the fixed part's hinge spar
-const GROUPS = ['core', 'sheeting', 'capStrips', 'ribs', 'surfaces', 'hinges', 'servos', 'servoPlates', 'brakes', 'gussets', 'braces', 'spar', 'edges', 'tip', 'stringers']
+const GROUPS = ['covering', 'core', 'sheeting', 'capStrips', 'ribs', 'surfaces', 'hinges', 'servos', 'servoPlates', 'brakes', 'gussets', 'braces', 'spar', 'edges', 'tip', 'stringers']
 const OUTLINE_ANGLE = 30 // degrees between faces for an edge to be drawn
+const FILM = 0.0003 // m: how far the covering stands off the surface
+// The layer a solid (or a piece of the section's cut face) of this kind is on
+const LAYER_OF = {
+  hingeMoving: 'surfaces',
+  teMoving: 'surfaces',
+  coreMoving: 'surfaces',
+  core: 'core',
+  servo: 'servos',
+  servoOutput: 'servos',
+  servoLead: 'servos',
+  servoArm: 'servos',
+  horn: 'servos',
+  pushrod: 'servos',
+  plate: 'servoPlates',
+  servoBlock: 'servoPlates',
+  brakeBox: 'brakes',
+  blade: 'brakes',
+  hinge: 'hinges',
+  tab: 'hinges',
+  spar: 'spar',
+  web: 'spar',
+  stringer: 'stringers',
+  sheet: 'sheeting',
+  gusset: 'gussets',
+  brace: 'braces',
+  tip: 'tip',
+  rib: 'ribs',
+  capStrip: 'capStrips',
+}
+const layerOf = (kind) => LAYER_OF[kind] ?? 'edges'
 
 function cssColour(name, fallback) {
   const v = wrapEl.value ? getComputedStyle(wrapEl.value).getPropertyValue(name).trim() : ''
@@ -402,34 +433,34 @@ function build() {
   // butt against them; pushing them a hair back in depth stops the shared faces flickering.
   const behind = (c) => Object.assign(wood(c), { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
   const tube = props.structure.spar.type === 'tube'
+  // The covering: see-through film over the whole wing, its own layer (off unless turned on)
+  const skinMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(cssColour('--wc-accent', '#1f6feb')),
+    transparent: true,
+    opacity: 0.35,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    roughness: 0.4,
+    // Pulled a hair towards the camera so it's drawn over the sheeting (an even tint) rather
+    // than flickering through it
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  })
+  const skin = meshFrom(model.skin, skinMat, { creased: false })
+  // Real film lies on top of the structure: stand it a hair proud of the surface so parts built
+  // on that surface never poke through it where their own points fall differently on a curve
+  {
+    const pos = skin.geometry.attributes.position
+    const nor = skin.geometry.attributes.normal
+    for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i) + nor.getX(i) * FILM, pos.getY(i) + nor.getY(i) * FILM, pos.getZ(i) + nor.getZ(i) * FILM)
+    pos.needsUpdate = true
+  }
+  skin.renderOrder = 2
+  groups.covering.add(skin)
   for (const s of model.solids) {
     const colour = s.clash ? COLOURS.clash : s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
-    const group =
-      s.kind === 'hingeMoving' || s.kind === 'teMoving' || s.kind === 'coreMoving'
-        ? groups.surfaces
-        : s.kind === 'core'
-        ? groups.core
-        : s.kind === 'servo' || s.kind === 'servoOutput' || s.kind === 'servoLead' || s.kind === 'servoArm' || s.kind === 'horn' || s.kind === 'pushrod'
-        ? groups.servos
-        : s.kind === 'plate' || s.kind === 'servoBlock'
-        ? groups.servoPlates
-        : s.kind === 'brakeBox' || s.kind === 'blade'
-        ? groups.brakes
-        : s.kind === 'hinge' || s.kind === 'tab'
-        ? groups.hinges
-        : s.kind === 'spar' || s.kind === 'web'
-        ? groups.spar
-        : s.kind === 'stringer'
-          ? groups.stringers
-          : s.kind === 'sheet'
-            ? groups.sheeting
-            : s.kind === 'gusset'
-              ? groups.gussets
-              : s.kind === 'brace'
-              ? groups.braces
-              : s.kind === 'tip'
-                ? groups.tip
-                : groups.edges
+    const group = groups[layerOf(s.kind)]
     const mesh = meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour))
     mesh.userData.colour = colour
     // The piece it is, and the part that piece is cut as (if any)
@@ -604,7 +635,9 @@ function updateSection() {
     cut = new THREE.Group()
     const toWorld = ([x, h]) => new THREE.Vector3(...worldPoint(a, s, x, h))
     const lineMat = new THREE.LineBasicMaterial({ color: 0x3b2f20 })
+    // Only what's shown: a piece on a hidden layer leaves a gap in the cut face, as in the model
     for (const piece of sec.pieces) {
+      if (!show.value[layerOf(piece.kind)]) continue
       const contour = piece.pts.map(([x, h]) => new THREE.Vector2(x, h))
       if (THREE.ShapeUtils.isClockWise(contour)) contour.reverse()
       const holes = piece.holes.map((hole) => {
@@ -807,7 +840,7 @@ function onUp(e) {
   // Every solid on a layer that's shown (the outlines don't take clicks)
   const targets = []
   for (const g of [root, ...(show.value.mirror ? [mirror] : [])]) {
-    for (const id of GROUPS) if (show.value[id]) g.getObjectByName(id).traverse((o) => o.isMesh && targets.push(o))
+    for (const id of GROUPS) if (show.value[id] && id !== 'covering') g.getObjectByName(id).traverse((o) => o.isMesh && targets.push(o))
   }
   const hits = ray.intersectObjects(targets, false)
   // Ignore anything the section has cut away
@@ -919,7 +952,15 @@ onBeforeUnmount(() => {
 
 watch(() => [props.analysis, props.parts, props.structure, props.model], build)
 watch(() => props.selected, () => root && highlight())
-watch(show, applyVisibility, { deep: true })
+watch(
+  show,
+  () => {
+    applyVisibility()
+    // The cut face fills only the layers that are shown
+    if (section.value.on) updateSection()
+  },
+  { deep: true },
+)
 watch(section, updateSection, { deep: true })
 watch(projection, setProjection)
 </script>
