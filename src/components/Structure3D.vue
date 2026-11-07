@@ -411,6 +411,8 @@ function build() {
     scene.remove(root)
     scene.remove(mirror)
     disposeGroup(root)
+    // Its materials are its own (its geometry is root's; disposing that twice is harmless)
+    disposeGroup(mirror)
   }
   root = new THREE.Group()
   // Every solid's sharp edges, as lines that hide with it (and with Outlines off)
@@ -491,11 +493,18 @@ function build() {
     ;(c.surface ? groups.surfaces : groups.capStrips).add(outlined(strip))
   }
   mirror = root.clone()
-  // The centre rib's gussets in the other half are the ones on its other face: their own part,
-  // and their own material so they highlight apart
+  // The other half has materials of its own (shared ones stay shared within it): the section's
+  // clipping plane goes on this half's materials only, so the other half stays whole, and the
+  // centre rib's gussets there highlight apart
+  const copies = new Map()
+  mirror.traverse((m) => {
+    if (!m.material || Array.isArray(m.material)) return
+    if (!copies.has(m.material)) copies.set(m.material, m.material.clone())
+    m.material = copies.get(m.material)
+  })
+  // The centre rib's gussets in the other half are the ones on its other face: their own part
   mirror.traverse((m) => {
     if (!m.isMesh || !m.userData.pick?.mirrorMember) return
-    m.material = m.material.clone()
     m.userData.partId = partFor(props.parts, m.userData.pick, 0, { mirrored: true })
   })
   mirror.scale.x = -1
@@ -652,7 +661,7 @@ function updateSection() {
       const colour = new THREE.Color((piece.kind === 'spar' && props.structure.spar.type === 'tube') || piece.carbon ? COLOURS.tube : COLOURS[piece.kind]).multiplyScalar(0.82)
       // A foam core is drawn first and pushed back, so the caps and web let into it show over it
       const fill = new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide })
-      if (piece.kind === 'core') Object.assign(fill, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
+      if (piece.kind === 'core' || piece.kind === 'coreMoving') Object.assign(fill, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
       cut.add(new THREE.Mesh(geo, fill))
       cut.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(piece.pts.map(toWorld)), lineMat))
     }
@@ -944,6 +953,7 @@ onBeforeUnmount(() => {
   trackObs?.disconnect()
   controls?.dispose()
   disposeGroup(root)
+  disposeGroup(mirror)
   disposeGroup(cut)
   disposeGroup(cube.scene)
   renderer?.dispose()
@@ -1068,7 +1078,7 @@ watch(projection, setProjection)
       </div>
     </div>
     <figcaption class="wc-figure__caption">
-      Drag to turn, right-drag to move, scroll to zoom; <template v-if="!foam">click a rib to select it, or </template>a face of
+      Drag to turn, right-drag to move, scroll to zoom; click a piece to select it, or a face of
       the cube to see the wing from that side. Twist and dihedral are true to scale.<template v-if="foam">
         The foam core hides the spar caps let into it: turn its layer off to see them.</template>
     </figcaption>

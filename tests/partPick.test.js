@@ -9,7 +9,7 @@ import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
-import { wing3d, worldPoint, partFor, spanOf, panelRuns, wingPieces, pieceOutline } from '../src/lib/wing3d.js'
+import { wing3d, worldPoint, partFor, spanOf, panelRuns, wingPieces, pieceOutline, sectionAt } from '../src/lib/wing3d.js'
 import { pieceDrawing } from '../src/lib/pieceDrawing.js'
 import { bayLinkages } from '../src/lib/bayLinkage.js'
 import { bounds } from '../src/lib/ribs.js'
@@ -150,11 +150,97 @@ describe('the pieces of the wing', () => {
     const skins = pieces.filter((p) => p.kind === 'sheet')
     expect(skins).toHaveLength(2 * panelRuns(a).length)
     for (const s of skins) expect(parts.find((p) => p.id === s.part)?.group, s.name).toBe('skins')
-    // A core picked where it is gives the nearer template
+    // A pick by group, at a span, gives the nearer template
     const core = pieces.find((p) => p.kind === 'core')
     const templates = parts.filter((p) => p.group === 'templates')
     for (const t of templates) expect(partFor(parts, { groups: ['templates'] }, t.s + (t.end === 'inner' ? 0.01 : -0.01))).toBe(t.id)
     expect(core.name).toMatch(/^Foam core/)
+  })
+
+  it("gives a foam wing's cores no part, each at its own place, so each draws its own block", () => {
+    const { a, pieces } = build((st) => (st.construction = 'foam'))
+    const cores = pieces.filter((p) => p.kind === 'core' || p.kind === 'coreMoving')
+    // Inboard of, ahead of and outboard of the aileron, and the aileron's own
+    expect(cores.length).toBe(4)
+    for (const c of cores) {
+      expect(c.part, c.name).toBeNull()
+      expect(Number.isFinite(c.coreAt), c.name).toBe(true)
+      expect(pieceDrawing(a, a.structure, c), c.name).toBeTruthy()
+    }
+    // Each fixed core at its own place (the surface's core lies alongside the one ahead of it)
+    const fixed = cores.filter((c) => c.kind === 'core')
+    expect(new Set(fixed.map((c) => c.coreAt.toFixed(6))).size).toBe(fixed.length)
+  })
+
+  it("cuts a foam wing's section through the aileron with the surface's own core", () => {
+    const { a, st, parts } = build((x) => (x.construction = 'foam'))
+    const sf = a.surfaces.find((x) => x.ok && !x.stock)
+    expect(sf).toBeTruthy()
+    const s = (sf.moving[0] + sf.moving[1]) / 2
+    const kinds = sectionAt(a, st, parts, s).pieces.map((p) => p.kind)
+    expect(kinds).toContain('core')
+    expect(kinds).toContain('coreMoving')
+    // Clear of the surface, no moving core
+    expect(sectionAt(a, st, parts, a.rootS + 0.02).pieces.some((p) => p.kind === 'coreMoving')).toBe(false)
+  })
+
+  it("names a D-box's sheet over a sheeted hard point after it, as its part is", () => {
+    const { pieces, parts } = build((st) => {
+      st.covering.type = 'dbox'
+      st.covering.sheetThickness = 0.0015
+      st.ribs.hardPoints = [{ id: 1, d: 0.1, to: 0.2, label: 'Joiner', sheet: 'both' }]
+    })
+    const over = pieces.filter((p) => p.kind === 'sheet' && p.id.startsWith('sheet-') && p.name.includes('over Joiner'))
+    expect(over.map((p) => p.name).sort()).toEqual(['Bottom D-box sheeting over Joiner', 'Top D-box sheeting over Joiner'])
+    for (const p of over) expect(parts.find((q) => q.id === p.part)?.notes[0]).toContain('over Joiner')
+  })
+
+  it('takes a back-only shear web as its part, W{i}-R, named without a face', () => {
+    const { parts, pieces } = build((st) => {
+      builtUp(st)
+      st.spar.type = 'caps'
+      st.spar.webs = 'back'
+    })
+    const webs = pieces.filter((p) => p.kind === 'web')
+    expect(webs.length).toBeGreaterThan(0)
+    for (const w of webs) {
+      expect(w.part, w.name).toMatch(/^W\d+-R$/)
+      expect(parts.some((p) => p.id === w.part)).toBe(true)
+      expect(w.name).not.toMatch(/, (front|rear)$/)
+    }
+    // Both: a front and a rear web in each bay, each its own part
+    const both = build((st) => {
+      builtUp(st)
+      st.spar.type = 'caps'
+      st.spar.webs = 'both'
+    }).pieces.filter((p) => p.kind === 'web')
+    for (const w of both) expect(w.part, w.name).toBe(w.name.endsWith(', rear') ? w.part.replace(/-R$/, '') + '-R' : w.part.replace(/-R$/, ''))
+    expect(both.some((w) => w.name.endsWith(', rear'))).toBe(true)
+  })
+
+  it('takes each Mylar tab as the H part its width across the hinge, and a pin hinge as no part', () => {
+    const { parts, pieces, a } = build(builtUp)
+    const tabs = pieces.filter((p) => p.kind === 'tab')
+    expect(tabs.length).toBeGreaterThan(0)
+    const hParts = parts.filter((p) => /^H\d+$/.test(p.id))
+    const across = (p) => bounds(p.outline).w
+    for (const t of tabs) {
+      expect(t.name).toMatch(/^Mylar hinge tab/)
+      const sf = a.surfaces.find((s) => t.name.endsWith(s.label))
+      const part = hParts.find((p) => p.id === t.part)
+      expect(part, t.name).toBeTruthy()
+      expect(across(part)).toBeCloseTo(sf.tabAcross ?? a.structure.hinges.tabLength, 4)
+    }
+    const pinned = build((st) => {
+      builtUp(st)
+      st.hinges.type = 'pinned'
+    }).pieces.filter((p) => p.kind === 'tab')
+    expect(pinned.length).toBeGreaterThan(0)
+    for (const t of pinned) {
+      expect(t.name).toMatch(/^Pin hinge \d+, /)
+      expect(t.material).toBe('nylon')
+      expect(t.part).toBeNull()
+    }
   })
 })
 

@@ -553,7 +553,7 @@ export function movingSparSection(a, structure, sf, s) {
 // stringer's top) gets under its run and along the bay, the ceiling, the lowest the upper skin's
 // inside (or an upper stringer's underside) gets, and the base height (its lowest point) between
 // them: against the skin on its horn's face (b.face), b.inset from it, kept between the two (on
-// the floor where it doesn't fit). top is its highest point, the plate's top where that's higher.
+// the floor where it doesn't fit).
 export function servoBox(a, structure, b) {
   const { floor, ceil } = bayDepth(a, structure, b)
   const sv = b.servo
@@ -561,7 +561,7 @@ export function servoBox(a, structure, b) {
   const inset = Math.max(0, b.inset ?? 0)
   const want = b.face === 'top' ? ceil - height - inset : floor + inset
   const base = Math.max(floor, Math.min(ceil - height, want))
-  return { base, floor, ceil, top: base + sv.height }
+  return { base, floor, ceil }
 }
 
 // The floor and ceiling a bay's servo has, as servoBox
@@ -831,7 +831,11 @@ export function sectionAt(a, structure, parts, s) {
     const sec = a.section(s)
     // Stopping at a control surface's fixed hinge spar, as the 3D core does
     const sf = (a.surfaces ?? []).find((x) => x.ok && s > x.s0 && s < x.s1)
-    if (sec && sec.c > 1e-4) add('core', coreSection(a, st, s, sec.xl + Math.min(st.le.width || 0, sec.c / 2), sf ? sf.faces.fixedFront(s) : sec.xl + sec.c - Math.min(st.te.width || 0, sec.c / 2)))
+    const teFront = sec ? sec.xl + sec.c - Math.min(st.te.width || 0, sec.c / 2) : 0
+    if (sec && sec.c > 1e-4) add('core', coreSection(a, st, s, sec.xl + Math.min(st.le.width || 0, sec.c / 2), sf ? sf.faces.fixedFront(s) : teFront))
+    // and the moving surface's own core, from its hinge spar back, as the 3D coreMoving
+    const mv = (a.surfaces ?? []).find((x) => x.ok && !x.stock && s >= x.moving[0] && s <= x.moving[1])
+    if (mv && sec && sec.c > 1e-4) add('coreMoving', coreSection(a, st, s, mv.faces.movingRear(s), teFront, 8))
   }
   add('le', leSection(a, st, s))
   // Behind a surface that is the stock itself, the stock is that surface, bevelled at the hinge
@@ -1189,10 +1193,15 @@ export function wing3d(a, structure, parts, linkages = null) {
     const from = ribList[i - 1].s + ribList[i - 1].thickness / 2
     const to = ribList[i].s - ribList[i].thickness / 2
     if (to - from < 0.001) continue
+    // webBoxes lists the front web then the back, each only when it's on (websOf); the parts
+    // are named by face, W{i} the front and W{i}-R the back
+    const on = websOf(sp)
+    const faces = [...(on.front ? ['front'] : []), ...(on.back ? ['rear'] : [])]
     const n = webBoxes(a, st, from).length
     for (let k = 0; k < n; k++) {
-      const piece = { id: `web-${i}-${k}`, name: `Shear web, ${ribList[i - 1].name} to ${ribList[i].name}${n > 1 ? (k ? ', rear' : ', front') : ''}`, material: sp.webMaterial }
-      add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [k ? `W${i}-R` : `W${i}`] }, piece)
+      const face = faces[k] ?? 'front'
+      const piece = { id: `web-${i}-${k}`, name: `Shear web, ${ribList[i - 1].name} to ${ribList[i].name}${on.front && on.back ? `, ${face}` : ''}`, material: sp.webMaterial }
+      add('web', sweep(a, from, to, (s) => webBoxes(a, st, s)[k], 4), { ids: [face === 'rear' ? `W${i}-R` : `W${i}`] }, piece)
     }
   }
 
@@ -1216,7 +1225,10 @@ export function wing3d(a, structure, parts, linkages = null) {
         }
         stretches.forEach(([f, t], j) => {
           const ext = [k === 0 && Math.abs(f - r.from) < 1e-9 ? ends[0] : 0, k === runs.length - 1 && Math.abs(t - r.to) < 1e-9 ? ends[1] : 0]
-          const piece = { id: `sheet-${which}-${k}${j ? `-${j}` : ''}`, name: `${which === 'upper' ? 'Top' : 'Bottom'} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (f + t) / 2 }
+          // A D-box's stretch over a sheeted hard point is named after it, as its part is
+          const over = cov.type === 'dbox' ? (st.hardBays ?? []).find((h) => h.sides?.includes(side) && Math.abs(h.s0 - f) < 1e-4 && Math.abs(h.s1 - t) < 1e-4) : null
+          const top = which === 'upper' ? 'Top' : 'Bottom'
+          const piece = { id: `sheet-${which}-${k}${j ? `-${j}` : ''}`, name: over ? `${top} D-box sheeting over ${over.label}` : `${top} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (f + t) / 2 }
           add('sheet', sweep(a, f, t, (s) => sheetSection(a, st, s, which), 20, { extend: ext, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which }, piece)
         })
       })
@@ -1257,8 +1269,9 @@ export function wing3d(a, structure, parts, linkages = null) {
     const sec = (s) => a.section(s)
     const front = (s) => sec(s).xl + Math.min(st.le.width || 0, sec(s).c / 2)
     const teFront = (s) => sec(s).xl + sec(s).c - Math.min(st.te.width || 0, sec(s).c / 2)
-    // A core is picked as its nearer hot-wire template
-    const templates = { groups: ['templates'] }
+    // A core is no part: it's cut between two hot-wire templates, so it has no pick (its piece
+    // carries coreAt, where it is, for drawing its block)
+    const templates = null
     let at = s0
     let k = 0
     const core = (id, name, coreAt) => ({ id: `core-${id}`, name, material: st.foam?.core, coreAt })
@@ -1443,11 +1456,25 @@ export function wing3d(a, structure, parts, linkages = null) {
     const k = (braceFaces[b.part] = (braceFaces[b.part] ?? 0) + 1)
     solids.push({ ...b, pick: { ids: [b.part] }, piece: { id: `brace-${b.part}-${k}`, name: `Dihedral brace ${b.part}, ${k === 1 ? 'front' : 'rear'}`, material: parts.find((p) => p.id === b.part)?.material } })
   }
+  // The Mylar tabs are cut as one part per size across the hinge (ribs.js: H1, H2 and on), so a
+  // tab is the H part as wide across as the surface's tabs; a pin hinge is bought, no part
+  const tabParts = parts.filter((p) => p.group === 'hinges' && /^H\d+$/.test(p.id))
+  const acrossOf = (p) => Math.max(...p.outline.map((q) => q[0])) - Math.min(...p.outline.map((q) => q[0]))
+  const tabPart = (sf) => {
+    const across = sf?.tabAcross ?? st.hinges.tabLength
+    return tabParts.find((p) => Math.round(acrossOf(p) * 2000) === Math.round(across * 2000))?.id ?? null
+  }
   const tabsOn = {}
   for (const t of hingeTabPlates(a, st)) {
     const k = (tabsOn[t.surface] = (tabsOn[t.surface] ?? 0) + 1)
     const sf = surfaces.find((x) => x.id === t.surface)
-    solids.push({ ...t, pick: { ids: ['H1'] }, piece: { id: `tab-${t.surface}-${k}`, name: `Mylar hinge tab ${k}, ${sf?.label ?? 'control surface'}`, material: 'mylar' } })
+    const label = sf?.label ?? 'control surface'
+    if (sf?.hingeType === 'pinned') {
+      solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `Pin hinge ${k}, ${label}`, material: 'nylon' } })
+      continue
+    }
+    const id = tabPart(sf)
+    solids.push({ ...t, ...(id ? { pick: { ids: [id] } } : {}), piece: { id: `tab-${t.surface}-${k}`, name: `Mylar hinge tab ${k}, ${label}`, material: 'mylar' } })
   }
   const tip = tipBlock(a, st)
   if (tip) solids.push({ kind: 'tip', ...tip, pick: { ids: ['T1'] }, piece: { id: 'tip', name: 'Tip block', material: 'balsa-light' } })
@@ -1455,10 +1482,11 @@ export function wing3d(a, structure, parts, linkages = null) {
 }
 
 // The part a solid of the 3D view stands for (its pick, from wing3d), where it's picked at span
-// s, as the part's id, or null: one of a list of ids (the first that's a part), the part a gusset
+// s (only wingPieces passes a span, a sheet piece's mid-span `at`; Structure3D passes 0 and
+// takes a sheet's part from its piece), as the part's id, or null: one of a list of ids (the first that's a part), the part a gusset
 // is one of (its members; mirrored, in the other half, its mirrorMember if it has one), or of
 // the parts in some groups (on the same surface, if they say), the one whose span is nearest s,
-// and of those the one whose station s is nearest (a core's two hot-wire templates).
+// and of those the one whose station s is nearest.
 export function partFor(parts, pick, s, { mirrored = false } = {}) {
   if (!pick) return null
   if (pick.ids) return pick.ids.find((id) => parts.some((p) => p.id === id)) ?? null

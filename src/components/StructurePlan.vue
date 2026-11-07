@@ -23,7 +23,7 @@ import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } fro
 import { EYE, EYE_OFF } from '../lib/icons.js'
 import { flatPanels } from '../lib/wing.js'
 import { hingeTabOutline } from '../lib/controlSurfaces.js'
-import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan } from '../lib/structure.js'
+import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan, sparOuterFaces, stringerOk, movedEnd } from '../lib/structure.js'
 import { setBay, bayOf } from '../lib/servos.js'
 import { linkage } from '../lib/linkage.js'
 import { assemblyGeometry, linkOf, savedLink, hornOutline } from '../lib/bayLinkage.js'
@@ -113,13 +113,15 @@ const geom = computed(() => {
   }
   // Servo bays: the hatch opening, the servo's case, and its lead's route in to the root
   const pts = (list) => list.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' ')
+  const [, sparRear] = sparOuterFaces(an.sparX, sp)
   const servos = (an.bays ?? [])
     .filter((b) => b.ok)
     .map((b) => {
       const box = (x0, x1, s0, s1) => pts([[s0, x0], [s1, x0], [s1, x1], [s0, x1]])
+      // Off the spar's rear face (a back web's included), as the analysis places it
       const lead = Array.from({ length: 13 }, (_, i) => {
         const s = s0 + ((b.sA - s0) * i) / 12
-        return [s, an.sparX(s) + halfW + b.lead.offset + b.lead.diameter / 2]
+        return [s, sparRear(s) + b.lead.offset + b.lead.diameter / 2]
       })
       return {
         id: b.id,
@@ -154,7 +156,7 @@ const geom = computed(() => {
     le: line((s) => sec(s).xl + st.le.width),
     te: line((s) => sec(s).xl + sec(s).c - st.te.width),
     spar: band.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(' '),
-    stringers: (st.stringers ?? []).filter((x) => Number.isFinite(x.position)).map((x) => line((s) => sec(s).xl + x.position * sec(s).c)),
+    stringers: (st.stringers ?? []).filter(stringerOk).map((x) => line((s) => sec(s).xl + x.position * sec(s).c)),
     sheet,
     patches,
   }
@@ -239,7 +241,6 @@ onBeforeUnmount(() => {
   sizeObs?.disconnect()
   window.removeEventListener('resize', remeasure)
 })
-// Space kept clear of the rail (when editing) and the controls along the top and bottom, px
 // Layers: what's drawn
 const show = reactive({ sheeting: true, edges: true, stringers: true, spar: true, surfaces: true, hinges: true, brakes: true, servos: true, servoPlates: true, ribs: true })
 const LAYERS = [
@@ -284,7 +285,8 @@ watch(layersOpen, (open) => {
 })
 onBeforeUnmount(() => typeof document !== 'undefined' && document.removeEventListener('pointerdown', onLayersOutside, true))
 
-const inset = computed(() => ({ left: props.editable ? 76 : 8, right: 8, top: 40, bottom: 40 }))
+// Space kept clear of the controls along the top and bottom, px
+const inset = computed(() => ({ left: 8, right: 8, top: 40, bottom: 40 }))
 const vb = computed(() => {
   const f = fit.value
   const ins = inset.value
@@ -380,7 +382,7 @@ const nextId = (list) => list.reduce((m, x) => Math.max(m, x.id ?? 0), 0) + 1
 function setDistance(p, d) {
   const key = p.kind === 'hard' ? 'hardPoints' : 'manual'
   const r = structure.value.ribs
-  structure.value = { ...structure.value, ribs: { ...r, [key]: r[key].map((m) => (m.id === p.sourceId ? { ...m, d } : m)) } }
+  structure.value = { ...structure.value, ribs: { ...r, [key]: r[key].map((m) => (m.id === p.sourceId ? movedEnd(m, p.end, d, Math.max(0.003, r.thickness || 0)) : m)) } }
 }
 const clampD = (d) => Math.min(a.value.tipS - a.value.rootS - 0.003, Math.max(0.003, d))
 
@@ -784,7 +786,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           Add rib
         </button>
       </div>
-      <StageZoom v-model:snap="snapOn" :snap-step="editable ? fmt(step) : ''" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
+      <StageZoom v-model:snap="snapOn" :snap-step="editable || (show.servos && links.length) ? fmt(step) : ''" fit-title="Fit the wing to the view (F)" @zoom-in="zoomBy(1.25)" @zoom-out="zoomBy(1 / 1.25)" @fit="fitView" />
     </div>
     <!-- Always there and one line tall, so the page doesn't move as the selection changes -->
     <p class="wc-structure-plan__readout" :title="readoutText">
