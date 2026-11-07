@@ -2094,6 +2094,24 @@
   min-height: 360px;
   overflow: hidden;
 }
+/* Expanded, − + Fit sit in the stage's bottom-right corner, beside the margins' readout (kept
+   clear of them) */
+.wc-loads--expanded .wc-loads__stage {
+  position: relative;
+}
+.wc-loads--expanded .wc-loads__stage > .wc-loads__readout:last-of-type {
+  padding-right: 130px;
+}
+.wc-loads--expanded .wc-stage__corner--br {
+  right: 0;
+  bottom: 0;
+}
+.wc-loads__pan {
+  cursor: grab;
+}
+.wc-loads__pan:active {
+  cursor: grabbing;
+}
 /* Above each chart: its title and the key to its lines, clear of the corner button */
 .wc-loads__head {
   display: flex;
