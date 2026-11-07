@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sheetGaps, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -814,7 +814,13 @@ export function sectionAt(a, structure, parts, s) {
   const sp = st.spar
   const pieces = []
   const add = (kind, pts, holes = []) => pts && pts.length > 2 && pieces.push({ kind, pts, holes })
-  if (st.covering.type !== 'open' && st.covering.sheetThickness > 0) for (const w of ['upper', 'lower']) add('sheet', sheetSection(a, st, s, w))
+  // The sheeting, except where a hard point's own sheet takes its place on a fully sheeted wing
+  if (st.covering.type !== 'open' && st.covering.sheetThickness > 0) {
+    for (const w of ['upper', 'lower']) {
+      if (sheetGaps(st, w === 'upper' ? 'top' : 'bottom').some((g) => s > g.s0 + 1e-9 && s < g.s1 - 1e-9)) continue
+      add('sheet', sheetSection(a, st, s, w))
+    }
+  }
   // Sheeted hard points the cut passes through
   for (const h of hardPatches(st, a.rootS)) {
     if (s < h.s0 - 1e-9 || s > h.s1 + 1e-9) continue
@@ -1128,10 +1134,16 @@ export function wing3d(a, structure, parts, linkages = null) {
     // A sheet per panel, as each is cut
     const runs = panelRuns(a)
     for (const which of ['upper', 'lower']) {
+      // On a fully sheeted wing a hard point's own sheet takes the sheeting's place in its bays
+      const gaps = sheetGaps(st, which === 'upper' ? 'top' : 'bottom')
       runs.forEach((r, k) => {
-        const ext = [k === 0 ? ends[0] : 0, k === runs.length - 1 ? ends[1] : 0]
-        const piece = { id: `sheet-${which}-${k}`, name: `${which === 'upper' ? 'Top' : 'Bottom'} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (r.from + r.to) / 2 }
-        add('sheet', sweep(a, r.from, r.to, (s) => sheetSection(a, st, s, which), 20, { extend: ext, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which }, piece)
+        let stretches = [[r.from, r.to]]
+        for (const g of gaps) stretches = stretches.flatMap(([f, t]) => (g.s1 > f + 1e-6 && g.s0 < t - 1e-6 ? [[f, g.s0], [g.s1, t]] : [[f, t]])).filter(([f, t]) => t - f > 1e-4)
+        stretches.forEach(([f, t], j) => {
+          const ext = [k === 0 && Math.abs(f - r.from) < 1e-9 ? ends[0] : 0, k === runs.length - 1 && Math.abs(t - r.to) < 1e-9 ? ends[1] : 0]
+          const piece = { id: `sheet-${which}-${k}${j ? `-${j}` : ''}`, name: `${which === 'upper' ? 'Top' : 'Bottom'} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (f + t) / 2 }
+          add('sheet', sweep(a, f, t, (s) => sheetSection(a, st, s, which), 20, { extend: ext, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which }, piece)
+        })
       })
     }
   }

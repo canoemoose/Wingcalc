@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { websOf, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
+import { websOf, sheetGaps, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -1488,6 +1488,45 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     }
   }
 
+  // One sheeting template over ribs `ribs` (root outward) on one surface, t thick: S1 and on,
+  // or a hard point's own D-box (h). Returns the next number.
+  function sheetPart(ribs, surface, key, t, h, k) {
+    const widths = ribs.map((p) => ({ s: p.s, w: sheetWidth(a, structure, p.s, surface) }))
+    const s0 = widths[0].s
+    const outline = [...widths.map((w) => [w.s - s0, 0]).reverse(), ...widths.map((w) => [w.s - s0, w.w])]
+    // The arms' slots through this sheet (not those in a sheeted wing's hatch), developed as
+    // the sheet is: across the span as laid, round the surface from the leading edge stock
+    const side = surface === 'upper' ? 'top' : 'bottom'
+    const cuts = slots.filter((q) => q.surface === side && !(q.hatch && sheeted) && q.s0 >= s0 - 1e-6 && q.s1 <= widths.at(-1).s + 1e-6 && sheetedAt(q))
+    const slotHoles = cuts.map((q) => {
+      const sm = (q.s0 + q.s1) / 2
+      return rect(q.s0 - s0, sheetWidth(a, structure, sm, surface, q.x0), q.s1 - s0, sheetWidth(a, structure, sm, surface, q.x1))
+    })
+    const where = (surface === 'upper' ? 'Top' : 'Bottom')
+    parts.push({
+      id: `S${k}`,
+      name: `S${k}`,
+      group: 'sheeting',
+      material: structure.covering.sheetMaterial,
+      thickness: t,
+      qty: both ? 2 : 1,
+      outline: clean(outline),
+      holes: slotHoles,
+      etch: [],
+      label: null,
+      // Where it goes, for picking it in the 3D view
+      span: [s0, widths.at(-1).s],
+      surface,
+      notes: [
+        h
+          ? `${where} D-box sheeting over ${h.label} (${ribs[0].name} to ${ribs.at(-1).name}), ${(t * 1000).toFixed(1)} mm, its own piece; the panel's sheeting either side is cut to clear it. Developed from the ribs; approximate, cut oversize and trim`
+          : `${where} sheeting, ${key}${ribs.length < 2 ? '' : `, ${ribs[0].name} to ${ribs.at(-1).name}`}, developed from the ribs; approximate, cut oversize and trim`,
+        ...cuts.map((q) => `Slot for ${q.bay}'s servo arm; cut it once the sheet is trimmed to the wing`),
+      ],
+    })
+    return k + 1
+  }
+
   // Sheeting templates (developed, approximate) per panel and surface
   const cov = structure.covering
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
@@ -1502,47 +1541,38 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     let k = 1
     for (const [key, list] of panels) {
       if (list.length < 2) continue
-      // The panel's own thickness (in its middle), and any hard point's bays in it that differ
+      // The panel's own thickness (in its middle), and any hard point's bays in it that take a
+      // sheet of their own: a D-box of their own thickness, or on a fully sheeted wing the hard
+      // point's sheet (its part, HP1T and so on), which this sheet is cut to clear
       const sMid = (list[0].s + list.at(-1).s) / 2
       const panelT = sheetThicknessAt({ ...structure, hardBays: [] }, sMid)
-      const own = (structure.hardBays ?? []).filter((h) => h.dboxThickness > 0 && h.s1 > list[0].s + 1e-6 && h.s0 < list.at(-1).s - 1e-6 && Math.abs(h.dboxThickness - panelT) > 1e-9)
+      const own = (structure.hardBays ?? []).filter((h) => cov.type === 'dbox' && h.dboxThickness > 0 && Math.abs(h.dboxThickness - panelT) > 1e-9)
       for (const surface of ['upper', 'lower']) {
-        const widths = list.map((p) => ({ s: p.s, w: sheetWidth(a, structure, p.s, surface) }))
-        const s0 = widths[0].s
-        const outline = [...widths.map((w) => [w.s - s0, 0]).reverse(), ...widths.map((w) => [w.s - s0, w.w])]
-        // The arms' slots through this sheet (not those in a sheeted wing's hatch), developed as
-        // the sheet is: across the span as laid, round the surface from the leading edge stock
         const side = surface === 'upper' ? 'top' : 'bottom'
-        const cuts = slots.filter((q) => q.surface === side && !(q.hatch && sheeted) && q.s0 >= s0 - 1e-6 && q.s1 <= widths.at(-1).s + 1e-6 && sheetedAt(q))
-        const slotHoles = cuts.map((q) => {
-          const sm = (q.s0 + q.s1) / 2
-          return rect(q.s0 - s0, sheetWidth(a, structure, sm, surface, q.x0), q.s1 - s0, sheetWidth(a, structure, sm, surface, q.x1))
-        })
-        parts.push({
-          id: `S${k}`,
-          name: `S${k}`,
-          group: 'sheeting',
-          material: cov.sheetMaterial,
-          thickness: panelT,
-          qty: both ? 2 : 1,
-          outline: clean(outline),
-          holes: slotHoles,
-          etch: [],
-          label: null,
-          // Where it goes, for picking it in the 3D view
-          span: [s0, widths.at(-1).s],
-          surface,
-          notes: [
-            `${surface === 'upper' ? 'Top' : 'Bottom'} sheeting, ${key}, developed from the ribs; approximate, cut oversize and trim`,
-            ...own.map((h) => `Over ${h.label} it's ${(h.dboxThickness * 1000).toFixed(1)} mm: cut that stretch from that sheet`),
-            ...cuts.map((q) => `Slot for ${q.bay}'s servo arm; cut it once the sheet is trimmed to the wing`),
-          ],
-        })
-        k++
+        const gaps = sheetGaps(structure, side)
+        // Each bay between neighbouring ribs: the panel's sheet, a hard point's own D-box, or
+        // none (a fully sheeted wing's hard point); runs of bays alike make one piece each
+        const bayKind = (p, q) => {
+          const m = (p.s + q.s) / 2
+          if (gaps.some((g) => m > g.s0 && m < g.s1)) return null
+          const h = own.find((x) => m > x.s0 && m < x.s1)
+          return h ? h : 'panel'
+        }
+        const runs = []
+        for (let i = 1; i < list.length; i++) {
+          const kind = bayKind(list[i - 1], list[i])
+          if (!kind) continue
+          const last = runs.at(-1)
+          if (last && last.kind === kind && last.ribs.at(-1) === list[i - 1]) last.ribs.push(list[i])
+          else runs.push({ kind, ribs: [list[i - 1], list[i]] })
+        }
+        for (const run of runs) {
+          const h = run.kind === 'panel' ? null : run.kind
+          k = sheetPart(run.ribs, surface, key, h ? h.dboxThickness : panelT, h, k)
+        }
       }
     }
   }
-
   // A solid spar tapered to fit thin ribs: a template per panel (SP1 root outward), its outline the
   // spar's depth along its length (flat span from the panel's inner end), straight between the
   // ribs. Centred on the spar's centre line through a slot, its top edge straight under a top

@@ -776,6 +776,17 @@ export function skinAt(structure, q, sparXiRear, side, chord, caps = true, s = n
   // Cap strips stop short of the leading edge (capStripStart), so the rib's nose is uncovered
   const strip = caps && cov.capStrips && q >= capStripStart(structure, chord, side) - 1e-9 ? cov.capStripThickness || 0 : 0
   const sheet = sheetThicknessAt(structure, s)
+  // A sheeted hard point here: its own sheet in place of the sheeting on a fully sheeted wing,
+  // and behind any D-box sheeting (or in place of cap strips) otherwise
+  const patch = patchOver(structure, s, side)
+  if (patch) {
+    if (cov.type === 'sheeted') return patch.thickness
+    if (cov.type === 'dbox') {
+      const ext = side ? sheetExtent(structure, side, sparXiRear) : { to: sparXiRear }
+      if (ext && q <= ext.to) return sheet
+    }
+    return patch.thickness
+  }
   if (cov.type === 'sheeted') return sheet
   if (cov.type === 'dbox') {
     if (!side) return q <= sparXiRear ? sheet : strip
@@ -785,12 +796,33 @@ export function skinAt(structure, q, sparXiRear, side, chord, caps = true, s = n
   return strip
 }
 
+// The sheeted hard point over flat span position s on one side ('top' or 'bottom'; without one,
+// a hard point sheeted on both), from a resolved structure's hardBays, or null
+export function patchOver(structure, s, side = null) {
+  if (!Number.isFinite(s)) return null
+  for (const h of structure.hardBays ?? []) {
+    if (!h.sides || s < h.s0 - 1e-6 || s > h.s1 + 1e-6) continue
+    if (side ? h.sides.includes(side) : h.sides.length === 2) return h
+  }
+  return null
+}
+// Where a fully sheeted wing's own sheeting gives way to a hard point's sheet on one side, as
+// [{ s0, s1, patch }] along the flat span: the hard point's sheet is a part of its own there
+export function sheetGaps(structure, side) {
+  if (structure.covering?.type !== 'sheeted') return []
+  return (structure.hardBays ?? []).filter((h) => h.sides?.includes(side)).map((h) => ({ s0: h.s0, s1: h.s1, patch: h }))
+}
+
 // Skin thickness over the spar: sheeting, or cap strips on an open wing (they run over
 // the caps). With a side, that surface's own skin; with s, the sheet thickness there.
 export function skinAtSpar(structure, side, s = null) {
   // The spar is under whatever covers the ribs there: the rib notches are cut from below it.
-  // On an open wing that's the cap strips, which start ahead of the spar.
-  if (structure.covering.type === 'open') return structure.covering.capStrips ? structure.covering.capStripThickness || 0 : 0
+  // On an open wing that's the cap strips, which start ahead of the spar, or a hard point's sheet.
+  if (structure.covering.type === 'open') {
+    const patch = patchOver(structure, s, side)
+    if (patch) return patch.thickness
+    return structure.covering.capStrips ? structure.covering.capStripThickness || 0 : 0
+  }
   // Tested at the spar itself (not the nose), so a null cap-strip start still lies ahead of it
   return skinAt(structure, sparFraction(structure), 1, side, undefined, true, s)
 }

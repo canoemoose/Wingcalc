@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure, sheetThicknessAt, skinAt, hardPatches, patchThicknessAt } from '../src/lib/structure.js'
 import { buildParts, buildRib } from '../src/lib/ribs.js'
-import { patchSection } from '../src/lib/wing3d.js'
+import { patchSection, surfaceHeight, insetHeight, sectionAt, wing3d } from '../src/lib/wing3d.js'
 
 // A two-panel wing (0.4 m then 0.3 m), the structure edited by `edit`
 function build(edit = () => {}) {
@@ -136,5 +136,57 @@ describe('a covering that wants closer ribs', () => {
     expect(close.a.warnings.some((x) => x.id === 'rib-pitch-covering')).toBe(false)
     const gaps = close.a.ribs.slice(1).map((r, i) => r.s - close.a.ribs[i].s)
     expect(Math.max(...gaps)).toBeLessThanOrEqual(0.05 + 1e-6)
+  })
+})
+
+describe("a hard point's own sheet as its own piece", () => {
+  const joiner = (cov, more = {}) => (st) => {
+    st.covering.type = cov
+    st.covering.sheetThickness = 0.0015
+    st.ribs.hardPoints = [{ id: 1, d: 0.1, to: 0.2, label: 'Joiner', sheet: 'both', thickness: 0.003, ...more }]
+  }
+  const overlaps = (p, h) => p.span[0] < h.s1 - 1e-6 && p.span[1] > h.s0 + 1e-6
+
+  it("on a fully sheeted wing, cuts the wing's sheeting to clear the hard point's sheet", () => {
+    const { a, parts } = build(joiner('sheeted'))
+    const [h] = hardPatches(a.structure, a.rootS)
+    const sheets = parts.filter((p) => p.group === 'sheeting' && !p.id.startsWith('HP'))
+    // No panel sheet runs over the hard point; its own sheets, top and bottom, do
+    expect(sheets.some((p) => overlaps(p, h))).toBe(false)
+    expect(sheets.filter((p) => p.surface === 'upper').length).toBeGreaterThan(2)
+    for (const id of ['HP1T', 'HP1B']) expect(parts.find((p) => p.id === id).thickness).toBeCloseTo(0.003, 9)
+    // The ribs, spar and stringers there are inset by its thickness, not the sheeting's
+    const s = (h.s0 + h.s1) / 2
+    const sec = a.section(s)
+    const x = sec.xl + 0.5 * sec.c
+    expect(surfaceHeight(a, s, x, 'upper') - insetHeight(a, a.structure, s, x, 'upper')).toBeCloseTo(0.003, 3)
+    // In 3D and the section, its sheet alone, not the sheeting as well
+    const cut = sectionAt(a, a.structure, parts, s).pieces.filter((q) => q.kind === 'sheet')
+    expect(cut).toHaveLength(2)
+    const w = wing3d(a, a.structure, parts)
+    const panelSheets = w.solids.filter((q) => q.kind === 'sheet' && q.piece?.id.startsWith('sheet-'))
+    for (const q of panelSheets) {
+      const P = q.positions
+      for (let i = 0; i < P.length; i += 3) {
+        // Along the span is world x for this straight wing
+        expect(P[i] > h.s0 + 1e-3 && P[i] < h.s1 - 1e-3, q.piece.id).toBe(false)
+      }
+    }
+  })
+
+  it("on a D-box, makes the hard point's own D-box thickness a piece of its own", () => {
+    const { a, parts } = build(joiner('dbox', { dboxThickness: 0.0025 }))
+    const [h] = hardPatches(a.structure, a.rootS)
+    const sheets = parts.filter((p) => p.group === 'sheeting' && !p.id.startsWith('HP'))
+    const own = sheets.filter((p) => overlaps(p, h))
+    expect(own).toHaveLength(2)
+    for (const p of own) {
+      expect(p.thickness).toBeCloseTo(0.0025, 9)
+      expect(p.span[0]).toBeCloseTo(h.s0, 6)
+      expect(p.span[1]).toBeCloseTo(h.s1, 6)
+      expect(p.notes[0]).toContain('over Joiner')
+    }
+    // The panel's sheeting either side stops at it
+    for (const p of sheets.filter((q) => !own.includes(q))) expect(overlaps(p, h)).toBe(false)
   })
 })
