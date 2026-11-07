@@ -5,7 +5,7 @@
 // SVG source text on a 32-unit grid, used by the header (WingCalc.vue) and by
 // scripts/build-icons.mjs, which writes the files in public/.
 
-export const LOGO_BLUE = '#1f6feb'
+const LOGO_BLUE = '#1f6feb'
 const WHITE = '#ffffff'
 
 // The sailplane, nose up, centred across the tile: half span, root chord, tip chord,

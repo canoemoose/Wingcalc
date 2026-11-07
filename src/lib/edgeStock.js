@@ -389,7 +389,7 @@ function stationFit(item, shape, d, mode, theta = null) {
 // the section is taken as rounded: its height off the nose point grows with the square
 // root of the distance back, scaled from 2%. That's slightly inside a NACA nose.
 const NOSE_REF = 0.02
-export function noseSurf(sec, xi) {
+function noseSurf(sec, xi) {
   const f = sec.surf(xi)
   if (!(xi < NOSE_REF) || xi <= 0) return f
   const n = sec.surf(0)
@@ -470,7 +470,7 @@ export function edgeFace(item, sec, edge, { d = 0, theta = 0 } = {}) {
 // thinner). Stock that fits nowhere stays at the edge and is warned about there. Round stock is
 // always at the nose. Returns fitOver's result with the offset d.
 const OFFSET_STEPS = 16
-export function bestPlacement(item, section, stations, edge, { mode = 'square', floor = 0 } = {}) {
+function bestPlacement(item, section, stations, edge, { mode = 'square', floor = 0 } = {}) {
   const shapes = new Map()
   const at0 = fitOver(item, section, stations, edge, { mode }, shapes)
   // Let into the ribs, the strip always comes right to the edge

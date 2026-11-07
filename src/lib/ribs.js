@@ -135,7 +135,7 @@ function ribDirection(a, s, perpendicular) {
 // Cut the wing along a rib line through the spar point at s. Returns the outer surfaces in
 // rib coordinates, or null if the line leaves the wing (a perpendicular rib too close to a
 // panel end) or the wing has no chord there.
-export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINTS } = {}) {
+function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINTS } = {}) {
   const sec0 = a.section(s)
   if (!sec0 || !(sec0.c > 1e-4)) return null
   const [ds, dx] = ribDirection(a, s, perpendicular)
@@ -1864,7 +1864,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
 // The sides of a rib that get corner gussets: +1 outboard, -1 inboard. Never outboard of the
 // tip rib or inboard of a two-piece wing's root rib, where they'd hang outside the wing; with
 // 'one' side, outboard unless that's the tip.
-export function gussetSides(part, gussets, rootJoint) {
+function gussetSides(part, gussets, rootJoint) {
   const tip = part.kind === 'tip'
   const plugRoot = part.kind === 'root' && rootJoint === 'two-piece'
   if (gussets.sides === 'one') return [tip ? -1 : 1]
@@ -1960,7 +1960,7 @@ function sheetWidth(a, structure, s, surface, x = null) {
 
 // The spar's runs, one per panel (and the centre section), root outward, as { name, from, to }:
 // the panels a spar template is cut for (as wing3d.js panelRuns)
-export function sparRuns(a) {
+function sparRuns(a) {
   const out = []
   if (a.rootS < a.sampler.half - 1e-6) out.push({ name: 'centre section', from: a.rootS, to: a.sampler.half })
   a.sampler.ends.forEach((e, i) => {
@@ -2219,7 +2219,7 @@ function stripCutList(a, structure, parts, both) {
 // fully sheeted wing), open the rest. The surface is measured along the section from root
 // rib to tip rib, plus both faces of a rounded tip's block (as its plan area, a little
 // under).
-export function coveredArea(a, structure, n = 40) {
+function coveredArea(a, structure, n = 40) {
   const cov = structure.covering
   const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
   // Length of one surface between chord fractions q0 and q1

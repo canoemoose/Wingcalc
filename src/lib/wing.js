@@ -160,7 +160,7 @@ function sortedStations(panel) {
 
 // Edge functions of a panel: le(f) and te(f) give the chordwise positions of the leading and
 // trailing edges at flat spanwise fraction f (0..1). null if the panel's shape is invalid.
-export function panelEdges(inner, outer, panel) {
+function panelEdges(inner, outer, panel) {
   if (!(panel.length > 0) || !(panel.tipChord >= 0)) return null
   if (Array.isArray(panel.stations)) {
     const list = sortedStations(panel)
@@ -197,7 +197,7 @@ export function panelEdges(inner, outer, panel) {
 
 // Spanwise fractions at which to sample a panel: evenly spaced, plus every station, so
 // corners between straight segments are hit exactly. Excludes 0.
-export function sampleFractions(panel, n = SAMPLES) {
+function sampleFractions(panel, n = SAMPLES) {
   const fs = []
   for (let i = 1; i <= n; i++) fs.push(i / n)
   if (Array.isArray(panel.stations) && panel.length > 0) {

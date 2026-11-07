@@ -67,7 +67,7 @@ function panelOf(sampler, id) {
 }
 
 // The room each side of the blades or plate between the ribs
-export const clearOf = (type) => (type === 'spoiler' ? BRAKE.clearSpoiler : BRAKE.clearBlade)
+const clearOf = (type) => (type === 'spoiler' ? BRAKE.clearSpoiler : BRAKE.clearBlade)
 
 // A brake placed on the wing: its centre s, the ribs either side (sA, sB: their centres, a rib
 // thickness t out from its length plus the clearance), the gap between the ribs' faces (gap),

@@ -147,7 +147,7 @@ function template(a, structure, p, datum, { kerf, leadIn, s, surfaces }) {
 
 // The hot-wire templates for every core: a pair per panel, named HW1-I (inner end) and HW1-O
 // (outer end), root outward. opts: { kerf, leadIn } in metres.
-export function hotWireTemplates(a, structure, { kerf = WIRE_KERF, leadIn = LEAD_IN } = {}) {
+function hotWireTemplates(a, structure, { kerf = WIRE_KERF, leadIn = LEAD_IN } = {}) {
   const out = []
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
   const breaks = dihedralBreaks(a)

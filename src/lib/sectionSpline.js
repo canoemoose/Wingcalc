@@ -619,7 +619,7 @@ function solveLinear(A, b) {
 
 // Maps a normalised point list Q (the frame normalise(base) gives) back into the base's own frame. Every field of Q is
 // kept, so flags and nose radii carry over.
-export function denormalise(base, Q) {
+function denormalise(base, Q) {
   const N = normalise(base), ang = (N.angle * Math.PI) / 180, c = Math.cos(ang), s = Math.sin(ang), L = N.chord
   const le = base[leIndex(base)]
   return Q.map((p) => ({ ...p, x: le.x + (p.x * c - p.y * s) * L, y: le.y + (p.x * s + p.y * c) * L }))

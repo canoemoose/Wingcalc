@@ -29,7 +29,7 @@ export const POLAR_THRESHOLDS = {
 }
 
 // Thresholds for the geometry heuristic, upper-surface ordinate at 1.25% chord (% chord).
-export const GEOMETRY_THRESHOLDS = {
+const GEOMETRY_THRESHOLDS = {
   sharpBelow: 1.6,
   gentleAbove: 2.1,
   // Max camber this far forward (fraction of chord) or closer tends to give an abrupt
@@ -183,7 +183,7 @@ export function rateGeometry({ upper125, camber, camberPos, re = null }, t = GEO
 // the semi-span, 0 at the centreline). A stall that starts outboard, where the ailerons are,
 // drops a wing and costs roll control just when it's needed, so it makes the wing's
 // character one step sharper than the section's alone.
-export const SPANWISE_THRESHOLDS = { inboard: 0.4, outboard: 0.6 }
+const SPANWISE_THRESHOLDS = { inboard: 0.4, outboard: 0.6 }
 
 export function spanwiseStall(onsetEta, t = SPANWISE_THRESHOLDS) {
   const pct = Math.round(onsetEta * 100)
@@ -216,7 +216,7 @@ export function sharper(rating) {
 // gained over the last 3° before the peak, as a fraction of linear) and the post-stall drop
 // per degree. Values sit inside the bands the polar method uses, so the drawn curve and
 // the rating tell the same story.
-export const INDICATIVE_SHAPE = {
+const INDICATIVE_SHAPE = {
   gentle: { rounding: 0.3, dropPerDeg: 0.012 },
   moderate: { rounding: 0.4, dropPerDeg: 0.05 },
   sharp: { rounding: 0.55, dropPerDeg: 0.12 },

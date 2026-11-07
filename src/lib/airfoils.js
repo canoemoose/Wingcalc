@@ -300,7 +300,7 @@ export function sectionModel(airfoil, computed = null) {
 const MIN_RE = 20000 // below this the bundled data says nothing useful; hold it there
 // How far (degrees of wing angle of attack) a stalled section behind a deflected flap is taken
 // to hold its maximum lift while the rest of the wing goes on to its own stall.
-export const PROGRESSIVE_STALL_DEG = 3
+const PROGRESSIVE_STALL_DEG = 3
 
 // The wing's maximum lift from the spanwise lift distribution (lifting line) at a stall
 // speed: each station's Reynolds number, thickness and twist give its own Clmax and share of
@@ -309,7 +309,7 @@ export const PROGRESSIVE_STALL_DEG = 3
 // effects(s), if given, is the change a deflected flap or aileron makes at flat span station s
 // ({ dAlphaL0 (°), dClMax } or null; flaps.js): the zero-lift angle shift enters as twist (a
 // flap down is wash-in), and Clmax moves by the increment.
-export function wingStallAt(model, planform, { span, area, speed, effects = null }) {
+function wingStallAt(model, planform, { span, area, speed, effects = null }) {
   const at = (eta) => planform.atY(eta * planform.semiSpan)
   const reOf = (c) => Math.max(MIN_RE, (speed * c) / NU_SEA_LEVEL)
   const effectAt = (p) => (effects && p.s !== null && p.s !== undefined ? effects(p.s) : null)

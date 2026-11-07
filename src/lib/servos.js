@@ -113,7 +113,7 @@ export const SERVO_CLASSES = Object.keys(SERVOS)
 export const PLATE_EDGE = 0.003
 export const CUTOUT_GAP = 0.0005
 // The least ply left between a lug screw's pilot hole and the cut-out, m
-export const SCREW_EDGE = 0.001
+const SCREW_EDGE = 0.001
 // Room left beside the servo in the bay, each side across the span, to the rib faces: the
 // cut-out's gap and the plate's edge, m
 export const SERVO_CLEARANCE = CUTOUT_GAP + PLATE_EDGE
@@ -540,7 +540,7 @@ const lugScrewHeight = (parts) => (parts[0].box.z[0] + parts[0].box.z[1]) / 2
 // length beyond the case along the chord, kept clear of the lead's stub. Each { x, s, z } ranges
 // (placed parts, about the case's centre, square to the servo) and screw, its pilot hole's
 // [x, z] (the hole runs along the span). None for a servo whose lugs lie flat.
-export const BLOCK = { depth: 0.006, past: 0.003 }
+const BLOCK = { depth: 0.006, past: 0.003 }
 function screwBlocks(parts, t, z, thickness, face, axisS) {
   const lugs = parts.slice(1).filter((p) => p.kind === 'servo' && p.box && Math.abs(p.box.z[1] - p.box.z[0] - t) > 1e-6 && p.box.s[1] - p.box.s[0] <= t + 1e-6)
   if (!lugs.length) return []
@@ -946,7 +946,7 @@ export function setBay(controls, surfaceId, patch) {
 
 // A bay's fore setting as saved, or null: { value, by } with a finite value and by 'length' or
 // 'chord'
-export function foreOf(f) {
+function foreOf(f) {
   if (!f || !Number.isFinite(f.value)) return null
   return { value: f.value, by: f.by === 'chord' ? 'chord' : 'length' }
 }
@@ -1023,7 +1023,7 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
 
 // Where a bay's ribs (their centres) stand from its servo's centre across the span, [inboard,
 // outboard]: the servo's bay (bayRange), clear of the cap strips, and half a rib each side
-export function bayRibs(servo, ribThickness = 0, capOverhang = 0) {
+function bayRibs(servo, ribThickness = 0, capOverhang = 0) {
   const t = Math.max(0, ribThickness)
   const c = Math.max(0, capOverhang)
   const [lo, hi] = servo.bayRange ?? [-servo.width / 2 - SERVO_CLEARANCE, servo.width / 2 + SERVO_CLEARANCE]

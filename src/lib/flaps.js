@@ -22,7 +22,7 @@ import { resolveSurfaces, crowState } from './controlSurfaces.js'
 // the plain-flap correction of USAF DATCOM §6.1.1.1 and matches XFOIL at model Reynolds
 // numbers (NACA 2412, 25% flap, Re 200,000: about 0.55 at 20°, 0.43 at 45°), so it errs low: less
 // lift from the flap, a higher stall speed.
-export const FLAP_CORRECTION = [
+const FLAP_CORRECTION = [
   [0, 0.8],
   [10, 0.8],
   [20, 0.6],
@@ -32,7 +32,7 @@ export const FLAP_CORRECTION = [
 // Section Clmax gained as a fraction of the lift gained at a fixed angle of attack: a plain
 // flap stalls the section a few degrees earlier, so it gets less than the full increment.
 // XFOIL gives 0.46 at 20° and 0.39 at 45° for the case above.
-export const CLMAX_RATIO = 0.45
+const CLMAX_RATIO = 0.45
 // The most Clmax a plain flap adds: Raymer's 0.9 for plain and split flaps at landing settings.
 export const CLMAX_GAIN_CAP = 0.9
 
@@ -90,7 +90,7 @@ export function polarIncrement(clean, deflected) {
 
 // --- Flight configurations -------------------------------------------------------------------
 
-export const CONFIGURATIONS = {
+const CONFIGURATIONS = {
   clean: { label: 'Clean' },
   flaps: { label: 'Flaps' },
   crow: { label: 'Crow' },
@@ -134,7 +134,7 @@ export function flightConfigurations(sampler, controls) {
 }
 
 // The flap polar a deflected surface wants (its hinge and deflection, rounded as for the cache).
-export const surfaceFlap = (e) => flapSpec({ hinge: e.hinge, deflection: e.deflection })
+const surfaceFlap = (e) => flapSpec({ hinge: e.hinge, deflection: e.deflection })
 
 // Each flat span station's change, from the surfaces deflected and their increments (by id):
 // (s) => { dAlphaL0, dClMax } or null where nothing is deflected.

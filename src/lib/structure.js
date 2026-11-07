@@ -136,7 +136,7 @@ export const gussetEdges = (structure) =>
   ['le', 'te'].filter((e) => structure.gussets[e] && (e === 'te' || !structure.le.type || structure.le.type === 'balsa'))
 
 // Smallest rib spacing the suggestion will use; below it the spar or sheeting needs to change.
-export const MIN_SPACING = 0.015
+const MIN_SPACING = 0.015
 // Least rib material left around a hole or notch before it's flagged.
 export const MIN_MATERIAL = 0.0015
 
@@ -323,12 +323,12 @@ export function sectionAt(sampler, coords, baseThickness) {
 // --- Rib positions -------------------------------------------------------------------------
 
 // Where the wing's ribs start: the centreline for a one-piece wing, else the fuselage side.
-export function rootRibS(sampler, structure) {
+function rootRibS(sampler, structure) {
   return structure.ribs.rootJoint === 'two-piece' ? sampler.half : 0
 }
 
 // The tip rib: the outer end of the last panel (a rounded tip is a block beyond it).
-export function tipRibS(sampler) {
+function tipRibS(sampler) {
   return sampler.ends.at(-1).outer.s
 }
 
@@ -453,7 +453,7 @@ export function sheetThicknessAt(structure, s = null) {
 }
 // The structure with its per-panel sheet thicknesses and hard-point bays laid out along the span,
 // for sheetThicknessAt. panels: the wing's panels (for their ids), in sampler.ends order.
-export function resolveSheeting(structure, sampler, panels, rootS) {
+function resolveSheeting(structure, sampler, panels, rootS) {
   const by = structure.covering?.panelThickness ?? {}
   const sheetPanels = sampler.ends.map((e, i) => {
     const t = by[panels?.[i]?.id]
@@ -737,7 +737,7 @@ export function sparOuterFaces(line, sp) {
 }
 
 // Which surface a sheet is on: 'top' or 'bottom' (the analysis calls them 'upper' and 'lower').
-export function sheetSide(surface) {
+function sheetSide(surface) {
   return surface === 'upper' ? 'top' : surface === 'lower' ? 'bottom' : surface
 }
 
@@ -760,7 +760,7 @@ export function sheetExtent(structure, side, sparXi, { leXi = 0, teXi = 1 } = {}
 
 // How far the leading-edge stock reaches back from the nose, m: a rod or dowel's diameter, a
 // strip's width, nothing when the sheeting forms the nose
-export function leStockDepth(le) {
+function leStockDepth(le) {
   if (isRound(le)) return le.diameter || 0
   return le?.type === 'none' ? 0 : le?.width || 0
 }
@@ -861,14 +861,14 @@ const isCaps = (sp) => sp.type === 'caps' || sp.type === 'box'
 // splits the rib
 export const thinRibsOf = (sp) => (isCaps(sp) ? sp.capThinRibs ?? 'split' : sp.thinRibs ?? 'margin')
 // The fit a rib takes where the spar is too deep for it, by the rib's name: its own, else the wing's
-export const ribFitOf = (sp, name) => sp.ribFits?.[name] ?? thinRibsOf(sp)
+const ribFitOf = (sp, name) => sp.ribFits?.[name] ?? thinRibsOf(sp)
 // Whether a rib with `inner` of room inside the skins at the spar is too thin for the full spar
 // with the margin round it (for caps, between their notches)
 export const thinRib = (sp, inner) =>
   isCaps(sp) ? 2 * sp.capThickness > inner - ribMarginOf(sp) + 1e-9 : sp.solidDepth > inner - bridgesOf(sp) * ribMarginOf(sp) + 1e-9
 // A caps spar's cap thickness where there's `inner` of room inside the skins: its own, or for
 // 'margin' thinned to leave the margin of rib between the notches
-export function capThicknessFor(sp, inner, fit) {
+function capThicknessFor(sp, inner, fit) {
   if (fit === 'split' || !Number.isFinite(inner)) return sp.capThickness
   return Math.max(0, Math.min(sp.capThickness, (inner - ribMarginOf(sp)) / 2))
 }
@@ -897,7 +897,7 @@ export function solidDepthFor(sp, inner, fit) {
 }
 // The fit the strength check takes along the span: the margin (the shallower spar, on the safe
 // side) unless every rib too thin for the spar is split
-export const strengthFit = (sp) => (allSplit(sp) ? 'split' : 'margin')
+const strengthFit = (sp) => (allSplit(sp) ? 'split' : 'margin')
 // A solid spar's depth at s: straight between the ribs' depths (sp.taper, which analyseStructure
 // works out once the ribs are placed), else the depth for `inner` of room at the strength fit
 export function solidDepthAt(sp, s, inner = null) {
@@ -1304,9 +1304,9 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
 
 // How close (m) a surface's hinge must be to the trailing edge stock's front face for the stock
 // itself to be the moving surface
-export const STOCK_HINGE = 0.003
+const STOCK_HINGE = 0.003
 // How far short of a hinge spar's far face its Mylar tabs stop, m
-export const TAB_CLEAR = 0.001
+const TAB_CLEAR = 0.001
 
 // The built surface whose span (between its end ribs) contains s, strictly, or null.
 export function surfaceAt(surfaces, s) {
@@ -1413,7 +1413,7 @@ export function brakeLayouts({ sampler, section, sparX, structure, rootS, tipS }
 // Warnings that need the servo bays as well: a bay (or its leads' route to the root) in the way
 // of an air brake's box. A bay alongside its own brake shares a rib with it, so only an
 // overlap of the two in plan counts. Adds to each brake's warnings.
-export function brakeBayClashes(brakes, bays, { sparX, structure }) {
+function brakeBayClashes(brakes, bays, { sparX, structure }) {
   const [, sparRear] = sparOuterFaces(sparX, structure.spar)
   for (const r of brakes.filter((x) => x.ok)) {
     for (const b of bays.filter((x) => x.ok)) {
@@ -2165,13 +2165,13 @@ export const MODES = {
   coreShear: 'Core shear',
 }
 // A foam wing's names for the modes it shares with a built-up one
-export const FOAM_MODE_LABELS = { sheet: 'Skin crushing' }
+const FOAM_MODE_LABELS = { sheet: 'Skin crushing' }
 // The chart colour slot of each mode (1 to 6). A foam wing's own two never appear with the
 // two rib-spacing modes, so they take those slots.
 export const MODE_SLOTS = { compression: 1, tension: 2, sheet: 3, webShear: 4, webBuckling: 5, spacing: 6, coreShear: 5, wrinkling: 6 }
 
 // Lowest margin per mode, and where.
-export function summarise(stations) {
+function summarise(stations) {
   const out = {}
   for (const r of stations) {
     for (const [k, v] of Object.entries(r.ms)) {

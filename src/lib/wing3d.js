@@ -219,7 +219,7 @@ function sweepRings(a, s0, s1, section, n, extend) {
 }
 
 // A hollow tube from matching outer and inner rings: both walls, and annular ends.
-export function tubeLoft(outer, inner) {
+function tubeLoft(outer, inner) {
   const n = outer.length
   const m = outer[0].length
   const positions = []
@@ -311,7 +311,7 @@ export function stringerBox(a, structure, str, s, which) {
 
 // A carbon tube stringer's bore at s, matching stringerBox's ring point for point, or null for
 // any other profile
-export function stringerBore(a, structure, str, s, which) {
+function stringerBore(a, structure, str, s, which) {
   if (str.profile !== 'tube') return null
   const ring = stringerBox(a, structure, str, s, which)
   if (!ring) return null
@@ -324,7 +324,7 @@ export function stringerBore(a, structure, str, s, which) {
   return ring.map(([x, z]) => [cx + (x - cx) * k, cz + (z - cz) * k])
 }
 // Whether a stringer is carbon (drawn in carbon's colour)
-export const isCarbon = (material) => typeof material === 'string' && material.startsWith('carbon')
+const isCarbon = (material) => typeof material === 'string' && material.startsWith('carbon')
 
 // The spar's cross-section(s) at s, as [x, h] corners, seated as the ribs are cut: caps in
 // their notches top and bottom, a tube or slotted spar centred between the inset surfaces.
@@ -515,7 +515,7 @@ export function leSection(a, structure, s) {
 // A control surface's fixed hinge spar at s: from its front face to its rear face (a box that
 // follows the section), the full height of the ribs and their cap strips, which stop at it:
 // only sheeting covers it. sf from structure.js surfaceLayouts.
-export function hingeSparSection(a, structure, sf, s) {
+function hingeSparSection(a, structure, sf, s) {
   const x0 = sf.faces.fixedFront(s)
   const x1 = sf.faces.fixedRear(s)
   const up = (x) => insetHeight(a, structure, s, x, 'upper', false)
@@ -531,7 +531,7 @@ export function hingeSparSection(a, structure, sf, s) {
 // The moving surface's hinge spar at s: its front bevelled to a point at the centre line (the
 // top face at sf.bevel.top from square, the bottom at sf.bevel.bottom), its rear face square,
 // as tall as the fixed one (ribs and cap strips).
-export function movingSparSection(a, structure, sf, s) {
+function movingSparSection(a, structure, sf, s) {
   const xa = sf.faces.apex(s)
   const xr = sf.faces.movingRear(s)
   const up = (x) => insetHeight(a, structure, s, x, 'upper', false)
@@ -896,7 +896,7 @@ export function sectionAt(a, structure, parts, s) {
 
 // A rounded tip's block, as carved: the wing's own surface from the tip rib's outer face out
 // to the end of the tip, closing to a point. Null without a rounded tip.
-export function tipBlock(a, structure) {
+function tipBlock(a, structure) {
   const along = tipStations(a, structure)
   if (!along.length) return null
   const xs = cosine(36) // the same chordwise points as the covering
@@ -1021,7 +1021,7 @@ export function gussetPrisms(a, structure, parts) {
 // The Mylar hinge tabs as thin flat plates, each tabWidth along the hinge by tabLength square
 // across it, centred on the hinge line at its centre line (midway between the skins), half into each
 // hinge spar.
-export function hingeTabPlates(a, structure) {
+function hingeTabPlates(a, structure) {
   const h = structure.hinges
   const t = h?.tabThickness || 0.0002
   if (!(h?.tabWidth > 0) || !(h?.tabLength > 0)) return []
@@ -1056,7 +1056,7 @@ export function bracePlates(a, structure, parts) {
 // One brace's plates: on the spar's front and rear faces (outside any shear web), each between
 // faces x0(s) and x1(s), with at(s) giving its { s, top, bottom } there; ss, the stations along
 // it (the break among them); span, [from, to] along the flat span.
-export function braceGeometry(a, structure, p) {
+function braceGeometry(a, structure, p) {
   const sp = structure.spar
   const { s: sb, inner, outer, depths, centre } = p.at
   const t = p.thickness

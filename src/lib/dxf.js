@@ -225,7 +225,7 @@ function labelOnPart(name, outline, holes) {
 
 // A label engraved on the sheet just below a part too small to carry its own, so it can be
 // told apart while it's picked out of the sheet
-export const WASTE_LABEL = 2.5 // mm cap height
+const WASTE_LABEL = 2.5 // mm cap height
 const WASTE_GAP = 1 // mm between the part and its label
 
 // One part as entities in its own millimetre coordinates (bounding box at the origin), with
@@ -356,7 +356,7 @@ const clean = (s) => String(s).replace(/[^\x20-\x7e]/g, (c) => ({ '°': ' deg', 
 // every polyline as an LWPOLYLINE on its layer, and every hatched area as a HATCH with the ANSI31
 // pattern (45° lines HATCH_STEP apart), so CAD shows and edits it as a hatch. layers maps each
 // layer's name to its ACI colour.
-export function toDxf2000(entities, layers = {}) {
+function toDxf2000(entities, layers = {}) {
   const dxf = new DxfWriter()
   dxf.setUnits(Units.Millimeters)
   const used = [...new Set(entities.map((e) => e.layer))]

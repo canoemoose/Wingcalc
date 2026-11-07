@@ -200,7 +200,7 @@ export function hornOutline(frame, horn, face) {
 // The horn's material either side of its holes, m
 export const HORN_EDGE = 0.0025
 // The least a horn's centre keeps from its surface's ends, m
-export const HORN_END = 0.008
+const HORN_END = 0.008
 
 // Whether a servo fits the bay where it is: the depth it needs (its own, or its plate's top,
 // plus the headroom) against the depth the bay has. { ok, need, room }
@@ -211,7 +211,7 @@ export function servoFits(frame, servo) {
 
 // The arm, its row, the horn and the facing the link resolves to for a servo (the defaults
 // filled in), with the arm's choices.
-export function resolveLink(servo, link) {
+function resolveLink(servo, link) {
   const arms = armsFor(servoById(servo.id) ?? servo)
   const arm = (link.arm && arms.find((x) => x.id === link.arm)) || arms[0] || armById('generic-micro')
   const armRow = Math.min(Math.max(0, link.armRow ?? 0), arm.holes.length - 1)
@@ -254,7 +254,7 @@ function autoFacing(frame, servo, parts, face) {
 // cells[i][j] for arm hole i, horn hole j, each solveAssembly's result with clear (how far the
 // arm's hole stays outside the skin on the horn's face over the travel used, beyond the
 // pushrod's end, m: negative where it goes in) and outside (clear isn't negative).
-export function holeMatrix(frame, servo, parts, { travel, facing, face }) {
+function holeMatrix(frame, servo, parts, { travel, facing, face }) {
   const opts = { up: frame.up, down: frame.down, travel, facing, depth: frame.depth }
   const radii = parts.arm.holes[parts.armRow].radii
   let best = null
@@ -512,7 +512,7 @@ export function linkageSolids(frame, servo, c) {
 // --- Fit in the wing -----------------------------------------------------------------------------
 
 // The pushrod's clearance over the skin, beyond the wire's radius, m: its clevis or Z-bend
-export const ROD_CLEAR = 0.001
+const ROD_CLEAR = 0.001
 
 // Whether the linkage works outside the wing over the travel the designed throws use. The arm
 // comes out through the skin on the horn's face: its slot, drawn on the plan, is in the hatch when

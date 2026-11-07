@@ -14,8 +14,8 @@ export const NU_SEA_LEVEL = 1.4607e-5 // m²/s, ISA sea-level kinematic viscosit
 // moderately tapered wings of reasonable aspect ratio.
 export const WING_CLMAX_FACTOR = 0.9
 
-export const SPAN_MIN = 0.6 // m
-export const SPAN_MAX = 3.0 // m
+const SPAN_MIN = 0.6 // m
+const SPAN_MAX = 3.0 // m
 
 // Planform from one of four entry modes:
 //   'panels' – optional fuselage width, root chord, then one or more panels per side, each

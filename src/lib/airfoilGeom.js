@@ -81,7 +81,7 @@ export function thicknessForm({ thickness, thicknessPos, leRadius }) {
 }
 
 // NACA four-digit mean line. Returns { yc, slope } at x.
-export function camberLine({ camber, camberPos }) {
+function camberLine({ camber, camberPos }) {
   const m = camber
   const p = camberPos
   return (x) => {

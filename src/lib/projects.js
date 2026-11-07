@@ -10,7 +10,7 @@ import { normaliseUnits } from './units.js'
 import { defaultControls } from './controlSurfaces.js'
 import { isDrawnSection } from './sectionSpline.js'
 
-export const FORMAT_VERSION = 1
+const FORMAT_VERSION = 1
 const PROJECTS_KEY = 'wingcalc.projects.v1'
 const AUTOSAVE_KEY = 'wingcalc.autosave.v1'
 const FILE_APP = 'wingcalc'
