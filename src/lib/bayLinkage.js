@@ -231,7 +231,7 @@ export function assemblyGeometry(frame, servo, { arm, armRow, horn }, armIndex, 
 }
 
 // The facing whose arm points towards the horn's face (up for a top horn), or 1 where neither
-// does more than the other (a flat servo's arm swings across the span)
+// does more than the other
 function autoFacing(frame, servo, parts, face) {
   const want = face === 'bottom' ? -1 : 1
   let best = 1
@@ -302,7 +302,8 @@ function lineAt(line, x) {
 // nearest to fitting) and the solved assembly. servo: installed.
 export function configureBay(frame, servo, link) {
   const parts = resolveLink(servo, link)
-  const face = link.hornFace === 'bottom' ? 'bottom' : 'top'
+  // Anything but 'top' is the bottom, as servos.js and structure.js read it
+  const face = link.hornFace === 'top' ? 'top' : 'bottom'
   const travel = TRAVELS.includes(link.travel) ? link.travel : 45
   const facing = link.facing === 1 || link.facing === -1 ? link.facing : autoFacing(frame, servo, parts, face)
   const matrix = holeMatrix(frame, servo, parts, { travel, facing, face })
@@ -615,7 +616,7 @@ export function linkageFit(a, b, frame, c) {
   // cap strips where they stand proud of them at the skin
   const ribs = b.inner ?? [b.sA, b.sB]
   const cov = st.covering
-  const cap = cov?.capStrips && st.construction !== 'foam' ? Math.max(0, ((cov.capStripWidth || 0) - (st.ribs?.thickness || 0)) / 2) : 0
+  const cap = cov?.capStrips && cov.type !== 'sheeted' && st.construction !== 'foam' ? Math.max(0, ((cov.capStripWidth || 0) - (st.ribs?.thickness || 0)) / 2) : 0
   // The arm reaches this far along the span either side of its centre line: half its width
   // across it and half its thickness along the output's axis, as they lie
   const spread = (t) => Math.abs(v3.cross(L.a, L.armDir(t))[1]) * (A.width / 2) + Math.abs(L.a[1]) * half

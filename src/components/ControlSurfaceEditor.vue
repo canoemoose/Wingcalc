@@ -13,7 +13,7 @@ import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import { wingSampler } from '../lib/wing.js'
-import { ROLES, resolveSurfaces, addSurface, crowState, MIN_SURFACE } from '../lib/controlSurfaces.js'
+import { ROLES, resolveSurfaces, addSurface, crowState, MIN_SURFACE, clampHingeFraction } from '../lib/controlSurfaces.js'
 import { dropBay } from '../lib/servos.js'
 import { format, defaultUnit } from '../lib/units.js'
 
@@ -23,8 +23,6 @@ const props = defineProps({
   wing: { type: Object, required: true },
   // The panel selected in the plan, where Add puts a new surface
   selectedPanel: { type: Number, default: null },
-  // The all-up mass, kg: which servo class a bay takes unless one is chosen
-  mass: { type: Number, default: 0 },
   idPrefix: { type: String, default: 'wc' },
   // A new surface's depth (m): the trailing edge stock's width; null for a quarter of the chord
   surfaceDepth: { type: Number, default: null },
@@ -38,7 +36,7 @@ const resolved = computed(() => (sampler.value ? resolveSurfaces(sampler.value, 
 // The local chord at flat span position s, so a hinge can be typed in millimetres
 const chordAt = (s) => (Number.isFinite(s) ? sampler.value?.at(s)?.c ?? null : null)
 const shown = computed(() => resolved.value.map((r) => ({ r, s: controls.value.surfaces.find((x) => x.id === r.id) })).filter((x) => x.s))
-const crow = computed(() => crowState(controls.value))
+const crow = computed(() => crowState(controls.value, resolved.value))
 
 const id = (k) => `${props.idPrefix}-cs-${k}`
 const len = (v) => (Number.isFinite(v) ? format(v, 'length', defaultUnit(props.system, 'length')) : '–')
@@ -92,7 +90,10 @@ const PROBLEMS = {
 function summary(r, s) {
   const i = panelIndex(s.panel)
   const where = i >= 0 ? `panel ${i + 1}, ${len(s.from)} to ${len(s.to)}` : 'no panel'
-  const hinge = Math.round(s.hingeIn * 100) === Math.round(s.hingeOut * 100) ? `${Math.round(s.hingeIn * 100)}%` : `${Math.round(s.hingeIn * 100)} to ${Math.round(s.hingeOut * 100)}%`
+  // The resolved hinges (from the depth when one is set), as the inputs show them
+  const hin = Math.round((r.hingeIn ?? s.hingeIn) * 100)
+  const hout = Math.round((r.hingeOut ?? s.hingeOut) * 100)
+  const hinge = hin === hout ? `${hin}%` : `${hin} to ${hout}%`
   return `${where}, hinge at ${hinge}, ${s.up}° up, ${s.down}° down${r.ok ? '' : ', not used'}`
 }
 const sectionSummary = computed(() => {
@@ -150,8 +151,8 @@ function setLanding(v) {
         </div>
         <p class="wc-field__hint">From the panel's inner end, flat along it. A rib goes at each end.</p>
         <div class="wc-structure-editor__pair">
-          <UnitInput :id="id(`${s.id}-hin`)" :model-value="r.hingeIn ?? s.hingeIn" quantity="percent" :system="system" :chord="chordAt(r.s0)" chord-name="chord there" label="Hinge, inner end" @update:model-value="update(s.id, { hingeIn: $event, depth: null })" />
-          <UnitInput :id="id(`${s.id}-hout`)" :model-value="r.hingeOut ?? s.hingeOut" quantity="percent" :system="system" :chord="chordAt(r.s1)" chord-name="chord there" label="Hinge, outer end" @update:model-value="update(s.id, { hingeOut: $event, depth: null })" />
+          <UnitInput :id="id(`${s.id}-hin`)" :model-value="r.hingeIn ?? s.hingeIn" quantity="percent" :system="system" :chord="chordAt(r.s0)" chord-name="chord there" label="Hinge, inner end" @update:model-value="update(s.id, { hingeIn: clampHingeFraction($event), depth: null })" />
+          <UnitInput :id="id(`${s.id}-hout`)" :model-value="r.hingeOut ?? s.hingeOut" quantity="percent" :system="system" :chord="chordAt(r.s1)" chord-name="chord there" label="Hinge, outer end" @update:model-value="update(s.id, { hingeOut: clampHingeFraction($event), depth: null })" />
         </div>
         <p class="wc-field__hint">Percent of the chord back from the leading edge; 75% makes a surface a quarter of the chord. The hinge runs straight between its ends.</p>
         <ParamInput :id="id(`${s.id}-up`)" :model-value="s.up" label="Most up" suffix="°" :min="0" :max="60" :step="1" @update:model-value="update(s.id, { up: $event })" />
@@ -200,7 +201,7 @@ function setLanding(v) {
           </label>
           <template v-if="controls.crow.enabled">
             <ParamInput :id="id('crow-up')" :model-value="controls.crow.aileronUp" label="Ailerons up" suffix="°" :min="0" :max="60" :step="1" @update:model-value="setCrow('aileronUp', $event)" />
-            <ParamInput :id="id('crow-down')" :model-value="controls.crow.flapDown" label="Flaps down" suffix="°" :min="0" :max="80" :step="1" @update:model-value="setCrow('flapDown', $event)" />
+            <ParamInput :id="id('crow-down')" :model-value="controls.crow.flapDown" label="Flaps down" suffix="°" :min="0" :max="70" :step="1" @update:model-value="setCrow('flapDown', $event)" />
             <p class="wc-field__hint">{{ crowResult }}</p>
           </template>
         </template>

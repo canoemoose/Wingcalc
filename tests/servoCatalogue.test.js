@@ -67,7 +67,12 @@ describe('published specs', () => {
     expect(ratedTorque([{ volts: 6.6, torque: 3 }, { volts: 7.4, torque: 4 }])).toBe(3)
     expect(ratedTorque([{ volts: 4.8, torque: 1 }, { volts: 7.2, torque: 4 }])).toBe(4)
     expect(ratedTorque([{ volts: 4.8, torque: null }])).toBeNull()
-    for (const s of FUTABA) expect(s.torque, s.model).toBe(ratedTorque(s.ratings))
+    // Every model, drawn or not, by the same rule: a 6 and 7.4 V Hitec by its 6 V figure
+    for (const s of CATALOGUE) expect(s.torque, s.model).toBe(ratedTorque(s.ratings))
+    const hitec = (m) => HITEC.find((s) => s.model === m)
+    expect(hitec('HS-7115TH').torque).toBeCloseTo(3.2 * KG_CM, 9)
+    expect(hitec('D89MW').torque).toBeCloseTo(5.3 * KG_CM, 9)
+    expect(hitec('D145SW').torque).toBeCloseTo(3.9 * KG_CM, 9)
   })
 })
 

@@ -74,7 +74,9 @@ const servoOptions = computed(() => [
 // On the panel selected in the plan, or the last one
 const addTo = computed(() => (Number.isInteger(props.selectedPanel) && props.selectedPanel < props.wing.panels.length ? props.selectedPanel : props.wing.panels.length - 1))
 const nextType = computed(() => (brakes.value.length ? brakes.value.at(-1).type : 'blade'))
-const canAdd = computed(() => !!(sampler.value && addBrake(sampler.value, brakes.value, addTo.value, nextType.value)))
+// Whether each type fits on that panel (a blade can fit where a spoiler doesn't)
+const canAddType = (type) => !!(sampler.value && addBrake(sampler.value, brakes.value, addTo.value, type))
+const canAdd = computed(() => ({ blade: canAddType('blade'), spoiler: canAddType('spoiler') }))
 function add(type = nextType.value) {
   const res = sampler.value && addBrake(sampler.value, brakes.value, addTo.value, type)
   if (!res) return
@@ -188,7 +190,7 @@ const sectionSummary = computed(() => {
               @update:model-value="setBayFor(b, { at: $event })"
             />
             <p class="wc-field__hint">
-              Between two ribs behind the main spar. Leave it empty for the bay beside the brake, on its inboard side, sharing the brake's end rib. Its weight counts in the wing and relieves the spar in bending.
+              Between two ribs behind the main spar. Its centre is measured from the panel's inner end, flat along it. Leave it empty for the bay beside the brake, on its inboard side, sharing the brake's end rib. Its weight counts in the wing and relieves the spar in bending.
             </p>
           </template>
         </div>
@@ -197,10 +199,10 @@ const sectionSummary = computed(() => {
         None. Add one to the selected panel here or from the plan's bar along the top: blades rise vertically out of a box in the wing, a spoiler is a plate hinged on the top surface.
       </p>
       <div class="wc-structure-editor__actions">
-        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd" :title="canAdd ? '' : 'No room left on that panel'" @click="add('blade')">
+        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd.blade" :title="canAdd.blade ? '' : 'No room left on that panel'" @click="add('blade')">
           Add blade brake to panel {{ addTo + 1 }}
         </button>
-        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd" :title="canAdd ? '' : 'No room left on that panel'" @click="add('spoiler')">
+        <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd.spoiler" :title="canAdd.spoiler ? '' : 'No room left on that panel'" @click="add('spoiler')">
           Add spoiler to panel {{ addTo + 1 }}
         </button>
       </div>

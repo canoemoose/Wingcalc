@@ -24,6 +24,11 @@
 const RAD = Math.PI / 180
 // The shortest surface worth having, m
 export const MIN_SURFACE = 0.02
+// The range a hinge's chord fraction may take, wherever it's set (a depth, the plan, a typed
+// value). The top end lets a surface as deep as a narrow trailing edge stock be the stock itself.
+export const HINGE_MIN = 0.05
+export const HINGE_MAX = 0.99
+export const clampHingeFraction = (f) => Math.min(HINGE_MAX, Math.max(HINGE_MIN, f))
 
 export const ROLES = {
   aileron: { label: 'Aileron', code: 'A', up: 20, down: 15 },
@@ -51,7 +56,7 @@ export function newSurface(role, panel, from, to, id = 1) {
 
 // The hinge's chord fraction where the surface is `depth` deep: the gap is half each side of the
 // hinge, so the fixed part's trailing edge is depth + gap/2 behind it. NaN if there's no chord.
-const hingeAtDepth = (depth, c, gap) => (c > 0 ? 1 - (depth + (gap || 0) / 2) / c : NaN)
+export const hingeAtDepth = (depth, c, gap) => (c > 0 ? 1 - (depth + (gap || 0) / 2) / c : NaN)
 
 // The panel a surface is on, by id: { index, inner, outer, panel } from the sampler, or null.
 function panelOf(sampler, id) {
@@ -79,11 +84,11 @@ export function resolveSurface(sampler, surf) {
   // to the trailing edge whatever the wing's taper; without one, they're the saved fractions.
   const fromDepth = (w) => {
     const f = hingeAtDepth(surf.depth, w?.c, surf.gap)
-    return Number.isFinite(f) ? Math.min(0.95, Math.max(0.5, f)) : NaN
+    return Number.isFinite(f) ? clampHingeFraction(f) : NaN
   }
   const hingeIn = surf.depth > 0 ? fromDepth(w0) : surf.hingeIn
   const hingeOut = surf.depth > 0 ? fromDepth(w1) : surf.hingeOut
-  const okHinge = (f) => Number.isFinite(f) && f > 0.02 && f < 0.99
+  const okHinge = (f) => Number.isFinite(f) && f >= HINGE_MIN - 1e-9 && f <= HINGE_MAX + 1e-9
   if (!okHinge(hingeIn) || !okHinge(hingeOut)) return { ...surf, ok: false, problem: 'hinge', panelIndex: p.index }
   const x0 = w0.xl + hingeIn * w0.c
   const x1 = w1.xl + hingeOut * w1.c
@@ -180,8 +185,11 @@ export function hingeTabs(length, { spacing, inset, width = 0 }) {
 // ailerons and flaps: a flaperon is the aileron and the flap at once, so it can't do both.
 // Returns { available, reason, enabled, deflections: [{ id, role, deflection }] } with each
 // deflection in degrees, + trailing edge down, never past the surface's own limit.
-export function crowState(controls) {
-  const list = controls?.surfaces ?? []
+// resolved (optional): resolveSurfaces' answer for these surfaces. Given it, only the surfaces
+// actually built (ok) count, so an aileron that isn't used (overlapping, or on no panel) gives no crow.
+export function crowState(controls, resolved = null) {
+  const okIds = resolved ? new Set(resolved.filter((r) => r.ok).map((r) => r.id)) : null
+  const list = (controls?.surfaces ?? []).filter((s) => !okIds || okIds.has(s.id))
   const crow = { ...defaultControls().crow, ...(controls?.crow ?? {}) }
   const has = (r) => list.some((s) => s.role === r)
   let reason = null
@@ -244,7 +252,7 @@ export function addSurface(sampler, surfaces, i, { depth = null } = {}) {
   // The hinges follow from the depth at each end (see resolveSurface).
   const w0 = sampler.at(end.inner.s + from)
   const w1 = sampler.at(end.inner.s + to)
-  const clampHinge = (f) => (Number.isFinite(f) ? Math.min(0.95, Math.max(0.5, f)) : 0.75)
+  const clampHinge = (f) => (Number.isFinite(f) ? clampHingeFraction(f) : 0.75)
   surface.hingeIn = clampHinge(hingeAtDepth(surface.depth, w0?.c, surface.gap))
   surface.hingeOut = clampHinge(hingeAtDepth(surface.depth, w1?.c, surface.gap))
   return { surfaces: [...(surfaces ?? []), surface], id: surface.id }

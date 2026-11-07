@@ -134,6 +134,8 @@ const faceOptions = [
   { value: 'top', label: 'Top', title: 'The horn on top: the arm comes out through the upper skin, the servo under it' },
   { value: 'bottom', label: 'Bottom', title: 'The horn underneath: the arm comes out through the hatch or the lower skin, the servo on it' },
 ]
+// The face is saved as top or bottom; the skins are upper and lower, as elsewhere in the app
+const skinName = (face) => (face === 'bottom' ? 'lower' : 'upper')
 const linkageOptions = [{ value: 'pushrod', label: 'Pushrod', title: 'Pull-pull and torque rods come with the tail and fuselage' }]
 // Where the output is: at the case's rear or front end, and facing outboard or inboard. Saved as
 // the turns that put it there (servos.js): rotate (half round about the vertical) moves it to the
@@ -147,12 +149,18 @@ const sideOptions = [
   { value: true, label: 'Inboard', title: 'The output faces the root' },
 ]
 const inboard = computed(() => draft.rotate !== draft.flip)
+// A hand-set arm facing means the opposite once the output moves, so either switch clears it
+// (as the horn's face does) and the arm faces the horn again
 function setEnd(front) {
   const inb = inboard.value
   draft.rotate = front
   draft.flip = front !== inb
+  setLink({ facing: null })
 }
-const setSide = (inb) => (draft.flip = draft.rotate !== inb)
+function setSide(inb) {
+  draft.flip = draft.rotate !== inb
+  setLink({ facing: null })
+}
 // Where the case's centre is along the chord at the bay, from the leading edge: a share of the
 // chord, or a length typed with its unit ("120mm"), which the box turns into one (UnitInput). An
 // older draft saved as a length shows as its share of the chord.
@@ -309,7 +317,7 @@ const lines = computed(() => {
   out.push({ k: 'Pushrod', v: thin(r.pushrod), t: 'Between the holes, outside the wing' })
   out.push({ k: 'Horn', v: Math.abs(r.hornSquare) < 1 ? 'square' : `${deg(Math.abs(r.hornSquare), 1)} off square`, t: 'The horn against the pushrod at mid travel' })
   if (Number.isFinite(r.clear)) {
-    out.push({ k: 'Arm hole', v: r.clear >= 0 ? `${thin(r.clear)} clear` : `${thin(-r.clear)} in`, t: `How far the arm's hole stays outside the ${config.value.face} skin over its travel, beyond the pushrod's end`, warn: r.clear < 0 })
+    out.push({ k: 'Arm hole', v: r.clear >= 0 ? `${thin(r.clear)} clear` : `${thin(-r.clear)} in`, t: `How far the arm's hole stays outside the ${skinName(config.value.face)} skin over its travel, beyond the pushrod's end`, warn: r.clear < 0 })
   }
   const teeth = servo.value.spline?.teeth
   const at = r.midpoint + r.direction * r.neutralArm
@@ -454,7 +462,7 @@ function onKey(e) {
           :placeholder="forePlaceholder"
           @update:model-value="setFore($event)"
         />
-        <UnitInput :id="`${id}-inset`" :model-value="draft.inset" quantity="thin" :system="system" :label="`Inset from the ${config.face} skin`" :placeholder="insetPlaceholder" @update:model-value="draft.inset = $event" />
+        <UnitInput :id="`${id}-inset`" :model-value="draft.inset" quantity="thin" :system="system" :label="`Inset from the ${skinName(config.face)} skin`" :placeholder="insetPlaceholder" @update:model-value="draft.inset = $event" />
       </div>
 
       <div class="wc-config__body">

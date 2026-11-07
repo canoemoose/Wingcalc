@@ -152,7 +152,7 @@ export const ARM_ROOM = 0.005
 //                      ([width, length] below the base), m
 //   drawing            the drawing the figures come from, where it's another model's
 //   mass               with its lead, kg
-//   torque             stall torque at about 4.8 to 6 V, N·m
+//   torque             stall torque at the rating nearest 6 V (ratedTorque), N·m
 //   thin               a thin wing servo, the kind that lies flat in a thin wing
 //   plate, leadHole,   from the generic class above
 //   pilot
@@ -160,9 +160,10 @@ export const ARM_ROOM = 0.005
 // Every dimension is a figure printed on the drawing except the output boss's diameter and the
 // lead's place, which are scaled off it (to about half a millimetre).
 //
-// Dropped: HS-422, discontinued. HS-75BB is a retract servo, so it isn't listed; HS-50, HS-82MG
-// and HS-325HB had no published figures to hand. Torque is the higher, 6 V, figure where both
-// are given. D141SW is no longer on hitecrcd.com: its figures are from the D141SH, which Hitec
+// Dropped: HS-422, discontinued. HS-75BB is a retract servo, so it isn't listed; HS-50 and
+// HS-325HB had no published figures to hand (HS-82MG is listed from its spec table only, in
+// HITEC_UNDRAWN). Torque is the rating nearest 6 V (ratedTorque), so a model rated at 6 and
+// 7.4 V is listed by its 6 V figure. D141SW is no longer on hitecrcd.com: its figures are from the D141SH, which Hitec
 // lists in the same case.
 const KG_CM = 0.0980665
 const fromClass = (cls) => ({ plate: SERVOS[cls].plate, leadHole: SERVOS[cls].leadHole, pilot: SERVOS[cls].pilot })
@@ -224,49 +225,53 @@ export function ratedTorque(ratings) {
   return ok.reduce((a, r) => (Math.abs(r.volts - 6) < Math.abs(a.volts - 6) - 1e-9 || (Math.abs(Math.abs(r.volts - 6) - Math.abs(a.volts - 6)) < 1e-9 && r.volts > a.volts) ? r : a)).torque
 }
 
-const hitec = (model, cls, mass, torque, thin, d) => ({
-  id: `hitec-${model.toLowerCase()}`,
-  model,
-  maker: 'Hitec',
-  class: cls,
-  ...drawn(d),
-  mass: mass / 1000,
-  torque: torque * KG_CM,
-  thin,
-  ...fromClass(cls),
-  ...specs('Hitec', HITEC_SPECS[model]),
-})
+// A drawn Hitec model. Its torque is its rating nearest 6 V (ratedTorque), as every other entry's
+const hitec = (model, cls, mass, thin, d) => {
+  const s = specs('Hitec', HITEC_SPECS[model])
+  return {
+    id: `hitec-${model.toLowerCase()}`,
+    model,
+    maker: 'Hitec',
+    class: cls,
+    ...drawn(d),
+    mass: mass / 1000,
+    torque: ratedTorque(s.ratings),
+    thin,
+    ...fromClass(cls),
+    ...s,
+  }
+}
 
 export const HITEC = [
-  hitec('HS-65MG', 'micro', 11.9, 2.2, false, FEATHER_65),
-  hitec('HS-5070MH', 'micro', 12.7, 3.1, false, { body: [23.6, 11.6, 30.0], case: 24.0, lugs: [32.3, 2.0, 21.0], output: [5.7, 32.6, 6], lead: ['end', 1.5] }),
-  hitec('HS-5085MG', 'micro', 21.9, 4.3, false, { ...MICRO_85, output: [7.95, 33.5, 9.5] }),
-  hitec('HS-85MG', 'micro', 21.9, 3.5, false, MICRO_85),
-  hitec('D89MW', 'micro', 25, 8.5, false, { body: [29.0, 13.0, 30.0], lugs: [39.8, 2.0, 19.5], output: [7.9, 33.9, 9.5], lead: ['end', 3.0] }),
-  hitec('HS-81', 'micro', 16.6, 3.0, false, { body: [30.0, 12.0, 29.6], case: 26.0, lugs: [40.8, 2.0, 19.9], output: [4.6, 32.7, 8], lead: ['end', 6.0] }),
-  hitec('HS-5125MG', 'mini', 24, 3.5, true, WING_125),
-  hitec('HS-125MG', 'mini', 24, 3.5, true, WING_125),
-  hitec('D131MW', 'micro', 9.8, 2.9, true, { body: [22.0, 8.5, 23.2], case: 19.0, lugs: [28.0, 1.5, 16.8], output: [6.4, 25.9, 8], lead: ['end', 9.0] }),
-  hitec('D141SW', 'mini', 26, 7.0, true, { body: [30.0, 10.0, 29.5], lugs: [42.0, 1.8, 19.8], wing: { length: 9.7, tab: [10.1, 6.5] }, output: [8.4, 32.7, 6], lead: ['end', 8.5], drawing: 'D141SH' }),
-  hitec('D145SW', 'mini', 24, 6.0, true, { body: [30.0, 10.0, 37.0], lugs: [42.0, 2.0, 27.0], wing: { length: 10.0 }, output: [8.7, 38.5, 7], lead: ['base', 10.0] }),
-  hitec('HS-7115TH', 'mini', 20, 3.9, true, { body: [26.0, 8.0, 38.0], lugs: [38.0, 2.0, 28.0], wing: { length: 10.0 }, output: [5.4, 40.8, 5], lead: ['base', 7.0] }),
-  hitec('HS-225MG', 'mini', 31, 4.8, false, MINI_225),
-  hitec('HS-5245MG', 'mini', 32, 5.5, false, { ...MINI_225, lead: ['end', 5.0] }),
-  hitec('HS-55', 'micro', 8, 1.5, false, FEATHER_55),
-  hitec('HS-65HB', 'micro', 11.2, 1.9, false, FEATHER_65),
-  hitec('HS-5055MG', 'micro', 9.5, 1.6, false, { ...FEATHER_55, output: [5.3, 26.7, 5] }),
-  hitec('HS-5065MG', 'micro', 11.9, 2.2, false, { ...FEATHER_65, output: [5.7, 28.5, 6] }),
-  hitec('HS-85BB', 'micro', 19.2, 3.5, false, MICRO_85),
-  hitec('HS-225BB', 'mini', 27, 4.8, false, MINI_225),
-  hitec('HS-77BB', 'standard', 35, 5.5, false, { body: [44.1, 23.0, 24.8], lugs: [56.0, 2.5, 16.7], output: [10.5, 27.4, 11], lead: ['end', 5.5] }),
-  hitec('HS-311', 'standard', 43, 3.7, false, STD_311),
-  hitec('HS-322HD', 'standard', 43, 3.7, false, STD_311),
-  hitec('HS-485HB', 'standard', 45, 6.0, false, STD_485),
-  hitec('HS-5485HB', 'standard', 45, 6.4, false, STD_485),
-  hitec('HS-625MG', 'standard', 55.2, 6.8, false, STD_645),
-  hitec('HS-645MG', 'standard', 55.2, 9.6, false, STD_645),
-  hitec('HS-5625MG', 'standard', 60, 9.4, false, STD_645),
-  hitec('HS-5645MG', 'standard', 60, 12.1, false, STD_645),
+  hitec('HS-65MG', 'micro', 11.9, false, FEATHER_65),
+  hitec('HS-5070MH', 'micro', 12.7, false, { body: [23.6, 11.6, 30.0], case: 24.0, lugs: [32.3, 2.0, 21.0], output: [5.7, 32.6, 6], lead: ['end', 1.5] }),
+  hitec('HS-5085MG', 'micro', 21.9, false, { ...MICRO_85, output: [7.95, 33.5, 9.5] }),
+  hitec('HS-85MG', 'micro', 21.9, false, MICRO_85),
+  hitec('D89MW', 'micro', 25, false, { body: [29.0, 13.0, 30.0], lugs: [39.8, 2.0, 19.5], output: [7.9, 33.9, 9.5], lead: ['end', 3.0] }),
+  hitec('HS-81', 'micro', 16.6, false, { body: [30.0, 12.0, 29.6], case: 26.0, lugs: [40.8, 2.0, 19.9], output: [4.6, 32.7, 8], lead: ['end', 6.0] }),
+  hitec('HS-5125MG', 'mini', 24, true, WING_125),
+  hitec('HS-125MG', 'mini', 24, true, WING_125),
+  hitec('D131MW', 'micro', 9.8, true, { body: [22.0, 8.5, 23.2], case: 19.0, lugs: [28.0, 1.5, 16.8], output: [6.4, 25.9, 8], lead: ['end', 9.0] }),
+  hitec('D141SW', 'mini', 26, true, { body: [30.0, 10.0, 29.5], lugs: [42.0, 1.8, 19.8], wing: { length: 9.7, tab: [10.1, 6.5] }, output: [8.4, 32.7, 6], lead: ['end', 8.5], drawing: 'D141SH' }),
+  hitec('D145SW', 'mini', 24, true, { body: [30.0, 10.0, 37.0], lugs: [42.0, 2.0, 27.0], wing: { length: 10.0 }, output: [8.7, 38.5, 7], lead: ['base', 10.0] }),
+  hitec('HS-7115TH', 'mini', 20, true, { body: [26.0, 8.0, 38.0], lugs: [38.0, 2.0, 28.0], wing: { length: 10.0 }, output: [5.4, 40.8, 5], lead: ['base', 7.0] }),
+  hitec('HS-225MG', 'mini', 31, false, MINI_225),
+  hitec('HS-5245MG', 'mini', 32, false, { ...MINI_225, lead: ['end', 5.0] }),
+  hitec('HS-55', 'micro', 8, false, FEATHER_55),
+  hitec('HS-65HB', 'micro', 11.2, false, FEATHER_65),
+  hitec('HS-5055MG', 'micro', 9.5, false, { ...FEATHER_55, output: [5.3, 26.7, 5] }),
+  hitec('HS-5065MG', 'micro', 11.9, false, { ...FEATHER_65, output: [5.7, 28.5, 6] }),
+  hitec('HS-85BB', 'micro', 19.2, false, MICRO_85),
+  hitec('HS-225BB', 'mini', 27, false, MINI_225),
+  hitec('HS-77BB', 'standard', 35, false, { body: [44.1, 23.0, 24.8], lugs: [56.0, 2.5, 16.7], output: [10.5, 27.4, 11], lead: ['end', 5.5] }),
+  hitec('HS-311', 'standard', 43, false, STD_311),
+  hitec('HS-322HD', 'standard', 43, false, STD_311),
+  hitec('HS-485HB', 'standard', 45, false, STD_485),
+  hitec('HS-5485HB', 'standard', 45, false, STD_485),
+  hitec('HS-625MG', 'standard', 55.2, false, STD_645),
+  hitec('HS-645MG', 'standard', 55.2, false, STD_645),
+  hitec('HS-5625MG', 'standard', 60, false, STD_645),
+  hitec('HS-5645MG', 'standard', 60, false, STD_645),
 ]
 
 // ---------------------------------------------------------------------------------------------
@@ -362,8 +367,6 @@ export function defaultServoClass(mass) {
   if (mass <= 6) return 'mini'
   return 'standard'
 }
-
-export const servoOf = (cls) => SERVOS[cls] ?? SERVOS.micro
 
 // The servo a bay holds, in the generic classes' fields (which the bay geometry reads) and turned
 // to lie on its side, sized by everything drawn of it (servoParts: case, tower, lugs, output boss and
@@ -631,9 +634,7 @@ export function cutout(rects, yaw = 0) {
   }
 }
 
-// The outline of rectangles ({ x, s } ranges) that overlap or touch into one shape (cutBands),
-// [x, s] corners anticlockwise from above
-export const rectsOutline = (rects) => bandsOutline(cutBands(rects))
+// The outline of bands (cutBands) as one shape, [x, s] corners anticlockwise from above
 function bandsOutline(bands) {
   if (!bands.length) return []
   // Up the aft side, back down the front

@@ -203,6 +203,22 @@ describe('crow', () => {
     expect(crowState({ surfaces: [aileron, flap] }).available).toBe(true)
   })
 
+  it('counts only the surfaces actually built when given the resolved list', () => {
+    const sampler = wingSampler(defaultState().input, 0.12)
+    // The aileron sits on a panel the wing doesn't have, so it isn't used
+    const lost = { ...aileron, panel: 99 }
+    const surfaces = [lost, flap]
+    const resolved = resolveSurfaces(sampler, surfaces)
+    expect(resolved.find((r) => r.id === lost.id).ok).toBe(false)
+    expect(crowState({ surfaces }).available).toBe(true)
+    const c = crowState({ surfaces, crow: { enabled: true } }, resolved)
+    expect(c.available).toBe(false)
+    expect(c.reason).toBe('missing')
+    expect(c.enabled).toBe(false)
+    // Both built: the same answer either way
+    expect(crowState({ surfaces: [aileron, flap] }, resolveSurfaces(sampler, [aileron, flap])).available).toBe(true)
+  })
+
   it('puts ailerons up and flaps down, within each surface’s own throw', () => {
     const c = crowState({ surfaces: [aileron, flap], crow: { enabled: true, aileronUp: 30, flapDown: 40 } })
     expect(c.enabled).toBe(true)
@@ -324,6 +340,26 @@ describe('a surface cut from the trailing edge stock', () => {
     expect(parts.some((p) => p.group === 'surfaces')).toBe(false)
     expect(cutList.some((c) => c.item === `Trailing edge stock as ${sf.label}`)).toBe(true)
     expect(cutList.some((c) => c.item.startsWith('Hinge spar, moving side'))).toBe(false)
+  })
+  it('is the stock on a wide chord too, where its hinge is far back (beyond 95%)', () => {
+    // A 0.5 m chord with the 15 mm stock: the hinge is at 1 - 15.5/500 = 0.969
+    const wingEdit = (input) => {
+      input.rootChord = 0.5
+      input.panels = normalisePanels([{ length: 0.7, tipChord: 0.5, dihedral: 0 }])
+    }
+    const s = defaultState()
+    wingEdit(s.input)
+    const sampler = wingSampler(s.input)
+    const surfaces = addSurface(sampler, [], 0, { depth: 0.015 }).surfaces
+    expect(surfaces[0].hingeIn).toBeGreaterThan(0.95)
+    const r = resolveSurface(sampler, surfaces[0])
+    expect(r.ok).toBe(true)
+    const w0 = sampler.at(r.s0)
+    expect(w0.xl + w0.c - r.x0 - surfaces[0].gap / 2).toBeCloseTo(0.015, 6)
+    const { a } = build({ surfaces, wingEdit })
+    const sf = a.surfaces[0]
+    expect(sf.ok).toBe(true)
+    expect(sf.stock).toBe(true)
   })
 })
 
