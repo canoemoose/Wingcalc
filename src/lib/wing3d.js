@@ -1207,6 +1207,13 @@ export function wing3d(a, structure, parts, linkages = null) {
       runs.forEach((r, k) => {
         let stretches = [[r.from, r.to]]
         for (const g of gaps) stretches = stretches.flatMap(([f, t]) => (g.s1 > f + 1e-6 && g.s0 < t - 1e-6 ? [[f, g.s0], [g.s1, t]] : [[f, t]])).filter(([f, t]) => t - f > 1e-4)
+        // On a D-box the sheeting over a sheeted hard point is a piece of its own, as it's cut
+        const side = which === 'upper' ? 'top' : 'bottom'
+        if (cov.type === 'dbox') {
+          for (const h of (st.hardBays ?? []).filter((x) => x.sides?.includes(side))) {
+            stretches = stretches.flatMap(([f, t]) => [f, ...[h.s0, h.s1].filter((v) => v > f + 1e-4 && v < t - 1e-4), t].slice(1).map((v, i, arr) => [i ? arr[i - 1] : f, v]))
+          }
+        }
         stretches.forEach(([f, t], j) => {
           const ext = [k === 0 && Math.abs(f - r.from) < 1e-9 ? ends[0] : 0, k === runs.length - 1 && Math.abs(t - r.to) < 1e-9 ? ends[1] : 0]
           const piece = { id: `sheet-${which}-${k}${j ? `-${j}` : ''}`, name: `${which === 'upper' ? 'Top' : 'Bottom'} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (f + t) / 2 }

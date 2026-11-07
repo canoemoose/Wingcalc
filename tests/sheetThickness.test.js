@@ -5,7 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure, sheetThicknessAt, skinAt, hardPatches, patchThicknessAt } from '../src/lib/structure.js'
 import { buildParts, buildRib } from '../src/lib/ribs.js'
-import { patchSection, surfaceHeight, insetHeight, sectionAt, wing3d } from '../src/lib/wing3d.js'
+import { patchSection, surfaceHeight, insetHeight, sectionAt, wing3d, partFor } from '../src/lib/wing3d.js'
 
 // A two-panel wing (0.4 m then 0.3 m), the structure edited by `edit`
 function build(edit = () => {}) {
@@ -225,5 +225,27 @@ describe('cap strips under a sheeted hard point', () => {
     }
     const total = (cl) => cl.find((c) => c.item.startsWith('Cap strips')).length
     expect(total(cutList)).toBeLessThan(total(plain.cutList))
+  })
+})
+
+describe('the D-box sheet over a hard point in 3D', () => {
+  it('is a piece of its own, matching its part', () => {
+    const { a, parts } = build((st) => {
+      st.covering.type = 'dbox'
+      st.ribs.hardPoints = [{ id: 1, d: 0.1, to: 0.2, label: 'Joiner', sheet: 'top', thickness: 0.003 }]
+    })
+    const [h] = hardPatches(a.structure, a.rootS)
+    const w = wing3d(a, a.structure, parts)
+    const tops = w.solids.filter((q) => q.kind === 'sheet' && q.piece?.id.startsWith('sheet-upper'))
+    const over = tops.filter((q) => q.piece.at > h.s0 && q.piece.at < h.s1)
+    expect(over).toHaveLength(1)
+    // Picked, it's the hard point's own D-box part
+    const part = partFor(parts, { groups: ['sheeting'], surface: 'upper' }, over[0].piece.at)
+    const p = parts.find((x) => x.id === part)
+    expect(p.span[0]).toBeCloseTo(h.s0, 6)
+    expect(p.span[1]).toBeCloseTo(h.s1, 6)
+    // The bottom sheet, which the hard point doesn't sheet, isn't split there
+    const bottoms = w.solids.filter((q) => q.kind === 'sheet' && q.piece?.id.startsWith('sheet-lower'))
+    expect(bottoms.length).toBeLessThan(tops.length)
   })
 })
