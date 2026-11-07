@@ -93,3 +93,16 @@ Mode: autonomous (7 November). Commits by concern on master, not pushed.
 - 19: everything fitted under the skin in a hard point's bays (ribs, caps, stringers, webs, braces) is now inset by the hard point's own sheet where it covers that chord.
 - 20: every rib between a brace's arm ends is cut in two round the spar and plates (0.2 mm clearance). Brace depth is measured at the spar and 4 mm outside its outer faces.
 - 21: pins default to 3.2 mm × 32 mm (1/8 × 1 1/4 in), which is too long for the default 8 mm fixed spar, so pinned wings warn until the spars are widened or shorter pins set. A live hinge turns about the top skin only. The seven new Hitec models have no drawn figures (their drawings are images); lugs and output come from the class. D485HW's page disagrees with itself; the lower torque is used.
+
+## Second batch (7 November, after the round)
+
+- [x] Brace plates built as strips that don't cross the break; filled in the section cut (`d067ce4`)
+- [x] Thin-rib table: per-rib Split / Taper spar (Thin caps) choice, "Internal height"; hard point fields "Sheet thickness" and "D-box sheet thickness", the latter on a D-box only (`b95b446`)
+- [x] No cap strips on ribs under a sheeted hard point's sheet (`18c43aa`)
+- [x] D-box sheeting over a sheeted hard point always its own piece (`f7c1a18`)
+- [x] Arm slot turned with the servo (`05a73b3`)
+- [x] Loads charts zoom and pan their height together (`5aec22c`)
+- [x] Plan DXF layers split (`7b408c8`)
+- [ ] DXF hatching as real hatch or fill: **question for Matt** (R12 has no HATCH entity)
+
+Assumptions: the "part of the servo not rotated" was the arm's slot (the small square box beside the turned servo); "more layers" read as one layer per kind of thing, names as listed in the user guide.
