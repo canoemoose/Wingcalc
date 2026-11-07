@@ -562,10 +562,12 @@ describe('servo bays in the exports and the 3D view', () => {
     const plan = parseDxf(planDxf(res.a, res.st, res.parts, { handedness: 'right', format: 'polyline' }).text)
     expect(plan.layers).toContain('SERVO')
     const onServo = plan.polylines.filter((p) => p.layer === 'SERVO')
-    // Per bay: hatch, lugs, case, lead route
-    expect(onServo).toHaveLength(res.a.bays.length * 4)
+    // Per bay: lugs and case on SERVO; the hatch, the lead route each on a layer of their own
+    expect(onServo).toHaveLength(res.a.bays.length * 2)
+    expect(plan.polylines.filter((p) => p.layer === 'SERVO-HATCH')).toHaveLength(res.a.bays.length)
+    expect(plan.polylines.filter((p) => p.layer === 'SERVO-LEAD')).toHaveLength(res.a.bays.length)
     const b = res.a.bays[0]
-    const widths = onServo.filter((p) => p.closed).map((p) => Math.max(...p.pts.map((q) => q[0])) - Math.min(...p.pts.map((q) => q[0])))
+    const widths = plan.polylines.filter((p) => p.layer === 'SERVO-HATCH').map((p) => Math.max(...p.pts.map((q) => q[0])) - Math.min(...p.pts.map((q) => q[0])))
     expect(widths.some((w) => Math.abs(w - (b.hatch.s1 - b.hatch.s0) * 1000) < 0.1)).toBe(true)
     // Its name is engraved in strokes on the text layer, so there are more of them than without bays
     const bare = build({ bays: noBays(), edit: (st) => (st.covering.type = 'sheeted') })

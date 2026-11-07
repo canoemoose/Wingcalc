@@ -216,13 +216,13 @@ describe('wing export', () => {
 
   it('hatches the sheeted area on the plan, inside it, and nothing when open', () => {
     const plan = (s) => parseDxf(planDxf(a, s, parts, { ...defaultExportOptions(), handedness: 'right' }).text)
-    const hatch = plan(st).polylines.filter((p) => p.layer === 'HATCH')
+    const hatch = plan(st).polylines.filter((p) => p.layer === 'SHEETING')
     expect(hatch.length).toBeGreaterThan(20)
     // Every hatch line ends on the D-box: between the LE stock and the spar's rear face
     const outline = sheetOutline(a, st)
     for (const p of hatch) for (const [x, y] of p.pts) expect(inside(outline.map(([s, c]) => [s * 1000, -c * 1000]), [x, y], 0.01)).toBe(true)
     const open = { ...st, covering: { ...st.covering, type: 'open' } }
-    expect(plan(open).polylines.some((p) => p.layer === 'HATCH')).toBe(false)
+    expect(plan(open).polylines.some((p) => p.layer === 'SHEETING')).toBe(false)
   })
 
   it('clips hatch lines to a polygon at 45°, a step apart', () => {

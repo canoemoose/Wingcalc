@@ -106,6 +106,8 @@ const LAYER_STYLE = {
   guide: { colour: [0.45, 0.45, 0.45], width: 0.18 },
   OUTLINE: { colour: [0, 0, 0], width: 0.35 },
   STOCK: { colour: [0.2, 0.5, 0.2], width: 0.25 },
+  EDGES: { colour: [0.2, 0.5, 0.2], width: 0.25 },
+  STRINGERS: { colour: [0.45, 0.4, 0.15], width: 0.2 },
   SPAR: { colour: [0.75, 0.1, 0.1], width: 0.3 },
   RIBS: { colour: [0.1, 0.3, 0.75], width: 0.25 },
   TEXT: { colour: [0.35, 0.35, 0.35], width: 0.18 },

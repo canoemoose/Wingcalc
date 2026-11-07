@@ -538,11 +538,14 @@ export function hatchLines(poly, step) {
 // A full-size plan to build over: wing outline, LE and TE stock, spar, stringers and every rib
 // at its thickness, with rib names, and each control surface's hinge spars, ends and tabs.
 // Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
-// Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE (the
-// fixed hinge spar and the tabs), SURFACE (each moving surface), SERVO, BRAKE.
-// SERVO has each servo bay's hatch opening (where it has one), its servo (case and lugs), the slot
-// its arm comes out through and the line its lead takes through the ribs to the root. BRAKE has each air brake's box (or a spoiler's
-// frame and plate), the slots or opening it needs in the covering and a spoiler's hinge line.
+// Plan layers are fixed: OUTLINE (the wing), EDGES (the LE and TE stock's inner edges),
+// STRINGERS (stringers and reinforcement at their width), SPAR, RIBS, TEXT, SHEETING (the sheeted
+// area, hatched), HARDPOINT (sheeted hard points, outlined and hatched), HINGE (the fixed hinge
+// spar), TABS (Mylar tabs or pin hinges), SURFACE (each moving surface), SERVO (the case and lug
+// span), SERVO-HATCH (its hatch opening, where it has one), SERVO-SLOT (the slot its arm comes
+// out through), SERVO-LEAD (its lead's route through the ribs to the root), BRAKE (each air
+// brake's box, or a spoiler's frame and hinge line) and BRAKE-OPENING (the slots or opening it
+// needs in the covering). R12 has no hatch entity, so hatching is drawn as lines.
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
   const add = (layer, pts, closed = false) => raw.push({ type: 'poly', layer, pts, closed })
@@ -581,8 +584,8 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     return pts
   }
   const sec = (s) => a.section(s)
-  add('STOCK', line((s) => sec(s).xl + structure.le.width))
-  add('STOCK', line((s) => sec(s).xl + sec(s).c - structure.te.width))
+  add('EDGES', line((s) => sec(s).xl + structure.le.width))
+  add('EDGES', line((s) => sec(s).xl + sec(s).c - structure.te.width))
   const sp = structure.spar
   const halfW = (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(s1, s0 + sp.tubeLength) : s1
@@ -598,11 +601,11 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     const [front, rear] = lineFaces((s) => sec(s).xl + st.position * sec(s).c, stringerSize(st).w)
     const f = line(front)
     const r = line(rear)
-    if (f.length > 1 && r.length > 1) add('STOCK', [...f, ...r.reverse()], true)
+    if (f.length > 1 && r.length > 1) add('STRINGERS', [...f, ...r.reverse()], true)
   }
   // Sheeting (D-box or fully sheeted), hatched: R12 has no hatch entity, so plain lines
   const sheet = sheetOutline(a, structure)
-  if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('HATCH', seg)
+  if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('SHEETING', seg)
   // Sheeted hard points, hatched over the chord they sheet (on a fully sheeted wing the
   // sheeting's own hatch already covers them)
   if (structure.covering.type !== 'sheeted') {
@@ -613,8 +616,8 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
       const front = ss.map((s, i) => [s, Math.min(...spans[i].map((x) => x[0]))])
       const back = ss.map((s, i) => [s, Math.max(...spans[i].map((x) => x[1]))])
       const poly = [...front, ...back.reverse()]
-      add('HATCH', poly, true)
-      for (const seg of hatchLines(poly, HATCH_STEP)) add('HATCH', seg)
+      add('HARDPOINT', poly, true)
+      for (const seg of hatchLines(poly, HATCH_STEP)) add('HARDPOINT', seg)
     }
   }
   // Control surfaces: both hinge spars' faces, the moving surface's ends (the gap clear of the
@@ -627,7 +630,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     for (const fx of [f.apex, f.movingRear]) add('SURFACE', along(sf.moving[0], sf.moving[1], fx))
     for (const s of sf.moving) add('SURFACE', [[s, f.apex(s)], [s, sec(s).xl + sec(s).c]])
     const h = structure.hinges
-    for (const s of sf.tabs) add('HINGE', hingeTabOutline(sf, s, sf.tabAlong ?? h.tabWidth, sf.tabAcross ?? h.tabLength), true)
+    for (const s of sf.tabs) add('TABS', hingeTabOutline(sf, s, sf.tabAlong ?? h.tabWidth, sf.tabAcross ?? h.tabLength), true)
   }
   // Servo bays: the hatch opening (the mount plate's outline), the case and the span of its
   // lugs, and the lead's route from the bay's inner rib to the root, behind the main spar
@@ -636,7 +639,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const box = (x0, x1, s0, s1) => [[s0, x0], [s1, x0], [s1, x1], [s0, x1]]
     // The hatch opening (none where the servo is sealed in)
-    if (b.hatch) add('SERVO', box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1), true)
+    if (b.hatch) add('SERVO-HATCH', box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1), true)
     // Turned with the servo, where it's square to its hinge or across the span
     const plan = (pts) => pts.map(([x, s]) => [s, x])
     add('SERVO', b.footprint ? plan(b.footprint) : box(b.lugs.x0, b.lugs.x1, b.s - b.servo.width / 2, b.s + b.servo.width / 2), true)
@@ -646,9 +649,9 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
       const s = s0 + ((b.sA - s0) * i) / 12
       lead.push([s, sparBack(s) + b.lead.offset + b.lead.diameter / 2])
     }
-    add('SERVO', lead)
+    add('SERVO-LEAD', lead)
     // The slot its arm comes out through
-    for (const q of parts.find((p) => p.bay === b || p.id === b.name)?.armSlots ?? []) add('SERVO', q.corners ? q.corners.map(([x, s]) => [s, x]) : box(q.x0, q.x1, q.s0, q.s1), true)
+    for (const q of parts.find((p) => p.bay === b || p.id === b.name)?.armSlots ?? []) add('SERVO-SLOT', q.corners ? q.corners.map(([x, s]) => [s, x]) : box(q.x0, q.x1, q.s0, q.s1), true)
     texts.push({ s: b.s, x: b.plate.x1 + 0.008, text: b.name })
   }
   // Air brakes: the box (its walls, outside) or the spoiler's frame, the slot for each blade or
@@ -660,7 +663,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
       add('BRAKE', box(r.x0 - 0.005 - BRAKE.slot, r.x1 + 0.005 + BRAKE.slot, r.inner[0], r.inner[1]), true)
       add('BRAKE', [[r.s - r.length / 2, r.x0], [r.s + r.length / 2, r.x0]])
     }
-    for (const o of r.openings) add('BRAKE', box(o.x0, o.x1, o.s0, o.s1), true)
+    for (const o of r.openings) add('BRAKE-OPENING', box(o.x0, o.x1, o.s0, o.s1), true)
     texts.push({ s: r.s, x: r.bx[1] + 0.008, text: r.name })
   }
   // Ribs, at their thickness, between the stock (or the hinge spars), the control surfaces'
@@ -699,7 +702,25 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
 
 export function planDxf(a, structure, parts, opts, baseName = 'wing') {
   const ents = planEntities(a, structure, parts, { handedness: opts.handedness })
-  const extraLayers = { OUTLINE: 7, STOCK: 3, SPAR: 1, RIBS: 5, TEXT: 8, HATCH: 9, HINGE: 6, SERVO: 4, BRAKE: 2 }
+  const extraLayers = {
+    OUTLINE: 7,
+    EDGES: 3,
+    STRINGERS: 30,
+    SPAR: 1,
+    RIBS: 5,
+    TEXT: 8,
+    SHEETING: 9,
+    HARDPOINT: 252,
+    HINGE: 6,
+    TABS: 216,
+    SURFACE: 6,
+    SERVO: 4,
+    'SERVO-HATCH': 140,
+    'SERVO-SLOT': 160,
+    'SERVO-LEAD': 150,
+    BRAKE: 2,
+    'BRAKE-OPENING': 50,
+  }
   return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf(ents, { extraLayers, format: opts.format }) }
 }
 

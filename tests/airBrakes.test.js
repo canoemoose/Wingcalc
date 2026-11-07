@@ -484,9 +484,11 @@ describe('air brakes in the exports, the 3D view and the thumbnails', () => {
     const plan = parseDxf(planDxf(res.a, res.st, res.parts, { handedness: 'right', format: 'polyline' }).text)
     expect(plan.layers).toContain('BRAKE')
     const onBrake = plan.polylines.filter((p) => p.layer === 'BRAKE')
-    // Blade: box and one slot; spoiler: frame, hinge line and opening
-    expect(onBrake).toHaveLength(2 + 3)
-    expect(onBrake.filter((p) => p.closed)).toHaveLength(4)
+    const openings = plan.polylines.filter((p) => p.layer === 'BRAKE-OPENING')
+    // Blade: box, and one slot on its own layer; spoiler: frame and hinge line, and its opening
+    expect(onBrake).toHaveLength(1 + 2)
+    expect(openings).toHaveLength(1 + 1)
+    expect([...onBrake, ...openings].filter((p) => p.closed)).toHaveLength(4)
     const none = build({ brakes: [] })
     expect(parseDxf(planDxf(none.a, none.st, none.parts, { handedness: 'right', format: 'polyline' }).text).layers).not.toContain('BRAKE')
   })

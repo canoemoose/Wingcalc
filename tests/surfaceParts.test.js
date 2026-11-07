@@ -223,10 +223,11 @@ describe('built-up control surfaces', () => {
     const plan = parseDxf(planDxf(res.a, res.st, res.parts, { ...opts, handedness: 'right' }, 'test').text)
     expect(plan.layers).toContain('HINGE')
     const hinge = plan.polylines.filter((p) => p.layer === 'HINGE')
-    // The fixed hinge spar's two faces and a mark per tab on HINGE; the moving surface's spar
-    // faces and its two ends on SURFACE
+    // The fixed hinge spar's two faces on HINGE, a mark per tab on TABS; the moving surface's
+    // spar faces and its two ends on SURFACE
     const tabs = res.a.surfaces.reduce((n, r) => n + r.tabs.length, 0)
-    expect(hinge.length).toBe(res.a.surfaces.length * 2 + tabs)
+    expect(hinge.length).toBe(res.a.surfaces.length * 2)
+    expect(plan.polylines.filter((p) => p.layer === 'TABS')).toHaveLength(tabs)
     expect(plan.polylines.filter((p) => p.layer === 'SURFACE').length).toBe(res.a.surfaces.length * 4)
     // Every one of the surfaces' ribs is on the plan with the wing's
     const ribs = plan.polylines.filter((p) => p.layer === 'RIBS')
