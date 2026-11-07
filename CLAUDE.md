@@ -38,6 +38,7 @@ Wing loading / cube loading / stall speed / stall character calculator for RC fi
 - Runner: **Vitest** (`npm test`). Chosen because it shares Vite's config and transform pipeline, so tests import the same modules (including the bundled JSON) with no extra setup.
 - Tests live in `tests/` and cover `src/lib/` and `src/composables/`. `tests/xfoilEngine.test.js` runs real XFOIL polars (a few seconds). Components are not unit-tested; check them in the running app. `tests/render.test.js` renders the whole app on the server from a saved state and fails on any error or Vue warning: a quick crash check, not a substitute for the running app.
 - The browser pane may be hidden, in which case the page gets no animation frames and ResizeObserver never fires. Don't mistake that for a bug, but don't rely on either for first paint.
+- The dev server's first page load after it starts can log `insertBefore` / `parentNode` Vue errors: Vite's dependency optimisation reloads the page mid-mount. Load a fresh tab before calling it a bug.
 
 ## Data fetch etiquette
 
