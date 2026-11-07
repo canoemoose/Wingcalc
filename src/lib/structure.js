@@ -1290,6 +1290,13 @@ export function brakeBayClashes(brakes, bays, { sparX, structure }) {
 
 // --- Servo bays ---------------------------------------------------------------------------------
 
+// Room for each lead beside the plug going through a shared lead hole: a servo lead's flat
+// three-core cable is about 1 mm thick, so 1.5 mm across lets a plug pass the ones already in.
+export const LEAD_EXTRA = 0.0015
+// The one lead hole that leads with these plug holes (servos.js leadHole, m) pass through: the
+// biggest, and LEAD_EXTRA for each other lead. 0 for none.
+export const leadHoleFor = (plugs) => (plugs.length ? Math.max(...plugs) + LEAD_EXTRA * (plugs.length - 1) : 0)
+
 // Why a bay isn't built, in a builder's words.
 const BAY_PROBLEMS = {
   surface: "the control surface or air brake it works isn't built",
@@ -1332,14 +1339,14 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
     }
   }
   const live = bays.filter((b) => b.ok).sort((a, b) => b.s - a.s)
-  // Lead holes side by side behind the spar, the outermost bay's first, with the rib's lead
-  // margin of material between the spar and the first and between each
+  // One lead hole behind the spar that every lead passes through, the rib's lead margin of
+  // material from the spar: at its largest (where every lead passes) it takes the biggest plug
+  // and the other leads beside it. Each bay's lead keeps its own plug's size (plug); the
+  // diameter is the hole's largest, for the strip it needs.
   const leadMargin = Math.max(MIN_MATERIAL, structure.ribs?.leadMargin ?? 0.003)
-  let offset = leadMargin
-  for (const b of live) {
-    b.lead = { diameter: b.servo.leadHole, offset, margin: leadMargin }
-    offset += b.servo.leadHole + leadMargin
-  }
+  const hole = leadHoleFor(live.map((b) => b.servo.leadHole))
+  for (const b of live) b.lead = { diameter: hole, plug: b.servo.leadHole, offset: leadMargin, margin: leadMargin }
+  const offset = leadMargin + hole + leadMargin
   const mm = (v) => `${(v * 1000).toFixed(1)} mm`
   for (const b of live) {
     const r = built.get(b.surface)

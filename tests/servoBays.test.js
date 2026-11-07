@@ -5,12 +5,12 @@ import { defaultState, migrate } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry, G } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure, spanLoads, MIN_MATERIAL } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, spanLoads, MIN_MATERIAL, leadHoleFor, LEAD_EXTRA } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
 import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox, plateSolid } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
-import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC, xRangeAt, cutBands, MIN_PLY, SCREW_ROOM } from '../src/lib/servos.js'
+import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, TRAY_SLACK, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC, xRangeAt, cutBands, MIN_PLY, SCREW_ROOM } from '../src/lib/servos.js'
 import { bayLinkages } from '../src/lib/bayLinkage.js'
 
 function inside(poly, [x, y]) {
@@ -205,21 +205,43 @@ describe('built servo bays', () => {
   const res = build()
   const [b1, b2] = res.a.bays
 
-  it("sits each tray between two of the wing's own ribs when the servo fits, with none between", () => {
-    // Ribs up to 180 mm apart (none at a bay's centre) leave room for a micro servo and its arm in a
-    // rib bay, so the tray uses the wing's ribs
-    const wide = build({ edit: (st) => Object.assign(st.ribs, { spacing: 'uniform', pitch: 0.18 }) })
-    for (const b of wide.a.bays) {
+  // Manual ribs either side of each bay's centre, `half` out
+  const ribsAround = (half) =>
+    build({
+      edit: (st) => {
+        st.ribs.spacing = 'manual'
+        st.ribs.manual = res.a.bays.flatMap((b, k) => [-half, half].map((o, n) => ({ id: 2 * k + n + 1, d: Math.round((b.s - res.a.rootS + o) * 2000) / 2000 })))
+      },
+    })
+
+  it("sits each tray between two of the wing's own ribs when they're close round the servo, with none between", () => {
+    // The servo needs about 45 mm between the rib faces; ribs 60 mm apart are close enough
+    const near = ribsAround(0.03)
+    for (const b of near.a.bays) {
       expect(b.ok).toBe(true)
       expect(b.onRibs).toBe(true)
       for (const s of [b.sA, b.sB]) {
-        const rib = wide.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)
+        const rib = near.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)
         expect(rib, `rib at ${s}`).toBeTruthy()
+        expect(rib.kind).toBe('manual')
       }
       // And no rib between them
-      expect(wide.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
+      expect(near.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
     }
-    expect(wide.skipped).toEqual([])
+    expect(near.skipped).toEqual([])
+  })
+
+  it("gives a bay ribs of its own when the wing's ribs are too far apart to support it, whatever the spacing", () => {
+    // 120 mm apart is more than TRAY_SLACK times the servo's bay: its own pair, a servo's width apart
+    for (const w of [ribsAround(0.06), build({ edit: (st) => Object.assign(st.ribs, { spacing: 'uniform', pitch: 0.18 }) })]) {
+      for (const b of w.a.bays) {
+        expect(b.ok).toBe(true)
+        expect(b.onRibs).toBeFalsy()
+        expect(b.sB - b.sA).toBeLessThanOrEqual(TRAY_SLACK * b.width)
+        for (const s of [b.sA, b.sB]) expect(w.a.ribs.find((r) => Math.abs(r.s - s) < 1e-3)?.kind).toBe('hard')
+        expect(w.a.ribs.filter((r) => r.s > b.sA + 1e-3 && r.s < b.sB - 1e-3)).toHaveLength(0)
+      }
+    }
   })
 
   it('gives a servo too wide for the rib spacing a pair of hard-point ribs of its own', () => {
@@ -286,26 +308,52 @@ describe('built servo bays', () => {
     expect(b1.plate.s1 - b1.plate.s0).toBeCloseTo(b1.sB - b1.sA - 0.002, 9)
   })
 
-  it('cuts a lead hole through every rib from the bay in to the root, and none outboard', () => {
+  it('cuts one lead hole through every rib from the bay in to the root, and none outboard', () => {
     const ribs = res.parts.filter((p) => p.group === 'ribs')
     for (const rib of ribs) {
       const want = res.a.bays.filter((b) => rib.s <= b.sA + 1e-6)
       const leads = rib.holes.filter((h) => bounds(h).w < 0.02 && bounds(h).w > 0.003)
-      expect(leads, `${rib.name} at ${rib.s.toFixed(3)}`).toHaveLength(want.length)
+      expect(leads, `${rib.name} at ${rib.s.toFixed(3)}`).toHaveLength(want.length ? 1 : 0)
+      // Sized for the biggest plug through it and the other leads beside it
+      if (want.length) expect(bounds(leads[0]).w, rib.name).toBeCloseTo(leadHoleFor(want.map((b) => b.servo.leadHole)), 3)
     }
-    // The outermost rib has none, the root rib has both
+    // The outermost rib has none; the root rib one, both leads through it
     expect(ribs.at(-1).holes).toHaveLength(0)
-    expect(ribs[0].holes).toHaveLength(2)
-    expect(ribs[0].notes.join(' ')).toContain('Lead holes for SB1, SB2')
-    // A lead behind the spar, the outermost bay's nearest to it
+    expect(ribs[0].holes).toHaveLength(1)
+    expect(ribs[0].notes.join(' ')).toContain('Lead hole for SB1, SB2')
+    // Behind the spar, with at least the lead margin of material between the spar's notch and it
     const rib = ribs[0]
     const sparBack = res.a.sparX(rib.s) + res.st.spar.capWidth / 2 - res.a.section(rib.s).xl
-    const [h2, h1] = [...rib.holes].sort((p, q) => bounds(p).x0 - bounds(q).x0)
-    expect(bounds(h1).x0).toBeGreaterThan(sparBack)
-    // with at least the lead margin of material between the spar's notch and the nearer hole
-    expect(bounds(h2).x0 - sparBack).toBeGreaterThanOrEqual(res.st.ribs.leadMargin - 2e-4)
-    expect(bounds(h2).w).toBeCloseTo(b2.lead.diameter, 3)
-    expect(bounds(h2).x0).toBeLessThan(bounds(h1).x0)
+    const h = bounds(rib.holes[0])
+    expect(h.x0 - sparBack).toBeGreaterThanOrEqual(res.st.ribs.leadMargin - 2e-4)
+    expect(h.w).toBeCloseTo(b2.lead.diameter, 3)
+    // Every bay's lead runs in the one strip, sized for the hole where all of them pass
+    expect(b1.lead.offset).toBe(b2.lead.offset)
+    expect(b1.lead.diameter).toBeCloseTo(leadHoleFor([b1.servo.leadHole, b2.servo.leadHole]), 9)
+  })
+
+  it('sizes the shared lead hole for the biggest plug and each other lead', () => {
+    expect(leadHoleFor([])).toBe(0)
+    expect(leadHoleFor([0.006])).toBe(0.006)
+    expect(leadHoleFor([0.006, 0.007, 0.004])).toBeCloseTo(0.007 + 2 * LEAD_EXTRA, 12)
+  })
+
+  it('leaves the lead hole out where a lightening hole behind the spar is big enough to carry the leads', () => {
+    const lit = build({ edit: (st) => (st.ribs.lightening = true) })
+    const ribs = lit.parts.filter((p) => p.group === 'ribs')
+    const through = ribs.filter((r) => r.notes.some((n) => /pass(es)? through a lightening hole/.test(n)))
+    expect(through.length).toBeGreaterThan(0)
+    for (const rib of through) {
+      // No lead-sized hole of its own, and a lightening hole behind the spar at least that big
+      const want = lit.a.bays.filter((b) => rib.s <= b.sA + 1e-6)
+      const need = leadHoleFor(want.map((b) => b.servo.leadHole))
+      const sparBack = lit.a.sparX(rib.s) + lit.st.spar.capWidth / 2 - lit.a.section(rib.s).xl
+      const behind = rib.holes.map(bounds).filter((h) => h.x0 >= sparBack - 1e-6)
+      expect(behind.some((h) => h.w >= need - 1e-6), rib.name).toBe(true)
+      expect(rib.notes.some((n) => n.startsWith('Lead hole for')), rib.name).toBe(false)
+    }
+    // The root rib has no lightening holes, so it keeps its lead hole
+    expect(ribs[0].notes.join(' ')).toContain('Lead hole for SB1, SB2')
   })
 
   it('checks each lead hole for rib material and keeps it clear of the others', () => {

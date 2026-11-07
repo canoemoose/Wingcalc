@@ -990,11 +990,17 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
   return out
 }
 
+// The most a servo tray between the wing's own ribs may span, as a multiple of the bay the servo
+// needs: further apart than that, the ribs are too far off to support the servo and its plate,
+// and the bay gets a pair of ribs of its own whatever the wing's rib spacing.
+export const TRAY_SLACK = 1.5
+
 // Servo trays between the wing's own ribs: for each built control-surface bay, the two ribs of
 // `ribs` (rib stations, { s }, laid out without the bays) either side of its servo, when the
-// servo and its clearance fit between their faces with no rib in the way. Returns a Map of bay
-// id -> { sA, sB, width } for the bays that fit; the others keep ribs of their own. An air
-// brake's bay shares the brake's box rib, so it's left as it is.
+// servo and its clearance fit between their faces with no rib in the way, and the gap is no more
+// than TRAY_SLACK times what the servo needs. Returns a Map of bay id -> { sA, sB, width } for
+// the bays that fit; the others keep ribs of their own. An air brake's bay shares the brake's
+// box rib, so it's left as it is.
 export function fitBaysToRibs(bays, ribs, ribThickness = 0, capOverhang = 0) {
   const out = new Map()
   const t = Math.max(0, ribThickness)
@@ -1007,6 +1013,8 @@ export function fitBaysToRibs(bays, ribs, ribThickness = 0, capOverhang = 0) {
     if (!inner || !outer) continue
     // Only between neighbouring ribs: a rib between them would run through the servo
     if (sorted.some((r) => r.s > inner.s + 1e-6 && r.s < outer.s - 1e-6)) continue
+    // Nor where they're too far apart to support it
+    if (outer.s - inner.s - t > TRAY_SLACK * (2 * half - t) + 1e-9) continue
     out.set(b.id, { sA: inner.s, sB: outer.s, width: outer.s - inner.s - t })
   }
   return out

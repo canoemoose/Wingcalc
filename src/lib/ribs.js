@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt } from './structure.js'
+import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -199,9 +199,11 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 // split: across a control surface, { surface, side }: 'fixed' is the part ahead of the hinge,
 // stopping at the fixed hinge spar's front face; 'moving' the moving surface's part, from its
 // hinge spar's rear face to the trailing edge stock (surface from structure.js surfaceLayouts).
-// leads: the servo leads that pass through this rib, [{ name, diameter, offset }] (a bay's lead,
-// the hole's near edge offset behind the spar's rear face): each gets a hole, kept clear of the
-// rib's edges and of the other holes, or a note and a mention in `leadFails` if there's no room.
+// leads: the lead holes through this rib, [{ name, names, diameter, offset, margin }] (normally
+// one, shared by every lead that passes: names are the bays', the hole's near edge offset behind
+// the spar's rear face): each gets a hole, kept clear of the rib's edges and of the other holes,
+// or a note and its bays in `leadFails` if there's no room. On a rib with lightening holes, one
+// behind the spar at least as big carries the leads and there's no lead hole.
 // How thin a rib runs out to over an inset leading-edge strip, where it feathers out
 const INSET_FEATHER = 0.0005
 
@@ -591,11 +593,13 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // Lead holes, in a strip behind the main spar. Each keeps its margin (the rib's lead margin, at
   // least MIN_MATERIAL) clear of the spar, the rib's edges and notches and the other holes,
   // sliding aft a millimetre at a time (up to 2 cm) if the nominal place is too thin or taken;
-  // the label and lightening holes keep clear of them.
-  const leadBlocks = []
-  const leadFails = []
+  // the label and lightening holes keep clear of them. Every lead through a rib shares one hole
+  // (leadsAt in buildParts), so there's normally one. Placed here, cut below.
   const [, sparOuterRear] = sparOuterFaces(a.sparX, sp)
-  if (!movingSide) {
+  const placeLeads = () => {
+    const blocks = []
+    const circles = []
+    const fails = []
     for (const ld of leads) {
       const D = ld.diameter
       const m = Math.max(MIN_MATERIAL, ld.margin ?? MIN_MATERIAL)
@@ -607,27 +611,25 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       for (let k = 0; k <= 20 && !placed; k++) {
         const u = u0 + k * 0.001
         if (u + D / 2 > uB - m) break
-        if ([...leadBlocks, ...keepClear].some(([b0, b1]) => u - D / 2 < b1 + m && u + D / 2 > b0 - m)) continue
+        if ([...blocks, ...keepClear].some(([b0, b1]) => u - D / 2 < b1 + m && u + D / 2 > b0 - m)) continue
         const c = clearOver(u - D / 2, u + D / 2, m)
         if (c.t - c.b >= D) placed = { u, z: (c.t + c.b) / 2 }
       }
       if (placed) {
-        holes.push(circle(placed.u, placed.z, D / 2))
-        leadBlocks.push([placed.u - D / 2, placed.u + D / 2])
-      } else {
-        leadFails.push(ld.name)
-        notes.push(`No room for the ${(D * 1000).toFixed(0)} mm lead hole for ${ld.name}: the rib is too thin behind the spar. Use a smaller servo, thinner skins or stringers elsewhere`)
-      }
+        circles.push(circle(placed.u, placed.z, D / 2))
+        blocks.push([placed.u - D / 2, placed.u + D / 2])
+      } else fails.push(ld)
     }
-    if (leadBlocks.length) notes.push(`Lead hole${leadBlocks.length === 1 ? '' : 's'} for ${leads.filter((l) => !leadFails.includes(l.name)).map((l) => l.name).join(', ')}`)
+    return { blocks, circles, fails }
   }
 
   // The label goes first, in the roomiest clear stretch (ahead of the spar if it fits as well
   // there), and the lightening holes keep clear of it
   const name = rib.name ?? ''
   const edge = 0.0015
-  // The tallest label (up to 5 mm) reading `text` that fits clear in the stretch from..to
-  const labelIn = (text, from, to, pref) => {
+  // The tallest label (up to 5 mm) reading `text` that fits clear in the stretch from..to,
+  // clear of blocks (the lead holes)
+  const labelIn = (text, from, to, pref, blocks) => {
     let best = null
     for (let u0 = from; u0 < to; u0 += 0.001) {
       // The tallest label (up to 5 mm) whose box fits clear from here
@@ -646,7 +648,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       if (h < 0.0015) continue
       const u1 = u0 + textWidth(text, h)
       if (u1 > to) continue
-      if ([...leadBlocks, ...keepClear].some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
+      if ([...blocks, ...keepClear].some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
       const c = clearOver(u0, u1, edge)
       if (c.t - c.b < h) continue
       if (!best || h * pref > best.h * best.pref + 1e-9) best = { text, u0, u1, h, pref, z: (c.t + c.b) / 2 - h / 2 }
@@ -655,26 +657,23 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   }
   const fronts = [uSolid + edge, Math.min(uB, uSpar0) - edge]
   const rears = [Math.max(uSolid, uSpar1) + edge, uB - edge]
-  let best
-  let rearBest = null
-  if (splitAtSpar) {
-    // A split rib's pieces: A ahead of the spar, B behind it, each labelled
-    best = labelIn(`${name}A`, ...fronts, 1)
-    rearBest = labelIn(`${name}B`, ...rears, 1)
-  } else {
-    const f = labelIn(name, ...fronts, 1.1)
-    const b = labelIn(name, ...rears, 1)
-    best = !f ? b : !b ? f : b.h * b.pref > f.h * f.pref + 1e-9 ? b : f
+  const placeLabel = (blocks) => {
+    if (splitAtSpar) {
+      // A split rib's pieces: A ahead of the spar, B behind it, each labelled
+      return { best: labelIn(`${name}A`, ...fronts, 1, blocks), rearBest: labelIn(`${name}B`, ...rears, 1, blocks) }
+    }
+    const f = labelIn(name, ...fronts, 1.1, blocks)
+    const b = labelIn(name, ...rears, 1, blocks)
+    return { best: !f ? b : !b ? f : b.h * b.pref > f.h * f.pref + 1e-9 ? b : f, rearBest: null }
   }
-  const text = splitAtSpar ? `${name}A` : name
-  const label = best
-    ? { text, u: best.u0, z: best.z, h: best.h }
-    : { text, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
-  const labelBoxes = [best, rearBest].filter(Boolean).map((x) => [x.u0, x.u1])
+  const boxesOf = ({ best, rearBest }) => [best, rearBest].filter(Boolean).map((x) => [x.u0, x.u1])
 
   // Lightening holes, in the open stretches either side of the spar (not on the root,
-  // break or tip ribs, which take the joining loads), clear of the label
-  if (r.lightening && isPlainRib(rib.kind)) {
+  // break or tip ribs, which take the joining loads), clear of the label and the lead holes
+  // (blocks), as [{ u, z, D }]
+  const lightening = r.lightening && isPlainRib(rib.kind)
+  const placeLightening = (blocks) => {
+    const out = []
     const m = r.lighteningMargin || 0.004
     const stretches = []
     for (const [from, to] of [
@@ -682,7 +681,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       [Math.max(uSolid, uSpar1) + m, uB - m],
     ]) {
       let open = [[from, to]]
-      for (const [b0, b1] of [...labelBoxes, ...leadBlocks, ...keepClear]) {
+      for (const [b0, b1] of [...blocks, ...keepClear]) {
         open = open.flatMap(([f, t2]) => (b1 + m > f && b0 - m < t2 ? [[f, b0 - m], [b1 + m, t2]] : [[f, t2]]))
       }
       stretches.push(...open.filter(([f, t2]) => t2 > f))
@@ -711,12 +710,46 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
         if (D >= 0.006) {
           const cu = u + D / 2
           const bd = band(cu, m)
-          holes.push(circle(cu, (bd.t + bd.b) / 2, D / 2))
+          out.push({ u: cu, z: (bd.t + bd.b) / 2, D })
           u += D + m
         } else u += 0.002
       }
     }
+    return out
   }
+
+  let lead = !movingSide && leads.length ? placeLeads() : { blocks: [], circles: [], fails: [] }
+  // A lightening hole behind the spar at least as big as the lead hole carries the leads instead:
+  // the rib is laid out as if it had no lead hole, and if it then has one that big, it hasn't
+  let leadsThrough = false
+  if (!movingSide && leads.length && lightening) {
+    const need = Math.max(...leads.map((l) => l.diameter))
+    const trial = placeLightening(boxesOf(placeLabel([])))
+    if (trial.some((h) => h.u - h.D / 2 >= uSpar1 - 1e-9 && h.D >= need - 1e-9)) {
+      lead = { blocks: [], circles: [], fails: [] }
+      leadsThrough = true
+    }
+  }
+  holes.push(...lead.circles)
+  const leadBlocks = lead.blocks
+  const leadNames = (list) => list.flatMap((l) => l.names ?? [l.name])
+  const leadFails = leadNames(lead.fails)
+  for (const ld of lead.fails) {
+    notes.push(`No room for the ${(ld.diameter * 1000).toFixed(0)} mm lead hole for ${leadNames([ld]).join(', ')}: the rib is too thin behind the spar. Use a smaller servo, thinner skins or stringers elsewhere`)
+  }
+  if (leadsThrough) notes.push(`The lead${leadNames(leads).length === 1 ? '' : 's'} for ${leadNames(leads).join(', ')} pass${leadNames(leads).length === 1 ? 'es' : ''} through a lightening hole`)
+  else if (lead.circles.length) notes.push(`Lead hole for ${leadNames(leads).filter((n) => !leadFails.includes(n)).join(', ')}`)
+
+  const placedLabel = placeLabel(leadBlocks)
+  const best = placedLabel.best
+  const rearBest = placedLabel.rearBest
+  const text = splitAtSpar ? `${name}A` : name
+  const label = best
+    ? { text, u: best.u0, z: best.z, h: best.h }
+    : { text, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
+  const labelBoxes = boxesOf(placedLabel)
+
+  if (lightening) for (const h of placeLightening([...labelBoxes, ...leadBlocks])) holes.push(circle(h.u, h.z, h.D / 2))
 
   // Height between the cap notch floors
   const capGap =
@@ -977,9 +1010,14 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   const surfaces = (a.surfaces ?? []).filter((x) => x.ok)
   const bays = (a.bays ?? []).filter((x) => x.ok)
   const brakes = (a.brakes ?? []).filter((x) => x.ok)
-  // The servo leads through a rib: every bay outboard of it (or at its inner rib), and the ribs
-  // that couldn't take a hole for each
-  const leadsAt = (s) => bays.filter((x) => s <= x.sA + 1e-6).map((x) => ({ name: x.name, diameter: x.lead.diameter, offset: x.lead.offset, margin: x.lead.margin }))
+  // The servo leads through a rib: every bay outboard of it (or at its inner rib), all through one
+  // hole sized for them (leadHoleFor); and the ribs that couldn't take a hole for each
+  const leadsAt = (s) => {
+    const through = bays.filter((x) => s <= x.sA + 1e-6)
+    if (!through.length) return []
+    const names = through.map((x) => x.name)
+    return [{ name: names.join(', '), names, diameter: leadHoleFor(through.map((x) => x.lead.plug ?? x.lead.diameter)), offset: through[0].lead.offset, margin: through[0].lead.margin }]
+  }
   const leadFailed = new Map()
   for (const rb of ribs) {
     const board = r.jigTabs ? boards.get(panelKey(a, rb.s)) : null
