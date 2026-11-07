@@ -80,8 +80,13 @@ describe('structure thumbnails', () => {
     const ribLines = t.lines.filter((l) => l.kind === 'rib').map((l) => pairs(l.d))
     const edges = t.lines.filter((l) => l.kind === 'edge').map((l) => pairs(l.d))
     expect(edges).toHaveLength(2)
-    // Both edges touch every rib (at its corner against the stock)
-    for (const line of edges) for (const rib of ribLines) expect(Math.min(...rib.map((q) => gap(q, line)))).toBeLessThan(0.15)
+    // Every rib (at its corner against the stock) touches an edge, and each edge touches a rib at
+    // every station: a rib cut in two round the dihedral brace has its front piece against the
+    // leading edge and its back piece against the trailing edge
+    const touches = (rib, line) => Math.min(...rib.map((q) => gap(q, line))) < 0.15
+    for (const rib of ribLines) expect(edges.some((line) => touches(rib, line))).toBe(true)
+    const stations = twisted.parts.filter((p) => p.group === 'ribs' && !p.of).length
+    for (const line of edges) expect(ribLines.filter((rib) => touches(rib, line)).length).toBeGreaterThanOrEqual(stations)
   })
 
   it('draws a foam wing as its cores: no spar, no ribs, a line at each core end', () => {

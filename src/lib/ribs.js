@@ -207,7 +207,9 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
 // How thin a rib runs out to over an inset leading-edge strip, where it feathers out
 const INSET_FEATHER = 0.0005
 
-export function buildRib(a, structure, rib, { board = null, split = null, leads = [] } = {}) {
+// braces: the dihedral braces' spans, [{ s0, s1, t, name }]: a rib between s0 and s1 is cut in two
+// round the spar and the brace plates on its faces.
+export function buildRib(a, structure, rib, { board = null, split = null, leads = [], braces = [] } = {}) {
   const r = structure.ribs
   const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
   let prof = cutProfile(a, rib.s, { perpendicular })
@@ -423,7 +425,9 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // solidTaper), and whether the rib is split in two at it
   const capsSpar = sp.type === 'caps' || sp.type === 'box'
   const fitHere = (sp.type === 'solid' || capsSpar) && !movingSide ? (sp.taper ?? []).find((t) => Math.abs(t.s - rib.s) < 1e-6) : null
-  const splitAtSpar = fitHere?.fit === 'split'
+  // A dihedral brace the rib crosses: the rib is cut in two round the spar and its plates
+  const braceHere = movingSide ? null : braces.find((b) => rib.s >= b.s0 - 1e-6 && rib.s <= b.s1 + 1e-6) ?? null
+  const splitAtSpar = fitHere?.fit === 'split' || !!braceHere
   // A caps spar's cap thickness at this rib: thinned where the rib keeps its margin between them
   const tcHere = capsSpar ? fitHere?.tc ?? sp.capThickness : 0
   // The moving surface's part is behind the main spar: nothing of it to notch
@@ -476,6 +480,19 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const insides = []
   // Stretches along the rib that lead holes, the label and lightening holes keep clear of
   const keepClear = []
+  // Where a split rib is cut: at the spar's faces, or outside a dihedral brace's plates (on the
+  // spar's faces, outside any webs) with a little clearance
+  let cutFront = uSpar0
+  let cutRear = uSpar1
+  if (braceHere) {
+    const [oF, oR] = sparOuterFaces(a.sparX, sp)
+    const k = (s) => lineFaces(a.sparX, 2)[1](s) - a.sparX(s)
+    const t = braceHere.t + 0.0002
+    cutFront = crossing((s) => oF(s) - t * k(s), uSpar0 - t)
+    cutRear = crossing((s) => oR(s) + t * k(s), uSpar1 + t)
+    keepClear.push([cutFront, cutRear])
+    notes.push(`Cut in two round the spar and the dihedral brace ${braceHere.name} on its faces`)
+  }
   for (const st of structure.stringers ?? []) {
     if (!stringerOk(st)) continue
     const { w, h } = stringerSize(st)
@@ -599,8 +616,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // its own piece
   let rearOutline = null
   if (splitAtSpar) {
-    rearOutline = clean(clipPolygon(outline, ([u]) => u - uSpar1))
-    outline = clean(clipPolygon(outline, ([u]) => uSpar0 - u))
+    rearOutline = clean(clipPolygon(outline, ([u]) => u - cutRear))
+    outline = clean(clipPolygon(outline, ([u]) => cutFront - u))
   }
 
   // Engraved: where to cut each tab off, along the rib's lower edge
@@ -693,8 +710,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     }
     return best
   }
-  const fronts = [uSolid + edge, Math.min(uB, uSpar0) - edge]
-  const rears = [Math.max(uSolid, uSpar1) + edge, uB - edge]
+  const fronts = [uSolid + edge, Math.min(uB, cutFront) - edge]
+  const rears = [Math.max(uSolid, cutRear) + edge, uB - edge]
   const placeLabel = (blocks) => {
     if (splitAtSpar) {
       // A split rib's pieces: A ahead of the spar, B behind it, each labelled
@@ -942,6 +959,10 @@ function dihedralAt(a) {
   return out
 }
 
+// How far beside the spar's outer faces a brace's depth is measured, m: the thickest ply it's
+// likely to be, so the plate's outer face stays inside the wing too
+const BRACE_REACH = 0.004
+
 // Dihedral braces: one per dihedral break (sized here, drawn by buildParts). Two plates, one each
 // side of the spar, share the bending moment at the break: t = 6 M SF / (2 σ h²), h being the depth
 // between the spar caps (or skins) there. Each entry gives the break, the moment, the brace height,
@@ -954,20 +975,30 @@ export function braceSizing(a, structure, { both = true } = {}) {
   const r = structure.ribs
   const m = material(br.material)
   const sigma = Math.min(m.compression, m.tension)
-  const skin = skinAtSpar(structure)
   const out = []
   let k = 1
+  // The room for a brace at s: the depth inside the skins there (each side's own, hard points'
+  // sheeting included), the least of it at the spar and at the brace's faces either side
+  const [oF, oR] = sparOuterFaces(a.sparX, structure.spar)
+  const roomAt = (s) => {
+    const c = Math.min(a.tipS, Math.max(a.rootS, s))
+    const sec = a.section(c)
+    if (!sec) return 0
+    const rear = (a.sparX(c) + sparWidth(structure.spar) / 2 - sec.xl) / sec.c
+    const xs = [a.sparX(c), oF(c) - BRACE_REACH, oR(c) + BRACE_REACH]
+    const roomAtX = (x) => {
+      const q = Math.min(0.95, Math.max(0.02, (x - sec.xl) / sec.c))
+      const skin = skinAt(structure, q, rear, 'top', sec.c, true, c) + skinAt(structure, q, rear, 'bottom', sec.c, true, c)
+      return sec.depth(q) - skin
+    }
+    return Math.max(0, Math.min(...xs.map(roomAtX)))
+  }
   for (const brk of dihedralAt(a)) {
     const delta = brk.outer - brk.inner
     if (Math.abs(delta) < 0.05) continue
     // A two-piece wing's root is a joiner, not a brace
     if (r.rootJoint === 'two-piece' && brk.s <= a.rootS + 1e-6) continue
-    const at = (s) => {
-      const sec = a.section(Math.min(a.tipS, Math.max(a.rootS, s)))
-      if (!sec) return 0
-      const q = Math.min(0.95, Math.max(0.02, (a.sparX(s) - sec.xl) / sec.c))
-      return Math.max(0, sec.depth(q) - 2 * skin)
-    }
+    const at = roomAt
     const Lb = br.length || 0.08
     const centre = brk.s < 1e-6 && r.rootJoint !== 'two-piece'
     // Each arm stops where the wing does: inboard at the centreline (or a two-piece root),
@@ -1032,11 +1063,17 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   const both = handedness === 'pair'
   const qtyOf = (s) => (both ? (s < 1e-6 && r.rootJoint !== 'two-piece' ? 1 : 2) : 1)
   const ribs = a.ribs.map((rb, i) => ({ ...rb, name: `R${i + 1}` }))
+  // The dihedral braces' spans along the wing, for the ribs that cross them
+  const braceSpans = foam
+    ? []
+    : braceSizing(a, structure, { both })
+        .filter((b) => b.ok && b.chosenT > 0)
+        .map((b) => ({ s0: b.geom.centre ? b.s : b.s - b.geom.Lin, s1: b.s + b.geom.Lout, t: b.chosenT, name: b.name }))
 
   // Board datum per panel for jig tabs: below the lowest point of every rib in the panel
   const boards = new Map()
   if (r.jigTabs) {
-    const firstPass = ribs.map((rb) => buildRib(a, structure, rb))
+    const firstPass = ribs.map((rb) => buildRib(a, structure, rb, { braces: braceSpans }))
     firstPass.forEach((b, i) => {
       if (!b.ok) return
       const key = panelKey(a, ribs[i].s)
@@ -1065,7 +1102,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     const board = r.jigTabs ? boards.get(panelKey(a, rb.s)) : null
     // A rib across a control surface stops at its hinge spar; the moving part comes below
     const across = surfaceAt(surfaces, rb.s)
-    const b = buildRib(a, structure, rb, { board, split: across ? { surface: across, side: 'fixed' } : null, leads: leadsAt(rb.s) })
+    const b = buildRib(a, structure, rb, { board, split: across ? { surface: across, side: 'fixed' } : null, leads: leadsAt(rb.s), braces: braceSpans })
     if (!b.ok) {
       skipped.push({ name: rb.name, s: rb.s, reason: b.reason })
       continue

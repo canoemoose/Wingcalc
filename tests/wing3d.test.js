@@ -179,7 +179,9 @@ describe('3D wing', () => {
           x.ribs.orientation = orientation
         }, swept)
         const label = `${type} ${orientation}`
-        for (const p of parts.filter((q) => q.group === 'ribs')) {
+        // Whole ribs only: those cut in two round the dihedral brace have no cap notches
+        const split = (q) => q.of || parts.some((x) => x.of === q.id)
+        for (const p of parts.filter((q) => q.group === 'ribs' && !split(q))) {
           const r = p.rib
           const ang = (r.angle * Math.PI) / 180
           const plan = (u) => [p.s + Math.sin(ang) * (u - r.sparU), a.sparX(p.s) + Math.cos(ang) * (u - r.sparU)]
@@ -239,7 +241,8 @@ describe('3D wing', () => {
     const { a, st, parts, w } = build((x) => (x.covering.type = 'dbox'), swept)
     // Top and bottom, one sheet per panel as each is cut
     expect(w.solids.filter((x) => x.kind === 'sheet')).toHaveLength(2 * panelRuns(a).length)
-    const ribs = parts.filter((q) => q.group === 'ribs')
+    // One per rib station (a rib cut in two round the dihedral brace is one station)
+    const ribs = parts.filter((q) => q.group === 'ribs' && !q.of)
     expect(w.capStrips).toHaveLength(2 * ribs.length) // top and bottom of every rib
     for (const p of ribs) {
       const r = p.rib
@@ -522,6 +525,48 @@ describe('3D wing', () => {
     const centre = plates.filter((p) => p.part === braces[0].id)
     for (const p of centre) {
       for (let i = 0; i < p.positions.length; i += 3) expect(p.positions[i]).toBeGreaterThan(-1e-9)
+    }
+  })
+
+  it('draws each brace plate as a closed solid inside the wing, and cuts the ribs it crosses in two round it', () => {
+    // A sheeted hard point over the first brace
+    const first = build(() => {}, swept)
+    const at = first.parts.find((p) => p.group === 'braces').at.s - first.a.rootS
+    const { a } = build((x) => (x.ribs.hardPoints = [{ id: 1, d: Math.max(0, at - 0.03), to: at + 0.05, label: 'Joiner', sheet: 'both', thickness: 0.003 }]), swept)
+    // As the app does, from the resolved structure (it lists the hard points' sheets)
+    const st = a.structure
+    const { parts } = buildParts(a, st)
+    const braces = parts.filter((p) => p.group === 'braces')
+    expect(braces.length).toBeGreaterThan(0)
+    for (const p of bracePlates(a, st, parts)) {
+      // Closed: every edge shared by exactly two triangles
+      const edges = new Map()
+      for (let i = 0; i < p.indices.length; i += 3) {
+        for (const [u, v] of [[p.indices[i], p.indices[i + 1]], [p.indices[i + 1], p.indices[i + 2]], [p.indices[i + 2], p.indices[i]]]) {
+          const k = u < v ? `${u},${v}` : `${v},${u}`
+          edges.set(k, (edges.get(k) ?? 0) + 1)
+        }
+      }
+      expect([...edges.values()].every((n) => n === 2)).toBe(true)
+    }
+    // Sized for the room inside the skins beside the spar: behind it, the hard point's 3 mm sheet
+    const b = braces[0]
+    const s = b.at.s
+    const sec = a.section(s)
+    // 4 mm behind the spar's rear face, where the rear plate's outer face is for ply that thick
+    const behind = sparOuterFaces(a.sparX, st.spar)[1](s) + 0.004
+    const room = sec.depth((behind - sec.xl) / sec.c) - 2 * 0.003
+    expect(b.at.depths[1]).toBeLessThanOrEqual(room + 1e-9)
+    // Every rib it crosses is in two pieces, round the spar and the brace plates
+    const reach = [b.at.centre ? s : s - b.at.inner, s + b.at.outer]
+    const crossed = parts.filter((p) => p.group === 'ribs' && !p.of && p.s >= reach[0] - 1e-6 && p.s <= reach[1] + 1e-6)
+    expect(crossed.length).toBeGreaterThan(0)
+    for (const p of crossed) {
+      expect(parts.some((q) => q.of === p.id), p.name).toBe(true)
+      expect(p.notes.some((n) => n.includes(`dihedral brace ${b.name}`))).toBe(true)
+      // The front piece ends ahead of the spar's front face by more than the brace's thickness
+      const front = Math.max(...p.outline.map(([u]) => u))
+      expect(p.rib.sparNotch[0] - front).toBeGreaterThan(b.thickness * 0.9)
     }
   })
 

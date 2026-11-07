@@ -150,13 +150,17 @@ describe('ribs', () => {
   it('puts every jig tab of a panel on one board line', () => {
     const res = build((st) => (st.ribs.jigTabs = true), swept)
     const byBoard = new Map()
+    // A rib cut in two (round a dihedral brace near the root) has a tab on each piece
+    const etches = new Map()
     for (const p of ribsOf(res)) {
       const low = Math.min(...p.outline.map(([, z]) => z))
       const key = [...res.boards.entries()].find(([, v]) => Math.abs(v - low) < 1e-9)?.[0]
       expect(key, p.name).toBeDefined()
       byBoard.set(key, (byBoard.get(key) ?? 0) + 1)
-      expect(p.etch.length).toBe(2)
+      const rib = p.of ?? p.id
+      etches.set(rib, (etches.get(rib) ?? 0) + p.etch.length)
     }
+    for (const [rib, n] of etches) expect(n, rib).toBe(2)
     expect(byBoard.size).toBeGreaterThanOrEqual(2)
   })
 
