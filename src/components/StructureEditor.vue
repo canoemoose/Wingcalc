@@ -14,7 +14,7 @@ import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
 import EdgeStockPicker from './EdgeStockPicker.vue'
 import { format, defaultUnit } from '../lib/units.js'
-import { MATERIALS, gussetLayer, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer, websSetting } from '../lib/structure.js'
+import { MATERIALS, gussetLayer, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer, websSetting, thinRibsOf } from '../lib/structure.js'
 import { FOAMS, SKIN_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter, customLe } from '../lib/edgeStock.js'
 
@@ -392,11 +392,18 @@ const RIB_FITS = [
   { value: 'margin', label: 'Keep rib round it', title: 'The spar tapers so the rib keeps its least material above and below' },
   { value: 'split', label: 'Split the rib', title: 'The rib is cut in two either side of the spar, which takes its full depth' },
 ]
-const thinRibs = computed(() => (st.value.spar.type === 'solid' ? props.sparFits.filter((t) => t.thin) : []))
+const capsSpar = computed(() => st.value.spar.type === 'caps' || st.value.spar.type === 'box')
+const thinRibs = computed(() => (st.value.spar.type === 'solid' || capsSpar.value ? props.sparFits.filter((t) => t.thin) : []))
+// The wing's fit for its thin ribs, and where it's set (a caps spar's is its own)
+const thinFitKey = computed(() => (capsSpar.value ? 'spar.capThinRibs' : 'spar.thinRibs'))
+const CAP_FITS = [
+  { value: 'split', label: 'Split the rib', title: 'The rib is cut in two either side of the caps' },
+  { value: 'margin', label: 'Thin the caps', title: 'The caps are sanded thinner at the rib so it keeps its least material between them' },
+]
 // One rib's fit; the wing's own choice clears it, so the rib follows the wing's again
 function setRibFit(name, fit) {
   const { [name]: _, ...rest } = st.value.spar.ribFits ?? {}
-  set('spar.ribFits', fit === (st.value.spar.thinRibs ?? 'margin') ? rest : { ...rest, [name]: fit })
+  set('spar.ribFits', fit === thinRibsOf(st.value.spar) ? rest : { ...rest, [name]: fit })
 }
 // A panel's own sheet thickness; blank removes it, so the panel takes the wing's
 function setPanelThickness(panelId, v) {
@@ -597,28 +604,53 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           ]"
           @update:model-value="set('spar.solidMount', $event)"
         />
+      </template>
+      <!-- Ribs too thin for the spar: the least rib to keep, the wing's fit and each rib's -->
+      <template v-if="st.spar.type === 'solid' || capsSpar">
         <UnitInput
           :id="id('ribmargin')"
           :model-value="st.spar.ribMargin ?? 0.004"
           quantity="thin"
           :system="system"
-          :label="st.spar.solidMount === 'through' ? 'Least rib above and below the spar' : 'Least rib beside the notch'"
-          hint="Where the spar is deeper than a rib can hold with this much rib left, it tapers to fit."
+          :label="capsSpar ? 'Least rib between the caps' : st.spar.solidMount === 'through' ? 'Least rib above and below the spar' : 'Least rib beside the notch'"
+          :hint="capsSpar ? 'Where the cap notches would leave less rib than this between them, the rib is split or the caps thinned there.' : 'Where the spar is deeper than a rib can hold with this much rib left, it tapers to fit.'"
           @update:model-value="set('spar.ribMargin', $event ?? 0.004)"
         />
-        <SegmentedField :model-value="st.spar.thinRibs ?? 'margin'" label="At those ribs" :options="RIB_FITS" @update:model-value="set('spar.thinRibs', $event)" />
+        <SegmentedField :model-value="thinRibsOf(st.spar)" label="At those ribs" :options="capsSpar ? CAP_FITS : RIB_FITS" @update:model-value="set(thinFitKey, $event)" />
         <template v-if="thinRibs.length">
-          <SegmentedField
-            v-for="t in thinRibs"
-            :key="t.name"
-            :model-value="t.fit"
-            :label="`${t.name}: ${mm(t.inner)} of room, spar ${mm(t.depth)}`"
-            :options="RIB_FITS"
-            @update:model-value="setRibFit(t.name, $event)"
-          />
-          <p class="wc-field__hint">
-            The spar tapers straight between the ribs; the export has a template for it (SP1 and on). Splitting a rib cuts it
-            in two either side of the spar (R5A ahead, R5B behind) and lets the spar take the rib's full depth there.
+          <table class="wc-table wc-structure-editor__ribfits">
+            <thead>
+              <tr>
+                <th scope="col">Rib</th>
+                <th scope="col">Room</th>
+                <th scope="col">{{ capsSpar ? 'Caps' : 'Spar' }}</th>
+                <th scope="col">Split</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in thinRibs" :key="t.name">
+                <th scope="row">{{ t.name }}</th>
+                <td>{{ mm(t.inner) }}</td>
+                <td>{{ mm(capsSpar ? t.tc : t.depth) }}</td>
+                <td>
+                  <input
+                    type="checkbox"
+                    :checked="t.fit === 'split'"
+                    :aria-label="`Split ${t.name} at the spar`"
+                    @change="setRibFit(t.name, $event.target.checked ? 'split' : 'margin')"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="capsSpar" class="wc-field__hint">
+            Room is the depth inside the skins at the spar; Caps, how thick they are there. A split rib is cut in two either
+            side of the caps (R5A ahead, R5B behind); otherwise the caps are sanded thinner towards it, which the rib's notes say.
+          </p>
+          <p v-else class="wc-field__hint">
+            Room is the depth inside the skins at the spar; Spar, how deep it is there. The spar tapers straight between the
+            ribs; the export has a template for it (SP1 and on). Splitting a rib cuts it in two either side of the spar (R5A
+            ahead, R5B behind) and lets the spar take the rib's full depth there.
           </p>
         </template>
         <p v-else class="wc-field__hint">Every rib holds the full spar with that much rib to spare.</p>

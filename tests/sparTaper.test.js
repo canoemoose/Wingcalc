@@ -31,7 +31,7 @@ describe('a solid spar too deep for thin ribs', () => {
     expect(sp.thinRibs).toBe('margin')
     expect(fillDefaults(defaultStructure(), { spar: { type: 'solid' } }).spar.ribFits).toEqual({})
     // 20 mm of room: a 16 mm spar leaves 2 mm each side, so it tapers to 12 mm; split takes 16
-    const s = { ...sp, solidDepth: 0.016 }
+    const s = { ...sp, type: 'solid', solidDepth: 0.016 }
     expect(thinRib(s, 0.02)).toBe(true)
     expect(solidDepthFor(s, 0.02, 'margin')).toBeCloseTo(0.012, 9)
     expect(solidDepthFor(s, 0.02, 'split')).toBeCloseTo(0.016, 9)
@@ -137,5 +137,63 @@ describe('a solid spar too deep for thin ribs', () => {
     expect(shallow.a.structure.spar.taper.every((t) => !t.thin)).toBe(true)
     const thick = build((st) => (st.spar.ribMargin = 0.012))
     expect(thick.a.warnings.find((w) => w.id === 'spar-fit')?.message).toMatch(/tapers to nothing/)
+  })
+})
+
+// Thick caps (8 mm) in the default wing: towards the tip the rib between their notches would be
+// thinner than the 4 mm margin
+function buildCaps(edit = () => {}) {
+  return build((st) => {
+    st.spar.type = 'caps'
+    st.spar.capThickness = 0.008
+    st.spar.capWidth = 0.006
+    edit(st)
+  })
+}
+
+describe('a caps spar whose notches leave too little rib between them', () => {
+  it('splits those ribs at the caps by default, the caps keeping their thickness', () => {
+    const { a, parts } = buildCaps()
+    const taper = a.structure.spar.taper
+    const thin = taper.filter((t) => t.thin)
+    expect(thin.length).toBeGreaterThan(0)
+    for (const t of thin) {
+      expect(t.fit).toBe('split')
+      expect(t.inner - 2 * 0.008).toBeLessThan(0.004)
+      expect(t.tc).toBe(0.008)
+      // Two pieces, ahead of the caps (the rib's own part, engraved R10A) and behind them
+      expect(ribPart(parts, t.name).label.text, t.name).toBe(`${t.name}A`)
+      expect(ribPart(parts, `${t.name}B`), t.name).toBeTruthy()
+    }
+    // The ribs with room keep their notches and stay whole
+    const whole = taper.find((t) => !t.thin)
+    expect(ribPart(parts, whole.name)).toBeTruthy()
+  })
+
+  it('thins the caps instead where asked, keeping 4 mm of rib between the notches', () => {
+    const { a, parts } = buildCaps((st) => (st.spar.capThinRibs = 'margin'))
+    const thin = a.structure.spar.taper.filter((t) => t.thin)
+    expect(thin.length).toBeGreaterThan(0)
+    for (const t of thin) {
+      expect(t.fit).toBe('margin')
+      expect(t.inner - 2 * t.tc).toBeCloseTo(0.004, 9)
+      const rib = ribPart(parts, t.name)
+      expect(rib, t.name).toBeTruthy()
+      expect(rib.notes.some((n) => n.startsWith('The caps are thinned'))).toBe(true)
+    }
+    // The 3D caps follow, thinner at a thin rib than at the root
+    const t = thin.at(-1)
+    const [top] = sparBoxes(a, a.structure, t.s)
+    const ys = top.map(([, z]) => z)
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(0.008 - 1e-4)
+  })
+
+  it('takes a rib of its own choosing over the wing\'s', () => {
+    const first = buildCaps().a.structure.spar.taper.find((t) => t.thin)
+    const { a, parts } = buildCaps((st) => (st.spar.ribFits = { [first.name]: 'margin' }))
+    const t = a.structure.spar.taper.find((x) => x.name === first.name)
+    expect(t.fit).toBe('margin')
+    expect(ribPart(parts, first.name)).toBeTruthy()
+    expect(ribPart(parts, `${first.name}B`)).toBeUndefined()
   })
 })

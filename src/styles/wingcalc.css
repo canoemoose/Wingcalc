@@ -580,6 +580,20 @@
 .wc-table__row--active td {
   font-weight: 650;
 }
+/* The thin ribs' fits in the structure editor: one compact row per rib */
+.wc-structure-editor__ribfits {
+  width: 100%;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.wc-structure-editor__ribfits th[scope='row'] {
+  font-weight: 600;
+}
+.wc-structure-editor__ribfits th:last-child,
+.wc-structure-editor__ribfits td:last-child {
+  padding-right: 0;
+  text-align: center;
+}
 
 /* Stall character */
 .wc-stall__head {

@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, sparOuterFaces, websOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -337,7 +337,8 @@ export function sparBoxes(a, structure, s) {
   const x0 = front(s)
   const x1 = rear(s)
   if (sp.type === 'caps' || sp.type === 'box') {
-    return [seated(a, structure, s, x0, x1, sp.capThickness, 'upper'), seated(a, structure, s, x0, x1, sp.capThickness, 'lower')]
+    const tc = capThicknessAt(sp, s)
+    return [seated(a, structure, s, x0, x1, tc, 'upper'), seated(a, structure, s, x0, x1, tc, 'lower')]
   }
   // A solid spar tapers where the ribs are too thin for it (structure.js solidTaper)
   if (sp.type === 'solid' && sp.solidMount !== 'through') return [seated(a, structure, s, x0, x1, solidDepthAt(sp, s), sp.solidMount === 'top' ? 'upper' : 'lower')]

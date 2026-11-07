@@ -421,14 +421,28 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS, rib.s)
   // A solid spar's depth at this rib (tapered where the rib is too thin for it: structure.js
   // solidTaper), and whether the rib is split in two at it
-  const fitHere = sp.type === 'solid' && !movingSide ? (sp.taper ?? []).find((t) => Math.abs(t.s - rib.s) < 1e-6) : null
+  const capsSpar = sp.type === 'caps' || sp.type === 'box'
+  const fitHere = (sp.type === 'solid' || capsSpar) && !movingSide ? (sp.taper ?? []).find((t) => Math.abs(t.s - rib.s) < 1e-6) : null
   const splitAtSpar = fitHere?.fit === 'split'
+  // A caps spar's cap thickness at this rib: thinned where the rib keeps its margin between them
+  const tcHere = capsSpar ? fitHere?.tc ?? sp.capThickness : 0
   // The moving surface's part is behind the main spar: nothing of it to notch
   if (movingSide) {
     // no spar notches
-  } else if (sp.type === 'caps' || sp.type === 'box') {
-    upper.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
-    lower.push({ u0: uSpar0, u1: uSpar1, depth: sp.capThickness, what: 'spar' })
+  } else if (capsSpar) {
+    const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+    if (fitHere?.thin) {
+      notes.push(
+        splitAtSpar
+          ? `Split at the spar: under ${mm(ribMarginOf(sp))} of rib would be left between the caps, so the rib is cut in two either side of them`
+          : `The caps are thinned to ${mm(tcHere)} here, leaving ${mm(ribMarginOf(sp))} of rib between them: sand them down towards this rib`,
+      )
+    }
+    // Split: cut in two at the caps' faces, below, once the outline is walked
+    if (!splitAtSpar) {
+      upper.push({ u0: uSpar0, u1: uSpar1, depth: tcHere, what: 'spar' })
+      lower.push({ u0: uSpar0, u1: uSpar1, depth: tcHere, what: 'spar' })
+    }
   } else if (sp.type === 'solid') {
     const d = fitHere ? fitHere.depth : solidDepthAt(sp, rib.s)
     if (fitHere?.thin) {
@@ -581,7 +595,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     if (!notched) notes.push('The leading-edge rod is deeper than the rib at its notch')
   }
 
-  // Split at a solid spar: the rib ahead of it and the rib behind it, each its own piece
+  // Split at a solid spar or a caps spar's caps: the rib ahead of it and the rib behind it, each
+  // its own piece
   let rearOutline = null
   if (splitAtSpar) {
     rearOutline = clean(clipPolygon(outline, ([u]) => u - uSpar1))
@@ -777,7 +792,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // Height between the cap notch floors
   const capGap =
     !movingSide && (sp.type === 'caps' || sp.type === 'box')
-      ? Math.min(top(uSpar0), top(uSpar1)) - sp.capThickness - (Math.max(bot(uSpar0), bot(uSpar1)) + sp.capThickness)
+      ? Math.min(top(uSpar0), top(uSpar1)) - tcHere - (Math.max(bot(uSpar0), bot(uSpar1)) + tcHere)
       : null
   // The shear webs' height where they meet this rib: the rib's full height (less any sheeting)
   // in the middle of each web, the front one on the caps' leading-edge face and a box spar's

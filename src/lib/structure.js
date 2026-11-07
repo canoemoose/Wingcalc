@@ -172,6 +172,9 @@ export function defaultStructure() {
       // by its name ({ R12: 'split' })
       ribMargin: 0.004,
       thinRibs: 'margin',
+      // A caps spar's: where the rib between the cap notches would be thinner than ribMargin,
+      // the rib is split at the caps ('split') or the caps thinned there to keep it ('margin')
+      capThinRibs: 'split',
       ribFits: {},
     },
     covering: {
@@ -794,13 +797,40 @@ export function skinAtSpar(structure, side, s = null) {
 
 // How many bridges of rib a solid spar leaves: above and below a slot, one beside a notch
 const bridgesOf = (sp) => (sp.solidMount === 'top' || sp.solidMount === 'bottom' ? 1 : 2)
-// The least rib kept above and below a solid spar (4 mm unless set)
+// The least rib kept above and below a solid spar, or between a caps spar's notches (4 mm unless set)
 export const ribMarginOf = (sp) => (sp.ribMargin > 0 ? sp.ribMargin : 0.004)
+const isCaps = (sp) => sp.type === 'caps' || sp.type === 'box'
+// The wing's fit for its thin ribs: a solid spar's keeps the margin unless set, a caps spar's
+// splits the rib
+export const thinRibsOf = (sp) => (isCaps(sp) ? sp.capThinRibs ?? 'split' : sp.thinRibs ?? 'margin')
 // The fit a rib takes where the spar is too deep for it, by the rib's name: its own, else the wing's
-export const ribFitOf = (sp, name) => sp.ribFits?.[name] ?? sp.thinRibs ?? 'margin'
+export const ribFitOf = (sp, name) => sp.ribFits?.[name] ?? thinRibsOf(sp)
 // Whether a rib with `inner` of room inside the skins at the spar is too thin for the full spar
-// with the margin round it
-export const thinRib = (sp, inner) => sp.solidDepth > inner - bridgesOf(sp) * ribMarginOf(sp) + 1e-9
+// with the margin round it (for caps, between their notches)
+export const thinRib = (sp, inner) =>
+  isCaps(sp) ? 2 * sp.capThickness > inner - ribMarginOf(sp) + 1e-9 : sp.solidDepth > inner - bridgesOf(sp) * ribMarginOf(sp) + 1e-9
+// A caps spar's cap thickness where there's `inner` of room inside the skins: its own, or for
+// 'margin' thinned to leave the margin of rib between the notches
+export function capThicknessFor(sp, inner, fit) {
+  if (fit === 'split' || !Number.isFinite(inner)) return sp.capThickness
+  return Math.max(0, Math.min(sp.capThickness, (inner - ribMarginOf(sp)) / 2))
+}
+// The fit the strength check takes along the span, before the ribs are placed: the thinner (on
+// the safe side) unless every thin rib is split
+const allSplit = (sp) => thinRibsOf(sp) === 'split' && !Object.values(sp.ribFits ?? {}).includes('margin')
+// A caps spar's cap thickness at s: straight between the ribs' (sp.taper, once the ribs are
+// placed), else for `inner` of room at the strength fit
+export function capThicknessAt(sp, s, inner = null) {
+  const t = sp.taper
+  if (t?.length && Number.isFinite(s) && t[0].tc != null) {
+    if (s <= t[0].s) return t[0].tc
+    for (let i = 1; i < t.length; i++) {
+      if (s <= t[i].s) return t[i - 1].tc + ((t[i].tc - t[i - 1].tc) * (s - t[i - 1].s)) / (t[i].s - t[i - 1].s || 1)
+    }
+    return t.at(-1).tc
+  }
+  return Number.isFinite(inner) ? capThicknessFor(sp, inner, allSplit(sp) ? 'split' : 'margin') : sp.capThickness
+}
 // A solid spar's depth where there's `inner` of room inside the skins: its own depth, or less
 // where that's too deep, for the fit: 'margin' leaves the margin of rib above and below (one
 // side for a notch), 'split' takes the whole room (the rib is cut in two at the spar)
@@ -810,7 +840,7 @@ export function solidDepthFor(sp, inner, fit) {
 }
 // The fit the strength check takes along the span: the margin (the shallower spar, on the safe
 // side) unless every rib too thin for the spar is split
-export const strengthFit = (sp) => (sp.thinRibs === 'split' && !Object.values(sp.ribFits ?? {}).includes('margin') ? 'split' : 'margin')
+export const strengthFit = (sp) => (allSplit(sp) ? 'split' : 'margin')
 // A solid spar's depth at s: straight between the ribs' depths (sp.taper, which analyseStructure
 // works out once the ribs are placed), else the depth for `inner` of room at the strength fit
 export function solidDepthAt(sp, s, inner = null) {
@@ -836,6 +866,8 @@ export function solidTaper(structure, ribs, section, sparX) {
     const inner = sec.depth(xi) - skinAtSpar(structure, 'top', r.s) - skinAtSpar(structure, 'bottom', r.s)
     const thin = thinRib(sp, inner)
     const fit = thin ? ribFitOf(sp, name) : null
+    // A caps spar's cap thickness there (tc), or a solid spar's depth
+    if (isCaps(sp)) return { s: r.s, name, inner, thin, fit, tc: thin ? capThicknessFor(sp, inner, fit) : sp.capThickness }
     return { s: r.s, name, inner, thin, fit, depth: thin ? solidDepthFor(sp, inner, fit) : sp.solidDepth }
   })
 }
@@ -862,9 +894,9 @@ export function sparSection(structure, h, dFromRoot = 0, s = null) {
     const d = solidDepthAt(sp, s, inner)
     return { type: 'solid', inner, d, I: (b * d ** 3) / 12, c: d / 2, fits: d >= 0.001 && d <= inner + 1e-9, mat: material(sp.solidMaterial), b }
   }
-  // Caps (+ one web on their front face, or a second on their rear face for a box)
+  // Caps (+ their webs), thinned where the ribs keep their margin between them
   const b = sp.capWidth
-  const tc = sp.capThickness
+  const tc = capThicknessAt(sp, s, inner)
   const d = inner - tc // between cap centroids
   const area = b * tc
   return {
@@ -879,6 +911,7 @@ export function sparSection(structure, h, dFromRoot = 0, s = null) {
     fits: d > tc,
     mat: material(sp.capMaterial),
     b,
+    tc,
     webs: Math.max(1, Number(websOf(sp).front) + Number(websOf(sp).back)),
     web: material(sp.webMaterial),
     tw: sp.webThickness,
@@ -953,7 +986,7 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
   const top = at.upper - skinAtSpar(structure, 'top', sec.s)
   const bot = at.lower + skinAtSpar(structure, 'bottom', sec.s)
   if (sp.type === 'caps' || sp.type === 'box') {
-    const tc = structure.spar.capThickness
+    const tc = sp.tc ?? structure.spar.capThickness
     const I0 = (sp.b * tc ** 3) / 12
     els.push({ part: 'spar', E: sp.mat.E, A: sp.area, z: top - tc / 2, I0, top, bottom: top - tc })
     els.push({ part: 'spar', E: sp.mat.E, A: sp.area, z: bot + tc / 2, I0, top: bot + tc, bottom: bot })
@@ -1759,8 +1792,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     : ribStations(sampler, structure, limitAt, [...surfaceEnds, ...brakeEnds, ...bayEnds]).filter(
         (r) => !((r.kind === 'normal' || r.kind === 'manual') && ownBays.some((b) => r.s > b.sA + 1e-4 && r.s < b.sB - 1e-4)),
       )
-  // A solid spar too deep for the thin ribs tapers to fit them, each by its fit (solidTaper)
-  if (!foam && structure.spar.type === 'solid') structure = { ...structure, spar: { ...structure.spar, taper: solidTaper(structure, ribs, section, sparX) } }
+  // A solid spar too deep for the thin ribs tapers to fit them, and a caps spar's caps thin
+  // where they keep the rib between them, each rib by its fit (solidTaper)
+  if (!foam && (structure.spar.type === 'solid' || isCaps(structure.spar))) structure = { ...structure, spar: { ...structure.spar, taper: solidTaper(structure, ribs, section, sparX) } }
   // A rod or dowel can't be carved to suit, so check it at every rib, not just the ends (on a
   // foam wing, about every 20 mm)
   if (edges.le.round) {
