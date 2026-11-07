@@ -218,7 +218,7 @@ describe('defaultServoClass', () => {
 
 describe('bay settings', () => {
   it('gives a surface its defaults when it has no saved bay', () => {
-    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null })
+    expect(bayOf({ bays: [] }, 'aileron')).toEqual({ surface: 'aileron', enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, hatch: true })
     expect(bayOf(undefined, 'aileron').enabled).toBe(true)
   })
 

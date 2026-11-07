@@ -124,7 +124,9 @@ const geom = computed(() => {
       return {
         id: b.id,
         label: b.label,
-        hatch: box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1),
+        // The plate, which is the hatch's size where there is one
+        hatch: box(b.plate.x0, b.plate.x1, b.plate.s0, b.plate.s1),
+        hatchText: b.hatch ? `mount plate, and the hatch in the ${b.hatch.side === 'top' ? 'upper' : 'lower'} surface ${b.hatch.side === 'top' ? 'over' : 'under'} it` : 'mount plate (sealed in: no hatch)',
         body: b.body ? pts(b.body.map(([x, s]) => [s, x])) : box(b.case.x0, b.case.x1, b.s - (b.servo.caseWidth ?? b.servo.width) / 2, b.s + (b.servo.caseWidth ?? b.servo.width) / 2),
         lead: pts(lead),
       }
@@ -706,7 +708,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
             <polyline v-if="r.hinge" :points="r.hinge" class="wc-sp__brake-hinge" />
           </template>
           <template v-for="b in show.servoPlates ? geom.servos : []" :key="'bp' + b.id">
-            <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: mount plate, and the hatch in the lower surface under it</title></polygon>
+            <polygon :points="b.hatch" class="wc-sp__hatch"><title>{{ b.label }}: {{ b.hatchText }}</title></polygon>
           </template>
           <template v-for="b in show.servos ? geom.servos : []" :key="'b' + b.id">
             <polyline :points="b.lead" class="wc-sp__lead" />

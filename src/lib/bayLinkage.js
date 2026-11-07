@@ -514,7 +514,7 @@ export const ROD_CLEAR = 0.001
 
 // Whether the linkage works outside the wing over the travel the designed throws use. The arm
 // comes out through the skin on the horn's face: its slot, drawn on the plan, is in the hatch when
-// every point of it is inside the hatch's outline, else in the skin. Warned: the arm's hole in use
+// the hatch is in that skin and every point of the slot is inside its outline, else in the skin. Warned: the arm's hole in use
 // going inside the wing (the pushrod would have to enter it), the pushrod touching the skin
 // between its holes, and the arm's end sweeping into the bay's ribs inside the wing.
 // { slots: [{ what, surface, hatch, x0, x1, s0, s1 }], clashes: ['inside' | 'rod' | 'rib'],
@@ -562,7 +562,7 @@ export function linkageFit(a, b, frame, c) {
     const hatch = b.hatch
     const inHatch = ([x, s]) => hatch && x >= hatch.x0 && x <= hatch.x1 && s >= hatch.s0 && s <= hatch.s1
     const pad = A.width / 2
-    out.slots.push({ what: 'arm', surface: face, hatch: face === 'bottom' && through.every(inHatch), x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, s0: Math.min(...qs) - pad, s1: Math.max(...qs) + pad })
+    out.slots.push({ what: 'arm', surface: face, hatch: !!hatch && hatch.side === face && through.every(inHatch), x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, s0: Math.min(...qs) - pad, s1: Math.max(...qs) + pad })
   }
 
   // The hole in use stays outside the skin, with room for the pushrod's end

@@ -1313,14 +1313,15 @@ const BAY_PROBLEMS = {
 // faces, its underside on the lugs' top face, with a cut-out for what passes through it and
 // at least PLATE_EDGE of ply round that (the servo goes in from below, the lugs bearing up on
 // the plate). Lower stringers under the run raise the servo, upper ones lower its ceiling. The
-// hatch is the opening in the lower surface under it, the plate's size. The leads leave
+// hatch is the opening it's reached by, the plate's size, in the skin on its horn's face (none
+// where it's sealed in). The leads leave
 // through a hole in each rib inboard of the bay (the bay's own inner rib included), in a strip
 // just behind the main spar, one hole's width per bay, the outermost bay's nearest the spar.
 //
 // Returns the bays (surfaces: the built ones from surfaceLayouts), each with ok (built) or
 // problem, and for the built ones: plate ({ x0, x1 } chord, { s0, s1 } span, thickness), lugs
 // (the servo's whole run) and case ({ x0, x1 }), cut ({ x0, x1, s0, s1 }, the plate's cut-out),
-// screws ([x, s], the plate's pilot holes), hatch ({ x0, x1, s0, s1 }), inner (the rib faces'
+// screws ([x, s], the plate's pilot holes), hatch ({ x0, x1, s0, s1, side }, or null), inner (the rib faces'
 // s), lead ({ diameter, offset }: the hole's near edge's distance behind the spar's rear face),
 // room (the depth there, between the skins), need and warnings.
 export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, surfaces, bays) {
@@ -1460,7 +1461,9 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
         size: [k.s[1] - k.s[0], k.z[1] - k.z[0]],
         length: k.x[1] - k.x[0],
       })),
-      hatch: { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1] },
+      // The opening it's reached by, the plate's size, in the skin on the side it goes in from
+      // (its horn's face); none where it's sealed in
+      hatch: b.hasHatch === false ? null : { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1], side: b.face === 'top' ? 'top' : 'bottom' },
       room,
       need,
     })

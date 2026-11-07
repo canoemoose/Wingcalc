@@ -1212,7 +1212,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         ...slots.filter((q) => q.bay === bay.name).map((q) => `The arm comes out through the ${q.surface} ${q.hatch && sheeted ? 'hatch' : 'skin'}: a slot ${((q.s1 - q.s0) * 1000).toFixed(0)} × ${((q.x1 - q.x0) * 1000).toFixed(0)} mm (across the span by along the chord), cut ${slotIn(q)}`),
       ],
     })
-    if (sheeted) {
+    if (sheeted && bay.hatch) {
       const th = sheetThicknessAt(structure, (bay.hatch.s0 + bay.hatch.s1) / 2)
       parts.push({
         id: `${bay.name}-H`,
@@ -1224,11 +1224,11 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         outline: rect(0, 0, bay.hatch.s1 - bay.hatch.s0, bay.hatch.x1 - bay.hatch.x0),
         // The arm's slot, where it comes out through the hatch
         holes: slots
-          .filter((q) => q.bay === bay.name && q.hatch && q.surface === 'bottom')
+          .filter((q) => q.bay === bay.name && q.hatch && q.surface === bay.hatch.side)
           .map((q) => rect(Math.max(0, q.s0 - bay.hatch.s0), Math.max(0, q.x0 - bay.hatch.x0), Math.min(bay.hatch.s1, q.s1) - bay.hatch.s0, Math.min(bay.hatch.x1, q.x1) - bay.hatch.x0)),
         etch: [],
         label: null,
-        notes: [`${bay.label} hatch: cut from the lower sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
+        notes: [`${bay.label} hatch: cut from the ${bay.hatch.side === 'top' ? 'upper' : 'lower'} sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
       })
     }
   }
@@ -1888,14 +1888,14 @@ function stripCutList(a, structure, parts, both) {
   }
   // A sheeted wing's servo hatch screws to a rail along each of the opening's chordwise edges
   if (structure.covering.type === 'sheeted' && structure.covering.sheetThickness > 0) {
-    for (const bay of (a.bays ?? []).filter((x) => x.ok)) {
+    for (const bay of (a.bays ?? []).filter((x) => x.ok && x.hatch)) {
       out.push({
         item: `Hatch rail, ${bay.label}`,
         material: 'spruce',
         size: [0.005, 0.005],
         length: bay.hatch.s1 - bay.hatch.s0,
         qty: 2 * sides,
-        note: 'Between the ribs either side at the front and back edges of the hatch opening, flush with the inside of the lower sheeting; the hatch screws to them',
+        note: `Between the ribs either side at the front and back edges of the hatch opening, flush with the inside of the ${bay.hatch.side === 'top' ? 'upper' : 'lower'} sheeting; the hatch screws to them`,
       })
     }
   }

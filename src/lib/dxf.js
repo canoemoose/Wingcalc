@@ -540,7 +540,7 @@ export function hatchLines(poly, step) {
 // Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
 // Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE (the
 // fixed hinge spar and the tabs), SURFACE (each moving surface), SERVO, BRAKE.
-// SERVO has each servo bay's hatch opening in the lower surface, its servo (case and lugs), the slot
+// SERVO has each servo bay's hatch opening (where it has one), its servo (case and lugs), the slot
 // its arm comes out through and the line its lead takes through the ribs to the root. BRAKE has each air brake's box (or a spoiler's
 // frame and plate), the slots or opening it needs in the covering and a spoiler's hinge line.
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
@@ -635,7 +635,8 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   const sparBack = (s) => a.sparX(s) + (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
     const box = (x0, x1, s0, s1) => [[s0, x0], [s1, x0], [s1, x1], [s0, x1]]
-    add('SERVO', box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1), true)
+    // The hatch opening (none where the servo is sealed in)
+    if (b.hatch) add('SERVO', box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1), true)
     // Turned with the servo, where it's square to its hinge or across the span
     const plan = (pts) => pts.map(([x, s]) => [s, x])
     add('SERVO', b.footprint ? plan(b.footprint) : box(b.lugs.x0, b.lugs.x1, b.s - b.servo.width / 2, b.s + b.servo.width / 2), true)
@@ -648,7 +649,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     add('SERVO', lead)
     // The slot its arm comes out through
     for (const q of parts.find((p) => p.bay === b || p.id === b.name)?.armSlots ?? []) add('SERVO', box(q.x0, q.x1, q.s0, q.s1), true)
-    texts.push({ s: b.s, x: b.hatch.x1 + 0.008, text: b.name })
+    texts.push({ s: b.s, x: b.plate.x1 + 0.008, text: b.name })
   }
   // Air brakes: the box (its walls, outside) or the spoiler's frame, the slot for each blade or
   // the plate's opening in the covering, and a spoiler's hinge line

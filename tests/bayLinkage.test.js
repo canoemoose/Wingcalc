@@ -245,8 +245,14 @@ describe('the arm and pushrod outside the wing', () => {
     const { a, l } = linked({ surface: 1, link: { hornFace: 'top' } })
     expect(ids(l)).toEqual([])
     expect(l.frame.box.base).toBeGreaterThan(l.frame.box.floor)
+    // Its hatch is in the upper skin, the side it goes in from, and the arm comes out through it
+    expect(a.bays[0].hatch.side).toBe('top')
     const arm = l.fit.slots.find((q) => q.what === 'arm')
-    expect(arm).toMatchObject({ surface: 'top', hatch: false })
+    expect(arm).toMatchObject({ surface: 'top', hatch: true })
+    // Sealed in, with no hatch, the slot is in the skin
+    const sealed = linked({ surface: 1, link: { hornFace: 'top' }, hatch: false })
+    expect(sealed.a.bays[0].hatch).toBeNull()
+    expect(sealed.l.fit.slots[0]).toMatchObject({ surface: 'top', hatch: false })
     // A slot about the arm's width across the span, ahead of the hinge
     expect(arm.s1 - arm.s0).toBeLessThan(0.008)
     expect(arm.x1).toBeLessThan(l.frame.hinge.point[0])
@@ -370,8 +376,8 @@ describe("the arm's slot in the parts", () => {
     expect(buildParts(a, a.structure).parts.find((p) => p.id === 'SB1-H').holes).toHaveLength(0)
   })
 
-  it("cuts a horn-on-top servo's slot from the top sheeting, developed round the surface", () => {
-    const bay = { surface: 1, link: { hornFace: 'top' } }
+  it("cuts a sealed-in servo's slot from the top sheeting, developed round the surface", () => {
+    const bay = { surface: 1, link: { hornFace: 'top' }, hatch: false }
     const a = build([bay], (st) => {
       st.covering.type = 'sheeted'
       st.covering.sheetThickness = 0.0015
@@ -435,5 +441,31 @@ describe("the plate's slot for the arm", () => {
       expect(s).toBeGreaterThan(b.plate.s0)
       expect(s).toBeLessThan(b.plate.s1)
     }
+  })
+})
+
+describe('the hatch', () => {
+  const sheeted = (st) => {
+    st.covering.type = 'sheeted'
+    st.covering.sheetThickness = 0.0015
+  }
+  it('is in the skin the servo goes in from, cut from that sheeting with its rails', () => {
+    for (const [face, side, word] of [['bottom', 'bottom', 'lower'], ['top', 'top', 'upper']]) {
+      const a = build([{ surface: 1, link: { hornFace: face } }], sheeted)
+      expect(a.bays[0].hatch.side).toBe(side)
+      const res = buildParts(a, a.structure)
+      expect(res.parts.find((p) => p.id === 'SB1-H').notes[0]).toContain(`${word} sheeting`)
+      expect(res.cutList.find((c) => c.item.startsWith('Hatch rail')).note).toContain(`${word} sheeting`)
+    }
+  })
+  it('can be left out, the servo sealed in: no hatch part, rails or opening on the plan', () => {
+    const a = build([{ surface: 1, hatch: false }], sheeted)
+    expect(a.bays[0].ok).toBe(true)
+    expect(a.bays[0].hatch).toBeNull()
+    const res = buildParts(a, a.structure)
+    expect(res.parts.find((p) => p.id === 'SB1-H')).toBeUndefined()
+    expect(res.cutList.some((c) => c.item.startsWith('Hatch rail'))).toBe(false)
+    // The plate is still there
+    expect(res.parts.find((p) => p.id === 'SB1')).toBeTruthy()
   })
 })

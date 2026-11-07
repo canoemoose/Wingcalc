@@ -345,7 +345,15 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
     })
   }
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
-    pocket(`${b.name}-T`, b.label, b.hatch.s1 - b.hatch.s0, b.hatch.x1 - b.hatch.x0, `Rout ${mmText(b.need)} deep into the core from below before skinning; cut the hatch from the bottom skin over it afterwards, and run the lead to the root in a channel behind the spar`)
+    const from = b.face === 'top' ? 'above' : 'below'
+    const skin = b.face === 'top' ? 'top' : 'bottom'
+    pocket(
+      `${b.name}-T`,
+      b.label,
+      b.plate.s1 - b.plate.s0,
+      b.plate.x1 - b.plate.x0,
+      `Rout ${mmText(b.need)} deep into the core from ${from} before skinning; ${b.hatch ? `cut the hatch from the ${skin} skin over it afterwards` : 'fit the servo before skinning over it, as it is sealed in'}, and run the lead to the root in a channel behind the spar`,
+    )
   }
   for (const r of (a.brakes ?? []).filter((x) => x.ok)) {
     const blade = r.type === 'blade'

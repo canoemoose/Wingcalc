@@ -178,6 +178,13 @@ function cancel() {
           Measured from the surface's inner end, along the surface; leave it empty for a third of the way along. {{ servoText(s) }}
         </p>
         <SegmentedField :model-value="bayFor(s).square ?? 'chord'" label="Servo square to" :options="squareOptions" @update:model-value="setBayFor(s, { square: $event })" />
+        <label class="wc-check wc-structure-editor__check">
+          <input type="checkbox" :checked="bayFor(s).hatch !== false" @change="setBayFor(s, { hatch: $event.target.checked })" />
+          A hatch to reach the servo
+        </label>
+        <p class="wc-field__hint">
+          In the {{ linkOf(bayFor(s)).hornFace === 'top' ? 'top' : 'bottom' }} skin, the side the servo goes in from (its horn's side). Untick it to seal the servo in.
+        </p>
         <template v-if="linked.get(s.id)">
           <p :class="linkWarn(s) ? 'wc-field__warn' : 'wc-field__hint'">Linkage: {{ linkText(s) }}</p>
           <button type="button" class="wc-button" @click="configuring = s.id">Servo and linkage…</button>

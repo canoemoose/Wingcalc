@@ -893,7 +893,8 @@ export function partSpan(p) {
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
   const { mounting, quarterTurn, ...rest } = saved ?? {}
-  const b = { surface: surfaceId, enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, ...rest }
+  // hatch: false where the servo is sealed in, with no hatch to reach it by
+  const b = { surface: surfaceId, enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, hatch: true, ...rest }
   return { ...b, fore: foreOf(b.fore) }
 }
 
@@ -906,7 +907,7 @@ export function setBay(controls, surfaceId, patch) {
   const hinge = next.square === 'hinge'
   const fore = foreOf(next.fore)
   const inset = next.inset > 0 ? next.inset : null
-  const same = next.enabled && !next.class && !hinge && !next.rotate && !next.flip && !fore && !inset && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link
+  const same = next.enabled && !next.class && !hinge && !next.rotate && !next.flip && !fore && !inset && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link && next.hatch !== false
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
@@ -918,6 +919,7 @@ export function setBay(controls, surfaceId, patch) {
   if (Number.isFinite(next.along)) entry.along = next.along
   if (Number.isFinite(next.at)) entry.at = next.at
   if (link) entry.link = link
+  if (next.hatch === false) entry.hatch = false
   return { ...controls, bays: same ? rest : [...rest, entry] }
 }
 
@@ -961,7 +963,7 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     // and goes into its plate from
     const face = cfg.link?.hornFace === 'top' ? 'top' : 'bottom'
     const servo = installedServo(cls, mass, { rotate: cfg.rotate, flip: cfg.flip, yaw, face })
-    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, face, link: r.beside ? null : cfg.link, fore: r.beside ? null : cfg.fore, inset: r.beside ? 0 : cfg.inset ?? 0, ok: false, problem: null }
+    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, face, link: r.beside ? null : cfg.link, fore: r.beside ? null : cfg.fore, inset: r.beside ? 0 : cfg.inset ?? 0, hasHatch: cfg.hatch !== false, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {
       bay.problem = 'surface'
