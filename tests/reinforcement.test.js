@@ -121,3 +121,43 @@ describe('carbon reinforcement', () => {
     expect(rb.notes.some((n) => /No room/.test(n))).toBe(false)
   })
 })
+
+describe('ribs with no slivers or whiskers', () => {
+  // A point where the outline runs out and straight back along itself
+  const spikes = (poly) =>
+    poly.filter((b, i) => {
+      const a = poly[(i + poly.length - 1) % poly.length]
+      const c = poly[(i + 1) % poly.length]
+      const u = [b[0] - a[0], b[1] - a[1]]
+      const v = [c[0] - b[0], c[1] - b[1]]
+      const lu = Math.hypot(...u)
+      const lv = Math.hypot(...v)
+      return lu > 1e-7 && lv > 1e-7 && (u[0] * v[0] + u[1] * v[1]) / (lu * lv) < -0.995
+    })
+
+  it('cuts a rib through where a stringer pair near the trailing edge would leave a sliver', () => {
+    const res = build((st) => (st.stringers = [{ id: 2, profile: 'rect', position: 0.85, surface: 'both', width: 0.01, height: 0.005, material: 'balsa-hard' }]))
+    const ribs = res.parts.filter((p) => p.group === 'ribs')
+    for (const p of ribs) expect(spikes(p.outline), p.id).toEqual([])
+    const cut = ribs.filter((p) => !p.of && p.notes.some((n) => n.startsWith('Cut through')))
+    expect(cut.length).toBeGreaterThan(0)
+    for (const p of cut) {
+      const back = res.parts.find((q) => q.of === p.id)
+      expect(back, p.id).toBeTruthy()
+      // The two pieces don't meet: a gap the width of the notches between them
+      const front = Math.max(...p.outline.map(([u]) => u))
+      const rear = Math.min(...back.outline.map(([u]) => u))
+      expect(rear - front).toBeGreaterThan(0.009)
+      expect(p.label.text).toBe(`${p.id}A`)
+    }
+  })
+
+  it('leaves no zero-width spike where a hard point sheet meets the D-box at the spar', () => {
+    const res = build((st) => {
+      st.covering.type = 'dbox'
+      st.ribs.hardPoints = [{ id: 1, d: 0, to: 0.1, label: 'Joiner', sheet: 'top', thickness: 0.002 }]
+    })
+    const { parts } = buildParts(res.a, res.a.structure)
+    for (const p of parts.filter((q) => q.group === 'ribs')) expect(spikes(p.outline), p.id).toEqual([])
+  })
+})

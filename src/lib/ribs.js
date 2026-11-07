@@ -84,9 +84,11 @@ const rect = (u0, z0, u1, z1) => [
   [u0, z1],
 ]
 
-// Remove consecutive duplicate points.
+// Remove consecutive duplicate points, and spikes: a point where the outline runs out and
+// straight back along itself (a zero-width whisker, which no cutter can follow and which breaks
+// filling the outline in 3D).
 function clean(pts, tol = 1e-7) {
-  const out = []
+  let out = []
   for (const p of pts) {
     const q = out.at(-1)
     if (!q || Math.abs(p[0] - q[0]) > tol || Math.abs(p[1] - q[1]) > tol) out.push(p)
@@ -95,6 +97,25 @@ function clean(pts, tol = 1e-7) {
     const a = out[0]
     const b = out.at(-1)
     if (Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol) out.pop()
+  }
+  const same = (p, q) => Math.abs(p[0] - q[0]) <= tol && Math.abs(p[1] - q[1]) <= tol
+  // Doubling back: b's neighbours on the same side of it along one line
+  const back = (a, b, c) => {
+    const u = [b[0] - a[0], b[1] - a[1]]
+    const v = [c[0] - b[0], c[1] - b[1]]
+    const lu = Math.hypot(u[0], u[1])
+    const lv = Math.hypot(v[0], v[1])
+    if (lu <= tol || lv <= tol) return false
+    return Math.abs(u[0] * v[1] - u[1] * v[0]) <= tol * Math.max(lu, lv) && u[0] * v[0] + u[1] * v[1] < 0
+  }
+  for (let guard = 0; guard < 1000 && out.length > 3; guard++) {
+    const n = out.length
+    let k = -1
+    for (let i = 0; i < n && k < 0; i++) if (back(out[(i + n - 1) % n], out[i], out[(i + 1) % n])) k = i
+    if (k < 0) break
+    out.splice(k, 1)
+    // Two points left on top of each other where the spike was: keep one
+    out = out.filter((p, i) => !same(p, out[(i + 1) % out.length]) || out.length <= 3)
   }
   return out
 }
@@ -613,12 +634,47 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   }
 
   // Split at a solid spar or a caps spar's caps: the rib ahead of it and the rib behind it, each
-  // its own piece
-  let rearOutline = null
-  if (splitAtSpar) {
-    rearOutline = clean(clipPolygon(outline, ([u]) => u - cutRear))
-    outline = clean(clipPolygon(outline, ([u]) => cutFront - u))
+  // its own piece; and cut through wherever a top and a bottom notch (stringers, say, near the
+  // trailing edge) leave less than the least rib between them, which would be a sliver. The
+  // pieces run root to tip of the rib: the first is the rib's own part, the rest B, C and on.
+  const cuts = splitAtSpar ? [[cutFront, cutRear]] : []
+  const sliverMargin = ribMarginOf(sp)
+  for (const nt of upper) {
+    for (const nb of lower) {
+      const u0 = Math.max(nt.u0, nb.u0)
+      const u1 = Math.min(nt.u1, nb.u1)
+      if (!(u1 > u0 + 1e-9) || (nt.what === 'spar' && nb.what === 'spar')) continue
+      const floor = Math.min(top(nt.u0), top(nt.u1)) - nt.depth
+      const ceiling = Math.max(bot(nb.u0), bot(nb.u1)) + nb.depth
+      if (floor - ceiling >= sliverMargin - 1e-9) continue
+      // Through the full width of both notches, so neither piece keeps a stub of the other's
+      cuts.push([Math.min(nt.u0, nb.u0), Math.max(nt.u1, nb.u1)])
+      const mm = (v) => `${(v * 1000).toFixed(1)} mm`
+      notes.push(`Cut through at ${mm(u0 - uA)} from its front: the notches top and bottom leave ${mm(Math.max(0, floor - ceiling))} of rib between them, less than ${mm(sliverMargin)}`)
+    }
   }
+  cuts.sort((p, q) => p[0] - q[0])
+  const merged = []
+  for (const c of cuts) {
+    const last = merged.at(-1)
+    if (last && c[0] <= last[1] + 1e-9) last[1] = Math.max(last[1], c[1])
+    else merged.push([...c])
+  }
+  const pieceRanges = []
+  let from = -Infinity
+  for (const [c0, c1] of merged) {
+    pieceRanges.push([from, c0])
+    from = c1
+  }
+  pieceRanges.push([from, Infinity])
+  const whole = outline
+  const pieces = pieceRanges
+    .map(([p0, p1]) => clean(clipPolygon(clipPolygon(whole, ([u]) => u - p0), ([u]) => p1 - u)))
+    .map((pts, i) => ({ pts, range: pieceRanges[i] }))
+    .filter((p) => p.pts.length > 2 && Math.abs(polygonArea(p.pts)) > 1e-8)
+  if (pieces.length > 1) outline = pieces[0].pts
+  const rearPieces = pieces.slice(1)
+  let rearOutline = rearPieces[0]?.pts ?? null
 
   // Engraved: where to cut each tab off, along the rib's lower edge
   const etch = tabs.map((t) => [
@@ -798,7 +854,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const placedLabel = placeLabel(leadBlocks)
   const best = placedLabel.best
   const rearBest = placedLabel.rearBest
-  const text = splitAtSpar ? `${name}A` : name
+  const text = splitAtSpar || rearOutline ? `${name}A` : name
   const label = best
     ? { text, u: best.u0, z: best.z, h: best.h }
     : { text, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
@@ -825,6 +881,19 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     webHeights = [on.front ? mid((uF + uSpar0) / 2) : null, on.back ? mid((uSpar1 + uR) / 2) : null]
   }
 
+  // Which piece a point along the rib lies in, and a piece as the result gives it
+  const inPiece = (p, u) => u >= p.range[0] - 1e-9 && u <= p.range[1] + 1e-9
+  const pieceOut = (p, letter, best) => {
+    const us = p.pts.map((q) => q[0])
+    const um = (Math.min(...us) + Math.max(...us)) / 2
+    const own = best && inPiece(p, best.u0) && inPiece(p, best.u1)
+    return {
+      outline: p.pts,
+      holes: holes.filter((h) => h.every((q) => inPiece(p, q[0]))),
+      etch: etch.filter((e) => inPiece(p, e[0][0])),
+      label: own ? { text: `${name}${letter}`, u: best.u0, z: best.z, h: best.h } : { text: `${name}${letter}`, u: Math.min(...us) + 0.002, z: (top(um) + bot(um)) / 2 - 0.00075, h: 0.0015 },
+    }
+  }
   return {
     ok: true,
     s: rib.s,
@@ -840,14 +909,10 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     webHeights,
     // Split at a solid spar: the piece behind it ({ outline, holes, etch, label }); the rib's own
     // outline, holes and engraving are then the piece ahead of it
-    rear: rearOutline
-      ? {
-          outline: rearOutline,
-          holes: holes.filter((h) => Math.min(...h.map((p) => p[0])) >= uSpar1 - 1e-9),
-          etch: etch.filter((e) => e[0][0] >= uSpar1 - 1e-9),
-          label: rearBest ? { text: rearBest.text, u: rearBest.u0, z: rearBest.z, h: rearBest.h } : { text: `${name}B`, u: uSpar1 + 0.003, z: (top(uSpar1 + 0.003) + bot(uSpar1 + 0.003)) / 2 - 0.00075, h: 0.0015 },
-        }
-      : null,
+    rear: rearOutline ? pieceOut(rearPieces[0], 'B', rearBest) : null,
+    sparSplit: splitAtSpar,
+    // Any further pieces behind that (a rib cut through at a pair of notches), C and on
+    more: rearPieces.slice(1).map((p, i) => pieceOut(p, String.fromCharCode(67 + i), null)),
     // The rib's outer and inset surfaces, for drawing cap strips on it
     surfaces: { us, up: prof.up, lo: prof.lo, upIn, loIn },
     // Where each surface's cap strips start from the LE side: a D-box side with sheeting
@@ -876,8 +941,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     uA,
     uB,
     outline,
-    holes: rearOutline ? holes.filter((h) => Math.max(...h.map((p) => p[0])) <= uSpar0 + 1e-9) : holes,
-    etch: rearOutline ? etch.filter((e) => e[0][0] < uSpar0) : etch,
+    holes: rearOutline ? holes.filter((h) => inPiece(pieces[0], Math.max(...h.map((p) => p[0])))) : holes,
+    etch: rearOutline ? etch.filter((e) => inPiece(pieces[0], e[0][0])) : etch,
     label,
     notes,
     leadFails,
@@ -1159,11 +1224,38 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         holes: b.rear.holes,
         etch: b.rear.etch,
         label: b.rear.label,
-        notes: [`${rb.name} behind the spar (${rb.name}A is ahead of it)`, ...notes.filter((n) => !/^Split at the spar/.test(n))],
+        notes: [
+          b.sparSplit ? `${rb.name} behind the spar (${rb.name}A is ahead of it)` : `${rb.name}, the piece behind where it's cut through (${rb.name}A is ahead of it)`,
+          ...notes.filter((n) => !/^Split at the spar/.test(n)),
+        ],
         cant,
         rib: b,
       })
     }
+    // Further pieces of a rib cut through at a pair of notches: C and on
+    ;(b.more ?? []).forEach((piece, i) => {
+      const id = `${rb.name}${String.fromCharCode(67 + i)}`
+      parts.push({
+        id,
+        name: id,
+        group: 'ribs',
+        material: r.material,
+        thickness: r.thickness,
+        qty: qtyOf(rb.s),
+        s: rb.s,
+        kind: rb.kind,
+        sourceId: rb.id ?? null,
+        split: !!across,
+        of: rb.name,
+        outline: piece.outline,
+        holes: piece.holes,
+        etch: piece.etch,
+        label: piece.label,
+        notes: [`${rb.name}, a piece behind where it's cut through`, ...notes],
+        cant,
+        rib: b,
+      })
+    })
   }
 
   // Each control surface's own ribs: one at each end (a gap clear of the wing's end ribs) and
