@@ -521,7 +521,7 @@ const links = computed(() => {
       servoAt: [l.frame.at.s, l.frame.at.x],
       // Where the arm comes out through the skin (a slot in it, or in the hatch)
       slots: (l.fit?.slots ?? []).map((q) => ({
-        pts: poly([[q.s0, q.x0], [q.s1, q.x0], [q.s1, q.x1], [q.s0, q.x1]]),
+        pts: poly(q.corners ? q.corners.map(([x, s]) => [s, x]) : [[q.s0, q.x0], [q.s1, q.x0], [q.s1, q.x1], [q.s0, q.x1]]),
         hatch: q.hatch,
         title: `The arm comes out through the ${q.surface} ${q.hatch ? 'hatch' : 'skin'} here: cut a slot`,
       })),

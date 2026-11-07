@@ -518,7 +518,7 @@ export const ROD_CLEAR = 0.001
 // the hatch is in that skin and every point of the slot is inside its outline, else in the skin. Warned: the arm's hole in use
 // going inside the wing (the pushrod would have to enter it), the pushrod touching the skin
 // between its holes, and the arm's end sweeping into the bay's ribs inside the wing.
-// { slots: [{ what, surface, hatch, x0, x1, s0, s1 }], clashes: ['inside' | 'rod' | 'rib'],
+// { slots: [{ what, surface, hatch, x0, x1, s0, s1, corners ([x, s], square to the servo) }], clashes: ['inside' | 'rod' | 'rib'],
 // warnings }.
 export function linkageFit(a, b, frame, c) {
   const out = { slots: [], clashes: [], warnings: [] }
@@ -563,7 +563,20 @@ export function linkageFit(a, b, frame, c) {
     const hatch = b.hatch
     const inHatch = ([x, s]) => hatch && x >= hatch.x0 && x <= hatch.x1 && s >= hatch.s0 && s <= hatch.s1
     const pad = A.width / 2
-    out.slots.push({ what: 'arm', surface: face, hatch: !!hatch && hatch.side === face && through.every(inHatch), x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, s0: Math.min(...qs) - pad, s1: Math.max(...qs) + pad })
+    // Square to the servo, as it's turned in plan (square to its hinge, say): the slot's sides
+    // run with its case, corners [x, s] turned back into the wing's frame; x0..s1 its extent
+    const yaw = b.servo?.yaw ?? 0
+    const c = [b.s, (b.case.x0 + b.case.x1) / 2]
+    const toServo = ([x, q]) => [(x - c[1]) * Math.cos(yaw) + (q - c[0]) * Math.sin(yaw), -(x - c[1]) * Math.sin(yaw) + (q - c[0]) * Math.cos(yaw)]
+    const toWing = ([u, w]) => [c[1] + u * Math.cos(yaw) - w * Math.sin(yaw), c[0] + u * Math.sin(yaw) + w * Math.cos(yaw)]
+    const local = through.map((p) => toServo([p[0], p[1]]))
+    const us = local.map((p) => p[0])
+    const ws = local.map((p) => p[1])
+    const [u0, u1, w0, w1] = [Math.min(...us) - pad, Math.max(...us) + pad, Math.min(...ws) - pad, Math.max(...ws) + pad]
+    const corners = [[u0, w0], [u1, w0], [u1, w1], [u0, w1]].map(toWing)
+    const cx = corners.map((p) => p[0])
+    const cs = corners.map((p) => p[1])
+    out.slots.push({ what: 'arm', surface: face, hatch: !!hatch && hatch.side === face && through.every(inHatch), x0: Math.min(...cx), x1: Math.max(...cx), s0: Math.min(...cs), s1: Math.max(...cs), corners })
   }
 
   // The hole in use stays outside the skin, with room for the pushrod's end

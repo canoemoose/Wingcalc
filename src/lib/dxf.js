@@ -648,7 +648,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     }
     add('SERVO', lead)
     // The slot its arm comes out through
-    for (const q of parts.find((p) => p.bay === b || p.id === b.name)?.armSlots ?? []) add('SERVO', box(q.x0, q.x1, q.s0, q.s1), true)
+    for (const q of parts.find((p) => p.bay === b || p.id === b.name)?.armSlots ?? []) add('SERVO', q.corners ? q.corners.map(([x, s]) => [s, x]) : box(q.x0, q.x1, q.s0, q.s1), true)
     texts.push({ s: b.s, x: b.plate.x1 + 0.008, text: b.name })
   }
   // Air brakes: the box (its walls, outside) or the spoiler's frame, the slot for each blade or

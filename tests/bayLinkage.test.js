@@ -469,3 +469,23 @@ describe('the hatch', () => {
     expect(res.parts.find((p) => p.id === 'SB1')).toBeTruthy()
   })
 })
+
+describe("the arm's slot turned with the servo", () => {
+  it('runs square to a servo set square to its hinge', () => {
+    const bay = { surface: 1, square: 'hinge' }
+    const a = build([bay])
+    const b = a.bays[0]
+    const yaw = b.servo.yaw
+    expect(Math.abs(yaw)).toBeGreaterThan(1e-3)
+    const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [bay] }
+    const [q] = bayLinkages(a, controls).get(1).fit.slots
+    expect(q.corners).toHaveLength(4)
+    // Its first side runs along the case's length as turned: in plan, x by cos(yaw), s by sin(yaw)
+    const [p0, p1] = q.corners
+    const ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+    expect(ang).toBeCloseTo(yaw, 9)
+    // Its extent is its corners'
+    expect(q.x0).toBeCloseTo(Math.min(...q.corners.map((c) => c[0])), 12)
+    expect(q.s1).toBeCloseTo(Math.max(...q.corners.map((c) => c[1])), 12)
+  })
+})

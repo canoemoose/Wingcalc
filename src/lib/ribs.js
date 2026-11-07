@@ -1316,7 +1316,11 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         // The arm's slot, where it comes out through the hatch
         holes: slots
           .filter((q) => q.bay === bay.name && q.hatch && q.surface === bay.hatch.side)
-          .map((q) => rect(Math.max(0, q.s0 - bay.hatch.s0), Math.max(0, q.x0 - bay.hatch.x0), Math.min(bay.hatch.s1, q.s1) - bay.hatch.s0, Math.min(bay.hatch.x1, q.x1) - bay.hatch.x0)),
+          .map((q) =>
+            q.corners
+              ? q.corners.map(([x, s]) => [Math.min(bay.hatch.s1, Math.max(bay.hatch.s0, s)) - bay.hatch.s0, Math.min(bay.hatch.x1, Math.max(bay.hatch.x0, x)) - bay.hatch.x0])
+              : rect(Math.max(0, q.s0 - bay.hatch.s0), Math.max(0, q.x0 - bay.hatch.x0), Math.min(bay.hatch.s1, q.s1) - bay.hatch.s0, Math.min(bay.hatch.x1, q.x1) - bay.hatch.x0),
+          ),
         etch: [],
         label: null,
         notes: [`${bay.label} hatch: cut from the ${bay.hatch.side === 'top' ? 'upper' : 'lower'} sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
@@ -1536,7 +1540,9 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     // the sheet is: across the span as laid, round the surface from the leading edge stock
     const side = surface === 'upper' ? 'top' : 'bottom'
     const cuts = slots.filter((q) => q.surface === side && !(q.hatch && sheeted) && q.s0 >= s0 - 1e-6 && q.s1 <= widths.at(-1).s + 1e-6 && sheetedAt(q))
+    // Each corner developed where it is: across the span as laid, round the surface to it
     const slotHoles = cuts.map((q) => {
+      if (q.corners) return q.corners.map(([x, s]) => [s - s0, sheetWidth(a, structure, s, surface, x)])
       const sm = (q.s0 + q.s1) / 2
       return rect(q.s0 - s0, sheetWidth(a, structure, sm, surface, q.x0), q.s1 - s0, sheetWidth(a, structure, sm, surface, q.x1))
     })
