@@ -26,6 +26,10 @@ Copyright (c) 2018-present Yuxi (Evan) You and Vue contributors. MIT licence: <h
 
 The 3D view, loaded on demand. Copyright (c) 2010-2025 three.js authors. MIT licence: <https://github.com/mrdoob/three.js/blob/dev/LICENSE>.
 
+## @tarikjabiri/dxf (2.9.0)
+
+Writes the plan DXF (R2007, with hatches). Copyright (c) 2021-present EL JABIRI Tarik. MIT licence: <https://github.com/dxfjs/writer/blob/main/LICENSE.md>.
+
 ## Tabler Icons
 
 The eye, eye-off and home icons (path data only, in `src/lib/icons.js`). Copyright (c) 2020-2024 Paweł Kuna. MIT licence: <https://github.com/tabler/tabler-icons/blob/main/LICENSE>.

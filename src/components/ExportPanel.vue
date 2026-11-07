@@ -250,7 +250,7 @@ function downloadCutList() {
               { value: 'polyline', label: 'Polylines' },
               { value: 'lines', label: 'Separate lines' },
             ]"
-            hint="R12 DXF in millimetres. Separate lines suit older software that doesn't read polylines."
+            hint="Parts and templates: R12 DXF in millimetres; separate lines suit older software that doesn't read polylines. The plan is R2007, for its hatching."
             @update:model-value="set('format', $event)"
           />
           <label class="wc-check wc-structure-editor__check">

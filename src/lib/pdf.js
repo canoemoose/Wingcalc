@@ -115,6 +115,8 @@ const LAYER_STYLE = {
 
 function drawEntities(c, ents) {
   for (const e of ents) {
+    // A hatched area's boundary is for the DXF; its hatch lines are drawn
+    if (e.type === 'hatch') continue
     const st = LAYER_STYLE[e.layer] ?? LAYER_STYLE.guide
     c.colour(...st.colour).fill(...st.colour).width(st.width)
     if (e.type === 'text') c.text(e.x, e.y, e.h * PT, e.text)

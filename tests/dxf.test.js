@@ -12,6 +12,7 @@ import {
   parseDxf,
   partsDxf,
   planDxf,
+  planEntities,
   cutListCsv,
   defaultExportOptions,
   layoutParts,
@@ -216,13 +217,22 @@ describe('wing export', () => {
 
   it('hatches the sheeted area on the plan, inside it, and nothing when open', () => {
     const plan = (s) => parseDxf(planDxf(a, s, parts, { ...defaultExportOptions(), handedness: 'right' }).text)
-    const hatch = plan(st).polylines.filter((p) => p.layer === 'SHEETING')
-    expect(hatch.length).toBeGreaterThan(20)
-    // Every hatch line ends on the D-box: between the LE stock and the spar's rear face
+    // An R2007 file, the sheeted area a real hatch (ANSI31, 45° lines) on its own layer
+    const d = plan(st)
+    expect(d.version).toBe('AC1021')
+    const hatch = d.hatches.filter((p) => p.layer === 'SHEETING')
+    expect(hatch).toHaveLength(1)
+    expect(hatch[0].pattern).toBe('ANSI31')
+    // Its boundary is the D-box: between the LE stock and the spar's rear face
     const outline = sheetOutline(a, st)
-    for (const p of hatch) for (const [x, y] of p.pts) expect(inside(outline.map(([s, c]) => [s * 1000, -c * 1000]), [x, y], 0.01)).toBe(true)
+    expect(hatch[0].pts.length).toBe(outline.length)
+    for (const [x, y] of hatch[0].pts) expect(inside(outline.map(([s, c]) => [s * 1000, -c * 1000]), [x, y], 0.01)).toBe(true)
+    // No loose hatch lines in the DXF (the PDF and preview still draw them)
+    expect(d.polylines.some((p) => p.layer === 'SHEETING')).toBe(false)
+    const ents = planEntities(a, st, parts, { handedness: 'right' })
+    expect(ents.filter((e) => e.layer === 'SHEETING' && e.hatchLine).length).toBeGreaterThan(20)
     const open = { ...st, covering: { ...st.covering, type: 'open' } }
-    expect(plan(open).polylines.some((p) => p.layer === 'SHEETING')).toBe(false)
+    expect(plan(open).hatches.some((p) => p.layer === 'SHEETING')).toBe(false)
   })
 
   it('clips hatch lines to a polygon at 45°, a step apart', () => {

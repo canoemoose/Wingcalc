@@ -1,7 +1,9 @@
 // DXF export: the wing's parts laid out for cutting, and a full-size plan view to build on.
 //
-// Output is AutoCAD R12 ASCII DXF (AC1009) in millimetres, which nearly every laser,
-// router and CAD program reads: closed POLYLINEs (or plain LINEs, for picky software). Labels
+// The parts and templates are AutoCAD R12 ASCII DXF (AC1009) in millimetres, which nearly every
+// laser, router and CAD program reads: closed POLYLINEs (or plain LINEs, for picky software).
+// The plan is R2007 (AC1021), written by @tarikjabiri/dxf, so its sheeted areas can be real
+// HATCH entities, which R12 doesn't have. Labels
 // are single-stroke vector lines, so they engrave the same everywhere (DXF TEXT depends on
 // the reading program's fonts).
 //
@@ -14,6 +16,7 @@
 // A foam wing's hot-wire templates carry their own allowance for the wire's kerf (foamParts.js),
 // set here as wireKerf, with the wire's lead-in and lead-out drawn on the notes layer.
 
+import { DxfWriter, Units, point2d, vertex, pattern, HatchBoundaryPaths, HatchPolylineBoundary, HatchPredefinedPatterns, LWPolylineFlags } from '@tarikjabiri/dxf'
 import { strokeText, textWidth } from './strokeFont.js'
 import { MATERIALS, sheetOutline, hardPatches, patchSpan, lineFaces, stringerOk, stringerSize } from './structure.js'
 import { flatPanels } from './wing.js'
@@ -349,6 +352,32 @@ const LAYER_COLOURS = { cut: 1, etch: 5, guide: 8 } // red, blue, grey (ACI)
 const num = (v) => (Math.abs(v) < 5e-5 ? '0' : v.toFixed(4).replace(/\.?0+$/, ''))
 const clean = (s) => String(s).replace(/[^\x20-\x7e]/g, (c) => ({ '°': ' deg', '×': 'x', '–': '-', '—': '-' })[c] ?? '?')
 
+// Write the plan's entities as an R2007 (AC1021) DXF, in millimetres, by the dxf writer library (@tarikjabiri/dxf):
+// every polyline as an LWPOLYLINE on its layer, and every hatched area as a HATCH with the ANSI31
+// pattern (45° lines HATCH_STEP apart), so CAD shows and edits it as a hatch. layers maps each
+// layer's name to its ACI colour.
+export function toDxf2000(entities, layers = {}) {
+  const dxf = new DxfWriter()
+  dxf.setUnits(Units.Millimeters)
+  const used = [...new Set(entities.map((e) => e.layer))]
+  for (const name of used) dxf.addLayer(name, layers[name] ?? 7, 'CONTINUOUS')
+  const v = ([x, y]) => point2d(x, y)
+  for (const e of entities) {
+    if (e.hatchLine || !(e.pts?.length > 1)) continue
+    if (e.type === 'hatch') {
+      const boundary = new HatchPolylineBoundary()
+      for (const [x, y] of e.pts) boundary.add(vertex(x, y))
+      const paths = new HatchBoundaryPaths()
+      paths.addPolylineBoundary(boundary)
+      // ANSI31's lines are 3.175 units apart at scale 1
+      dxf.addHatch(paths, pattern({ name: HatchPredefinedPatterns.ANSI31, scale: (HATCH_STEP * MM) / 3.175 }), { layerName: e.layer })
+    } else if (e.type === 'poly') {
+      dxf.addLWPolyline(e.pts.map((p) => ({ point: v(p) })), { layerName: e.layer, flags: e.closed ? LWPolylineFlags.Closed : LWPolylineFlags.None })
+    }
+  }
+  return dxf.stringify()
+}
+
 // Write entities as an R12 DXF. layerNames maps the logical layers to the names wanted;
 // format 'lines' writes every polyline as separate LINEs.
 export function toDxf(entities, { layerNames = { cut: 'CUT', etch: 'ENGRAVE', guide: 'GUIDE' }, format = 'polyline', extraLayers = {} } = {}) {
@@ -545,10 +574,18 @@ export function hatchLines(poly, step) {
 // span), SERVO-HATCH (its hatch opening, where it has one), SERVO-SLOT (the slot its arm comes
 // out through), SERVO-LEAD (its lead's route through the ribs to the root), BRAKE (each air
 // brake's box, or a spoiler's frame and hinge line) and BRAKE-OPENING (the slots or opening it
-// needs in the covering). R12 has no hatch entity, so hatching is drawn as lines.
+// needs in the covering). A hatched area is a 'hatch' entity (its boundary) plus its hatch lines
+// marked hatchLine: the plan DXF (R2007) writes the hatch and leaves the lines out; the PDF and the
+// preview draw the lines and leave the hatch out.
 export function planEntities(a, structure, parts, { handedness = 'right' } = {}) {
   const raw = [] // in metres, (s, x)
   const add = (layer, pts, closed = false) => raw.push({ type: 'poly', layer, pts, closed })
+  // A hatched area: its boundary as a hatch (the plan DXF fills it with a real hatch) and the
+  // hatch lines themselves, marked, for the PDF and the preview, which draw lines
+  const hatched = (layer, poly) => {
+    raw.push({ type: 'hatch', layer, pts: poly, closed: true })
+    for (const seg of hatchLines(poly, HATCH_STEP)) raw.push({ type: 'poly', layer, pts: seg, closed: false, hatchLine: true })
+  }
   const flat = flatPanels(a.wing)
   // Outline, panel by panel, with the fuselage section (one-piece wings) and the tip
   const half = a.sampler.half
@@ -603,9 +640,9 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     const r = line(rear)
     if (f.length > 1 && r.length > 1) add('STRINGERS', [...f, ...r.reverse()], true)
   }
-  // Sheeting (D-box or fully sheeted), hatched: R12 has no hatch entity, so plain lines
+  // Sheeting (D-box or fully sheeted), hatched
   const sheet = sheetOutline(a, structure)
-  if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('SHEETING', seg)
+  if (sheet) hatched('SHEETING', sheet)
   // Sheeted hard points, hatched over the chord they sheet (on a fully sheeted wing the
   // sheeting's own hatch already covers them)
   if (structure.covering.type !== 'sheeted') {
@@ -617,7 +654,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
       const back = ss.map((s, i) => [s, Math.max(...spans[i].map((x) => x[1]))])
       const poly = [...front, ...back.reverse()]
       add('HARDPOINT', poly, true)
-      for (const seg of hatchLines(poly, HATCH_STEP)) add('HARDPOINT', seg)
+      hatched('HARDPOINT', poly)
     }
   }
   // Control surfaces: both hinge spars' faces, the moving surface's ends (the gap clear of the
@@ -721,7 +758,7 @@ export function planDxf(a, structure, parts, opts, baseName = 'wing') {
     BRAKE: 2,
     'BRAKE-OPENING': 50,
   }
-  return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf(ents, { extraLayers, format: opts.format }) }
+  return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf2000(ents, extraLayers) }
 }
 
 // --- Cut list ---------------------------------------------------------------------------------------
@@ -751,7 +788,7 @@ export function parseDxf(text) {
   const lines = text.split(/\r?\n/)
   const pairs = []
   for (let i = 0; i + 1 < lines.length; i += 2) pairs.push([Number(lines[i].trim()), lines[i + 1].trim()])
-  const out = { polylines: [], lines: [], texts: [], layers: [], version: null }
+  const out = { polylines: [], lines: [], texts: [], layers: [], hatches: [], version: null }
   let i = 0
   const read = () => {
     // Read one entity's group codes until the next 0
@@ -784,6 +821,19 @@ export function parseDxf(text) {
         read()
       }
       out.polylines.push(pl)
+    } else if (value === 'LWPOLYLINE') {
+      // R2000: its vertices as repeated 10 and 20 codes
+      const e = read()
+      const xs = e[10] ?? []
+      const ys = e[20] ?? []
+      out.polylines.push({ layer: e[8]?.[0], closed: (Number(e[70]?.[0]) & 1) === 1, pts: xs.map((x, k) => [Number(x), Number(ys[k])]) })
+    } else if (value === 'HATCH') {
+      // Its elevation point first, then one polyline boundary's vertices (93 of them)
+      const e = read()
+      const n = Number(e[93]?.[0] ?? 0)
+      const xs = (e[10] ?? []).slice(1, 1 + n)
+      const ys = (e[20] ?? []).slice(1, 1 + n)
+      out.hatches.push({ layer: e[8]?.[0], pattern: e[2]?.[0], solid: e[70]?.[0] === '1', pts: xs.map((x, k) => [Number(x), Number(ys[k])]) })
     } else if (value === 'LINE') {
       const e = read()
       out.lines.push({ layer: e[8]?.[0], a: [Number(e[10][0]), Number(e[20][0])], b: [Number(e[11][0]), Number(e[21][0])] })
