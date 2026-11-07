@@ -592,7 +592,13 @@
 .wc-structure-editor__ribfits th:last-child,
 .wc-structure-editor__ribfits td:last-child {
   padding-right: 0;
-  text-align: center;
+}
+.wc-structure-editor__ribfits td {
+  vertical-align: middle;
+}
+.wc-structure-editor__ribfits .wc-segmented {
+  display: inline-flex;
+  width: auto;
 }
 
 /* Stall character */

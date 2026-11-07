@@ -423,6 +423,18 @@ const CAP_FITS = [
   { value: 'split', label: 'Split the rib', title: 'The rib is cut in two either side of the caps' },
   { value: 'margin', label: 'Thin the caps', title: 'The caps are sanded thinner at the rib so it keeps its least material between them' },
 ]
+// Each thin rib's choice in the table, short
+const rowFits = computed(() =>
+  capsSpar.value
+    ? [
+        { value: 'split', label: 'Split', title: 'Cut the rib in two either side of the caps' },
+        { value: 'margin', label: 'Thin caps', title: 'Sand the caps thinner towards this rib, so it keeps its least material between them' },
+      ]
+    : [
+        { value: 'split', label: 'Split', title: "Cut the rib in two either side of the spar, which takes the rib's full depth" },
+        { value: 'margin', label: 'Taper spar', title: 'The spar tapers so the rib keeps its least material round it' },
+      ],
+)
 // One rib's fit; the wing's own choice clears it, so the rib follows the wing's again
 function setRibFit(name, fit) {
   const { [name]: _, ...rest } = st.value.spar.ribFits ?? {}
@@ -635,9 +647,9 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
             <thead>
               <tr>
                 <th scope="col">Rib</th>
-                <th scope="col">Room</th>
+                <th scope="col" title="The depth inside the skins at the spar">Internal height</th>
                 <th scope="col">{{ capsSpar ? 'Caps' : 'Spar' }}</th>
-                <th scope="col">Split</th>
+                <th scope="col">Fit</th>
               </tr>
             </thead>
             <tbody>
@@ -646,22 +658,31 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
                 <td>{{ mm(t.inner) }}</td>
                 <td>{{ mm(capsSpar ? t.tc : t.depth) }}</td>
                 <td>
-                  <input
-                    type="checkbox"
-                    :checked="t.fit === 'split'"
-                    :aria-label="`Split ${t.name} at the spar`"
-                    @change="setRibFit(t.name, $event.target.checked ? 'split' : 'margin')"
-                  />
+                  <div class="wc-segmented wc-segmented--small" role="radiogroup" :aria-label="`${t.name}: how it fits the spar`">
+                    <button
+                      v-for="o in rowFits"
+                      :key="o.value"
+                      type="button"
+                      role="radio"
+                      :aria-checked="t.fit === o.value"
+                      class="wc-segmented__btn"
+                      :class="{ 'wc-segmented__btn--active': t.fit === o.value }"
+                      :title="o.title"
+                      @click="setRibFit(t.name, o.value)"
+                    >
+                      {{ o.label }}
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
           </table>
           <p v-if="capsSpar" class="wc-field__hint">
-            Room is the depth inside the skins at the spar; Caps, how thick they are there. A split rib is cut in two either
+            Internal height is the depth inside the skins at the spar; Caps, how thick they are there. A split rib is cut in two either
             side of the caps (R5A ahead, R5B behind); otherwise the caps are sanded thinner towards it, which the rib's notes say.
           </p>
           <p v-else class="wc-field__hint">
-            Room is the depth inside the skins at the spar; Spar, how deep it is there. The spar tapers straight between the
+            Internal height is the depth inside the skins at the spar; Spar, how deep it is there. The spar tapers straight between the
             ribs; the export has a template for it (SP1 and on). Splitting a rib cuts it in two either side of the spar (R5A
             ahead, R5B behind) and lets the spar take the rib's full depth there.
           </p>
@@ -1009,8 +1030,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         <p class="wc-field__hint">
           A rib that must be at a set distance from the root rib. Give it a second distance and it's a sheeted hard point:
           a rib there too, and every bay between sheeted across the whole chord on the top, the bottom or both, for a wing
-          joiner, a tow hook or a launch peg. Its sheeting has a thickness of its own; on a D-box it runs back from the
-          D-box sheeting, which can be a different thickness in those bays.
+          joiner, a tow hook or a launch peg. Its sheet has a thickness of its own. On a D-box it runs back from the
+          D-box sheeting, whose thickness in those bays can be set too; on a fully sheeted wing it takes the sheeting's place.
         </p>
         <div v-for="h in hardList.rows(st.ribs.hardPoints)" :key="h.id" class="wc-structure-editor__row" @focusin="hardList.focusin" @focusout="hardList.focusout">
           <UnitInput
@@ -1056,17 +1077,17 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
                 :model-value="h.thickness ?? null"
                 quantity="thin"
                 :system="system"
-                label="Its sheeting"
+                label="Sheet thickness"
                 :placeholder="mm(st.covering.sheetThickness || 0.0015)"
                 @update:model-value="updateIn('ribs.hardPoints', h.id, 'thickness', $event)"
               />
               <UnitInput
-                v-if="st.covering.type !== 'open'"
+                v-if="st.covering.type === 'dbox'"
                 :id="id(`hp${h.id}dt`)"
                 :model-value="h.dboxThickness ?? null"
                 quantity="thin"
                 :system="system"
-                :label="st.covering.type === 'dbox' ? 'D-box sheeting here' : 'Wing sheeting here'"
+                label="D-box sheet thickness"
                 placeholder="As elsewhere"
                 @update:model-value="updateIn('ribs.hardPoints', h.id, 'dboxThickness', $event)"
               />
