@@ -427,10 +427,17 @@ export function installedServo(id, mass = 0, pose = {}) {
     caseWidth: kase.s[1] - kase.s[0],
     run: 2 * Math.max(-ext.x[0], ext.x[1]),
     width: 2 * Math.max(-ext.s[0], ext.s[1]),
-    // The bay between the rib faces: the servo and the arm on its output, with their clearance,
-    // or the plate's cut-out and its edge of ply where turning the servo takes the cut-out's
-    // corners further
-    bayWidth: Math.max(2 * Math.max(-across[0], across[1]) + 2 * SERVO_CLEARANCE, plan.cut ? 2 * Math.max(-plan.cut.s[0], plan.cut.s[1]) + 2 * PLATE_EDGE : 0),
+    // The bay between the rib faces, across the span from the case's centre: the servo and the
+    // arm on its output, with their clearance, or the plate's cut-out and its edge of ply where
+    // turning the servo takes the cut-out's corners further. The servo needn't be centred in it,
+    // so the arm's room is on the output's side only.
+    bayRange: [
+      Math.min(across[0] - SERVO_CLEARANCE, plan.cut ? plan.cut.s[0] - PLATE_EDGE : Infinity),
+      Math.max(across[1] + SERVO_CLEARANCE, plan.cut ? plan.cut.s[1] + PLATE_EDGE : -Infinity),
+    ],
+    get bayWidth() {
+      return this.bayRange[1] - this.bayRange[0]
+    },
     height: ext.z[1] - ext.z[0],
     lift,
     lugHeight: plateZ - frame.lugThickness,
@@ -961,12 +968,13 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
       continue
     }
     const p = sampler.ends[r.panelIndex]
-    // Clear of the cap strips too, where they stand proud of the rib faces at the skin
-    const width = (servo.bayWidth ?? servo.width + 2 * SERVO_CLEARANCE) + 2 * Math.max(0, capOverhang)
-    const half = width / 2 + t / 2
-    const centres = !r.beside && Number.isFinite(cfg.along) ? [r.s0 + cfg.along] : Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - half, r.beside[1] + half] : [r.s0 + (r.s1 - r.s0) / 3]
+    // Clear of the cap strips too, where they stand proud of the rib faces at the skin. The bay's
+    // ribs (their centres) from the servo's centre: lo inboard, hi outboard.
+    const [lo, hi] = bayRibs(servo, t, capOverhang)
+    const width = hi - lo - t
+    const centres = !r.beside && Number.isFinite(cfg.along) ? [r.s0 + cfg.along] : Number.isFinite(cfg.at) ? [p.inner.s + cfg.at] : r.beside ? [r.beside[0] - hi, r.beside[1] - lo] : [r.s0 + (r.s1 - r.s0) / 3]
     for (const s of centres) {
-      Object.assign(bay, { s, sA: s - half, sB: s + half, width, panelIndex: r.panelIndex, rib: t, problem: null })
+      Object.assign(bay, { s, sA: s + lo, sB: s + hi, width, panelIndex: r.panelIndex, rib: t, problem: null })
       // Ribs inside the panel, a few millimetres clear of its ends (which have ribs of their own)
       if (bay.sA < p.inner.s + 0.005 || bay.sB > p.outer.s - 0.005) {
         bay.problem = 'span'
@@ -990,6 +998,15 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
   return out
 }
 
+// Where a bay's ribs (their centres) stand from its servo's centre across the span, [inboard,
+// outboard]: the servo's bay (bayRange), clear of the cap strips, and half a rib each side
+export function bayRibs(servo, ribThickness = 0, capOverhang = 0) {
+  const t = Math.max(0, ribThickness)
+  const c = Math.max(0, capOverhang)
+  const [lo, hi] = servo.bayRange ?? [-servo.width / 2 - SERVO_CLEARANCE, servo.width / 2 + SERVO_CLEARANCE]
+  return [lo - c - t / 2, hi + c + t / 2]
+}
+
 // The most a servo tray between the wing's own ribs may span, as a multiple of the bay the servo
 // needs: further apart than that, the ribs are too far off to support the servo and its plate,
 // and the bay gets a pair of ribs of its own whatever the wing's rib spacing.
@@ -1007,14 +1024,14 @@ export function fitBaysToRibs(bays, ribs, ribThickness = 0, capOverhang = 0) {
   const sorted = [...(ribs ?? [])].sort((p, q) => p.s - q.s)
   for (const b of bays ?? []) {
     if (!b.ok || b.brake) continue
-    const half = (b.servo.bayWidth ?? b.servo.width + 2 * SERVO_CLEARANCE) / 2 + Math.max(0, capOverhang) + t / 2
-    const inner = [...sorted].reverse().find((r) => r.s <= b.s - half + 1e-9)
-    const outer = sorted.find((r) => r.s >= b.s + half - 1e-9)
+    const [lo, hi] = bayRibs(b.servo, t, capOverhang)
+    const inner = [...sorted].reverse().find((r) => r.s <= b.s + lo + 1e-9)
+    const outer = sorted.find((r) => r.s >= b.s + hi - 1e-9)
     if (!inner || !outer) continue
     // Only between neighbouring ribs: a rib between them would run through the servo
     if (sorted.some((r) => r.s > inner.s + 1e-6 && r.s < outer.s - 1e-6)) continue
     // Nor where they're too far apart to support it
-    if (outer.s - inner.s - t > TRAY_SLACK * (2 * half - t) + 1e-9) continue
+    if (outer.s - inner.s - t > TRAY_SLACK * (hi - lo - t) + 1e-9) continue
     out.set(b.id, { sA: inner.s, sB: outer.s, width: outer.s - inner.s - t })
   }
   return out

@@ -156,11 +156,17 @@ describe('where a bay goes', () => {
     // On its side: as wide as its height
     // The servo and the arm on its output, with their clearance, and clear of the cap strips
     expect(b1.width).toBeCloseTo(b1.servo.bayWidth, 9)
-    expect(b1.servo.bayWidth).toBeGreaterThanOrEqual(b1.servo.width + 2 * SERVO_CLEARANCE + 2 * ARM_ROOM - 1e-9)
     expect(b1.servo.width).toBeGreaterThanOrEqual(v.height)
-    // The ribs' centres are half the gap and half a rib out from the centre
+    // The servo needn't be centred: the arm's room is on the output's side only, so the bay is
+    // narrower than a centred one (the servo's widest side doubled, with the arm)
+    const [lo, hi] = b1.servo.bayRange
+    expect(hi - lo).toBeCloseTo(b1.servo.bayWidth, 9)
+    expect(b1.servo.bayWidth).toBeLessThan(b1.servo.width + 2 * SERVO_CLEARANCE + 2 * ARM_ROOM)
+    expect(b1.servo.bayWidth).toBeGreaterThanOrEqual(b1.servo.caseWidth + 2 * SERVO_CLEARANCE + ARM_ROOM - 1e-9)
+    // The ribs' centres are the bay's sides and half a rib out from the servo's centre
     expect(b1.sB - b1.sA).toBeCloseTo(b1.width + 0.002, 9)
-    expect((b1.sA + b1.sB) / 2).toBeCloseTo(b1.s, 9)
+    expect(b1.sA).toBeCloseTo(b1.s + lo - 0.001, 9)
+    expect(b1.sB).toBeCloseTo(b1.s + hi + 0.001, 9)
     expect(b1.ok && b2.ok).toBe(true)
   })
 
@@ -827,9 +833,10 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
       const b = res.a.bays.find((x) => x.ok)
       const tag = JSON.stringify(pose)
       expect(b.servo, tag).toMatchObject(pose)
-      // The same room, so the same bay
+      // The same room, so the same width of bay (on the other side where the output's turned
+      // inboard, so the case can move a whisker along the chord with the ribs' depth there)
       expect(b.width, tag).toBeCloseTo(b0.width, 9)
-      expect(b.case.x0, tag).toBeCloseTo(b0.case.x0, 9)
+      expect(b.case.x0, tag).toBeCloseTo(b0.case.x0, 4)
       const parts = placeServo(b.servo, at(b))
       const out = parts.find((p) => p.kind === 'servoOutput').cylinder
       expect(out.x > (b.case.x0 + b.case.x1) / 2, tag).toBe(aft)
