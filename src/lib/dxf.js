@@ -15,7 +15,7 @@
 // set here as wireKerf, with the wire's lead-in and lead-out drawn on the notes layer.
 
 import { strokeText, textWidth } from './strokeFont.js'
-import { MATERIALS, sheetOutline } from './structure.js'
+import { MATERIALS, sheetOutline, hardPatches, patchSpan, lineFaces, stringerOk, stringerSize } from './structure.js'
 import { flatPanels } from './wing.js'
 import { bounds, polygonArea } from './ribs.js'
 import { BRAKE } from './airBrakes.js'
@@ -538,7 +538,8 @@ export function hatchLines(poly, step) {
 // A full-size plan to build over: wing outline, LE and TE stock, spar, stringers and every rib
 // at its thickness, with rib names, and each control surface's hinge spars, ends and tabs.
 // Right half by default; 'left' mirrors it, 'pair' draws both halves about the centreline.
-// Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE, SERVO, BRAKE.
+// Plan layers are fixed: OUTLINE, STOCK, SPAR, RIBS, TEXT, HATCH (the sheeted area), HINGE (the
+// fixed hinge spar and the tabs), SURFACE (each moving surface), SERVO, BRAKE.
 // SERVO has each servo bay's hatch opening in the lower surface, its servo (case and lugs) and the
 // line its lead takes through the ribs to the root. BRAKE has each air brake's box (or a spoiler's
 // frame and plate), the slots or opening it needs in the covering and a spoiler's hinge line.
@@ -591,20 +592,40 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     add('SPAR', sparLine(-halfW))
     add('SPAR', sparLine(halfW))
   }
+  // Stringers and reinforcement at their width: both faces, closed at the ends
   for (const st of structure.stringers ?? []) {
-    if (Number.isFinite(st.position)) add('STOCK', line((s) => sec(s).xl + st.position * sec(s).c))
+    if (!stringerOk(st)) continue
+    const [front, rear] = lineFaces((s) => sec(s).xl + st.position * sec(s).c, stringerSize(st).w)
+    const f = line(front)
+    const r = line(rear)
+    if (f.length > 1 && r.length > 1) add('STOCK', [...f, ...r.reverse()], true)
   }
   // Sheeting (D-box or fully sheeted), hatched: R12 has no hatch entity, so plain lines
   const sheet = sheetOutline(a, structure)
   if (sheet) for (const seg of hatchLines(sheet, HATCH_STEP)) add('HATCH', seg)
+  // Sheeted hard points, hatched over the chord they sheet (on a fully sheeted wing the
+  // sheeting's own hatch already covers them)
+  if (structure.covering.type !== 'sheeted') {
+    for (const p of hardPatches(structure, a.rootS)) {
+      const ss = Array.from({ length: 13 }, (_, i) => p.s0 + ((p.s1 - p.s0) * i) / 12)
+      const spans = ss.map((s) => p.sides.map((sd) => patchSpan(a, structure, s, sd)).filter(Boolean))
+      if (spans.some((x) => !x.length)) continue
+      const front = ss.map((s, i) => [s, Math.min(...spans[i].map((x) => x[0]))])
+      const back = ss.map((s, i) => [s, Math.max(...spans[i].map((x) => x[1]))])
+      const poly = [...front, ...back.reverse()]
+      add('HATCH', poly, true)
+      for (const seg of hatchLines(poly, HATCH_STEP)) add('HATCH', seg)
+    }
+  }
   // Control surfaces: both hinge spars' faces, the moving surface's ends (the gap clear of the
   // end ribs), and each tab as its rectangle centred on and square to the hinge line
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
     const along = (from, to, fx) => Array.from({ length: 9 }, (_, i) => from + ((to - from) * i) / 8).map((s) => [s, fx(s)])
     const f = sf.faces
     for (const fx of [f.fixedFront, f.fixedRear]) add('HINGE', along(sf.fixed[0], sf.fixed[1], fx))
-    for (const fx of [f.apex, f.movingRear]) add('HINGE', along(sf.moving[0], sf.moving[1], fx))
-    for (const s of sf.moving) add('HINGE', [[s, f.apex(s)], [s, sec(s).xl + sec(s).c]])
+    // The moving surface on its own layer: its hinge spar's faces and its ends
+    for (const fx of [f.apex, f.movingRear]) add('SURFACE', along(sf.moving[0], sf.moving[1], fx))
+    for (const s of sf.moving) add('SURFACE', [[s, f.apex(s)], [s, sec(s).xl + sec(s).c]])
     const h = structure.hinges
     for (const s of sf.tabs) add('HINGE', hingeTabOutline(sf, s, h.tabWidth, h.tabLength), true)
   }
