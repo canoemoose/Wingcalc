@@ -58,6 +58,14 @@ function set(path, value) {
   structure.value = copy(structure.value, 0)
 }
 const st = computed(() => structure.value)
+// The covering; one that wants closer ribs (tissue) brings the most the ribs may be apart down to
+// its own, in the same step
+function setFinish(v) {
+  const want = FINISHES[v]?.ribPitch
+  const r = structure.value.ribs
+  const pitch = want && (r.pitch || 0.075) > want + 1e-9 ? want : r.pitch
+  structure.value = { ...structure.value, covering: { ...structure.value.covering, finish: v }, ribs: { ...r, pitch } }
+}
 // A caps spar's shear webs: on the caps' front face, their back face or both (an older save's
 // box spar becomes caps with both)
 const WEB_SIDES = [
@@ -123,6 +131,11 @@ const COVERINGS = [
   { value: 'dbox', label: 'D-box', title: 'Sheeted from the leading edge back to the spar' },
   { value: 'sheeted', label: 'Fully sheeted' },
 ]
+// The most the ribs should be apart for the covering, in words
+const coveringPitchText = computed(() => {
+  const f = finishOf(st.value.covering)
+  return f.ribPitch ? `${f.short} wants ribs no more than ${mm(f.ribPitch)} apart` : 'film sags between ribs much over 75 mm'
+})
 const FINISH_OPTIONS = Object.entries(FINISHES).map(([value, f]) => ({ value, label: f.label, group: f.group, title: f.examples }))
 // What the strength check and the weight assume about the covering, in a sentence or two
 const finishHint = computed(() => {
@@ -288,7 +301,7 @@ const summaries = computed(() => {
     cov.type === 'open'
       ? `Open${cov.capStrips ? ', cap strips' : ''}`
       : `${cov.type === 'dbox' ? 'D-box' : 'Fully sheeted'}, ${mm(cov.sheetThickness)} ${mat(cov.sheetMaterial)}`
-  }, ${finishOf(cov).short}`
+  }`
   const spacing = r.spacing === 'manual' ? `manual, ${(r.manual ?? []).length} ribs` : SPACING_SUMS[r.spacing]
   const gussets = !(g.le || g.te)
     ? 'None'
@@ -490,16 +503,6 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         />
       </InspectorSection>
 
-      <InspectorSection title="Finish" fold-key="structure:finish" :warnings="warnIn('finish')" :summary="summaries.finish">
-        <SelectField
-          :id="id('ffinish')"
-          :model-value="st.covering.finish ?? 'film'"
-          label="Covered with"
-          :options="FINISH_OPTIONS"
-          :hint="finishHint"
-          @update:model-value="set('covering.finish', $event)"
-        />
-      </InspectorSection>
     </template>
 
     <InspectorSection title="Design loads" fold-key="structure:loads" :warnings="warnIn('loads')" :summary="summaries.loads">
@@ -657,16 +660,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
       </template>
     </InspectorSection>
 
-    <InspectorSection v-if="!foam" title="Covering" fold-key="structure:covering" :warnings="warnIn('covering')" :summary="summaries.covering">
+    <InspectorSection v-if="!foam" title="Sheeting" fold-key="structure:covering" :warnings="warnIn('covering')" :summary="summaries.covering">
       <SegmentedField :model-value="st.covering.type" label="Structure" :options="COVERINGS" @update:model-value="set('covering.type', $event)" />
-      <SelectField
-        :id="id('finish')"
-        :model-value="st.covering.finish ?? 'film'"
-        label="Covered with"
-        :options="FINISH_OPTIONS"
-        :hint="finishHint"
-        @update:model-value="set('covering.finish', $event)"
-      />
       <template v-if="st.covering.type !== 'open'">
         <UnitInput
           :id="id('sheett')"
@@ -758,6 +753,18 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           @update:model-value="set('covering.capStripStart', $event)"
         />
       </template>
+    </InspectorSection>
+
+    <!-- What goes over the structure: the same for a built-up and a foam wing -->
+    <InspectorSection title="Covering" fold-key="structure:finish" :warnings="warnIn('finish')" :summary="summaries.finish">
+      <SelectField
+        :id="id('finish')"
+        :model-value="st.covering.finish ?? 'film'"
+        label="Covered with"
+        :options="FINISH_OPTIONS"
+        :hint="finishHint"
+        @update:model-value="setFinish"
+      />
     </InspectorSection>
 
     <InspectorSection title="Leading and trailing edges" fold-key="structure:edges" :warnings="warnIn('edges')" :summary="summaries.edges">
@@ -951,7 +958,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         :label="st.ribs.spacing === 'suggested' ? 'Most the ribs may be apart' : 'Rib spacing'"
         :hint="
           st.ribs.spacing === 'suggested'
-            ? 'For the covering: film sags between ribs much over 75 mm. Closer where the loads need it.'
+            ? `For the covering: ${coveringPitchText}. Closer where the loads need it.`
             : 'Each panel gets the fewest equal bays no wider than this.'
         "
         @update:model-value="set('ribs.pitch', $event)"

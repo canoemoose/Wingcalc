@@ -11,9 +11,9 @@ export function structureSection(id, foam = false) {
   if (/^short-(compression|tension|webShear|webBuckling)$/.test(id) || id === 'spar-fit' || id === 'tube-short') return spar
   if (id === 'short-sheet') return foam ? 'foamcore' : 'covering'
   if (/^short-(wrinkling|core|coreShear)$/.test(id)) return 'foamcore'
-  if (id === 'short-spacing' || id === 'too-close' || id === 'ribs-skipped') return 'ribs'
+  if (id === 'short-spacing' || id === 'too-close' || id === 'ribs-skipped' || id === 'rib-pitch-covering') return 'ribs'
   if (/^(le|te)-/.test(id) || id === 'thin-te') return 'edges'
-  if (id === 'finish-open') return foam ? 'finish' : 'covering'
+  if (id === 'finish-open') return 'finish'
   if (id.startsWith('gusset')) return 'gussets'
   if (id.startsWith('brace-')) return 'braces'
   if (id.startsWith('stringer-')) return 'stringers'

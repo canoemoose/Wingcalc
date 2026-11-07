@@ -83,7 +83,8 @@ export const FINISHES = {
   'film-light': { group: 'Generic', label: 'Heat-shrink film, lightweight', short: 'lightweight film', mass: 0.045, examples: 'Generic lightweight heat-shrink film, about 45 g/m² applied' },
   film: { group: 'Generic', label: 'Heat-shrink film', short: 'film', mass: 0.09, examples: 'Generic heat-shrink film, about 90 g/m² applied' },
   fabric: { group: 'Generic', label: 'Fabric film', short: 'fabric film', mass: 0.13, examples: 'Solartex, Oratex, about 130 g/m² applied' },
-  tissue: { group: 'Generic', label: 'Tissue and dope', short: 'tissue and dope', mass: 0.045, examples: 'Lightweight tissue, three coats of dope' },
+  // ribPitch: the most a covering wants the ribs apart, where that's closer than film's 75 mm
+  tissue: { group: 'Generic', label: 'Tissue and dope', short: 'tissue and dope', mass: 0.045, examples: 'Lightweight tissue, three coats of dope', ribPitch: 0.05 },
 
   solarfilm: { group: 'Solarfilm', label: 'Solarfilm', short: 'Solarfilm', mass: 0.060, examples: 'Solarfilm, about 60 g/m² applied' },
   solalite: { group: 'Solarfilm', label: 'Solalite', short: 'Solalite', mass: 0.022, examples: 'Solalite, about 22 g/m² applied' },
@@ -1956,6 +1957,15 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     warnings.push({
       id: 'le-round',
       message: `The ${name} leading edge stands about ${mmText(le.shortfall)} proud of the section ${whereS(le.worstS)}: the nose is too thin there to hold it. Use ${fix}.`,
+    })
+  }
+  // A covering that wants closer ribs than they're set to be apart (tissue)
+  const want = finishOf(cov).ribPitch
+  const r = structure.ribs
+  if (want && !foam && (r.spacing === 'suggested' || r.spacing === 'uniform') && (r.pitch || 0.075) > want + 1e-9) {
+    warnings.push({
+      id: 'rib-pitch-covering',
+      message: `${finishOf(cov).short.replace(/^./, (c) => c.toUpperCase())} wants ribs no more than ${(want * 1000).toFixed(0)} mm apart, and they may be up to ${((r.pitch || 0.075) * 1000).toFixed(0)} mm. Set the ribs closer.`,
     })
   }
   if (finishOf(cov).sheetedOnly && cov.type === 'open') {

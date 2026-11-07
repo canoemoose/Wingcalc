@@ -120,3 +120,21 @@ describe('hard-point sheeting', () => {
     expect(front).toBeLessThan(sec.xl + sec.c)
   })
 })
+
+describe('a covering that wants closer ribs', () => {
+  it('warns when tissue is on ribs further apart than 50 mm, beside the rib spacing', () => {
+    const film = build((st) => (st.covering.finish = 'film'))
+    expect(film.a.warnings.some((w) => w.id === 'rib-pitch-covering')).toBe(false)
+    const tissue = build((st) => (st.covering.finish = 'tissue'))
+    const w = tissue.a.warnings.find((x) => x.id === 'rib-pitch-covering')
+    expect(w.message).toContain('50 mm')
+    // At 50 mm, no warning, and the suggestion keeps the ribs that close
+    const close = build((st) => {
+      st.covering.finish = 'tissue'
+      st.ribs.pitch = 0.05
+    })
+    expect(close.a.warnings.some((x) => x.id === 'rib-pitch-covering')).toBe(false)
+    const gaps = close.a.ribs.slice(1).map((r, i) => r.s - close.a.ribs[i].s)
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(0.05 + 1e-6)
+  })
+})
