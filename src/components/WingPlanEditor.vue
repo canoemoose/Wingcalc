@@ -356,6 +356,23 @@ function moveHandle(e) {
     hoverSnap.value = d.b.ref ? pointMap.value.get(d.b.ref) : null
     return
   }
+  if (d.kind === 'click') {
+    d.moved ||= Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 3
+    return
+  }
+  if (d.kind === 'sfMove') {
+    // The whole surface slides along the span, keeping its length and its hinge fractions
+    d.moved ||= Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 3
+    if (!d.moved) return
+    const sf = controls.value?.surfaces.find((x) => x.id === d.surface)
+    const pp = plan.value.panels[d.i]
+    if (!sf || !pp) return
+    const L = pp.outer.s - pp.inner.s
+    const len = d.to - d.from
+    const from = Math.max(0, Math.min(L - len, snap(d.from + (w.s - d.s0), e)))
+    setSurface(sf.id, { from, to: from + len })
+    return
+  }
   if (d.kind === 'root') {
     own(() => (rootChord.value = Math.max(0.02, snap(w.x, e))))
     return
@@ -433,13 +450,19 @@ function endHandle() {
   const d = drag.value
   drag.value = null
   if (!d) return
-  if (d.kind === 'pan') {
+  if (d.kind === 'pan') return
+  if (d.kind === 'click') {
     if (!d.moved && d.deselect) {
       selected.value = null
       selectedDim.value = null
       selectedSurface.value = null
       selectedBrake.value = null
     }
+    return
+  }
+  if (d.kind === 'sfMove') {
+    if (d.moved) emit('commit')
+    emit('dragging', false)
     return
   }
   if (d.kind === 'measure') {
@@ -459,10 +482,19 @@ function endHandle() {
   emit('dragging', false)
 }
 
+// A press that isn't on a handle. The left button never pans: it selects what's under it (a
+// panel, a surface or a brake, or nothing), and dragging a surface moves it along the span.
+// The middle or right button pans, wherever it starts, as does a finger on a touch screen.
 function startPan(e, { deselect = false, select = null, surface = null, brake = null } = {}) {
   if (tool.value === 'measure') return startMeasure(e)
-  if (e.button !== 0 && e.button !== 1) return
+  if (e.button !== 0 && e.button !== 1 && e.button !== 2) return
   wrapEl.value?.focus({ preventScroll: true })
+  e.currentTarget.setPointerCapture?.(e.pointerId)
+  if (e.button !== 0 || e.pointerType === 'touch') {
+    e.preventDefault()
+    drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false }
+    return
+  }
   if (select !== null) {
     selected.value = select
     selectedDim.value = null
@@ -470,8 +502,13 @@ function startPan(e, { deselect = false, select = null, surface = null, brake = 
     selectedSurface.value = surface
     selectedBrake.value = brake
   }
-  e.currentTarget.setPointerCapture?.(e.pointerId)
-  drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false, deselect }
+  const sf = surface !== null && controls.value?.surfaces.find((x) => x.id === surface)
+  if (sf) {
+    emit('dragging', true)
+    drag.value = { kind: 'sfMove', surface, i: select, s0: world(e).s, from: sf.from, to: sf.to, cx: e.clientX, cy: e.clientY, moved: false }
+    return
+  }
+  drag.value = { kind: 'click', cx: e.clientX, cy: e.clientY, moved: false, deselect }
 }
 
 function straighten(i, edge) {
@@ -623,6 +660,16 @@ function onKey(e) {
     else if (selBrake.value) deleteBrake()
     else if (selected.value !== null) deletePanel()
     else return
+  } else if (selSurface.value && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    // Left and right slide the selected surface along the span by one grid step
+    const sf = selSurface.value
+    const pp = plan.value.panels[sf.panelIndex]
+    const raw = controls.value?.surfaces.find((x) => x.id === sf.id)
+    if (!pp || !raw) return
+    const L = pp.outer.s - pp.inner.s
+    const len = raw.to - raw.from
+    const from = Math.max(0, Math.min(L - len, raw.from + (e.key === 'ArrowRight' ? step.value : -step.value)))
+    setSurface(sf.id, { from, to: from + len })
   } else if (selected.value !== null && e.key.startsWith('Arrow')) {
     // Arrows move the selected panel's outer leading edge by one grid step;
     // with Alt, up/down change its tip chord instead.
@@ -776,14 +823,14 @@ const hint = computed(() => {
   if (tool.value === 'measure')
     return 'Measure: drag between two points. Ends snap to wing corners and stations (and follow them); Shift for a spanwise or chordwise dimension, Alt to ignore snapping. Esc to finish.'
   if (selectedDim.value !== null) return 'Dimension selected. Delete removes it.'
-  if (selSurface.value) return `${selSurface.value.label} selected: drag its ends along the span and chord, or the middle of the hinge line for its depth (Shift: span only). Delete removes it.`
+  if (selSurface.value) return `${selSurface.value.label} selected: drag it along the span (or use the arrow keys), its ends along the span and chord, or the middle of the hinge line for its depth (Shift: span only). Delete removes it.`
   if (selBrake.value) return `${selBrake.value.label} selected. Edit its numbers under Air brakes; Delete removes it.`
   if (selected.value !== null) {
     const mode = selShape.value?.mode
     if (mode === 'stations') return `Panel ${selected.value + 1} selected. Drag a station's leading-edge handle to move it, its trailing-edge handle to change its chord.`
     return `Panel ${selected.value + 1} selected. Drag the round handles at its tip; drag the small ones on its edges to curve them.`
   }
-  return 'Click a panel to select it. Drag to pan, scroll to zoom, F to fit. Alt disables snapping. M measures, V selects.'
+  return 'Click a panel to select it. Right- or middle-drag to pan, scroll to zoom, F to fit. Alt disables snapping. M measures, V selects.'
 })
 
 // --- Lifecycle -------------------------------------------------------------------------
@@ -867,6 +914,8 @@ watch(
           class="wc-plan__svg"
           :class="{ 'wc-plan__svg--panning': drag?.kind === 'pan', 'wc-plan__svg--measure': tool === 'measure' }"
           @pointerdown.self="startPan($event, { deselect: true })"
+          @contextmenu.prevent
+          @mousedown="$event.button === 1 && $event.preventDefault()"
           @pointermove="moveHandle"
           @pointerup="endHandle"
           @pointercancel="endHandle"

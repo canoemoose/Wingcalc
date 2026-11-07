@@ -284,8 +284,8 @@ function onDown(e) {
   stageEl.value?.focus({ preventScroll: true })
   popOpen.value = ''
   const p = local(e)
-  // Right or middle button pans, wherever it starts. The left button never pans: on the background it draws a box.
-  if (e.button === 1 || e.button === 2) {
+  // Right or middle button pans, wherever it starts, as does a finger on a touch screen. The left button never pans: on the background it draws a box.
+  if (e.button === 1 || e.button === 2 || e.pointerType === 'touch') {
     e.preventDefault()
     capture(e)
     gesture = { kind: 'pan', start: p, ox0: ox.value, oy0: oy.value, moved: false }

@@ -3,8 +3,8 @@
 // edge stock, the spar, stringers, every rib, and the control surfaces' hinge spars and ribs. Bays where a margin falls below zero are
 // shaded. Click a rib to select it.
 //
-// It navigates like the wing plan editor: scroll to zoom about the pointer, drag empty space
-// to pan, − + Fit in the bottom-right corner (F, + and −), with a grid that adapts to the
+// It navigates like the wing plan editor: scroll to zoom about the pointer, drag with the right
+// or middle button (or a finger) to pan, − + Fit in the bottom-right corner (F, + and −), with a grid that adapts to the
 // zoom. With manual rib spacing it edits too, without modes: drag a rib along the span (it
 // snaps to the grid, measured from the root rib; Alt places freely), double-click the wing to
 // add one there, or Add rib in the command bar (or A) to add one mid-way along the longest
@@ -433,8 +433,11 @@ function onRibDown(e, line) {
   const p = partFor(line.id)
   drag.value = { part: p, d: p.s - a.value.rootS, moved: false, startX: e.clientX, startY: e.clientY }
 }
+// The middle or right button pans, as does a finger on a touch screen; the left button never does
 function onBackgroundDown(e) {
   svgEl.value.focus({ preventScroll: true })
+  if (e.button === 0 && e.pointerType !== 'touch') return
+  e.preventDefault()
   svgEl.value.setPointerCapture(e.pointerId)
   const v = vb.value
   pan.value = { x: e.clientX, y: e.clientY, cx: v.x + v.w / 2, cy: v.y + v.h / 2, moved: false }
@@ -643,6 +646,8 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
         role="img"
         aria-label="Wing structure seen from above, one side"
         @pointerdown="onBackgroundDown"
+        @contextmenu.prevent
+        @mousedown="$event.button === 1 && $event.preventDefault()"
         @pointermove="onMove"
         @pointerup="onUp"
         @pointercancel="onUp"
