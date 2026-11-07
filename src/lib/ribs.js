@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { websOf, sheetGaps, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
+import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -853,11 +853,12 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     // Where each surface's cap strips start from the LE side: a D-box side with sheeting
     // runs its strips from the end of that side's sheet, the rest from the LE stock
     capStripFrom: { top: capFrom('top'), bottom: capFrom('bottom') },
-    // and where they end: at the rib's end, or where a turned trailing-edge face meets each side
-    capStripTo: {
-      top: teFaceU ? meetFace(teFaceU, top, uB) : uB,
-      bottom: teFaceU ? meetFace(teFaceU, bot, uB) : uB,
-    },
+    // and where they end: at the rib's end, or where a turned trailing-edge face meets each side.
+    // Under a sheeted hard point's sheet (its bays and its end ribs) there are none: the sheet
+    // covers that side where the cap strips would run, so they end where they start
+    capStripTo: Object.fromEntries(
+      ['top', 'bottom'].map((side) => [side, patchOver(structure, rib.s, side) ? capFrom(side) : teFaceU ? meetFace(teFaceU, side === 'top' ? top : bot, uB) : uB]),
+    ),
     // Each strip's ends as [outer, inner] along the rib: square, or against a turned face cut
     // along it, from the outer surface down to the rib
     capStripEnds: Object.fromEntries(

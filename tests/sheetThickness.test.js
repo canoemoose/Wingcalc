@@ -190,3 +190,27 @@ describe("a hard point's own sheet as its own piece", () => {
     for (const p of sheets.filter((q) => !own.includes(q))) expect(overlaps(p, h)).toBe(false)
   })
 })
+
+describe('cap strips under a sheeted hard point', () => {
+  it('leaves them off the ribs its sheet covers, on the sides it covers, and out of the cut list', () => {
+    const edit = (sheet) => (st) => {
+      st.covering.type = 'open'
+      st.covering.capStrips = true
+      st.ribs.hardPoints = [{ id: 1, d: 0.1, to: 0.2, label: 'Joiner', sheet, thickness: 0.003 }]
+    }
+    const plain = build((st) => {
+      st.covering.type = 'open'
+      st.covering.capStrips = true
+    })
+    const { a, parts, cutList } = build(edit('top'))
+    const [h] = hardPatches(a.structure, a.rootS)
+    const under = parts.filter((p) => p.group === 'ribs' && !p.of && p.s >= h.s0 - 1e-6 && p.s <= h.s1 + 1e-6)
+    expect(under.length).toBeGreaterThanOrEqual(2)
+    for (const p of under) {
+      expect(p.rib.capStripTo.top, p.name).toBe(p.rib.capStripFrom.top)
+      expect(p.rib.capStripTo.bottom, p.name).toBeGreaterThan(p.rib.capStripFrom.bottom)
+    }
+    const total = (cl) => cl.find((c) => c.item.startsWith('Cap strips')).length
+    expect(total(cutList)).toBeLessThan(total(plain.cutList))
+  })
+})
