@@ -146,9 +146,12 @@ export function defaultStructure() {
     construction: 'built-up',
     foam: defaultFoam(),
     spar: {
-      // 'caps' (caps + a shear web on their leading-edge face) | 'box' (a second web on their
-      // trailing-edge face too) | 'tube' | 'solid'
+      // 'caps' (caps with shear webs, see webs) | 'tube' | 'solid'. Older saves' 'box' is caps
+      // with both webs.
       type: 'caps',
+      // A caps spar's shear webs: on the caps' leading-edge face ('front'), their trailing-edge
+      // face ('back') or 'both'
+      webs: 'front',
       position: null, // chord fraction at each panel end; null = the section's thickest point
       capWidth: 0.006,
       capThickness: 0.003,
@@ -684,14 +687,23 @@ export function lineFaces(line, w) {
 
 // The thickness of a caps spar's shear web, 0 for any other spar (or none set)
 export const webThicknessOf = (sp) => ((sp.type === 'caps' || sp.type === 'box') && sp.webThickness > 0 ? sp.webThickness : 0)
+// Which faces of a caps spar have a shear web: { front, back } (an older save's 'box' both)
+export function websOf(sp) {
+  if (sp.type === 'box') return { front: true, back: true }
+  if (sp.type !== 'caps') return { front: false, back: false }
+  return { front: sp.webs !== 'back', back: sp.webs === 'back' || sp.webs === 'both' }
+}
+// The webs set as one of 'front', 'back' or 'both'
+export const websSetting = (sp) => (sp.type === 'box' ? 'both' : sp.webs === 'back' || sp.webs === 'both' ? sp.webs : 'front')
 // The spar's outside faces in plan with its shear webs on: [front(s), rear(s)]. A caps spar's
-// web is glued to the caps' leading-edge face and a box spar's second web to their trailing-edge
-// face, so each stands proud of the caps by the web's thickness, square to the spar.
+// webs are glued to the caps' leading-edge face, their trailing-edge face or both (websOf), so
+// each stands proud of the caps by the web's thickness, square to the spar.
 export function sparOuterFaces(line, sp) {
   const w = sparWidth(sp)
   const tw = webThicknessOf(sp)
-  const [front] = lineFaces(line, w + 2 * tw)
-  const [, rear] = lineFaces(line, w + (sp.type === 'box' ? 2 * tw : 0))
+  const on = websOf(sp)
+  const [front] = lineFaces(line, w + (on.front ? 2 * tw : 0))
+  const [, rear] = lineFaces(line, w + (on.back ? 2 * tw : 0))
   return [front, rear]
 }
 
@@ -867,7 +879,7 @@ export function sparSection(structure, h, dFromRoot = 0, s = null) {
     fits: d > tc,
     mat: material(sp.capMaterial),
     b,
-    webs: sp.type === 'box' ? 2 : 1,
+    webs: Math.max(1, Number(websOf(sp).front) + Number(websOf(sp).back)),
     web: material(sp.webMaterial),
     tw: sp.webThickness,
   }

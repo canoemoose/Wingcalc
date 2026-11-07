@@ -14,7 +14,7 @@ import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
 import EdgeStockPicker from './EdgeStockPicker.vue'
 import { format, defaultUnit } from '../lib/units.js'
-import { MATERIALS, gussetLayer, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer } from '../lib/structure.js'
+import { MATERIALS, gussetLayer, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer, websSetting } from '../lib/structure.js'
 import { FOAMS, SKIN_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter, customLe } from '../lib/edgeStock.js'
 
@@ -58,6 +58,16 @@ function set(path, value) {
   structure.value = copy(structure.value, 0)
 }
 const st = computed(() => structure.value)
+// A caps spar's shear webs: on the caps' front face, their back face or both (an older save's
+// box spar becomes caps with both)
+const WEB_SIDES = [
+  { value: 'front', label: 'Front', title: "On the caps' leading-edge face" },
+  { value: 'back', label: 'Back', title: "On the caps' trailing-edge face" },
+  { value: 'both', label: 'Both', title: 'One on each face: a box spar' },
+]
+function setWebs(v) {
+  structure.value = { ...structure.value, spar: { ...structure.value.spar, type: 'caps', webs: v } }
+}
 const warnIn = (k) => props.warnings[k] ?? []
 const HARD_SHEET = [
   { value: 'none', label: 'Open' },
@@ -273,7 +283,7 @@ const summaries = computed(() => {
       ? `Tube ${mm(sp.tubeDiameter)}, ${mm(sp.tubeWall)} wall`
       : sp.type === 'solid'
         ? `Solid ${size(sp.solidWidth, sp.solidDepth)} ${mat(sp.solidMaterial)}`
-        : `Caps and ${sp.type === 'box' ? 'two webs' : 'web'}, ${size(sp.capWidth, sp.capThickness)} ${mat(sp.capMaterial)}`
+        : `Caps and ${websSetting(sp) === 'both' ? 'two webs' : websSetting(sp) === 'back' ? 'a back web' : 'web'}, ${size(sp.capWidth, sp.capThickness)} ${mat(sp.capMaterial)}`
   const covering = `${
     cov.type === 'open'
       ? `Open${cov.capStrips ? ', cap strips' : ''}`
@@ -552,13 +562,10 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           quantity="thin"
           :system="system"
           label="Shear web thickness"
-          hint="Glued to the caps' leading-edge face, the rib's full height less any sheeting, fitted between the ribs, grain vertical."
+          hint="Glued to the caps' faces as set under Shear webs, the rib's full height less any sheeting, fitted between the ribs, grain vertical."
           @update:model-value="set('spar.webThickness', $event)"
         />
-        <label class="wc-check wc-structure-editor__check">
-          <input type="checkbox" :checked="st.spar.type === 'box'" @change="set('spar.type', $event.target.checked ? 'box' : 'caps')" />
-          Second web on the caps' trailing-edge face
-        </label>
+        <SegmentedField :model-value="websSetting(st.spar)" label="Shear webs" :options="WEB_SIDES" @update:model-value="setWebs" />
         <SelectField :id="id('webm')" :model-value="st.spar.webMaterial" label="Web material" :options="SHEET" @update:model-value="set('spar.webMaterial', $event)" />
       </template>
       <template v-else-if="st.spar.type === 'tube'">

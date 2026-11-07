@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
+import { websOf, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -758,7 +758,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       : null
   // The shear webs' height where they meet this rib: the rib's full height (less any sheeting)
   // in the middle of each web, the front one on the caps' leading-edge face and a box spar's
-  // second on their trailing-edge face ([front, rear], null where there's none)
+  // one on their trailing-edge face ([front, rear], null where there's none)
   let webHeights = null
   if (!movingSide && capGap != null && webThicknessOf(sp) > 0) {
     const [outFront, outRear] = sparOuterFaces(a.sparX, sp)
@@ -766,7 +766,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const uF = crossing(outFront, uSpar0 - tw)
     const uR = crossing(outRear, uSpar1 + tw)
     const mid = (u) => top(u) - bot(u)
-    webHeights = [mid((uF + uSpar0) / 2), sp.type === 'box' ? mid((uSpar1 + uR) / 2) : null]
+    const on = websOf(sp)
+    webHeights = [on.front ? mid((uF + uSpar0) / 2) : null, on.back ? mid((uSpar1 + uR) / 2) : null]
   }
 
   return {
@@ -1407,7 +1408,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       const pb = ribList[i]
       const len = Math.max(0, pb.s - pa.s - r.thickness)
       if (len < 0.003) continue
-      for (const k of sp.type === 'box' ? [0, 1] : [0]) {
+      for (const k of [0, 1].filter((k) => (k ? websOf(sp).back : websOf(sp).front))) {
         const hOf = (p) => Math.max(0, p.rib.webHeights?.[k] ?? 0)
         const ha = hOf(pa)
         const hb = hOf(pb)

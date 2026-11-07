@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sparWidth, sparOuterFaces, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sparWidth, sparOuterFaces, websOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -373,8 +373,10 @@ export function webBoxes(a, structure, s) {
     [xb, insetHeight(a, structure, s, xb, 'upper')],
     [xa, insetHeight(a, structure, s, xa, 'upper')],
   ]
-  const out = [box(outFront(s), front(s))]
-  if (sp.type === 'box') out.push(box(rear(s), outRear(s)))
+  const on = websOf(sp)
+  const out = []
+  if (on.front) out.push(box(outFront(s), front(s)))
+  if (on.back) out.push(box(rear(s), outRear(s)))
   return out
 }
 

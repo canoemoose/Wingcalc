@@ -3,7 +3,7 @@ import { defaultState } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, sparOuterFaces, lineFaces, sparWidth } from '../src/lib/structure.js'
 import { buildParts } from '../src/lib/ribs.js'
 import { panelRuns, wing3d, worldPoint, applyMatrix, loft, stringerBox, sparBoxes, webBoxes, insetHeight, sectionAt, spanPlane, tubeBore, gussetPrisms, gussetFit, bracePlates, faceView, orbitLerp, HOME_VIEW } from '../src/lib/wing3d.js'
 
@@ -88,6 +88,23 @@ describe('3D wing', () => {
     for (const m of [w.skin, ...w.solids]) {
       expect(Math.max(...m.indices)).toBeLessThan(m.positions.length / 3)
       expect(m.positions.every(Number.isFinite)).toBe(true)
+    }
+  })
+
+  it("puts the shear webs on the caps' front face, back face or both", () => {
+    for (const [set, front, back] of [[(st) => (st.spar.webs = 'front'), true, false], [(st) => (st.spar.webs = 'back'), false, true], [(st) => (st.spar.webs = 'both'), true, true], [(st) => (st.spar.type = 'box'), true, true]]) {
+      const { a, st, w, parts } = build(set)
+      const n = Number(front) + Number(back)
+      expect(w.solids.filter((x) => x.kind === 'web').length).toBe(n * (w.ribs.length - 1))
+      // The webs as cut: W1 for a front one, W1-R for a back one
+      expect(parts.some((p) => p.id === 'W1')).toBe(front)
+      expect(parts.some((p) => p.id === 'W1-R')).toBe(back)
+      // The spar's outside faces stand proud of the caps only where there's a web
+      const s = (a.rootS + a.tipS) / 2
+      const [f, r] = sparOuterFaces(a.sparX, st.spar)
+      const [cf, cr] = lineFaces(a.sparX, sparWidth(st.spar))
+      expect(cf(s) - f(s) > 1e-6).toBe(front)
+      expect(r(s) - cr(s) > 1e-6).toBe(back)
     }
   })
 

@@ -29,7 +29,7 @@ import LoadsChart from './components/LoadsChart.vue'
 import PartPreview from './components/PartPreview.vue'
 import ExportPanel from './components/ExportPanel.vue'
 import { bayLinkages, fitPlates } from './lib/bayLinkage.js'
-import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf, fillManualRibs } from './lib/structure.js'
+import { analyseStructure, sparFraction, gussetLayer, MODES, MATERIALS, MIN_MATERIAL, finishOf, fillManualRibs, websSetting } from './lib/structure.js'
 import { buildParts } from './lib/ribs.js'
 import { gussetFit, wing3d, wingPieces } from './lib/wing3d.js'
 import { planThumb, isoThumb } from './lib/thumbnails.js'
@@ -699,7 +699,8 @@ const sparSummary = computed(() => {
   if (isFoamWing.value) return 'None: the skins carry the bending'
   if (sp.type === 'tube') return `${thin(sp.tubeDiameter)} ${mat(sp.tubeMaterial)}`
   if (sp.type === 'solid') return `${thin(sp.solidWidth)} × ${thin(sp.solidDepth)} ${mat(sp.solidMaterial)}`
-  return `${sp.type === 'box' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} web${sp.type === 'box' ? 's' : ''}`
+  const webs = websSetting(sp)
+  return `${webs === 'both' ? 'Box, ' : ''}${thin(sp.capWidth)} × ${thin(sp.capThickness)} ${mat(sp.capMaterial)} caps, ${thin(sp.webThickness)} ${webs === 'both' ? 'webs' : webs === 'back' ? 'back web' : 'web'}`
 })
 const COVERING_LABELS = { open: 'Open', dbox: 'D-box', sheeted: 'Fully sheeted' }
 // A foam wing's core and skins, for the structure card
