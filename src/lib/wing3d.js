@@ -867,6 +867,16 @@ export function sectionAt(a, structure, parts, s) {
       if (x1 - x0 > 1e-6) add('plate', [[x0, plate.z], [x1, plate.z], [x1, plate.z + plate.thickness], [x0, plate.z + plate.thickness]])
     }
   }
+  // Dihedral braces' plates, where the cut crosses them (this half's)
+  for (const p of parts.filter((q) => q.group === 'braces' && q.at)) {
+    const g = braceGeometry(a, st, p)
+    if (s < g.span[0] - 1e-9 || s > g.span[1] + 1e-9) continue
+    for (const pl of g.plates) {
+      const q = pl.at(s)
+      if (!(q.top > q.bottom)) continue
+      add('brace', [[pl.x0(s), q.bottom], [pl.x1(s), q.bottom], [pl.x1(s), q.top], [pl.x0(s), q.top]])
+    }
+  }
   // Control surfaces' hinge spars, where the cut crosses them
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
     if (s >= sf.fixed[0] && s <= sf.fixed[1]) add('hinge', hingeSparSection(a, st, sf, s))
@@ -1030,69 +1040,85 @@ export function hingeTabPlates(a, structure) {
 // Dihedral braces as flat plates on the spar's front and rear faces, shaped to the break as
 // exported. In this half only: a centre brace's other arm comes with the mirrored half.
 export function bracePlates(a, structure, parts) {
-  const sp = structure.spar
   const out = []
   for (const p of parts.filter((q) => q.group === 'braces' && q.at)) {
-    const { s: sb, inner, outer, depths, centre } = p.at
-    const t = p.thickness
-    // On the spar's faces, outside any shear web on them
-    const [front, rear] = sparOuterFaces(a.sparX, sp)
-    const k = (s) => lineFaces(a.sparX, 2)[1](s) - a.sparX(s) // x per unit square to the spar
-    const outFront = (s) => front(s) - t * k(s)
-    const outRear = (s) => rear(s) + t * k(s)
-    const mid = (s) => {
-      const x = a.sparX(s)
-      return (insetHeight(a, structure, s, x, 'upper') + insetHeight(a, structure, s, x, 'lower')) / 2
-    }
-    // Plate outline in (s, h): inner arm (not for a centre brace), the break, the outer arm, its
-    // depth straight between those, centred between the inset surfaces at the plate and kept
-    // inside them across its thickness
-    const stations = [...(centre || !(inner > 0) ? [] : [[sb - inner, depths[0]]]), [sb, depths[1]], [sb + outer, depths[2]]]
-    const depthAt = (s) => {
-      for (let i = 1; i < stations.length; i++) {
-        const [sa, da] = stations[i - 1]
-        const [sc, dc] = stations[i]
-        if (s <= sc + 1e-12) return da + ((dc - da) * (s - sa)) / (sc - sa || 1)
-      }
-      return stations.at(-1)[1]
-    }
-    const sFrom = stations[0][0]
-    const sTo = stations.at(-1)[0]
-    const ss = [...new Set([...Array.from({ length: 13 }, (_, i) => sFrom + ((sTo - sFrom) * i) / 12), sb])].sort((m, n) => m - n)
-    for (const [x0, x1] of [
-      [outFront, front],
-      [rear, outRear],
-    ]) {
-      const rim = ss.map((s) => {
-        const xs = [x0(s), x1(s)]
-        const hi = Math.min(...xs.map((x) => insetHeight(a, structure, s, x, 'upper')))
-        const lo = Math.max(...xs.map((x) => insetHeight(a, structure, s, x, 'lower')))
-        const m = (hi + lo) / 2
-        const half = Math.max(0, Math.min(depthAt(s), hi - lo) / 2)
-        return { s, top: m + half, bottom: m - half }
-      })
-      // Its outline anticlockwise in (s, h), and a solid of it from one face to the other
-      const shape = [...rim.map((q) => [q.s, q.bottom]), ...[...rim].reverse().map((q) => [q.s, q.top])]
-      out.push({ kind: 'brace', part: p.id, ...plateBetween(a, shape, x0, x1) })
-    }
+    const g = braceGeometry(a, structure, p)
+    // A solid of each plate from one face to the other
+    for (const pl of g.plates) out.push({ kind: 'brace', part: p.id, ...plateBetween(a, g.ss.map(pl.at), pl.x0, pl.x1) })
   }
   return out
 }
 
-// A flat plate whose outline in (s, h) (anticlockwise) stands between two faces x0(s) and x1(s)
-// across the chord: both faces triangulated (ear clipping, so a bent outline fills properly) and
-// walls round its edge. A closed solid.
-function plateBetween(a, shape, x0, x1) {
-  const tris = holeTriangles(shape, [])
-  const n = shape.length
-  const positions = []
-  for (const xf of [x0, x1]) for (const [s, h] of shape) positions.push(...worldPoint(a, s, xf(s), h))
-  const idx = []
-  for (const [i, j, k] of tris) idx.push(i, k, j, n + i, n + j, n + k)
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n
-    idx.push(i, j, n + j, i, n + j, n + i)
+// One brace's plates: on the spar's front and rear faces (outside any shear web), each between
+// faces x0(s) and x1(s), with at(s) giving its { s, top, bottom } there; ss, the stations along
+// it (the break among them); span, [from, to] along the flat span.
+export function braceGeometry(a, structure, p) {
+  const sp = structure.spar
+  const { s: sb, inner, outer, depths, centre } = p.at
+  const t = p.thickness
+  const [front, rear] = sparOuterFaces(a.sparX, sp)
+  const k = (s) => lineFaces(a.sparX, 2)[1](s) - a.sparX(s) // x per unit square to the spar
+  const outFront = (s) => front(s) - t * k(s)
+  const outRear = (s) => rear(s) + t * k(s)
+  // Plate outline in (s, h): inner arm (not for a centre brace), the break, the outer arm, its
+  // depth straight between those, centred between the inset surfaces at the plate and kept
+  // inside them across its thickness
+  const stations = [...(centre || !(inner > 0) ? [] : [[sb - inner, depths[0]]]), [sb, depths[1]], [sb + outer, depths[2]]]
+  const depthAt = (s) => {
+    for (let i = 1; i < stations.length; i++) {
+      const [sa, da] = stations[i - 1]
+      const [sc, dc] = stations[i]
+      if (s <= sc + 1e-12) return da + ((dc - da) * (s - sa)) / (sc - sa || 1)
+    }
+    return stations.at(-1)[1]
   }
+  const sFrom = stations[0][0]
+  const sTo = stations.at(-1)[0]
+  const ss = [...new Set([...Array.from({ length: 13 }, (_, i) => sFrom + ((sTo - sFrom) * i) / 12), sb])].sort((m, n) => m - n)
+  const plate = (x0, x1) => ({
+    x0,
+    x1,
+    at: (s) => {
+      const xs = [x0(s), x1(s)]
+      const hi = Math.min(...xs.map((x) => insetHeight(a, structure, s, x, 'upper')))
+      const lo = Math.max(...xs.map((x) => insetHeight(a, structure, s, x, 'lower')))
+      const m = (hi + lo) / 2
+      const half = Math.max(0, Math.min(depthAt(s), hi - lo) / 2)
+      return { s, top: m + half, bottom: m - half }
+    },
+  })
+  return { ss, span: [sFrom, sTo], plates: [plate(outFront, front), plate(rear, outRear)] }
+}
+
+// A flat plate standing between two faces x0(s) and x1(s) across the chord, its outline a rim
+// of stations along the span ([{ s, top, bottom }], root outward): each face a strip of quads
+// between neighbouring stations, so no triangle spans a station (a dihedral break among them
+// folds the plate there, and a triangle across the fold would lie on neither side), walls along
+// its top and bottom edges and across its ends. A closed solid, wound outwards.
+function plateBetween(a, rim, x0, x1) {
+  const m = rim.length
+  const positions = []
+  for (const xf of [x0, x1]) for (const q of rim) positions.push(...worldPoint(a, q.s, xf(q.s), q.bottom), ...worldPoint(a, q.s, xf(q.s), q.top))
+  // Vertex of face f (0 at x0, 1 at x1), station i, top or bottom
+  const v = (f, i, top) => f * 2 * m + 2 * i + (top ? 1 : 0)
+  const idx = []
+  const quad = (p, q, r, t) => idx.push(p, q, r, p, r, t)
+  for (let i = 0; i + 1 < m; i++) {
+    quad(v(0, i, false), v(0, i, true), v(0, i + 1, true), v(0, i + 1, false))
+    quad(v(1, i, false), v(1, i + 1, false), v(1, i + 1, true), v(1, i, true))
+    quad(v(0, i, false), v(0, i + 1, false), v(1, i + 1, false), v(1, i, false))
+    quad(v(0, i, true), v(1, i, true), v(1, i + 1, true), v(0, i + 1, true))
+  }
+  quad(v(0, 0, false), v(1, 0, false), v(1, 0, true), v(0, 0, true))
+  quad(v(0, m - 1, false), v(0, m - 1, true), v(1, m - 1, true), v(1, m - 1, false))
+  // Wound outwards: a positive enclosed volume, else every triangle turned over
+  let vol = 0
+  const P = (k) => [positions[3 * k], positions[3 * k + 1], positions[3 * k + 2]]
+  for (let t = 0; t < idx.length; t += 3) {
+    const [A, B, C] = [P(idx[t]), P(idx[t + 1]), P(idx[t + 2])]
+    vol += A[0] * (B[1] * C[2] - B[2] * C[1]) - A[1] * (B[0] * C[2] - B[2] * C[0]) + A[2] * (B[0] * C[1] - B[1] * C[0])
+  }
+  if (vol < 0) for (let t = 0; t < idx.length; t += 3) [idx[t + 1], idx[t + 2]] = [idx[t + 2], idx[t + 1]]
   return { positions: new Float32Array(positions), indices: new Uint32Array(idx) }
 }
 

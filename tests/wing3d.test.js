@@ -548,7 +548,30 @@ describe('3D wing', () => {
         }
       }
       expect([...edges.values()].every((n) => n === 2)).toBe(true)
+      // Wound outwards (a positive enclosed volume), and no face triangle spans the break: each
+      // triangle's corners lie at no more than two neighbouring stations along the span
+      const P = (k) => [p.positions[3 * k], p.positions[3 * k + 1], p.positions[3 * k + 2]]
+      let vol = 0
+      for (let i = 0; i < p.indices.length; i += 3) {
+        const [A, B, C] = [P(p.indices[i]), P(p.indices[i + 1]), P(p.indices[i + 2])]
+        vol += A[0] * (B[1] * C[2] - B[2] * C[1]) - A[1] * (B[0] * C[2] - B[2] * C[0]) + A[2] * (B[0] * C[1] - B[1] * C[0])
+      }
+      expect(vol).toBeGreaterThan(0)
+      for (let i = 0; i < p.indices.length; i += 3) {
+        const st = new Set([p.indices[i], p.indices[i + 1], p.indices[i + 2]].map((k) => Math.floor((k % (p.positions.length / 6)) / 2)))
+        expect(Math.max(...st) - Math.min(...st)).toBeLessThanOrEqual(1)
+      }
     }
+    // Filled in the section cut: a cut through a brace shows both its plates, either side of
+    // the spar, as deep as the plate is there
+    const cutAt = braces[0].at.s + braces[0].at.outer / 2
+    const cut = sectionAt(a, st, parts, cutAt).pieces.filter((q) => q.kind === 'brace')
+    expect(cut).toHaveLength(2)
+    const xSpar = a.sparX(cutAt)
+    expect(Math.max(...cut[0].pts.map(([x]) => x))).toBeLessThanOrEqual(xSpar + 1e-9)
+    expect(Math.min(...cut[1].pts.map(([x]) => x))).toBeGreaterThanOrEqual(xSpar - 1e-9)
+    // None beyond its arms
+    expect(sectionAt(a, st, parts, braces[0].at.s + braces[0].at.outer + 0.02).pieces.some((q) => q.kind === 'brace')).toBe(false)
     // Sized for the room inside the skins beside the spar: behind it, the hard point's 3 mm sheet
     const b = braces[0]
     const s = b.at.s
