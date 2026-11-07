@@ -103,6 +103,8 @@ Mode: autonomous (7 November). Commits by concern on master, not pushed.
 - [x] Arm slot turned with the servo (`05a73b3`)
 - [x] Loads charts zoom and pan their height together (`5aec22c`)
 - [x] Plan DXF layers split (`7b408c8`)
-- [ ] DXF hatching as real hatch or fill: **question for Matt** (R12 has no HATCH entity)
+- [x] Plan DXF as R2007 (AC1021) with real ANSI31 hatches, via @tarikjabiri/dxf 2.9.0 (pinned; 2.10.0 was under two weeks old); parts and templates stay R12
+- [x] Rib slivers: cut through where top and bottom notches leave under the least rib; zero-width spikes cleared from outlines
+- [x] D-box sheet over a sheeted hard point split in 3D, as its part is
 
 Assumptions: the "part of the servo not rotated" was the arm's slot (the small square box beside the turned servo); "more layers" read as one layer per kind of thing, names as listed in the user guide.
