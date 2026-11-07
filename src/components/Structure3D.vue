@@ -459,7 +459,7 @@ function build() {
   skin.renderOrder = 2
   groups.covering.add(skin)
   for (const s of model.solids) {
-    const colour = s.clash ? COLOURS.clash : s.kind === 'spar' && tube ? COLOURS.tube : COLOURS[s.kind]
+    const colour = s.clash ? COLOURS.clash : (s.kind === 'spar' && tube) || s.carbon ? COLOURS.tube : COLOURS[s.kind]
     const group = groups[layerOf(s.kind)]
     const mesh = meshFrom(s, s.kind === 'web' ? behind(colour) : wood(colour))
     mesh.userData.colour = colour
@@ -649,7 +649,7 @@ function updateSection() {
       const geo = new THREE.BufferGeometry().setFromPoints([...contour, ...holes.flat()].map((v) => toWorld([v.x, v.y])))
       geo.setIndex(faces.flat())
       for (const hole of piece.holes) cut.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(hole.map(toWorld)), lineMat))
-      const colour = new THREE.Color(piece.kind === 'spar' && props.structure.spar.type === 'tube' ? COLOURS.tube : COLOURS[piece.kind]).multiplyScalar(0.82)
+      const colour = new THREE.Color((piece.kind === 'spar' && props.structure.spar.type === 'tube') || piece.carbon ? COLOURS.tube : COLOURS[piece.kind]).multiplyScalar(0.82)
       // A foam core is drawn first and pushed back, so the caps and web let into it show over it
       const fill = new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide })
       if (piece.kind === 'core') Object.assign(fill, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })

@@ -309,6 +309,23 @@ export function stringerBox(a, structure, str, s, which) {
   return Array.from({ length: 16 }, (_, k) => [cx + ((x1 - x0) / 2) * Math.cos((2 * Math.PI * k) / 16), cz + (h / 2) * Math.sin((2 * Math.PI * k) / 16)])
 }
 
+// A carbon tube stringer's bore at s, matching stringerBox's ring point for point, or null for
+// any other profile
+export function stringerBore(a, structure, str, s, which) {
+  if (str.profile !== 'tube') return null
+  const ring = stringerBox(a, structure, str, s, which)
+  if (!ring) return null
+  const { w } = stringerSize(str)
+  const wall = str.wall > 0 ? str.wall : 0.0005
+  const k = Math.max(0, w - 2 * wall) / w
+  if (!(k > 0)) return null
+  const cx = ring.reduce((t, p) => t + p[0], 0) / ring.length
+  const cz = ring.reduce((t, p) => t + p[1], 0) / ring.length
+  return ring.map(([x, z]) => [cx + (x - cx) * k, cz + (z - cz) * k])
+}
+// Whether a stringer is carbon (drawn in carbon's colour)
+export const isCarbon = (material) => typeof material === 'string' && material.startsWith('carbon')
+
 // The spar's cross-section(s) at s, as [x, h] corners, seated as the ribs are cut: caps in
 // their notches top and bottom, a tube or slotted spar centred between the inset surfaces.
 export function sparBoxes(a, structure, s) {
@@ -822,7 +839,12 @@ export function sectionAt(a, structure, parts, s) {
   if (!inRib) for (const box of webBoxes(a, st, s)) add('web', box)
   for (const str of st.stringers ?? []) {
     if (!stringerOk(str)) continue
-    for (const w of stringerPlaces(str)) add('stringer', stringerBox(a, st, str, s, w))
+    for (const w of stringerPlaces(str)) {
+      const bore = stringerBore(a, st, str, s, w)
+      const before = pieces.length
+      add('stringer', stringerBox(a, st, str, s, w), bore ? [bore] : [])
+      if (pieces.length > before && isCarbon(str.material)) pieces[pieces.length - 1].carbon = true
+    }
   }
   // Servos and their mount plates, where the cut crosses them
   for (const b of (a.bays ?? []).filter((x) => x.ok)) {
@@ -1081,7 +1103,8 @@ export function wing3d(a, structure, parts, linkages = null) {
     const caps = sp.type === 'caps' || sp.type === 'box'
     for (let k = 0; k < nSpar; k++) {
       const piece = caps ? { id: `spar-${k ? 'bottom' : 'top'}`, name: `Spar cap, ${k ? 'bottom' : 'top'}`, material: sp.capMaterial, section: { outline: sparBoxes(a, st, (s0 + sparEnd) / 2)[k] } } : { id: 'spar', name: 'Spar', material: sp.solidMaterial, section: { outline: sparBoxes(a, st, (s0 + sparEnd) / 2)[k] } }
-      add('spar', sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds }), null, piece)
+      const mesh = sweep(a, s0, sparEnd, (s) => sparBoxes(a, st, s)[k], 40, { extend: sparEnds })
+      add('spar', mesh && isCarbon(piece.material) ? { ...mesh, carbon: true } : mesh, null, piece)
     }
   }
   const ribList = parts.filter((p) => p.group === 'ribs' && !p.of).sort((p, q) => p.s - q.s)
@@ -1237,7 +1260,16 @@ export function wing3d(a, structure, parts, linkages = null) {
     const what = str.profile && str.profile !== 'rect' ? STRINGER_PROFILES[str.profile].label : 'Stringer'
     for (const which of stringerPlaces(str)) {
       const where = { upper: 'top', lower: 'bottom', inside: 'inside the wing' }[which]
-      add('stringer', sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends }), null, { id: `stringer-${str.id}-${which}`, name: `${what} at ${Math.round(str.position * 100)}% chord, ${where}`, material: str.material, section: { outline: stringerBox(a, st, str, (s0 + s1) / 2, which) } })
+      const piece = { id: `stringer-${str.id}-${which}`, name: `${what} at ${Math.round(str.position * 100)}% chord, ${where}`, material: str.material, section: { outline: stringerBox(a, st, str, (s0 + s1) / 2, which), holes: [stringerBore(a, st, str, (s0 + s1) / 2, which)].filter(Boolean) } }
+      let mesh = null
+      if (str.profile === 'tube') {
+        // Hollow: lofted between its outside and its bore
+        const outer = sweepRings(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, ends)
+        const inner = sweepRings(a, s0, s1, (s) => stringerBore(a, st, str, s, which), 40, ends)
+        if (outer && inner && outer.length === inner.length) mesh = tubeLoft(outer, inner)
+      }
+      mesh ??= sweep(a, s0, s1, (s) => stringerBox(a, st, str, s, which), 40, { extend: ends })
+      add('stringer', mesh && isCarbon(str.material) ? { ...mesh, carbon: true } : mesh, null, piece)
     }
   }
 
