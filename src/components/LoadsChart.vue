@@ -67,11 +67,12 @@ const win = computed(() => {
   const v = props.expanded ? view.value : null
   return v ? v : { d0: 0, d1: span.value }
 })
-// Each chart's height in view, as fractions { f0, f1 } of its full scale (the moment's fitted to
-// the span in view, the margins' −1 to +3); null: all of it. m the moment chart, s the margins.
-const yView = ref({ m: null, s: null })
-const yWin = (k) => (props.expanded && yView.value[k]) || { f0: 0, f1: 1 }
-const zoomed = computed(() => !!(props.expanded && (view.value || yView.value.m || yView.value.s)))
+// The charts' height in view, as fractions { f0, f1 } of each one's full scale (the moment's fitted
+// to the span in view, the margins' −1 to +3), the same for both so they zoom and pan together;
+// null: all of it
+const yView = ref(null)
+const yWin = () => (props.expanded && yView.value) || { f0: 0, f1: 1 }
+const zoomed = computed(() => !!(props.expanded && (view.value || yView.value)))
 // Never closer in than a fiftieth of the span
 const minWidth = computed(() => span.value / 50)
 function setView(d0, d1) {
@@ -84,34 +85,32 @@ function setView(d0, d1) {
   d0 = Math.min(S - w, Math.max(0, d0))
   view.value = { d0, d1: d0 + w }
 }
-function setY(k, f0, f1) {
+function setY(f0, f1) {
   const w = Math.min(1, Math.max(1 / 50, f1 - f0))
   if (w >= 1 - 1e-9) {
-    yView.value = { ...yView.value, [k]: null }
+    yView.value = null
     return
   }
   f0 = Math.min(1 - w, Math.max(0, f0))
-  yView.value = { ...yView.value, [k]: { f0, f1: f0 + w } }
+  yView.value = { f0, f1: f0 + w }
 }
-// Zoom by k (over 1 is in) about span position d (the middle of the view without one), and the
-// height of chart `only` (both without one) about fraction fy of its scale (the middle without)
-function zoomBy(k, d = null, only = null, fy = null) {
+// Zoom by k (over 1 is in) about span position d (the middle of the view without one), and both
+// charts' height about fraction fy of the scale (the middle without one)
+function zoomBy(k, d = null, fy = null) {
   const { d0, d1 } = win.value
   const at = d ?? (d0 + d1) / 2
   const w = (d1 - d0) / k
   const f = (at - d0) / (d1 - d0)
   setView(at - f * w, at - f * w + w)
-  for (const c of only ? [only] : ['m', 's']) {
-    const { f0, f1 } = yWin(c)
-    const y = fy ?? (f0 + f1) / 2
-    const h = (f1 - f0) / k
-    const g = (y - f0) / (f1 - f0)
-    setY(c, y - g * h, y - g * h + h)
-  }
+  const { f0, f1 } = yWin()
+  const y = fy ?? (f0 + f1) / 2
+  const h = (f1 - f0) / k
+  const g = (y - f0) / (f1 - f0)
+  setY(y - g * h, y - g * h + h)
 }
 const fitSpan = () => {
   view.value = null
-  yView.value = { m: null, s: null }
+  yView.value = null
 }
 // The span position under a pointer event on either chart, or null off the plot
 function spanAt(e) {
@@ -130,13 +129,13 @@ function scaleAt(e, k) {
   const vy = ((e.clientY - r.top) / r.height) * H.value
   const g = 1 - (vy - M.t) / (H.value - M.t - M.b)
   if (g < 0 || g > 1) return null
-  const { f0, f1 } = yWin(k)
+  const { f0, f1 } = yWin()
   return f0 + g * (f1 - f0)
 }
 function onWheel(e, k) {
   if (!props.expanded) return
   e.preventDefault()
-  zoomBy(Math.exp(-e.deltaY * 0.0015), spanAt(e), k, scaleAt(e, k))
+  zoomBy(Math.exp(-e.deltaY * 0.0015), spanAt(e), scaleAt(e, k))
 }
 // Drag to pan, once zoomed in: along the span (both charts) and up and down (this one)
 let drag = null
@@ -148,7 +147,7 @@ function onDown(e, k) {
     x: e.clientX,
     y: e.clientY,
     view: { ...win.value },
-    y0: { ...yWin(k) },
+    y0: { ...yWin() },
     px: (r.width * (W.value - M.l - M.r)) / W.value,
     py: (r.height * (H.value - M.t - M.b)) / H.value,
   }
@@ -164,7 +163,7 @@ function onMove(e) {
     const h = drag.y0.f1 - drag.y0.f0
     if (h < 1 - 1e-9) {
       const df = ((e.clientY - drag.y) / Math.max(1, drag.py)) * h
-      setY(drag.k, drag.y0.f0 + df, drag.y0.f1 + df)
+      setY(drag.y0.f0 + df, drag.y0.f1 + df)
     }
   }
   onHover(e)
@@ -203,8 +202,8 @@ const chart = computed(() => {
   for (const d of [d0, d1]) seen.push(valueAt((r) => r.M, d) ?? 0, valueAt((r) => r.Mneg, d) ?? 0)
   const mMax = Math.max(...seen, 1e-6)
   // Each chart's height in view: a fraction g of its scale to a height on the chart
-  const ym = yWin('m')
-  const ys = yWin('s')
+  const ym = yWin()
+  const ys = ym
   const yOf = (g, w) => H_ - M.b - ((g - w.f0) / (w.f1 - w.f0)) * (H_ - M.t - M.b)
   const yM = (v) => yOf(v / mMax, ym)
   const sOf = (g) => MS_MIN + g * (MS_MAX - MS_MIN)
@@ -440,7 +439,7 @@ function nm(v) {
         Dashed verticals on the moment chart are the dihedral breaks. Brace markers (B1, B2...) sit at their margin; a
         triangle means the margin is off scale (drawn at the edge of the chart).
       </span>
-      <span v-if="expanded">Scroll over a chart to zoom it (both charts move along the span together), drag to move around, F to see it all.</span>
+      <span v-if="expanded">Scroll over either chart to zoom both together, drag to move around, F to see it all.</span>
       <span>Bending counts the spar, sheeting (sheeted hard points' included), any laminate and the stringers; hinge spars, edge stock and servo trays are left out, on the safe side.</span>
     </figcaption>
     <!-- Fixed over the page, inside the app so it keeps its theme -->
