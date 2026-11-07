@@ -1584,7 +1584,9 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       // point's sheet (its part, HP1T and so on), which this sheet is cut to clear
       const sMid = (list[0].s + list.at(-1).s) / 2
       const panelT = sheetThicknessAt({ ...structure, hardBays: [] }, sMid)
-      const own = (structure.hardBays ?? []).filter((h) => cov.type === 'dbox' && h.dboxThickness > 0 && Math.abs(h.dboxThickness - panelT) > 1e-9)
+      // On a D-box, the D-box sheeting over a sheeted hard point's bays is a piece of its own on
+      // each side the hard point sheets (at its own thickness where that's set)
+      const own = (structure.hardBays ?? []).filter((h) => cov.type === 'dbox' && h.sides?.length)
       for (const surface of ['upper', 'lower']) {
         const side = surface === 'upper' ? 'top' : 'bottom'
         const gaps = sheetGaps(structure, side)
@@ -1593,7 +1595,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         const bayKind = (p, q) => {
           const m = (p.s + q.s) / 2
           if (gaps.some((g) => m > g.s0 && m < g.s1)) return null
-          const h = own.find((x) => m > x.s0 && m < x.s1)
+          const h = own.find((x) => m > x.s0 && m < x.s1 && x.sides.includes(side))
           return h ? h : 'panel'
         }
         const runs = []
@@ -1606,7 +1608,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         }
         for (const run of runs) {
           const h = run.kind === 'panel' ? null : run.kind
-          k = sheetPart(run.ribs, surface, key, h ? h.dboxThickness : panelT, h, k)
+          k = sheetPart(run.ribs, surface, key, h && h.dboxThickness > 0 ? h.dboxThickness : panelT, h, k)
         }
       }
     }

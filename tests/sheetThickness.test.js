@@ -188,6 +188,19 @@ describe("a hard point's own sheet as its own piece", () => {
     }
     // The panel's sheeting either side stops at it
     for (const p of sheets.filter((q) => !own.includes(q))) expect(overlaps(p, h)).toBe(false)
+    // With no thickness of its own set, still its own piece, at the panel's thickness; only on
+    // the side the hard point sheets
+    const same = build(joiner('dbox', { sheet: 'top' }))
+    const [h2] = hardPatches(same.a.structure, same.a.rootS)
+    const own2 = same.parts.filter((p) => p.group === 'sheeting' && !p.id.startsWith('HP') && overlaps(p, h2))
+    expect(own2).toHaveLength(2)
+    const top = own2.find((p) => p.surface === 'upper')
+    expect(top.span[0]).toBeCloseTo(h2.s0, 6)
+    expect(top.span[1]).toBeCloseTo(h2.s1, 6)
+    expect(top.thickness).toBeCloseTo(0.0015, 9)
+    // The bottom isn't split there: one sheet runs over it
+    const bottom = own2.find((p) => p.surface === 'lower')
+    expect(bottom.span[1] - bottom.span[0]).toBeGreaterThan(h2.s1 - h2.s0 + 0.01)
   })
 })
 
