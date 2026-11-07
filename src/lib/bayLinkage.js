@@ -20,9 +20,9 @@
 //             the pushrod from the output (along the servo's case when hornAt is null, so the
 //             pushrod runs in the arm's plane and the horn's)
 
-import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly, linkage, PART_SIZES } from './linkage.js'
+import { armsFor, armById, hornById, defaultHorn, hingeAt, hornHole, outputPivot, solveAssembly, linkage, PART_SIZES, armOutline } from './linkage.js'
 
-export { PART_SIZES }
+export { PART_SIZES, armOutline }
 import { installedServo, servoById, bayOf, SERVO_HEADROOM } from './servos.js'
 import { recutPlate } from './structure.js'
 import { servoBox, surfaceHeight, insetHeight } from './wing3d.js'
@@ -484,15 +484,24 @@ export function linkageSolids(frame, servo, c) {
   const A = PART_SIZES.arm[c.arm.size] ?? PART_SIZES.arm.standard
   const radii = c.arm.holes[c.armRow].radii
   const across = v3.cross(L.a, d)
-  const hub = A.width / 2
-  const arm = barRings(v3.add(g.pivot, v3.mul(d, -hub)), v3.add(g.pivot, v3.mul(d, radii.at(-1) + A.tip)), across, L.a, A.width, A.thickness)
+  // The arm in its plane (its boss and taper), and the boss standing taller towards the servo
+  const flat = armOutline(A, radii.at(-1) + A.tip)
+  const at = (h) => flat.map(([q, w]) => v3.add(g.pivot, v3.add(v3.add(v3.mul(d, q), v3.mul(across, w)), v3.mul(L.a, h))))
+  const arm = [at(-A.thickness / 2), at(A.thickness / 2)]
+  const rb = (A.boss ?? A.width) / 2
+  const disc = (h) => Array.from({ length: 16 }, (_, i) => v3.add(g.pivot, v3.add(v3.add(v3.mul(d, rb * Math.cos((2 * Math.PI * i) / 16)), v3.mul(across, rb * Math.sin((2 * Math.PI * i) / 16))), v3.mul(L.a, h))))
+  // Towards the servo along the rotation axis: against the output's axis, which points out of it
+  const ax = g.axis ?? L.a
+  const toServo = -(Math.sign(L.a[0] * ax[0] + L.a[1] * ax[1] + L.a[2] * ax[2]) || 1)
+  const boss = [disc(-toServo * (A.thickness / 2)), disc(toServo * Math.max(A.thickness / 2, (A.bossHeight ?? A.thickness) - A.thickness / 2))]
   const ht = PART_SIZES.horn[c.horn.size] ?? PART_SIZES.horn.standard
   const normal = [-frame.hornDir[1], frame.hornDir[0], 0]
   const outline = hornOutline(frame, c.horn, c.face)
   const horn = [-1, 1].map((k) => outline.map((p) => v3.add(p, v3.mul(normal, (k * ht) / 2))))
   const rod = rodRings(L.arm(t0), g.horn, PART_SIZES.rod[c.arm.size] ?? PART_SIZES.rod.standard)
   return [
-    { kind: 'servoArm', rings: arm },
+    // The boss is part of the arm: one piece, its rings lofted as well (more)
+    { kind: 'servoArm', rings: arm, more: [boss] },
     { kind: 'horn', rings: horn },
     { kind: 'pushrod', rings: rod },
   ]

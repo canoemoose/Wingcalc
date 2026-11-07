@@ -2794,9 +2794,8 @@
   stroke-width: 1;
 }
 .wc-config__arm {
-  stroke: var(--wc-text);
-  stroke-width: 6;
-  stroke-linecap: round;
+  fill: var(--wc-text);
+  stroke: none;
   cursor: grab;
 }
 .wc-config__horn {

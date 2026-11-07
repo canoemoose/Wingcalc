@@ -1210,10 +1210,18 @@ export function wing3d(a, structure, parts, linkages = null) {
   const LINK_CLASH = { servoArm: ['rib', 'inside'], pushrod: ['rod', 'inside'], horn: [] }
   for (const [, l] of linkages ?? []) {
     for (const sol of l.solids ?? []) {
-      const mesh = loft(
-        sol.rings.map((ring) => ring.map(([x, s, z]) => worldPoint(a, s, x, z))),
-        { closed: true, caps: 'fan' },
-      )
+      const lofted = (rings) => loft(rings.map((ring) => ring.map(([x, s, z]) => worldPoint(a, s, x, z))), { closed: true, caps: 'fan' })
+      // Any further closed shells of the same piece (the arm's boss) joined into its mesh
+      const mesh = [sol.rings, ...(sol.more ?? [])].map(lofted).filter(Boolean).reduce((m, n) => {
+        const k = m.positions.length / 3
+        const positions = new Float32Array(m.positions.length + n.positions.length)
+        positions.set(m.positions)
+        positions.set(n.positions, m.positions.length)
+        const indices = new Uint32Array(m.indices.length + n.indices.length)
+        indices.set(m.indices)
+        indices.set(Array.from(n.indices, (i) => i + k), m.indices.length)
+        return { ...m, positions, indices }
+      })
       const clash = (l.fit?.clashes ?? []).some((k) => LINK_CLASH[sol.kind].includes(k))
       const part = sol.kind === 'servoArm' ? l.c.arm : sol.kind === 'horn' ? l.c.horn : null
       const what = part ? `, ${part.maker === 'Generic' ? part.name : `${part.maker} ${part.part}`}` : ''

@@ -15,7 +15,7 @@ import SegmentedField from './SegmentedField.vue'
 import UnitInput from './UnitInput.vue'
 import { servoOptions, servoById, servoFrame, servoParts, placeServo, planCorners, SERVOS } from '../lib/servos.js'
 import { HORNS, linkage, splineError } from '../lib/linkage.js'
-import { assemblyGeometry, servoChoices, linkSummary, hornOutline, TRAVELS, HORN_EDGE, PART_SIZES } from '../lib/bayLinkage.js'
+import { assemblyGeometry, servoChoices, linkSummary, hornOutline, TRAVELS, HORN_EDGE, PART_SIZES, armOutline } from '../lib/bayLinkage.js'
 import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
@@ -244,6 +244,12 @@ const drawing = computed(() => {
     const tipR = radii.at(-1) + A.tip
     out.armTip = P([g.pivot[0] + d[0] * tipR, g.pivot[1] + d[1] * tipR, g.pivot[2] + d[2] * tipR])
     out.armDir = [out.armTip[0] - pv[0], out.armTip[1] - pv[1]]
+    // Its outline in its plane: the boss and the taper to the tip
+    const across = [L.a[1] * d[2] - L.a[2] * d[1], L.a[2] * d[0] - L.a[0] * d[2], L.a[0] * d[1] - L.a[1] * d[0]]
+    out.armShape = armOutline(A, tipR)
+      .map(([q, w]) => P([0, 1, 2].map((k) => g.pivot[k] + d[k] * q + across[k] * w)))
+      .map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`)
+      .join(' ')
     out.rod = r.ok ? [out.armHoles[c.armHole].p, out.hornHoles[c.hornHole].p] : null
     out.boss = (servo.value.frame.output.diameter * 1000) / 2
   }
@@ -488,19 +494,16 @@ function onKey(e) {
                 <!-- Pushrod -->
                 <line v-if="drawing.rod" class="wc-config__rod" :x1="drawing.rod[0][0]" :y1="drawing.rod[0][1]" :x2="drawing.rod[1][0]" :y2="drawing.rod[1][1]" />
                 <!-- Arm: drag it to the other side of the output to turn it round -->
-                <line
+                <polygon
                   class="wc-config__arm"
-                  :x1="drawing.pivot[0]"
-                  :y1="drawing.pivot[1]"
-                  :x2="drawing.armTip[0]"
-                  :y2="drawing.armTip[1]"
+                  :points="drawing.armShape"
                   @pointerdown="armDown"
                   @pointermove="armMove"
                   @pointerup="armUp"
                   @pointercancel="armUp"
                 >
                   <title>Drag to the other side of the output to turn the arm round</title>
-                </line>
+                </polygon>
                 <circle class="wc-config__boss" :cx="drawing.pivot[0]" :cy="drawing.pivot[1]" :r="drawing.boss" />
                 <circle
                   v-for="q in drawing.armHoles"

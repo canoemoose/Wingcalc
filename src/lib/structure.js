@@ -31,7 +31,7 @@ import { clDistribution } from './liftingLine.js'
 import { resolveEdges, applyEdges, fitOver, fitDrawing, roundItem, KIND_LABELS, LE_TYPES, isRound } from './edgeStock.js'
 import { resolveSurfaces, bevelAngle, hingeTabs } from './controlSurfaces.js'
 import { placeBays, servoMasses, fitBaysToRibs, servoById, cutout, screwsClear, turnPoint, BAY_MARGIN, SERVO_HEADROOM, PLATE_EDGE, CUTOUT_GAP } from './servos.js'
-import { armsFor, armById, outputPivot, PART_SIZES } from './linkage.js'
+import { armsFor, armById, outputPivot, PART_SIZES, armOutline } from './linkage.js'
 import { resolveBrakes, brakeHosts, brakeOpenings, BRAKE } from './airBrakes.js'
 import { FOAM_MATERIALS, defaultFoam, foamStructure, isFoam, wrinklingStress, coreShearStress } from './foam.js'
 import { braceSizing } from './ribs.js'
@@ -1487,7 +1487,6 @@ function armPlateCut(sv, link, phis = null) {
   const row = arm.holes[Math.min(Math.max(0, link?.armRow ?? 0), arm.holes.length - 1)]
   const A = PART_SIZES.arm[arm.size] ?? PART_SIZES.arm.standard
   const reach = row.radii.at(-1) + A.tip
-  const hub = A.width / 2
   // Square to the servo, on its base: the plate's underside and top there
   const { pivot, axis } = outputPivot({ ...sv, yaw: 0, lift: 0 }, { x: 0, s: 0, base: 0 }, arm.seat)
   const z0 = sv.lugHeight + sv.lugThickness - sv.lift
@@ -1497,19 +1496,32 @@ function armPlateCut(sv, link, phis = null) {
   const [p0, p1] = phis ?? [-spread, spread]
   const xs = []
   const keep = (x, z) => z > z0 - 1e-9 && z < z1 + 1e-9 && xs.push(x)
+  // The arm's outline (its boss and taper), its edges finely and its inside on a grid
+  const flat = armOutline(A, reach)
+  const pts = flat.flatMap((p, i) => {
+    const q = flat[(i + 1) % flat.length]
+    return Array.from({ length: 6 }, (_, k) => [p[0] + ((q[0] - p[0]) * k) / 6, p[1] + ((q[1] - p[1]) * k) / 6])
+  })
+  const inside = ([r, w]) => flat.every((p, i) => {
+    const q = flat[(i + 1) % flat.length]
+    return (q[0] - p[0]) * (w - p[1]) - (q[1] - p[1]) * (r - p[0]) >= -1e-12
+  })
+  const rb = (A.boss ?? A.width) / 2
+  for (let k = 0; k <= 40; k++) for (let j = -6; j <= 6; j++) {
+    const q = [-rb + ((reach + rb) * k) / 40, (rb * j) / 6]
+    if (inside(q)) pts.push(q)
+  }
   for (let i = 0; i <= 24; i++) {
     const phi = p0 + ((p1 - p0) * i) / 24
     const d = [Math.sin(phi), up * Math.cos(phi)]
     const across = [d[1], -d[0]]
-    for (let k = 0; k <= 40; k++) {
-      const r = -hub + ((reach + hub) * k) / 40
-      for (const w of [-1, 0, 1]) keep(pivot[0] + d[0] * r + across[0] * w * hub, pivot[2] + d[1] * r + across[1] * w * hub)
-    }
+    for (const [r, w] of pts) keep(pivot[0] + d[0] * r + across[0] * w, pivot[2] + d[1] * r + across[1] * w)
   }
   if (!xs.length) return null
-  // Along the span: the arm's thickness at its plane, and its hub back to the spline's top
+  // Along the span: the arm's thickness at its plane, and its boss back to the spline's top
   const a = Math.sign(axis[1]) || 1
-  const ss = [pivot[1] + a * (A.thickness / 2), pivot[1] - a * (arm.seat + A.thickness / 2)]
+  const back = Math.max(arm.seat + A.thickness / 2, (A.bossHeight ?? 0) - A.thickness / 2)
+  const ss = [pivot[1] + a * (A.thickness / 2), pivot[1] - a * back]
   return { x: [Math.min(...xs) - CUTOUT_GAP, Math.max(...xs) + CUTOUT_GAP], s: [Math.min(...ss) - CUTOUT_GAP, Math.max(...ss) + CUTOUT_GAP] }
 }
 

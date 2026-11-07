@@ -186,9 +186,44 @@ export const defaultHorn = (servo) => hornById(HORN_FOR[servo?.class ?? servo?.i
 // thickness, its base along its plane as a share of its height, and its tip; the pushrod wire's
 // radius (1.2, 1.6 and 2 mm wire)
 export const PART_SIZES = {
-  arm: { micro: { width: 0.0045, thickness: 0.002, tip: 0.0025 }, standard: { width: 0.006, thickness: 0.0025, tip: 0.003 }, large: { width: 0.008, thickness: 0.003, tip: 0.004 } },
+  // An arm: its width along its length (the widest, at the boss, for clearances), thickness, how
+  // far it runs past its outer hole, the boss round the spline (its diameter, and how tall it
+  // stands, towards the servo), and its width at the tip, tapering straight from the boss.
+  // Typical of each size, not measured.
+  arm: {
+    micro: { width: 0.0045, thickness: 0.002, tip: 0.0025, boss: 0.007, bossHeight: 0.0035, tipWidth: 0.0032 },
+    standard: { width: 0.006, thickness: 0.0025, tip: 0.003, boss: 0.0095, bossHeight: 0.0045, tipWidth: 0.0042 },
+    large: { width: 0.008, thickness: 0.003, tip: 0.004, boss: 0.012, bossHeight: 0.0055, tipWidth: 0.0055 },
+  },
   horn: { micro: 0.0015, mini: 0.0015, standard: 0.002, large: 0.0025, base: 0.7, tip: 0.004 },
   rod: { micro: 0.0006, standard: 0.0008, large: 0.001 },
+}
+
+// An arm's outline in its own plane, as [r, w] points (r out along it from the spline's centre,
+// w across): the boss round the spline and the rounded tip, joined by straight tapering sides
+// (their convex hull), anticlockwise. reach: from the spline's centre to the arm's end.
+export function armOutline(A, reach, n = 16) {
+  const rb = (A.boss ?? A.width) / 2
+  const rt = (A.tipWidth ?? A.width) / 2
+  const ct = Math.max(rb * 0.5, reach - rt)
+  const pts = []
+  for (let i = 0; i < n * 2; i++) {
+    const t = (Math.PI * i) / n
+    pts.push([rb * Math.cos(t), rb * Math.sin(t)], [ct + rt * Math.cos(t), rt * Math.sin(t)])
+  }
+  // Convex hull (monotone chain)
+  pts.sort((p, q) => p[0] - q[0] || p[1] - q[1])
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const half = (list) => {
+    const h = []
+    for (const p of list) {
+      while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 1e-15) h.pop()
+      h.push(p)
+    }
+    h.pop()
+    return h
+  }
+  return [...half(pts), ...half([...pts].reverse())]
 }
 
 // ---------------------------------------------------------------------------------------------
