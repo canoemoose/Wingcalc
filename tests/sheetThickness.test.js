@@ -69,6 +69,17 @@ describe('hard-point sheeting', () => {
     st.ribs.hardPoints = [{ id: 1, d: 0.1, to: 0.2, label: 'Joiner', sheet: 'both', ...more }]
   }
 
+  it('counts in bending over its bays, behind the D-box sheeting', () => {
+    const base = build((st) => (st.covering.type = 'dbox'))
+    const { a } = build(hp({ thickness: 0.003 }))
+    const inside = (x) => x.stations.find((r) => r.d > 0.13 && r.d < 0.17)
+    const outside = (x) => x.stations.find((r) => r.d > 0.3)
+    // Stiffer and less stressed over the hard point; the same beyond it
+    expect(inside(a).EI).toBeGreaterThan(inside(base.a).EI * 1.05)
+    expect(inside(a).sigma).toBeLessThan(inside(base.a).sigma)
+    expect(outside(a).EI).toBeCloseTo(outside(base.a).EI, 6)
+  })
+
   it('has its own thickness, independent of the covering', () => {
     const { a, parts } = build(hp({ thickness: 0.003 }))
     const [h] = hardPatches(a.structure, a.rootS)

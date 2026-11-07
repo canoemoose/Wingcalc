@@ -1006,20 +1006,33 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
     upper: cov.type !== 'open' && cov.sheetThickness > 0 ? sheetExtent(structure, 'top', sparXi, { leXi, teXi }) : null,
     lower: cov.type !== 'open' && cov.sheetThickness > 0 ? sheetExtent(structure, 'bottom', sparXi, { leXi, teXi }) : null,
   }
+  // A sheet's strips over chord fractions from..to on one surface, t thick
+  const sheetStrips = (surface, from, to, t, E, part = 'sheet') => {
+    if (!(to > from) || !(t > 0)) return
+    const dx = (to - from) / strips
+    for (let i = 0; i < strips; i++) {
+      const xm = from + dx * (i + 0.5)
+      const f = sec.surf(xm)
+      const A = t * dx * sec.c
+      if (surface === 'upper') els.push({ part, surface, x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t })
+      else els.push({ part, surface, x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower })
+    }
+  }
+  // Sheeted hard points over this station: each side's sheet behind any D-box sheeting (on a
+  // fully sheeted wing it takes the place of the sheeting there, at its own thickness)
+  const patchOn = { upper: null, lower: null }
+  for (const h of hardPatches(structure, sec.s - dFromRoot)) {
+    if (sec.s < h.s0 - 1e-9 || sec.s > h.s1 + 1e-9) continue
+    for (const side of h.sides) patchOn[side === 'top' ? 'upper' : 'lower'] = h
+  }
   if (ext.upper || ext.lower) {
     const t = sheetThicknessAt(structure, sec.s)
     const E = material(cov.sheetMaterial).E
     for (const surface of ['upper', 'lower']) {
       const e = ext[surface]
       if (!e || !(e.to > e.from)) continue
-      const dx = (e.to - e.from) / strips
-      for (let i = 0; i < strips; i++) {
-        const xm = e.from + dx * (i + 0.5)
-        const f = sec.surf(xm)
-        const A = t * dx * sec.c
-        if (surface === 'upper') els.push({ part: 'sheet', surface, x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t })
-        else els.push({ part: 'sheet', surface, x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower })
-      }
+      const h = cov.type === 'sheeted' ? patchOn[surface] : null
+      sheetStrips(surface, e.from, e.to, h ? h.thickness : t, h ? material(h.material).E : E)
     }
     // Glass and epoxy laid over the sheeting, outside it
     const lam = finishOf(cov).laminate
@@ -1036,6 +1049,15 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
           else els.push({ part: 'laminate', surface, x: xm, E: lam.E, A, z: f.lower - lam.t / 2, I0: 0, top: f.lower, bottom: f.lower - lam.t })
         }
       }
+    }
+  }
+  // A hard point's own sheet where the covering doesn't sheet that chord itself
+  if (cov.type !== 'sheeted') {
+    for (const surface of ['upper', 'lower']) {
+      const h = patchOn[surface]
+      if (!h) continue
+      const e = ext[surface]
+      sheetStrips(surface, e && e.to > e.from ? e.to : leXi, teXi, h.thickness, material(h.material).E)
     }
   }
   const rear = sparXi + sparWidth(structure.spar) / 2 / sec.c

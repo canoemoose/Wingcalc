@@ -441,7 +441,7 @@ function nm(v) {
         triangle means the margin is off scale (drawn at the edge of the chart).
       </span>
       <span v-if="expanded">Scroll over a chart to zoom it (both charts move along the span together), drag to move around, F to see it all.</span>
-      <span>Bending counts the spar, sheeting, any laminate and the stringers; hinge spars, edge stock, servo trays and hard points are left out, on the safe side.</span>
+      <span>Bending counts the spar, sheeting (sheeted hard points' included), any laminate and the stringers; hinge spars, edge stock and servo trays are left out, on the safe side.</span>
     </figcaption>
     <!-- Fixed over the page, inside the app so it keeps its theme -->
     <div v-if="!expanded && big" class="wc-confirm__backdrop" @pointerdown.self="big = false">
