@@ -12,6 +12,7 @@ import { wing3d, sectionAt } from '../src/lib/wing3d.js'
 import { planThumb, isoThumb } from '../src/lib/thumbnails.js'
 import { bevelAngle, newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { gussetsAt } from '../src/lib/ribs.js'
+import { bayLinkages } from '../src/lib/bayLinkage.js'
 
 // Two segments properly cross (touching at ends doesn't count)
 function crosses(a, b, c, d) {
@@ -253,4 +254,80 @@ describe('built-up control surfaces', () => {
     expect(iso.lines.filter((l) => l.kind === 'rib').length).toBeGreaterThan(plain.lines.filter((l) => l.kind === 'rib').length)
     expect(planThumb(res.a, res.st, res.parts).lines.length).toBeGreaterThan(0)
   })
+})
+
+describe('a sheeted hard point over a control surface', () => {
+  it('keeps the cap strips on the moving surface\'s ribs (its sheet stops at the fixed hinge spar)', () => {
+    const open = (st) => {
+      st.covering.type = 'open'
+      st.covering.capStrips = true
+    }
+    const probe = build({ surfaces: [aileron], edit: open })
+    const sf = probe.a.surfaces.find((x) => x.ok)
+    const res = build({
+      surfaces: [aileron],
+      edit: (st) => {
+        open(st)
+        st.ribs.hardPoints = [{ id: 1, d: sf.s0 - probe.a.rootS, to: sf.s1 - probe.a.rootS, label: 'Hatch', sheet: 'top', thickness: 0.003 }]
+      },
+    })
+    const fixed = res.parts.filter((p) => p.group === 'ribs' && !p.of && p.split && p.s > sf.s0 && p.s < sf.s1)
+    const moving = res.parts.filter((p) => p.group === 'surfaces' && p.surface === sf.id)
+    expect(fixed.length).toBeGreaterThan(0)
+    expect(moving.length).toBeGreaterThan(2)
+    // The fixed part is under the hard point's sheet on top; the moving part isn't
+    for (const p of fixed) expect(p.rib.capStripTo.top, p.name).toBe(p.rib.capStripFrom.top)
+    for (const p of moving) expect(p.rib.capStripTo.top, p.name).toBeGreaterThan(p.rib.capStripFrom.top + 0.01)
+  })
+})
+
+describe("a servo arm's slot under a sheeted hard point", () => {
+  // The deep wing bayLinkage.test.js uses, a top-horn servo sealed in (no hatch)
+  const bay = { surface: 1, link: { hornFace: 'top' }, hatch: false }
+  const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [bay] }
+  const analyse = (edit) => {
+    const s = defaultState()
+    s.input.rootChord = 0.45
+    s.input.panels = normalisePanels([{ id: 1, length: 0.9, tipChord: 0.4, dihedral: 0 }])
+    s.input.mass = 2
+    const st = defaultStructure()
+    edit(st)
+    const airfoil = resolveAirfoil(s.airfoil)
+    const g = wingGeometry({ ...s.input, mode: 'panels' })
+    const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+    const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+    return analyseStructure({ wing: s.input, airfoil, structure: st, mass: s.input.mass, spanwise: perf.spanwise, controls })
+  }
+  const slotsFor = (a) => [...bayLinkages(a, controls).values()].flatMap((l) => l.fit.slots.map((q) => ({ ...q, bay: l.bay.name })))
+  // The covering, then a top hard point sheet over the slot, 50 mm clear of it each way
+  const withHardPoint = (cover) => {
+    const [q] = slotsFor(analyse(cover))
+    const a = analyse((st) => {
+      cover(st)
+      st.ribs.hardPoints = [{ id: 1, d: q.s0 - 0.05, to: q.s1 + 0.05, label: 'Servo hard point', sheet: 'top', thickness: 0.002 }]
+    })
+    const slots = slotsFor(a)
+    return { a, slots, res: buildParts(a, a.structure, { slots }) }
+  }
+
+  for (const [what, cover] of [
+    ['fully sheeted', (st) => { st.covering.type = 'sheeted'; st.covering.sheetThickness = 0.0015 }],
+    ['D-box', (st) => { st.covering.type = 'dbox'; st.covering.sheetThickness = 0.0015 }],
+  ]) {
+    it(`cuts it from the hard point's sheet on a ${what} wing, and says so on the plate`, () => {
+      const { a, slots, res } = withHardPoint(cover)
+      expect(slots[0]).toMatchObject({ surface: 'top', hatch: false })
+      const hp = res.parts.find((p) => p.id === 'HP1T')
+      expect(hp.holes).toHaveLength(1)
+      expect(hp.notes.some((n) => n.includes("SB1's servo arm"))).toBe(true)
+      // In the part's frame: across the span from the hard point's inner end
+      const us = hp.holes[0].map(([u]) => u)
+      const [h] = a.structure.ribs.hardPoints
+      expect(Math.min(...us)).toBeCloseTo(slots[0].s0 - (a.rootS + h.d), 6)
+      expect(Math.max(...us) - Math.min(...us)).toBeCloseTo(slots[0].s1 - slots[0].s0, 6)
+      // No S part cuts it as well
+      expect(res.parts.filter((p) => p.group === 'sheeting' && p.id.startsWith('S') && p.holes.length)).toEqual([])
+      expect(res.parts.find((p) => p.id === 'SB1').notes.some((n) => n.includes('in the sheet over Servo hard point (HP1T'))).toBe(true)
+    })
+  }
 })

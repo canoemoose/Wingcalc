@@ -18,7 +18,7 @@
 
 import { DxfWriter, Units, point2d, vertex, pattern, HatchBoundaryPaths, HatchPolylineBoundary, HatchPredefinedPatterns, LWPolylineFlags } from '@tarikjabiri/dxf'
 import { strokeText, textWidth } from './strokeFont.js'
-import { MATERIALS, sheetOutline, hardPatches, patchSpan, lineFaces, stringerOk, stringerSize } from './structure.js'
+import { MATERIALS, sheetOutline, hardPatches, patchSpan, lineFaces, sparWidth, sparOuterFaces, leadHoleFor, stringerOk, stringerSize } from './structure.js'
 import { flatPanels } from './wing.js'
 import { bounds, polygonArea } from './ribs.js'
 import { BRAKE } from './airBrakes.js'
@@ -663,13 +663,14 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   add('EDGES', line((s) => sec(s).xl + structure.le.width))
   add('EDGES', line((s) => sec(s).xl + sec(s).c - structure.te.width))
   const sp = structure.spar
-  const halfW = (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
   const sparEnd = sp.type === 'tube' && Number.isFinite(sp.tubeLength) ? Math.min(s1, s0 + sp.tubeLength) : s1
-  const sparLine = (off) => line((s) => (s <= sparEnd + 1e-9 ? a.sparX(s) + off : NaN))
-  // None on a wing with no spar (a foam core's skins carry the bending)
+  const sparLine = (face) => line((s) => (s <= sparEnd + 1e-9 ? face(s) : NaN))
+  // None on a wing with no spar (a foam core's skins carry the bending). Its faces as the ribs
+  // notch for them: the width square to the spar line, so wider along the chord where it's swept
   if (sp.type !== 'none') {
-    add('SPAR', sparLine(-halfW))
-    add('SPAR', sparLine(halfW))
+    const [front, rear] = lineFaces(a.sparX, sparWidth(sp))
+    add('SPAR', sparLine(front))
+    add('SPAR', sparLine(rear))
   }
   // Stringers and reinforcement at their width: both faces, closed at the ends
   for (const st of structure.stringers ?? []) {
@@ -720,8 +721,15 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   }
   // Servo bays: the hatch opening (the mount plate's outline), the case and the span of its
   // lugs, and the lead's route from the bay's inner rib to the root, behind the main spar
-  const sparBack = (s) => a.sparX(s) + (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
-  for (const b of (a.bays ?? []).filter((x) => x.ok)) {
+  // The lead runs where the ribs' hole for it is: behind the spar's rear face (or a box spar's
+  // rear web), one hole sized for every lead through that rib (leadsAt in ribs.js)
+  const [, sparBack] = sparOuterFaces(a.sparX, sp)
+  const okBays = (a.bays ?? []).filter((x) => x.ok)
+  const leadAt = (s) => {
+    const through = okBays.filter((x) => s <= x.sA + 1e-6)
+    return through.length ? sparBack(s) + through[0].lead.offset + leadHoleFor(through.map((x) => x.lead.plug ?? x.lead.diameter)) / 2 : NaN
+  }
+  for (const b of okBays) {
     const box = (x0, x1, s0, s1) => [[s0, x0], [s1, x0], [s1, x1], [s0, x1]]
     // The hatch opening (none where the servo is sealed in)
     if (b.hatch) add('SERVO-HATCH', box(b.hatch.x0, b.hatch.x1, b.hatch.s0, b.hatch.s1), true)
@@ -732,7 +740,7 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
     const lead = []
     for (let i = 0; i <= 12; i++) {
       const s = s0 + ((b.sA - s0) * i) / 12
-      lead.push([s, sparBack(s) + b.lead.offset + b.lead.diameter / 2])
+      lead.push([s, leadAt(s)])
     }
     add('SERVO-LEAD', lead)
     // The slot its arm comes out through
@@ -810,7 +818,7 @@ export function planDxf(a, structure, parts, opts, baseName = 'wing') {
     'HARDPOINT-BOTTOM': 253,
     HINGE: 6,
     TABS: 216,
-    SURFACE: 6,
+    SURFACE: 200,
     SERVO: 4,
     'SERVO-HATCH': 140,
     'SERVO-SLOT': 160,

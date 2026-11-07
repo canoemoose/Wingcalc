@@ -100,17 +100,34 @@ function pageCanvas() {
   return api
 }
 
-const LAYER_STYLE = {
+// How each layer prints. The plan's layers follow the DXF's colour groups (planDxf in dxf.js),
+// darkened where the CAD colour would vanish on white paper: sheeting and hard points as thin
+// greys (their hatch lines are on the same layer, so outline and hatch match), control surfaces
+// in magenta and purple, servo bays in teal and blue, air brakes in amber and brown.
+export const LAYER_STYLE = {
   cut: { colour: [0, 0, 0], width: 0.25 },
   etch: { colour: [0.1, 0.3, 0.75], width: 0.18 },
   guide: { colour: [0.45, 0.45, 0.45], width: 0.18 },
   OUTLINE: { colour: [0, 0, 0], width: 0.35 },
-  STOCK: { colour: [0.2, 0.5, 0.2], width: 0.25 },
   EDGES: { colour: [0.2, 0.5, 0.2], width: 0.25 },
   STRINGERS: { colour: [0.45, 0.4, 0.15], width: 0.2 },
   SPAR: { colour: [0.75, 0.1, 0.1], width: 0.3 },
   RIBS: { colour: [0.1, 0.3, 0.75], width: 0.25 },
   TEXT: { colour: [0.35, 0.35, 0.35], width: 0.18 },
+  'SHEETING-TOP': { colour: [0.6, 0.6, 0.6], width: 0.12 },
+  'SHEETING-BOTTOM': { colour: [0.45, 0.45, 0.45], width: 0.12 },
+  'SHEET-NAMES': { colour: [0.35, 0.35, 0.35], width: 0.18 },
+  'HARDPOINT-TOP': { colour: [0.5, 0.42, 0.35], width: 0.12 },
+  'HARDPOINT-BOTTOM': { colour: [0.4, 0.33, 0.27], width: 0.12 },
+  HINGE: { colour: [0.7, 0.1, 0.6], width: 0.3 },
+  TABS: { colour: [0.6, 0.2, 0.5], width: 0.2 },
+  SURFACE: { colour: [0.72, 0.5, 0.75], width: 0.18 },
+  SERVO: { colour: [0, 0.5, 0.55], width: 0.25 },
+  'SERVO-HATCH': { colour: [0.15, 0.45, 0.7], width: 0.2 },
+  'SERVO-SLOT': { colour: [0.1, 0.3, 0.6], width: 0.2 },
+  'SERVO-LEAD': { colour: [0.3, 0.6, 0.65], width: 0.15 },
+  BRAKE: { colour: [0.8, 0.5, 0], width: 0.25 },
+  'BRAKE-OPENING': { colour: [0.55, 0.35, 0.1], width: 0.2 },
 }
 
 function drawEntities(c, ents) {

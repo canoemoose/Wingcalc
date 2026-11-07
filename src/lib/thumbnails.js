@@ -24,7 +24,7 @@ function framed(lines) {
 // The plan: outline, edge stock, spar and ribs, leading edge at the top; on a foam wing, which
 // has neither spar nor ribs, the cores' ends between the edge stock instead. In millimetres, so
 // stroke widths are best set non-scaling. Returns { box, lines: [{ kind, d }] } or null.
-const PLAN_LAYERS = { OUTLINE: 'outline', STOCK: 'stock', SPAR: 'spar', RIBS: 'rib', EDGES: 'stock', STRINGERS: 'stock', HINGE: 'stock', TABS: 'stock', SURFACE: 'stock', BRAKE: 'stock' }
+const PLAN_LAYERS = { OUTLINE: 'outline', SPAR: 'spar', RIBS: 'rib', EDGES: 'stock', STRINGERS: 'stock', HINGE: 'stock', TABS: 'stock', SURFACE: 'stock', BRAKE: 'stock' }
 export function planThumb(a, structure, parts) {
   const ents = planEntities(a, structure, parts, { handedness: 'right' })
   const lines = ents

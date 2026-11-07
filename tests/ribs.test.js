@@ -235,3 +235,47 @@ describe('ribs', () => {
     }
   })
 })
+
+describe('perpendicular ribs near the tip', () => {
+  it('gives every rib the analysis places a part (backlog: R11 skipped as outside)', () => {
+    const res = build(
+      (st) => {
+        st.ribs.orientation = 'perpendicular'
+        st.ribs.spacing = 'uniform'
+      },
+      (input) => {
+        input.rootChord = 0.25
+        input.panels = normalisePanels([
+          { length: 0.4, tipChord: 0.22, dihedral: 0 },
+          { length: 0.35, tipChord: 0.15, sweep: 0.15, dihedral: 5 },
+        ])
+      },
+    )
+    expect(res.skipped).toEqual([])
+    // One part per rib (the B parts are the moving halves behind a hinge)
+    const whole = ribsOf(res).filter((p) => !p.name.endsWith('B'))
+    expect(res.a.ribs).toHaveLength(12)
+    expect(whole).toHaveLength(res.a.ribs.length)
+    expect(whole.some((p) => p.name === 'R11')).toBe(true)
+  })
+})
+
+describe('rib over the spar under a D-box', () => {
+  it('insets the rib by the skin actually over the spar when the top sheet stops just ahead of it', () => {
+    // A spar at 40% chord, and the top sheet stopped between sparFraction's 0.28 fallback and it
+    const res = (to) => build((st) => {
+      st.spar.position = 0.4
+      st.covering.type = 'dbox'
+      st.covering.dbox = { top: true, bottom: true, topTo: to, bottomTo: null }
+    })
+    const topTo = 0.34
+    const over = ribsOf(res(null))[0]
+    const short = ribsOf(res(topTo))[0]
+    const [u0, u1] = over.rib.sparNotch
+    const st = res(topTo).a.structure
+    const strip = st.covering.capStrips ? st.covering.capStripThickness : 0
+    // Sheet over the spar: the notch bottom sits a sheet below the surface; stopped short of it,
+    // only the cap strip covers the spar, so the rib stands higher by the difference
+    expect(topIn(short, u0, u1) - topIn(over, u0, u1)).toBeCloseTo(st.covering.sheetThickness - strip, 5)
+  })
+})

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { defaultState } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
-import { wingSampler, projectedSampler } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure, sheetOutline } from '../src/lib/structure.js'
+import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
+import { analyseStructure, defaultStructure, sheetOutline, sparWidth } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
 import {
   offsetContour,
@@ -282,3 +282,24 @@ function inside(poly, [x, y], tol) {
   }
   return c
 }
+
+describe('the plan on a swept wing', () => {
+  it('draws the spar as wide along the chord as the ribs notch for it', () => {
+    const s = defaultState()
+    s.input.panels = normalisePanels([{ length: 0.7, tipChord: 0.18, sweep: 0.25, dihedral: 0 }])
+    const st = defaultStructure()
+    const airfoil = resolveAirfoil(s.airfoil)
+    const g = wingGeometry({ ...s.input, mode: 'panels' })
+    const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+    const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+    const a = analyseStructure({ wing: s.input, airfoil, structure: st, mass: s.input.mass, spanwise: perf.spanwise })
+    const { parts } = buildParts(a, a.structure)
+    const [front, rear] = planEntities(a, a.structure, parts, { handedness: 'right' }).filter((e) => e.layer === 'SPAR')
+    const i = Math.floor(front.pts.length / 2)
+    const sm = front.pts[i][0] / 1000
+    const slope = (a.sparX(sm + 1e-4) - a.sparX(sm - 1e-4)) / 2e-4
+    expect(Math.abs(slope)).toBeGreaterThan(0.2)
+    const w = sparWidth(a.structure.spar)
+    expect(Math.abs(front.pts[i][1] - rear.pts[i][1])).toBeCloseTo(w * Math.sqrt(1 + slope * slope) * 1000, 3)
+  })
+})

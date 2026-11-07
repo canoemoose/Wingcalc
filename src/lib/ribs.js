@@ -15,7 +15,7 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, skinAtSpar, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
+import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -143,9 +143,11 @@ export function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINT
   const at = (t) => ({ s: s + ds * t, x: xs + dx * t })
   // Where the line meets an edge: solve x = edge(s) by bisection along t.
   const solve = (edge, t0, t1) => {
+    // Clamped into the wing, so a search range that runs past the tip or root still has
+    // finite ends; a rib that genuinely overruns is rejected by the span check below.
     const f = (t) => {
       const p = at(t)
-      const sec = a.section(p.s)
+      const sec = a.section(Math.min(a.tipS, Math.max(a.rootS, p.s)))
       if (!sec) return NaN
       return p.x - (edge === 'le' ? sec.xl : sec.xl + sec.c)
     }
@@ -441,7 +443,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const upper = []
   const lower = []
   const holes = []
-  const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS, rib.s)
+  // The skin over the spar is tested at the spar's own chord fraction, not sparFraction's fallback
+  const sparHere = sparSection(structure, interp(us, prof.up, uSpar) - interp(us, prof.lo, uSpar), rib.s - a.rootS, rib.s, interp(us, prof.xi, uSpar))
   // A solid spar's depth at this rib (tapered where the rib is too thin for it: structure.js
   // solidTaper), and whether the rib is split in two at it
   const capsSpar = sp.type === 'caps' || sp.type === 'box'
@@ -920,9 +923,10 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     capStripFrom: { top: capFrom('top'), bottom: capFrom('bottom') },
     // and where they end: at the rib's end, or where a turned trailing-edge face meets each side.
     // Under a sheeted hard point's sheet (its bays and its end ribs) there are none: the sheet
-    // covers that side where the cap strips would run, so they end where they start
+    // covers that side where the cap strips would run, so they end where they start. A moving
+    // surface keeps its strips: the hard point's sheet stops at the fixed hinge spar
     capStripTo: Object.fromEntries(
-      ['top', 'bottom'].map((side) => [side, patchOver(structure, rib.s, side) ? capFrom(side) : teFaceU ? meetFace(teFaceU, side === 'top' ? top : bot, uB) : uB]),
+      ['top', 'bottom'].map((side) => [side, !movingSide && patchOver(structure, rib.s, side) ? capFrom(side) : teFaceU ? meetFace(teFaceU, side === 'top' ? top : bot, uB) : uB]),
     ),
     // Each strip's ends as [outer, inner] along the rib: square, or against a turned face cut
     // along it, from the outer surface down to the rib
@@ -1195,6 +1199,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       s: rb.s,
       kind: rb.kind,
       sourceId: rb.id ?? null, // the manual rib or hard point it comes from, if any
+      end: rb.end ?? null, // a hard point's rib: 'd' at its start, 'to' at the far end
       split: !!across, // ends at a control surface's hinge spar
       outline: b.outline,
       holes: b.holes,
@@ -1218,6 +1223,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         s: rb.s,
         kind: rb.kind,
         sourceId: rb.id ?? null,
+        end: rb.end ?? null,
         split: !!across,
         of: rb.name,
         outline: b.rear.outline,
@@ -1245,6 +1251,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         s: rb.s,
         kind: rb.kind,
         sourceId: rb.id ?? null,
+        end: rb.end ?? null,
         split: !!across,
         of: rb.name,
         outline: piece.outline,
@@ -1331,19 +1338,36 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
   }
 
   // Servo bays: a ply mount plate between the bay's ribs with a cut-out for the case and pilot
-  // holes for the lug screws (part SB1 …), and on a sheeted wing the hatch cut from the lower
-  // sheeting (SB1-H) with its two rails in the cut list
+  // holes for the lug screws (part SB1 …), and on a sheeted wing the hatch cut from the sheeting
+  // on the horn's face (SB1-H, bay.hatch.side) with its two rails in the cut list
   const warnings = []
   const sheeted = structure.covering.type === 'sheeted' && structure.covering.sheetThickness > 0
   const ribNamed = (s) => ribs.find((rb) => Math.abs(rb.s - s) < 1e-3)?.name ?? '?'
-  // Where an arm's slot is cut: in the hatch (a sheeted wing's), the sheeting (named once the
-  // sheeting parts are made, below) or the covering
+  // The sheeted hard point an arm's slot comes out through (its sheet covers the slot's middle
+  // on that side), with the name of its part (HP1T and so on), or null
+  const hardPointAt = (q) => {
+    if (foam) return null
+    const sm = (q.s0 + q.s1) / 2
+    const xm = (q.x0 + q.x1) / 2
+    for (const h of hardPatches(structure, a.rootS)) {
+      if (!h.sides.includes(q.surface) || sm < h.s0 || sm > h.s1) continue
+      const span = patchSpan(a, structure, sm, q.surface)
+      if (span && xm >= span[0] && xm <= span[1]) return { h, name: `HP${h.id}${q.surface === 'top' ? 'T' : 'B'}` }
+    }
+    return null
+  }
+  // Where an arm's slot is cut: in the hatch (a sheeted wing's), a hard point's sheet, the
+  // sheeting (named once the sheeting parts are made, below) or the covering
   const slotIn = (q) => {
     if (q.hatch && sheeted) return `in the hatch (${q.bay}-H)`
+    const hp = hardPointAt(q)
+    if (hp) return `in the sheet over ${hp.h.label} (${hp.name}, marked on its part)`
     return sheetedAt(q) ? 'in the sheeting (marked on its part)' : 'in the covering once it is on'
   }
+  // Whether the panel's own sheeting (an S part) takes the slot: not where a hard point's does
   const sheetedAt = (q) => {
     if (foam || !(structure.covering.sheetThickness > 0) || structure.covering.type === 'open') return false
+    if (hardPointAt(q)) return false
     const sec = a.section((q.s0 + q.s1) / 2)
     if (!sec) return false
     const [, rear] = lineFaces(a.sparX, sparWidth(structure.spar))
@@ -1687,6 +1711,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       const own = (structure.hardBays ?? []).filter((h) => cov.type === 'dbox' && h.sides?.length)
       for (const surface of ['upper', 'lower']) {
         const side = surface === 'upper' ? 'top' : 'bottom'
+        // A D-box with this side off has no sheeting on it
+        if (!sheetExtent(structure, side, 0.3)) continue
         const gaps = sheetGaps(structure, side)
         // Each bay between neighbouring ribs: the panel's sheet, a hard point's own D-box, or
         // none (a fully sheeted wing's hard point); runs of bays alike make one piece each
@@ -1763,6 +1789,15 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         return span ? span[1] - span[0] : 0
       }
       const name = `HP${h.id}${side === 'top' ? 'T' : 'B'}`
+      // The arms' slots through it (not those in a sheeted wing's hatch), in its plan frame:
+      // across the span from its inner end, along the chord from its front edge
+      const front = (s) => patchSpan(a, structure, s, side)?.[0] ?? 0
+      const cuts = slots.filter((q) => !(q.hatch && sheeted) && hardPointAt(q)?.name === name)
+      const slotHoles = cuts.map((q) => {
+        if (q.corners) return q.corners.map(([x, s]) => [s - h.s0, x - front(s)])
+        const x0 = front((q.s0 + q.s1) / 2)
+        return rect(q.s0 - h.s0, q.x0 - x0, q.s1 - h.s0, q.x1 - x0)
+      })
       parts.push({
         id: name,
         name,
@@ -1776,10 +1811,13 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           [L, widthAt(h.s1)],
           [0, widthAt(h.s0)],
         ],
-        holes: [],
+        holes: slotHoles,
         etch: [],
         label: null,
-        notes: [`${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, across the chord ${structure.covering.type === 'dbox' && sheetExtent(structure, side, 0.3) ? 'from the D-box sheeting back' : 'between the edge stock'} (to the hinge spar beside a control surface); approximate, cut oversize and trim`],
+        notes: [
+          `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}, across the chord ${structure.covering.type === 'dbox' && sheetExtent(structure, side, 0.3) ? 'from the D-box sheeting back' : 'between the edge stock'} (to the hinge spar beside a control surface); approximate, cut oversize and trim`,
+          ...cuts.map((q) => `Slot for ${q.bay}'s servo arm; cut it once the sheet is trimmed to the wing`),
+        ],
       })
     }
   }
@@ -1891,8 +1929,9 @@ function panelKeysOf(a, s) {
   return [...keys]
 }
 
-// Developed width of the sheeting at a rib: surface arc length from the LE stock to the spar
-// (D-box) or the TE stock (fully sheeted), or to plan position x where that's given.
+// Developed width of the sheeting at a rib: surface arc length from the LE stock to the spar's
+// rear face or that side's set stop (D-box, sheetExtent) or the TE stock (fully sheeted), or to
+// plan position x where that's given.
 function sheetWidth(a, structure, s, surface, x = null) {
   const sec = a.section(s)
   if (!sec) return 0
@@ -1902,10 +1941,11 @@ function sheetWidth(a, structure, s, surface, x = null) {
   // A turned leading edge: where its leaning face meets this surface
   const turned = structure.le.face?.[`${side}Xi`]
   const q0 = inset ? inset[side] / sec.c : Number.isFinite(turned) ? turned : (structure.le.width || 0) / sec.c
-  const sparXi = (a.sparX(s) - sec.xl) / sec.c
-  const sp = structure.spar
-  const half = (sp.type === 'caps' || sp.type === 'box' ? sp.capWidth : sp.type === 'solid' ? sp.solidWidth : sp.tubeDiameter) / 2
-  const q1 = Number.isFinite(x) ? Math.max(q0, (x - sec.xl) / sec.c) : structure.covering.type === 'sheeted' ? 1 - (structure.te.width || 0) / sec.c : sparXi + half / sec.c
+  // A D-box runs back to the spar's rear face, or to where that side's D-box is set to stop
+  const [, rear] = lineFaces(a.sparX, sparWidth(structure.spar))
+  const ext = sheetExtent(structure, side, (rear(s) - sec.xl) / sec.c)
+  if (!ext && !Number.isFinite(x)) return 0
+  const q1 = Number.isFinite(x) ? Math.max(q0, (x - sec.xl) / sec.c) : structure.covering.type === 'sheeted' ? 1 - (structure.te.width || 0) / sec.c : ext.to
   let len = 0
   let prev = null
   for (let i = 0; i <= 60; i++) {
@@ -2043,8 +2083,13 @@ function stripCutList(a, structure, parts, both) {
       if (!stringerOk(st)) continue
       const n = st.surface === 'both' ? 2 : 1
       const what = st.surface === 'inside' ? `${STRINGER_PROFILES[st.profile]?.label ?? 'Stringer'} inside the wing` : st.profile && st.profile !== 'rect' ? STRINGER_PROFILES[st.profile].label : 'Stringer'
+      // Along its own line, so it lists its true length on a swept panel
+      const stringerX = (s) => {
+        const sec = a.section(s)
+        return sec.xl + st.position * sec.c
+      }
       const shape = st.profile === 'tube' ? { size: [st.width, st.wall > 0 ? st.wall : 0.0005], tube: true } : st.profile === 'rod' ? { size: [st.width, st.width], round: true } : { size: [st.width, st.height] }
-      out.push({ item: `${what} at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, ...shape, length: p.to - p.from, qty: n * sides })
+      out.push({ item: `${what} at ${Math.round(st.position * 100)}% chord, ${p.name}`, material: st.material, ...shape, length: lenAlong(p.from, p.to, stringerX), qty: n * sides })
     }
   }
   // Each control surface's two hinge spars: the fixed side's square, the moving side's
@@ -2103,7 +2148,7 @@ function stripCutList(a, structure, parts, both) {
       size: [h.pinDiameter || 0.0032, h.pinDiameter || 0.0032],
       length: h.pinLength || 0.032,
       qty: pins * sides,
-      note: `${(h.pinDiameter * 1000).toFixed(1)} mm pin hinges, ${(h.pinLength * 1000).toFixed(0)} mm long, glued half into each hinge spar at the centre line`,
+      note: `${((h.pinDiameter || 0.0032) * 1000).toFixed(1)} mm pin hinges, ${((h.pinLength || 0.032) * 1000).toFixed(0)} mm long, glued half into each hinge spar at the centre line`,
     })
   }
   // A spoiler's hinge: a strip of hinge tape along its front edge
