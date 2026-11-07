@@ -411,19 +411,6 @@
 }
 
 /* Panel editor */
-.wc-panelset {
-  border: 1px solid var(--wc-border);
-  border-radius: 6px;
-  padding: 8px 10px 0;
-  margin: 0 0 10px;
-  min-width: 0;
-}
-.wc-panelset__legend {
-  font-size: 0.8rem;
-  font-weight: 650;
-  color: var(--wc-muted);
-  padding: 0 4px;
-}
 .wc-panels__actions {
   display: flex;
   flex-wrap: wrap;
@@ -917,21 +904,6 @@
   vector-effect: non-scaling-stroke;
 }
 /* Panel editor additions */
-.wc-panelset {
-  position: relative;
-}
-.wc-panelset--selected {
-  border-color: var(--wc-accent);
-  box-shadow: inset 3px 0 0 var(--wc-accent);
-}
-.wc-linkish {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-}
 .wc-edges {
   display: flex;
   flex-wrap: wrap;
@@ -1188,14 +1160,6 @@
 }
 
 /* Plan editor: tools, stations, tip, dimensions */
-.wc-segmented--inline {
-  display: inline-flex;
-  margin: 0;
-}
-.wc-segmented--inline .wc-segmented__btn {
-  padding: 4px 10px;
-  flex: 0 0 auto;
-}
 .wc-plan__svg--measure,
 .wc-plan__svg--measure .wc-plan__panel {
   cursor: crosshair;
@@ -1467,10 +1431,6 @@
 .wc-segment--straight .wc-segment__line {
   height: 6px;
   border-radius: 0;
-}
-.wc-paneltabs .wc-tab {
-  flex: 0 0 auto;
-  min-width: 36px;
 }
 
 /* Panel actions (move, insert, delete) in the panel's top-right corner */
@@ -2160,9 +2120,6 @@
 .wc-loads__line--dashed {
   border-top-style: dashed;
 }
-.wc-loads__legend-head {
-  color: var(--wc-muted);
-}
 /* Each reading keeps room for its value, so the line wraps the same with or without one */
 .wc-loads__at {
   min-width: 13em;
@@ -2266,24 +2223,6 @@
   stroke: var(--wc-series-6);
   background: var(--wc-series-6);
 }
-.wc-loads__legend {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 14px;
-  margin: 4px 0 0;
-  padding: 0;
-  font-size: 0.8rem;
-  color: var(--wc-text);
-}
-.wc-loads__legend li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.wc-loads__legend--worst {
-  font-weight: 650;
-}
 .wc-loads__swatch {
   width: 14px;
   height: 3px;
@@ -2299,15 +2238,6 @@
   fill: var(--wc-surface, #fff);
   stroke: currentColor;
   stroke-width: 1.4;
-}
-.wc-loads__swatch--brace {
-  height: 0;
-  width: 10px;
-  border-top: 1.4px dashed currentColor;
-  border-radius: 0;
-  display: inline-block;
-  vertical-align: middle;
-  margin-right: 2px;
 }
 
 .wc-edgefit {
@@ -3163,6 +3093,28 @@
   opacity: 0.4;
   cursor: default;
 }
+/* A destructive action in the bar (Delete points): the danger colour, which has its own dark value */
+.wc-cmd__btn--danger {
+  color: var(--wc-sharp);
+}
+.wc-cmd__btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--wc-sharp) 10%, transparent);
+}
+/* A tick box in the bar, as tall as its buttons */
+.wc-cmd__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 0.85rem;
+  color: var(--wc-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wc-cmd__check input {
+  margin: 0;
+}
 .wc-cmd__sep {
   width: 1px;
   align-self: stretch;
@@ -3173,6 +3125,8 @@
   .wc-cmd {
     top: auto;
     bottom: 44px;
+    left: 8px;
+    right: 8px;
   }
 }
 .wc-3d__canvas:focus {

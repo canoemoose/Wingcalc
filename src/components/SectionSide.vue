@@ -5,7 +5,7 @@
 // The preview solves the outline one second after an edit settles (never during a drag), through the page's polar
 // solver: the jobs go up to the parent, which queues them ahead of the wing's, and `lookup` reads the results back.
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { analyseSection, leIndex, normalise, setPointAt, applyRadius, NOSE_MIN, NOSE_MAX, sectionCoords, clampOrder, syncTrailingEdge } from '../lib/sectionSpline.js'
+import { analyseSection, leIndex, normalise, setPointAt, applyRadius, NOSE_MIN, NOSE_MAX, sectionCoords, clampOrder, syncTrailingEdge, otherTrailingEdge, selfIntersects } from '../lib/sectionSpline.js'
 import { analysePolar } from '../lib/stall.js'
 import { usableComputedPolar } from '../lib/airfoils.js'
 import { XFOIL_SETTINGS, coordsKey, settingsKey, polarSegments } from '../lib/xfoil.js'
@@ -63,7 +63,12 @@ const warnings = computed(() => A.value.infls.map((e, k) => ({ e, k })).filter((
 // Live values for the editable fields (not frozen)
 const lePct = computed(() => (props.pts[leIndex(props.pts)]?.r ?? 0) * 100)
 const norm = computed(() => normalise(props.pts).pts)
-const selIdx = computed(() => (props.selection.points?.length === 1 ? props.selection.points[0] : null))
+// The trailing edge is two points that move as one, so its pair counts as one selected point
+const tePair = computed(() => {
+  const s = props.selection.points ?? []
+  return s.length === 2 && otherTrailingEdge(props.pts, s[0]) === s[1]
+})
+const selIdx = computed(() => (props.selection.points?.length === 1 || tePair.value ? props.selection.points[0] : null))
 const selPoint = computed(() => {
   const i = selIdx.value
   if (i == null || !props.pts[i]) return null
@@ -72,7 +77,7 @@ const selPoint = computed(() => {
   return {
     i,
     le: i === l,
-    label: i === l ? 'Leading edge' : i < l ? `Upper point ${i + 1}` : `Lower point ${i - l}`,
+    label: i === l ? 'Leading edge' : tePair.value ? 'Trailing edge' : i < l ? `Upper point ${i + 1}` : `Lower point ${i - l}`,
     x: q.x * 100,
     y: q.y * 100,
     // As drawn, in millimetres (not normalised: the drawing's own frame)
@@ -80,7 +85,7 @@ const selPoint = computed(() => {
     yMm: props.mmPerUnit ? props.pts[i].y * props.mmPerUnit : null,
   }
 })
-const multi = computed(() => (props.selection.points?.length ?? 0) > 1)
+const multi = computed(() => (props.selection.points?.length ?? 0) > 1 && !tePair.value)
 
 // --- XFOIL preview ------------------------------------------------------------------------
 // The outline the preview solves: the current one, one second after the last edit settles
@@ -163,12 +168,26 @@ const stallText = (p) => {
 }
 const reText = `Re ${Math.round(props.re / 1000)}k`
 
-// Edits: a value typed in is clamped and applied as one step. Bad input is ignored.
+// Edits: a value typed in is clamped and applied as one step. Bad input is ignored, and so is an
+// outline that would cross itself (as in the drawing), with a note beside the field that asked for it.
+const notice = ref({ where: '', text: '' })
+watch(
+  () => props.selection,
+  () => (notice.value = { where: '', text: '' }),
+)
+function edit(where, pts, message) {
+  if (selfIntersects(pts) && !selfIntersects(props.pts)) {
+    notice.value = { where, text: 'The outline would cross itself' }
+    return
+  }
+  notice.value = { where: '', text: '' }
+  emit('edit', { pts, message })
+}
 function setRadius(v) {
   const r = Number(v)
   if (!Number.isFinite(r)) return
   const clamped = Math.min(NOSE_MAX * 100, Math.max(NOSE_MIN * 100, r))
-  emit('edit', { pts: applyRadius(props.pts, clamped / 100), message: 'Set the leading-edge radius' })
+  edit('le', applyRadius(props.pts, clamped / 100), 'Set the leading-edge radius')
 }
 // Moves the selected point to a position typed in millimetres, in the drawing's own frame
 function setPointMm(axis, v) {
@@ -177,7 +196,7 @@ function setPointMm(axis, v) {
   if (!p || p.le || !Number.isFinite(n) || !props.mmPerUnit) return
   const P = props.pts.map((q) => ({ ...q }))
   P[p.i] = { ...P[p.i], [axis]: n / props.mmPerUnit }
-  emit('edit', { pts: syncTrailingEdge(props.pts, clampOrder(P, [p.i])), message: 'Moved the point' })
+  edit('point', syncTrailingEdge(props.pts, clampOrder(P, [p.i])), 'Moved the point')
 }
 function setUnits(mm) {
   emit('update:mmPerUnit', mm ? props.defaultChordMm : null)
@@ -192,7 +211,8 @@ function setPoint(axis, v) {
   if (!p || p.le || !Number.isFinite(n)) return
   const nx = axis === 'x' ? n / 100 : p.x / 100
   const ny = axis === 'y' ? n / 100 : p.y / 100
-  emit('edit', { pts: setPointAt(props.pts, p.i, nx, ny), message: 'Moved the point' })
+  // A trailing-edge point takes the other with it
+  edit('point', syncTrailingEdge(props.pts, setPointAt(props.pts, p.i, nx, ny)), 'Moved the point')
 }
 </script>
 
@@ -238,6 +258,7 @@ function setPoint(axis, v) {
           <span class="wc-muted">% chord</span>
         </div>
         <p class="wc-field__hint">Drag the diamond along the chord, or type a value. The outline has exactly this radius at the leading edge.</p>
+        <p v-if="notice.where === 'le'" class="wc-field__warn" role="status">{{ notice.text }}</p>
       </div>
     </section>
 
@@ -277,6 +298,7 @@ function setPoint(axis, v) {
             </div>
           </div>
         </template>
+        <p v-if="notice.where === 'point'" class="wc-field__warn" role="status">{{ notice.text }}</p>
       </template>
       <template v-else-if="multi">
         <p class="wc-muted">{{ selection.points.length }} points selected</p>
@@ -318,8 +340,8 @@ function setPoint(axis, v) {
       <template v-if="curve && !failed">
         <div :class="{ 'wc-sec-side__stale': status }">
           <LiftCurve :curve="curve" />
+          <p class="wc-muted">{{ reText }}: {{ stallText(shown) }}</p>
         </div>
-        <p class="wc-muted">{{ reText }}: {{ stallText(shown) }}</p>
         <p v-if="curve.reference" class="wc-muted">Faint: the section when you opened the editor, {{ stallText(startPolar) }}.</p>
       </template>
     </section>

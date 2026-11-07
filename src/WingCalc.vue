@@ -48,7 +48,7 @@ import {
   RHO_SEA_LEVEL,
 } from './lib/calc.js'
 import { resolveAirfoil, performanceWithXfoil, loadCatalogue } from './lib/airfoils.js'
-import { drawnFromParams, isDrawnSection } from './lib/sectionSpline.js'
+import { drawnFromParams, isDrawnSection, closeTrailingEdge } from './lib/sectionSpline.js'
 import { bySection } from './lib/warnings.js'
 import { XFOIL_SETTINGS, coordsKey, settingsKey, flapKey, quantiseRe } from './lib/xfoil.js'
 import { flightConfigurations, configurationPerformance } from './lib/flaps.js'
@@ -144,6 +144,15 @@ function say(text) {
   statusTimer = setTimeout(() => (status.value = ''), 3000)
 }
 
+// Set while a whole state is put back (opening a project, undo, redo), until the watchers
+// have seen it, so they don't treat the panels it brings as panels just added in the editor.
+// Call it after the change: nextTick then lands after the flush that runs those watchers.
+let replacingState = false
+function markReplacing() {
+  replacingState = true
+  nextTick(() => (replacingState = false))
+}
+
 function applyState(state) {
   system.value = state.units
   for (const k of Object.keys(input)) delete input[k]
@@ -152,6 +161,7 @@ function applyState(state) {
   selectedPanel.value = null
   selectedSurface.value = null
   selectedBrake.value = null
+  markReplacing()
   // Opening a project shouldn't be undoable back into the previous one.
   queueMicrotask(() => history.reset())
 }
@@ -307,7 +317,7 @@ const planWing = computed(() => ({ fuselageWidth: input.fuselageWidth, rootChord
 watch(
   () => input.panels.map((p) => p.id),
   (ids, before) => {
-    if (input.structure.ribs.spacing !== 'manual' || !before) return
+    if (replacingState || input.structure.ribs.spacing !== 'manual' || !before) return
     const fresh = ids.map((pid, i) => (before.includes(pid) ? -1 : i)).filter((i) => i >= 0)
     if (!fresh.length) return
     const sampler = wingSampler(planWing.value)
@@ -325,9 +335,15 @@ onMounted(() => {
   workspaceTarget.value = rootEl.value?.parentElement ?? null
 })
 
-// Undo/redo covers the wing shape, the plan's dimensions and the structure.
+// Undo/redo covers the mass and wing geometry (in every geometry mode, and the mode itself), the
+// plan's dimensions, the control surfaces, the structure and the aerofoil.
 const history = useHistory(
   () => ({
+    mass: input.mass,
+    geometryMode: input.geometryMode,
+    span: input.span,
+    meanChord: input.meanChord,
+    area: input.area,
     fuselageWidth: input.fuselageWidth,
     rootChord: input.rootChord,
     panels: input.panels,
@@ -340,6 +356,7 @@ const history = useHistory(
   ({ airfoil, ...inputs }) => {
     Object.assign(input, inputs)
     if (airfoil) airfoilSel.value = airfoil
+    markReplacing()
   },
 )
 // The section editor's own history: its draft, undone and redone with Ctrl+Z while it is open
@@ -365,9 +382,13 @@ const sectionJobs = shallowRef([])
 const sectionDragging = ref(false)
 const sectionHighlight = ref(-1)
 // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) anywhere, except in a text field, which keeps its own undo
+// (a checkbox, radio button or slider has none, so undo still works after using one). Not
+// while a dialogue is open over the page: the confirm dialogue, export or the servo configurator.
+const TEXT_FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=button]), textarea, select, [contenteditable="true"]'
 function onHistoryKey(e) {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented) return
-  if (e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return
+  if (confirmRequest.value || exportOpen.value || configuringBay.value != null) return
+  if (e.target.closest?.(TEXT_FIELD)) return
   const k = e.key.toLowerCase()
   const h = sectionOpen.value ? sectionHistory : history
   if (k === 'z') e.shiftKey ? h.redo() : h.undo()
@@ -531,8 +552,12 @@ const warnings = computed(() =>
 // Each warning is shown under the box it's about; the rest (and station warnings, which the
 // panel editor already shows on the station) are listed at the foot of the column
 const warnFor = (field) => warnings.value.find((w) => w.field === field)?.message ?? ''
-const PLACED = /^(mass|span|area|panel-\d+(-rise)?|station-.*)$/
-const otherWarnings = computed(() => warnings.value.filter((w) => !PLACED.test(w.field)))
+// span and area only count as placed while their box is on the page (Wingspan outside panel
+// mode, Wing area in area mode); otherwise they'd never be shown
+const PLACED = /^(mass|panel-\d+(-rise)?|station-.*)$/
+const isPlaced = (field) =>
+  PLACED.test(field) || (field === 'span' && input.geometryMode !== 'panels') || (field === 'area' && input.geometryMode === 'area')
+const otherWarnings = computed(() => warnings.value.filter((w) => !isPlaced(w.field)))
 
 // Marker position on the cube-loading scale (0..16+ oz/ft³ mapped to 0..100%).
 const SCALE_MAX = 20
@@ -604,7 +629,9 @@ watch(sectionOpen, (v) => {
 function openSection() {
   const c = airfoilSel.value.custom
   const drawn = isDrawnSection(c.drawn) ? c.drawn : null
-  draft.value = drawn ? JSON.parse(JSON.stringify(drawn.pts)) : drawnFromParams(c)
+  // A section saved before the trailing edge was always sharp opens with it closed, as the start
+  // point, so closing it isn't a change to undo or discard
+  draft.value = drawn ? closeTrailingEdge(JSON.parse(JSON.stringify(drawn.pts))) : drawnFromParams(c)
   draftSeed.value = drawn?.seed ?? null
   draftStart = sectionKey()
   sectionStart.value = JSON.parse(JSON.stringify(draft.value))
@@ -724,7 +751,7 @@ const surfaceSummary = computed(() => {
   const list = structureResult.value?.a.surfaces ?? []
   if (!list.length) return ''
   const built = list.filter((r) => r.ok).map((r) => r.name)
-  const crow = crowState(input.controls)
+  const crow = crowState(input.controls, list)
   const crowText = crow.available ? (crow.enabled ? 'crow on' : 'crow available') : 'no crow'
   const bays = (structureResult.value?.a.bays ?? []).filter((b) => b.ok).length
   const bayText = bays ? `${bays} servo bay${bays === 1 ? '' : 's'} per side` : 'no servo bays'
@@ -914,7 +941,6 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
           :wing="planWing"
           :selected-panel="selectedPanel"
           :surface-depth="surfaceDepth"
-          :mass="input.mass"
           :system="system"
         />
         <AirBrakeEditor
@@ -1022,7 +1048,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                   v-if="Math.abs(sweepDeg) >= 3"
                 >
                   × cos {{ Math.abs(sweepDeg).toFixed(1) }}° sweep</template
-                >, {{ (results.perf.clMaxFactor * 100).toFixed(0) }}% of root section Clmax
+                >, {{ (results.perf.clMaxFactor * 100).toFixed(0) }}% of section Clmax
                 {{ results.perf.sectionClMax.toFixed(2) }}
               </template>
               <template v-else>
@@ -1150,6 +1176,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :surface-depth="surfaceDepth"
             :system="system"
             @commit="history.commit"
+            @dragging="$event ? history.pause() : history.resume()"
           />
         </article>
 
@@ -1349,7 +1376,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :warnings="placedWarnings.sections"
           >
             <template #surfaces>
-              <SurfaceStructure v-model:controls="input.controls" v-model:configuring="configuringBay" v-model:preview="bayDraft" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" :linkages="bayLinks" />
+              <SurfaceStructure v-model:controls="input.controls" v-model:configuring="configuringBay" v-model:preview="bayDraft" :wing="planWing" :mass="input.mass" :system="system" :analysis="structureResult?.a ?? null" :linkages="bayLinks" :warnings="placedWarnings.sections.surfaces ?? []" />
             </template>
           </StructureEditor>
           <ul v-if="placedWarnings.rest.length" class="wc-warnings">
@@ -1472,7 +1499,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             @normalised="sectionMm = null"
             @update:seed="draftSeed = $event"
             @update:selection="sectionSel = $event"
-            @dragging="sectionDragging = $event"
+            @dragging="sectionDragging = $event; $event ? sectionHistory.pause() : sectionHistory.resume()"
             @commit="sectionHistory.commit"
           />
         </template>
@@ -1489,7 +1516,10 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             <span>Cube loading</span>{{ format(results.wcl, 'cubeLoading', u('cubeLoading')) }}
             <em v-if="results.band">{{ results.band.label }}</em>
           </span>
-          <span class="wc-stat"><span>Stall speed</span>{{ format(results.perf?.stallSpeed, 'speed', u('speed')) }}</span>
+          <span class="wc-stat"
+            ><span>Stall speed<template v-if="shownConfig && shownConfig.id !== 'clean'"> ({{ shownConfig.label }})</template></span
+            >{{ format(shownPerf?.stallSpeed, 'speed', u('speed')) }}</span
+          >
         </template>
         <template #actions>
           <UndoRedo :can-undo="history.canUndo.value" :can-redo="history.canRedo.value" @undo="history.undo" @redo="history.redo" />
@@ -1514,7 +1544,6 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
               :wing="planWing"
               :selected-panel="selectedPanel"
               :surface-depth="surfaceDepth"
-              :mass="input.mass"
               :system="system"
               id-prefix="wcx"
             />
@@ -1547,6 +1576,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
             :system="system"
             fill
             @commit="history.commit"
+            @dragging="$event ? history.pause() : history.resume()"
           />
           <PlanformView
             v-if="geometry.hasDihedral"

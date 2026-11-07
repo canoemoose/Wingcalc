@@ -13,6 +13,7 @@ import InspectorSection from './InspectorSection.vue'
 import { layoutParts, partsDxf, planDxf, cutListCsv, partsDrawing, planEntities, templatesDxf } from '../lib/dxf.js'
 import { drawingPdf, tiling, PAPERS } from '../lib/pdf.js'
 import { bounds } from '../lib/ribs.js'
+import { format, defaultUnit } from '../lib/units.js'
 
 const props = defineProps({
   analysis: { type: Object, required: true },
@@ -74,7 +75,9 @@ const preview = computed(() => {
 })
 
 // One line per section, shown on its heading while it's closed
-const fmtThin = (v) => `${Number((v * 1000).toFixed(2))} mm`
+// in the project's units, as the boxes below show them
+const fmtThin = (v) => format(v, 'thin', defaultUnit(props.system, 'thin'))
+const fmtLength = (v) => format(v, 'length', defaultUnit(props.system, 'length'))
 // Rib details are structure decisions (weight, 3D, plan), so they're set in the editor
 const ribDetails = computed(() => {
   if (foam.value) return 'The hot-wire templates allow for the wire\'s kerf below; the other templates are cut true size.'
@@ -89,7 +92,7 @@ const summaries = computed(() => {
     parts: `${on} of ${present.value.length} kinds, ${{ pair: 'both halves', right: 'right half', left: 'left half' }[x.handedness]}`,
     machine: x.machine === 'laser' ? `Laser, ${fmtThin(x.kerf || 0)} kerf` : `Router, ${fmtThin(x.toolDiameter)} cutter${x.dogbones ? ', dogbones' : ''}`,
     drawing: `${x.format === 'lines' ? 'Lines' : 'Polylines'}, ${x.labels ? 'labelled' : 'no labels'}`,
-    layout: `${x.repeat ? 'Every piece' : 'One of each'}, ${Math.round(x.rowLength * 1000)} mm rows${x.split ? ', split' : ''}`,
+    layout: `${x.repeat ? 'Every piece' : 'One of each'}, ${fmtLength(x.rowLength)} rows${x.split ? ', split' : ''}`,
     wire: `${fmtThin(x.wireKerf ?? 0.001)} kerf, ${fmtThin(x.leadIn ?? 0.02)} lead-in`,
   }
 })

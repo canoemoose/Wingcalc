@@ -116,6 +116,8 @@ function copyFromLibrary() {
   model.value = {
     ...model.value,
     custom: {
+      // Keep the other custom settings (the drawn section among them)
+      ...model.value.custom,
       thicknessPct: Math.min(25, Math.max(4, r1(s.thicknessPct))),
       thicknessPosPct: Math.round(Math.min(60, Math.max(20, s.thicknessPosPct))),
       camberPct: Math.min(9, Math.max(0, r1(s.camberPct))),

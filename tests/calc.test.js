@@ -228,6 +228,19 @@ describe('validation', () => {
   it('warns about a tip chord bigger than the root', () => {
     expect(validate({ mass: 1, geometry: geom({ tipChord: 0.3 }) }).map((w) => w.field)).toContain('panel-0')
   })
+
+  it('names the panel whose chord grows outboard, with and without a fuselage width', () => {
+    const panels = [
+      { id: 1, length: 0.4, tipChord: 0.2, dihedral: 0 },
+      { id: 2, length: 0.3, tipChord: 0.25, dihedral: 0 },
+    ]
+    for (const fuselageWidth of [0, 0.1]) {
+      const geometry = wingGeometry({ mode: 'panels', rootChord: 0.25, fuselageWidth, panels })
+      const w = validate({ mass: 1, geometry, panels }).filter((x) => /outer chord/.test(x.message))
+      expect(w.map((x) => x.field)).toEqual(['panel-1'])
+      expect(w[0].message).toMatch(/^Panel 2:/)
+    }
+  })
 })
 
 describe('station warnings', () => {

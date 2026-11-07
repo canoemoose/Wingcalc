@@ -9,7 +9,7 @@ import StageZoom from './StageZoom.vue'
 import {
   sampleSection, analyseSection, leIndex, curvature, naca4Points, SEEDS, yAt,
   applyRadius, bendSegment, moveStraightSegment, clampOrder, NOSE_MIN, NOSE_MAX,
-  fairShape, isFairable, normalise, setStraight, mirrorSurface, closeTrailingEdge, syncTrailingEdge,
+  fairShape, isFairable, normalise, setStraight, mirrorSurface, syncTrailingEdge,
   otherTrailingEdge, selfIntersects,
 } from '../lib/sectionSpline.js'
 
@@ -125,11 +125,25 @@ function zoom(f) {
   zoomAt(W.value / 2, H.value / 2, f)
 }
 
+// Fit on the first real measurement only; after that a resize keeps the zoom and the point at
+// the middle of the view, as the plan editor does
+let fitted = false
 function measure() {
   const r = stageEl.value?.getBoundingClientRect()
-  if (r && r.width > 0 && r.height > 0) {
+  const sized = r && r.width > 0 && r.height > 0
+  if (sized && fitted) {
+    const cx = dx(W.value / 2)
+    const cy = dy(H.value / 2)
     W.value = r.width
     H.value = r.height
+    ox.value = W.value / 2 - cx * S.value
+    oy.value = H.value / 2 + cy * S.value * ve.value
+    return
+  }
+  if (sized) {
+    W.value = r.width
+    H.value = r.height
+    fitted = true
   }
   fit()
 }
@@ -553,9 +567,15 @@ function deleteSelected() {
 // F fits, + and − zoom, arrows nudge, Delete removes and Ctrl+A selects, while the drawing has focus
 function onKey(e) {
   if (e.altKey) return
-  // Escape closes an open popover first; the workspace treats a handled Escape as done
+  // Escape closes an open popover first, then clears the selection; the workspace treats a handled
+  // Escape as done, so only an Escape with nothing to clear goes on to close the editor
   if (e.key === 'Escape' && popOpen.value) {
     popOpen.value = ''
+    e.preventDefault()
+    return
+  }
+  if (e.key === 'Escape' && (selPts.value.length || selSegs.value.length)) {
+    setSelection([], [])
     e.preventDefault()
     return
   }
@@ -571,14 +591,14 @@ function onKey(e) {
     e.preventDefault()
     return
   }
-  if (e.key === 'Delete') {
+  if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault()
     deleteSelected()
     return
   }
   if (e.key === 'f' || e.key === 'F') fit()
   else if (e.key === '+' || e.key === '=') zoom(1.25)
-  else if (e.key === '-' || e.key === '−') zoom(1 / 1.25)
+  else if (e.key === '-' || e.key === '_') zoom(1 / 1.25)
   else return
   e.preventDefault()
 }
@@ -612,8 +632,11 @@ const segsFree = computed(() => {
 const canSmoothSel = computed(() => !!geo.value && selPts.value.some((i) => isFairable(pts.value, i)))
 const segLabel = computed(() => {
   const g = geo.value
-  if (!g || selPts.value.length !== 1) return ''
-  const i = selPts.value[0]
+  const sel = selPts.value
+  // The trailing edge is two points that move as one, so its pair reads as one point
+  if (g && sel.length === 2 && otherTrailingEdge(g.P, sel[0]) === sel[1]) return 'Trailing edge'
+  if (!g || sel.length !== 1) return ''
+  const i = sel[0]
   if (i === g.l) return 'Leading edge'
   return i < g.l ? `Upper point ${i + 1}` : `Lower point ${i - g.l}`
 })
@@ -678,8 +701,6 @@ const surfaceIdx = (w) => {
   return pts.value.map((_, i) => i).filter((i) => w === 'both' || (w === 'upper' ? i < l : i > l))
 }
 // Reset actions: confirmed first, then one history step. The seed is part of the history, so undo brings it back.
-// A section saved before the trailing edge was always sharp opens with it closed
-if (closeTrailingEdge(pts.value) !== pts.value) pts.value = closeTrailingEdge(pts.value)
 const startPts = clone(pts.value)
 const startSeed = props.seed
 const unchangedFromStart = computed(() => JSON.stringify(pts.value) === JSON.stringify(startPts) && props.seed === startSeed)
@@ -918,7 +939,7 @@ defineExpose({ focusOn, run })
     </div>
     <div v-if="geo" class="wc-cmd" role="toolbar" aria-label="Section actions">
       <template v-if="barMode === 'points'">
-        <span class="wc-cmd__label">{{ selPts.length === 1 ? segLabel : `${selPts.length} points` }}</span>
+        <span class="wc-cmd__label">{{ segLabel || `${selPts.length} points` }}</span>
         <button type="button" class="wc-cmd__btn" :disabled="!canSmoothSel" title="Fair the selected points together so the curvature varies smoothly. Press again for more." @click="run('smooth')">Smooth</button>
         <label class="wc-cmd__check" title="Fairing shrinks the section a little. Tick this to rescale the thickness afterwards so the maximum thickness stays what it was."><input v-model="keepThick" type="checkbox" />Keep max thickness</label>
         <span class="wc-cmd__sep"></span>

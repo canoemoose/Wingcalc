@@ -112,6 +112,14 @@ describe('flight configurations', () => {
     ])
   })
 
+  it('offers no crow when the aileron is not built', () => {
+    // The aileron overlaps the flap, so only the flap is placed
+    const { sampler, controls } = setup([['flap', 0.01, 0.4], ['aileron', 0.3, 0.68]], { crow: { enabled: true, aileronUp: 25, flapDown: 40 } })
+    const ids = flightConfigurations(sampler, controls).map((c) => c.id)
+    expect(ids).toContain('flaps')
+    expect(ids).not.toContain('crow')
+  })
+
   it('applies an increment along a surface only', () => {
     const fx = stationEffects([{ id: 1, s0: 0.1, s1: 0.3 }], new Map([[1, { dAlphaL0: -5, dClMax: 0.3 }]]))
     expect(fx(0.05)).toBeNull()

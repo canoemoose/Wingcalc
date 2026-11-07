@@ -119,7 +119,8 @@ export function flightConfigurations(sampler, controls) {
     .map((r) => entry(r, Math.max(0, Number.isFinite(landing) ? Math.min(landing, r.down) : r.down)))
     .filter((e) => e.deflection > 0)
   if (flaps.length) out.push({ id: 'flaps', label: CONFIGURATIONS.flaps.label, surfaces: flaps })
-  const crow = crowState(controls)
+  // Only the surfaces actually built count: an aileron that isn't placed gives no crow
+  const crow = crowState(controls, placed)
   if (crow.enabled) {
     const surfaces = crow.deflections
       .map((d) => {

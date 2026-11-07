@@ -169,9 +169,12 @@ export function validate({ mass, geometry, panels = null }) {
       message: 'A curved edge crosses the opposite edge of its panel. Reduce the curve or widen the chord.',
     })
   }
-  // Chord growing outboard is unusual enough to be worth a check.
-  stations?.forEach((s, i) => {
-    if (i > 0 && s.c > stations[i - 1].c) {
+  // Chord growing outboard is unusual enough to be worth a check. With a fuselage width the
+  // stations include one at the fuselage side (root chord again); leave it out so each pair
+  // is a panel's inner and outer end and the index is the panel's.
+  const ends = geometry.fuselageHalf > 0 ? stations?.filter((_, i) => i !== 1) : stations
+  ends?.forEach((s, i) => {
+    if (i > 0 && s.c > ends[i - 1].c) {
       out.push({
         field: `panel-${i - 1}`,
         message: `Panel ${i}: the outer chord is larger than the inner chord. Check the values are the right way round.`,

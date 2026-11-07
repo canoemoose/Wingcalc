@@ -7,7 +7,7 @@
 // in PanelEditor and ControlSurfaceEditor.
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { flatPanels, appendPanel, removePanel, insertPanel, movePanel, keyPoints, addStation, panelMode, checkStations, wingSampler } from '../lib/wing.js'
-import { resolveSurfaces, surfaceOutline, addSurface, MIN_SURFACE } from '../lib/controlSurfaces.js'
+import { resolveSurfaces, surfaceOutline, addSurface, MIN_SURFACE, clampHingeFraction } from '../lib/controlSurfaces.js'
 import { resolveBrakes, brakeOutline, addBrake, brakeKey } from '../lib/airBrakes.js'
 import { dropBay } from '../lib/servos.js'
 import { format, defaultUnit, systemOf, inputValue, toBase } from '../lib/units.js'
@@ -23,7 +23,7 @@ const props = defineProps({
   // surface; null for a quarter of the chord
   surfaceDepth: { type: Number, default: null },
 })
-const emit = defineEmits(['commit'])
+const emit = defineEmits(['commit', 'dragging'])
 const rootChord = defineModel('rootChord', { type: Number, default: null })
 const fuselageWidth = defineModel('fuselageWidth', { type: Number, default: 0 })
 const panels = defineModel('panels', { type: Array, required: true })
@@ -84,13 +84,16 @@ const surfaceEdit = computed(() => {
     return w.xl + w.c
   }
   const sm = (r.s0 + r.s1) / 2
+  // Depth is from the surface's apex to the trailing edge, as a stored depth is: the gap is half
+  // each side of the hinge line, so the apex is gap/2 behind it
+  const halfGap = (r.gap || 0) / 2
   return {
     r,
     inner: [r.s0, r.x0],
     outer: [r.s1, r.x1],
     mid: [sm, (r.x0 + r.x1) / 2],
-    depthIn: te(r.s0) - r.x0,
-    depthOut: te(r.s1) - r.x1,
+    depthIn: te(r.s0) - r.x0 - halfGap,
+    depthOut: te(r.s1) - r.x1 - halfGap,
     length: r.s1 - r.s0,
     setIn: r.s0 - pp.inner.s,
     teIn: te(r.s0),
@@ -127,10 +130,11 @@ function commitDim() {
   if (n === null) return
   const v = toBase(n, 'length', lengthUnit.value)
   const r = e.r
-  // A depth set by hand fixes both ends' hinge fractions as they are now (no longer parallel)
+  // A depth set by hand fixes both ends' hinge fractions as they are now (no longer parallel).
+  // The depth is from the apex, gap/2 behind the hinge line (as hingeAtDepth has it).
   const hingeAt = (s, te) => {
     const w = sampler.value.at(s)
-    return Math.min(0.97, Math.max(0.05, (te - Math.max(0, v) - w.xl) / w.c))
+    return clampHingeFraction((te - Math.max(0, v) - (r.gap || 0) / 2 - w.xl) / w.c)
   }
   const from = r.s0 - e.panelInner
   if (d.key === 'depthIn') setSurface(r.id, { hingeIn: hingeAt(r.s0, e.teIn), hingeOut: r.hingeOut, depth: null })
@@ -140,6 +144,12 @@ function commitDim() {
     const at = Math.min(Math.max(0, v), e.panelLength - e.length)
     setSurface(r.id, { from: at, to: at + e.length })
   }
+}
+// Enter or Escape in the box: the box goes, so hand focus back to the drawing for its keys
+function closeDim(apply) {
+  if (apply) commitDim()
+  else dimEdit.value = null
+  wrapEl.value?.focus({ preventScroll: true })
 }
 // The air brakes placed on the wing: those that can be drawn, as the box (or plate) in plan
 const brakes = computed(() => {
@@ -300,14 +310,20 @@ function startHandle(e, kind, i = null, extra = {}) {
   e.stopPropagation()
   e.preventDefault()
   wrapEl.value?.focus({ preventScroll: true })
-  e.currentTarget.setPointerCapture(e.pointerId)
+  // The "drag to curve" circle is replaced by the curve handle as soon as the edge curves, and
+  // a capture dies with its element, so that one captures on the drawing. The rest keep theirs,
+  // so a double-click on the handle still reaches it.
+  const curving = kind === 'mle' || kind === 'mte'
+  ;(curving ? svgEl.value : e.currentTarget).setPointerCapture(e.pointerId)
   if (i !== null) selected.value = i
-  if (kind === 'mle' || kind === 'mte') {
+  if (curving) {
     // Grabbing the midpoint of a straight edge turns it into a curve.
     setPanel(i, { [kind === 'mle' ? 'le' : 'te']: { u: 0.5, d: 0 } })
     kind = kind === 'mle' ? 'cle' : 'cte'
   }
   drag.value = { kind, i, ...extra }
+  // The whole drag is one undo step, however long it pauses
+  emit('dragging', true)
 }
 
 function startMeasure(e) {
@@ -364,10 +380,10 @@ function moveHandle(e) {
     const L = pp.outer.s - pp.inner.s
     const s = Math.min(pp.inner.s + L, Math.max(pp.inner.s, snap(w.s, e)))
     const at = sampler.value.at(d.kind === 'sfHinge' ? d.sMid : s)
-    const frac = Math.min(0.97, Math.max(0.05, (snap(w.x, e) - at.xl) / at.c))
+    const frac = clampHingeFraction((snap(w.x, e) - at.xl) / at.c)
     if (d.kind === 'sfHinge') {
       const shift = frac - d.fracMid
-      const clamp = (f) => Math.min(0.97, Math.max(0.05, f + shift))
+      const clamp = (f) => clampHingeFraction(f + shift)
       setSurface(sf.id, { hingeIn: clamp(d.hingeIn), hingeOut: clamp(d.hingeOut), depth: null })
     } else if (d.kind === 'sfIn') {
       setSurface(sf.id, { from: Math.max(0, Math.min(s - pp.inner.s, sf.to - MIN_SURFACE)), ...(e.shiftKey ? {} : { hingeIn: frac, depth: null }) })
@@ -422,6 +438,7 @@ function endHandle() {
       selected.value = null
       selectedDim.value = null
       selectedSurface.value = null
+      selectedBrake.value = null
     }
     return
   }
@@ -439,6 +456,7 @@ function endHandle() {
   }
   // Each completed drag is its own undo step.
   emit('commit')
+  emit('dragging', false)
 }
 
 function startPan(e, { deselect = false, select = null, surface = null, brake = null } = {}) {
@@ -739,6 +757,10 @@ const readout = computed(() => {
   if (d.kind === 'root') return `Root chord ${fmt(rootChord.value)}`
   if (d.kind === 'fuse') return `Fuselage width ${fmt(fuselageWidth.value)}`
   if (d.kind === 'tip') return `Tip extension ${fmt(tip.value?.extension)}, furthest at ${Math.round((tip.value?.peak ?? 0) * 100)}% chord`
+  if (d.kind === 'sfIn' || d.kind === 'sfOut' || d.kind === 'sfHinge') {
+    const e = surfaceEdit.value
+    return e ? `${e.r.label}: length ${fmt(e.length)}, depth ${fmt(e.depthIn)} inner, ${fmt(e.depthOut)} outer` : null
+  }
   const p = panels.value[d.i]
   if (!p) return null
   if (d.kind === 'le') return `Panel ${d.i + 1}: length ${fmt(p.length)}, sweep ${fmt(p.sweep || 0)}`
@@ -848,6 +870,7 @@ watch(
           @pointermove="moveHandle"
           @pointerup="endHandle"
           @pointercancel="endHandle"
+          @lostpointercapture="endHandle"
           @pointerleave="hoverSnap = drag ? hoverSnap : null"
         >
           <!-- Grid -->
@@ -1214,8 +1237,8 @@ watch(
           aria-label="Dimension"
           :style="{ left: `${dimEdit.left}px`, top: `${dimEdit.top}px` }"
           @keydown.stop
-          @keydown.enter.prevent="commitDim"
-          @keydown.esc.prevent="dimEdit = null"
+          @keydown.enter.prevent="closeDim(true)"
+          @keydown.esc.prevent="closeDim(false)"
           @blur="commitDim"
         />
         <div class="wc-stage__corner wc-stage__corner--tl" role="toolbar" aria-label="Tools">

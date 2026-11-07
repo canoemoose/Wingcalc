@@ -21,7 +21,8 @@ describe('undo history', () => {
     await nextTick()
     state.a = 3
     await nextTick()
-    expect(h.canUndo.value).toBe(false)
+    // Not recorded yet, but undoable: undo records the pending change first.
+    expect(h.canUndo.value).toBe(true)
     vi.advanceTimersByTime(500)
     expect(h.canUndo.value).toBe(true)
     h.undo()
@@ -62,6 +63,92 @@ describe('undo history', () => {
     state.a = 5
     h.commit()
     expect(h.canRedo.value).toBe(false)
+  })
+})
+
+describe('undo inside the debounce', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('steps back one change, not two, when undone before the change settles', async () => {
+    const state = reactive({ a: 1 })
+    const h = useHistory(
+      () => ({ a: state.a }),
+      (v) => Object.assign(state, v),
+    )
+    state.a = 2
+    h.commit()
+    state.a = 3
+    await nextTick()
+    vi.advanceTimersByTime(100)
+    h.undo()
+    expect(state.a).toBe(2)
+    h.redo()
+    expect(state.a).toBe(3)
+  })
+
+  it('can undo the first change before it settles', async () => {
+    const state = reactive({ a: 1 })
+    const h = useHistory(
+      () => ({ a: state.a }),
+      (v) => Object.assign(state, v),
+    )
+    state.a = 2
+    await nextTick()
+    h.undo()
+    expect(state.a).toBe(1)
+    expect(h.canRedo.value).toBe(true)
+  })
+})
+
+describe('history pause and resume', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const setup = () => {
+    const state = reactive({ a: 1 })
+    const h = useHistory(
+      () => ({ a: state.a }),
+      (v) => Object.assign(state, v),
+    )
+    return { state, h }
+  }
+
+  it('records a drag that pauses mid-way as one step', async () => {
+    const { state, h } = setup()
+    h.pause()
+    state.a = 2
+    await nextTick()
+    vi.advanceTimersByTime(1000)
+    state.a = 3
+    await nextTick()
+    vi.advanceTimersByTime(1000)
+    expect(h.canRedo.value).toBe(false)
+    h.resume()
+    h.undo()
+    expect(state.a).toBe(1)
+    expect(h.canUndo.value).toBe(false)
+  })
+
+  it('records nothing when the hold changed nothing', () => {
+    const { h } = setup()
+    h.pause()
+    h.resume()
+    expect(h.canUndo.value).toBe(false)
+  })
+
+  it('keeps a change made before the hold as its own step', async () => {
+    const { state, h } = setup()
+    state.a = 2
+    await nextTick()
+    h.pause()
+    state.a = 3
+    await nextTick()
+    h.resume()
+    h.undo()
+    expect(state.a).toBe(2)
+    h.undo()
+    expect(state.a).toBe(1)
   })
 })
 
