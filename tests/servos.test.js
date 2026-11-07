@@ -34,8 +34,10 @@ describe('Hitec catalogue', () => {
     }
   })
 
+  // The drawn ones (a few are known only from their spec tables: servoCatalogue.test.js)
+  const DRAWN = HITEC.filter((s) => !s.estimated)
   it('has lug spans no shorter than the body', () => {
-    for (const s of HITEC) expect(s.lugSpan).toBeGreaterThanOrEqual(s.body[0])
+    for (const s of DRAWN) expect(s.lugSpan).toBeGreaterThanOrEqual(s.body[0])
   })
 
   it('drops the discontinued models', () => {
@@ -47,13 +49,13 @@ describe('Hitec catalogue', () => {
     for (const m of ['HS-55', 'HS-65HB', 'HS-5055MG', 'HS-5065MG', 'HS-85BB', 'HS-225BB', 'HS-77BB', 'HS-311', 'HS-322HD', 'HS-485HB', 'HS-5485HB', 'HS-625MG', 'HS-645MG', 'HS-5625MG', 'HS-5645MG']) expect(models).toContain(m)
     // each once, with a sensible case and lugs wider than it
     expect(new Set(models).size).toBe(models.length)
-    for (const s of HITEC) expect(s.lugSpan).toBeGreaterThan(s.body[0])
+    for (const s of DRAWN) expect(s.lugSpan).toBeGreaterThan(s.body[0])
   })
 })
 
 describe('Hitec drawings', () => {
-  it('gives every entry its drawn lugs, output and lead, none estimated', () => {
-    for (const s of HITEC) {
+  it('gives every drawn entry its drawn lugs, output and lead, none estimated', () => {
+    for (const s of HITEC.filter((x) => !x.estimated)) {
       expect(s.lugEstimated, s.model).toBeUndefined()
       const [l, , h] = s.body
       expect(s.lugThickness, s.model).toBeGreaterThan(0.0005)

@@ -30,7 +30,7 @@
 //   link      the servo's linkage to its surface, as differs from the defaults (bayLinkage.js
 //             DEFAULT_LINK): arm, horn, holes, travel; null for the defaults
 
-import { HITEC_SPECS, FUTABA_FIGURES } from './servoCatalogue.js'
+import { HITEC_SPECS, HITEC_UNDRAWN, FUTABA_FIGURES } from './servoCatalogue.js'
 
 // Servo classes. Generic sizes, no brand: each is the rounded figures of the common hobby
 // servos of that class (docs/methods.md), all in SI base units.
@@ -294,6 +294,26 @@ const futaba = ({ model, class: cls, body, mass, thin = false, drawing, ...rest 
 }
 
 export const FUTABA = FUTABA_FIGURES.map(futaba)
+
+// Hitec models known only from their spec tables (servoCatalogue.js HITEC_UNDRAWN): the case
+// from the table, the rest from the class, as a Futaba model without a drawing
+const hitecUndrawn = ({ model, class: cls, body, mass }) => {
+  const s = specs('Hitec', HITEC_SPECS[model])
+  return {
+    id: `hitec-${model.toLowerCase()}`,
+    model,
+    maker: 'Hitec',
+    class: cls,
+    body: body.map((v) => Math.round(v * 1e4) / 1e7),
+    mass: mass / 1000,
+    torque: ratedTorque(s.ratings),
+    thin: false,
+    estimated: ['lugs', 'output', 'lead'],
+    ...fromClass(cls),
+    ...s,
+  }
+}
+HITEC.push(...HITEC_UNDRAWN.map(hitecUndrawn))
 
 // Every maker's servo, Hitec first
 export const CATALOGUE = [...HITEC, ...FUTABA]

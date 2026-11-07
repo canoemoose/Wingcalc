@@ -45,7 +45,30 @@ export const HITEC_SPECS = {
   'HS-645MG': { gears: 'metal', digital: false, spline: 'Standard 24', ratings: [[4.8, 7.7, 0.24], [6.0, 9.6, 0.2]] },
   'HS-5625MG': { gears: 'metal', digital: true, spline: 'Standard 24', ratings: [[4.8, 7.9, 0.17], [6.0, 9.4, 0.14]] },
   'HS-5645MG': { gears: 'metal', digital: true, spline: 'Standard 24', ratings: [[4.8, 10.3, 0.23], [6.0, 12.1, 0.18]] },
+  // Added 7 November 2026 from their hitecrcd.com spec tables; their drawings' figures couldn't
+  // be read, so these have no drawn figures (HITEC_UNDRAWN). D485HW's kgf·cm row is used where
+  // it disagrees with its oz-in row (the lower).
+  'HS-82MG': { gears: 'metal', digital: false, spline: 'Standard 24', ratings: [[4.8, 2.8, 0.12], [6.0, 3.4, 0.1]] },
+  'HS-70MG': { gears: 'metal', digital: false, spline: 'Micro 25', ratings: [[4.8, 2.4, 0.17], [6.0, 3.0, 0.14]] },
+  D71MH: { gears: 'metal', digital: true, spline: 'M25T', ratings: [[6.0, 3.7, 0.16], [7.4, 4.1, 0.13]] },
+  D485HW: { gears: 'karbonite', digital: true, spline: '25T, 6 mm', ratings: [[4.8, 4.8, 0.2], [7.4, 7.4, 0.15]] },
+  D625MW: { gears: 'metal', digital: true, spline: '25T', ratings: [[4.8, 6.3, 0.2], [6.0, 8.8, 0.15], [7.4, 10.0, 0.13]] },
+  D645MW: { gears: 'metal', digital: true, spline: '25T', ratings: [[4.8, 8.3, 0.28], [6.0, 11.3, 0.2], [7.4, 12.9, 0.17]] },
+  'HS-648MG': { gears: 'metal', digital: false, spline: '25T', ratings: [[4.8, 7.7, 0.24], [6.0, 9.6, 0.2]] },
 }
+
+// Hitec models with no drawn figures: the spec table's case [length, width, height] (mm), mass
+// (g) and the class each is sized as; lugs, output and lead come from the class, as for Futaba's
+// models without a drawing
+export const HITEC_UNDRAWN = [
+  { model: 'HS-82MG', class: 'micro', mass: 19, body: [29.8, 12.0, 29.6] },
+  { model: 'HS-70MG', class: 'micro', mass: 14.2, body: [23.6, 11.6, 28.1] },
+  { model: 'D71MH', class: 'micro', mass: 12.5, body: [23.6, 11.6, 31.0] },
+  { model: 'D485HW', class: 'standard', mass: 45, body: [39.8, 19.8, 38.0] },
+  { model: 'D625MW', class: 'standard', mass: 60, body: [40.8, 20.0, 37.8] },
+  { model: 'D645MW', class: 'standard', mass: 60, body: [40.8, 19.8, 37.8] },
+  { model: 'HS-648MG', class: 'standard', mass: 55.2, body: [40.6, 19.8, 37.8] },
+]
 
 // Futaba: the S3001 and the current airplane servos of standard, mini, micro and wing size, from
 // rc.futaba.co.jp and futabausa.com product pages (Japan's figures where both give them).

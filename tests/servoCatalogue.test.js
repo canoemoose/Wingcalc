@@ -159,8 +159,17 @@ describe('Futaba catalogue', () => {
     expect(by('S-A400').estimated).toEqual(['lead'])
     expect(a400.lugSpan).toBe(0.0545)
     expect(a400.lead.exit).toBe('end')
-    // Hitec's are all drawn
-    for (const s of HITEC) expect(s.estimated).toBeUndefined()
+    // Hitec's are drawn, but for the models known only from their spec tables, which take the
+    // rest from their class the same way
+    const hitecUndrawn = HITEC.filter((s) => s.lugSpan == null)
+    expect(hitecUndrawn.map((s) => s.model)).toEqual(['HS-82MG', 'HS-70MG', 'D71MH', 'D485HW', 'D625MW', 'D645MW', 'HS-648MG'])
+    for (const s of HITEC) expect(s.estimated, s.model).toEqual(hitecUndrawn.includes(s) ? ['lugs', 'output', 'lead'] : undefined)
+    for (const s of hitecUndrawn) {
+      const f = servoFrame(s)
+      expect(f.lugSpan).toBeGreaterThan(s.body[0])
+      expect(f.output.top).toBeGreaterThan(s.body[2])
+      expect(s.ratings.length).toBeGreaterThan(0)
+    }
   })
 
   it('installs every servo every way round, and the side view says where its figures come from', () => {
