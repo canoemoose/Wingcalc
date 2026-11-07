@@ -1,6 +1,6 @@
 # Scope: v8 feedback round (17 October 2026)
 
-Matt and Sam's feedback on the overnight and morning sessions (see `review-2026-10-17.md`). Autonomous round: Claude plans small tasks, hands them to Haiku worker agents (in parallel where files don't overlap), reviews each result, runs the tests and commits by concern. Nothing is pushed.
+Matt and Sam's feedback on the overnight and morning sessions (the 17 October checklist, since folded into `review-2026-10-25.md`). Autonomous round: Claude plans small tasks, hands them to Haiku worker agents (in parallel where files don't overlap), reviews each result, runs the tests and commits by concern. Nothing is pushed.
 
 ## Decisions taken
 
