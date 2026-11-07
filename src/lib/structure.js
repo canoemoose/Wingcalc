@@ -65,7 +65,6 @@ const POISSON = 0.3
 // Vertical-grain balsa webs are much less stiff across the grain; for shear buckling an
 // effective modulus of √(E_L · E_T) with E_T ≈ 5% of E_L is a common first estimate.
 const WEB_STIFFNESS_RATIO = Math.sqrt(0.05)
-// Smallest rib spacing the suggestion will use; below it the spar or sheeting needs to change.
 // A plain rib between the fixed ones (spaced for you, or placed by hand), as opposed to a
 // root, break, hard-point or tip rib
 export const isPlainRib = (kind) => kind === 'normal' || kind === 'manual'
@@ -136,6 +135,7 @@ export function laminatedSheetE(E, t, lam) {
 export const gussetEdges = (structure) =>
   ['le', 'te'].filter((e) => structure.gussets[e] && (e === 'te' || !structure.le.type || structure.le.type === 'balsa'))
 
+// Smallest rib spacing the suggestion will use; below it the spar or sheeting needs to change.
 export const MIN_SPACING = 0.015
 // Least rib material left around a hole or notch before it's flagged.
 export const MIN_MATERIAL = 0.0015
@@ -349,13 +349,26 @@ export function hardPoints(sampler, structure, extra = []) {
   for (const h of structure.ribs.hardPoints ?? []) {
     if (!Number.isFinite(h.d)) continue
     // A rib at its start and, if it runs to a second distance, one at its end too
-    for (const d of Number.isFinite(h.to) && h.to > h.d + 1e-4 ? [h.d, h.to] : [h.d]) {
+    // (`end` says which distance each rib comes from, so moving one edits that distance)
+    const ends = Number.isFinite(h.to) && h.to > h.d + 1e-4 ? [['d', h.d], ['to', h.to]] : [['d', h.d]]
+    for (const [end, d] of ends) {
       const s = s0 + d
-      if (s > s0 + 1e-4 && s < tip - 1e-4) pts.push({ s, kind: 'hard', label: h.label || 'Hard point', id: h.id })
+      if (s > s0 + 1e-4 && s < tip - 1e-4) pts.push({ s, kind: 'hard', label: h.label || 'Hard point', id: h.id, end })
     }
   }
   for (const h of extra) if (h.s > s0 + 1e-4 && h.s < tip - 1e-4) pts.push({ s: h.s, kind: 'hard', label: h.label })
   return mergeClose(pts.sort((a, b) => a.s - b.s))
+}
+
+// A manual rib or hard point with one of its ribs moved to distance d: `end` is the rib's end
+// ('to' for a hard point's far rib, otherwise its start). A hard point that runs to a second
+// distance keeps its ends at least `gap` apart (a rib's thickness), so dragging one past the
+// other stops there rather than collapsing it into a single rib.
+export function movedEnd(m, end, d, gap = 0.003) {
+  const spans = Number.isFinite(m.to) && Number.isFinite(m.d) && m.to > m.d + 1e-4
+  if (!spans) return { ...m, d }
+  if (end === 'to') return { ...m, to: Math.max(m.d + gap, d) }
+  return { ...m, d: Math.min(m.to - gap, d) }
 }
 
 // The sheeted hard points: each hard point that runs from d to a second distance `to`, a rib at
@@ -432,7 +445,9 @@ export function patchThicknessAt(structure, patch, side, q, sparXiRear) {
 export function sheetThicknessAt(structure, s = null) {
   const base = structure.covering.sheetThickness || 0
   if (!Number.isFinite(s)) return base
-  for (const h of structure.hardBays ?? []) if (h.dboxThickness > 0 && s >= h.s0 - 1e-6 && s <= h.s1 + 1e-6) return h.dboxThickness
+  // dboxThickness is a D-box setting (the editor only shows it there): a value left from D-box mode
+  // doesn't change a sheeted wing, whose sheet parts ignore it too
+  if (structure.covering.type === 'dbox') for (const h of structure.hardBays ?? []) if (h.dboxThickness > 0 && s >= h.s0 - 1e-6 && s <= h.s1 + 1e-6) return h.dboxThickness
   const p = (structure.sheetPanels ?? []).find((x) => s <= x.s1 + 1e-9)
   return p?.thickness > 0 ? p.thickness : base
 }
@@ -473,11 +488,6 @@ function bayFrom(s, limit, end) {
   return L
 }
 
-// Rib positions between the hard points. limit(s) is the largest spacing allowed at s. Each
-// interval gets the fewest bays that keep every bay within the limit all along it: march
-// out from the inner end taking the largest bay allowed each time, then scale the limit down
-// (by bisection) until that number of bays lands exactly on the outer end, so the spacing
-// still grows where it may but there's no stub of a bay at the end.
 // Manual spacing: ribs for panels that have none. Each of the given panels (indices into
 // sampler.ends; all of them if null) with no manual rib between its ends gets ribs evenly spaced
 // at the pitch, as Even spacing would put them there. Returns the manual list with them added,
@@ -501,6 +511,11 @@ export function fillManualRibs(sampler, structure, panels = null) {
   return out.length === list.length ? list : out
 }
 
+// Rib positions between the hard points. limit(s) is the largest spacing allowed at s. Each
+// interval gets the fewest bays that keep every bay within the limit all along it: march
+// out from the inner end taking the largest bay allowed each time, then scale the limit down
+// (by bisection) until that number of bays lands exactly on the outer end, so the spacing
+// still grows where it may but there's no stub of a bay at the end.
 export function spacedRibs(points, limit) {
   const out = [points[0]]
   for (let i = 1; i < points.length; i++) {
@@ -721,9 +736,6 @@ export function sparOuterFaces(line, sp) {
   return [front, rear]
 }
 
-// Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
-// to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
-// and stringers sit under it, so ribs, stringers and the 3D view all agree.
 // Which surface a sheet is on: 'top' or 'bottom' (the analysis calls them 'upper' and 'lower').
 export function sheetSide(surface) {
   return surface === 'upper' ? 'top' : surface === 'lower' ? 'bottom' : surface
@@ -746,10 +758,6 @@ export function sheetExtent(structure, side, sparXi, { leXi = 0, teXi = 1 } = {}
   return { from: leXi, to }
 }
 
-// Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
-// to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
-// and stringers sit under it, so ribs, stringers and the 3D view all agree. With a side
-// ('top' or 'bottom'), a D-box is judged on that surface's own sheeting extent.
 // How far the leading-edge stock reaches back from the nose, m: a rod or dowel's diameter, a
 // strip's width, nothing when the sheeting forms the nose
 export function leStockDepth(le) {
@@ -775,6 +783,10 @@ export function capStripStart(structure, chord, side = null) {
   return chord > 0 ? leStockDepth(structure.le) / chord : 0
 }
 
+// Skin over the ribs at chord fraction q: sheeting where there is any (a D-box's runs back
+// to the spar's rear face, sparXiRear), cap strips elsewhere if used. Ribs are inset by it
+// and stringers sit under it, so ribs, stringers and the 3D view all agree. With a side
+// ('top' or 'bottom'), a D-box is judged on that surface's own sheeting extent.
 // chord (m) is the station's chord; it's only needed for a null capStripStart. caps false
 // leaves the cap strips out: hinge spars stand the full height of a rib and its capping, the
 // strips stopping at them, so only sheeting covers them. s, the flat span position, picks the
@@ -823,8 +835,10 @@ export function sheetGaps(structure, side) {
 }
 
 // Skin thickness over the spar: sheeting, or cap strips on an open wing (they run over
-// the caps). With a side, that surface's own skin; with s, the sheet thickness there.
-export function skinAtSpar(structure, side, s = null) {
+// the caps). With a side, that surface's own skin; with s, the sheet thickness there. xi is the
+// spar's chord fraction (the aerofoil's, where the caller has it); without it, sparFraction's
+// fallback.
+export function skinAtSpar(structure, side, s = null, xi = sparFraction(structure)) {
   // The spar is under whatever covers the ribs there: the rib notches are cut from below it.
   // On an open wing that's the cap strips, which start ahead of the spar, or a hard point's sheet.
   if (structure.covering.type === 'open') {
@@ -833,7 +847,7 @@ export function skinAtSpar(structure, side, s = null) {
     return structure.covering.capStrips ? structure.covering.capStripThickness || 0 : 0
   }
   // Tested at the spar itself (not the nose), so a null cap-strip start still lies ahead of it
-  return skinAt(structure, sparFraction(structure), 1, side, undefined, true, s)
+  return skinAt(structure, xi, 1, side, undefined, true, s)
 }
 
 // --- A solid spar too deep for the ribs ---------------------------------------------------------
@@ -906,7 +920,7 @@ export function solidTaper(structure, ribs, section, sparX) {
     const name = `R${i + 1}`
     const sec = section(r.s)
     const xi = Math.min(0.95, Math.max(0.02, (sparX(r.s) - sec.xl) / sec.c))
-    const inner = sec.depth(xi) - skinAtSpar(structure, 'top', r.s) - skinAtSpar(structure, 'bottom', r.s)
+    const inner = sec.depth(xi) - skinAtSpar(structure, 'top', r.s, xi) - skinAtSpar(structure, 'bottom', r.s, xi)
     const thin = thinRib(sp, inner)
     const fit = thin ? ribFitOf(sp, name) : null
     // A caps spar's cap thickness there (tc), or a solid spar's depth
@@ -917,10 +931,10 @@ export function solidTaper(structure, ribs, section, sparX) {
 
 // Spar properties at a station with outside depth h (m) at the spar. Returns null where
 // there's no spar (beyond a short tube) or what's there doesn't fit. s, the flat span position,
-// for the sheet thickness there.
-export function sparSection(structure, h, dFromRoot = 0, s = null) {
+// for the sheet thickness there; xi, the spar's chord fraction there (skinAtSpar).
+export function sparSection(structure, h, dFromRoot = 0, s = null, xi = undefined) {
   const sp = structure.spar
-  const skin = skinAtSpar(structure, undefined, s)
+  const skin = skinAtSpar(structure, undefined, s, xi)
   const inner = h - 2 * skin
   // No spar at all (a foam wing): the skins carry the bending
   if (sp.type === 'none') return { type: 'none', inner }
@@ -1023,11 +1037,11 @@ export function sheetSpacing(E, t, b, sigma) {
 export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot = 0, strips = 12 }) {
   const els = []
   const cov = structure.covering
-  const sp = sparSection(structure, sec.depth(sparXi), dFromRoot, sec.s)
+  const sp = sparSection(structure, sec.depth(sparXi), dFromRoot, sec.s, sparXi)
   // Each surface's own skin: a D-box may sheet one side only
   const at = sec.surf(sparXi)
-  const top = at.upper - skinAtSpar(structure, 'top', sec.s)
-  const bot = at.lower + skinAtSpar(structure, 'bottom', sec.s)
+  const top = at.upper - skinAtSpar(structure, 'top', sec.s, sparXi)
+  const bot = at.lower + skinAtSpar(structure, 'bottom', sec.s, sparXi)
   if (sp.type === 'caps' || sp.type === 'box') {
     const tc = sp.tc ?? structure.spar.capThickness
     const I0 = (sp.b * tc ** 3) / 12
@@ -1440,8 +1454,8 @@ const BAY_PROBLEMS = {
 // servo's run along the chord (all of it) and the plate round it go between the leads' strip
 // behind the spar and the fixed hinge spar; a ply mount plate spans the bay between the ribs'
 // faces, its underside on the lugs' top face, with a cut-out for what passes through it and
-// at least PLATE_EDGE of ply round that (the servo goes in from below, the lugs bearing up on
-// the plate). Lower stringers under the run raise the servo, upper ones lower its ceiling. The
+// at least PLATE_EDGE of ply round that (the servo goes in through the hatch, on its horn's
+// face, its lugs bearing on the plate). Lower stringers under the run raise the servo, upper ones lower its ceiling. The
 // hatch is the opening it's reached by, the plate's size, in the skin on its horn's face (none
 // where it's sealed in). The leads leave
 // through a hole in each rib inboard of the bay (the bay's own inner rib included), in a strip
@@ -1742,7 +1756,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const teFront = (s) => section(s).xl + section(s).c - (structure.te.width || 0)
   const hosts = [...surfaces, ...brakeHosts(brakes, teFront)]
   // How far the cap strips stand proud of a rib's faces, which a bay keeps its servo and arm clear of
-  const capOverhang = !foam && structure.covering.capStrips ? Math.max(0, ((structure.covering.capStripWidth || 0) - (structure.ribs.thickness || 0)) / 2) : 0
+  const capOverhang = !foam && structure.covering.capStrips && structure.covering.type !== 'sheeted' ? Math.max(0, ((structure.covering.capStripWidth || 0) - (structure.ribs.thickness || 0)) / 2) : 0
   const placement = () => placeBays({ sampler, surfaces: hosts, controls, mass, ribThickness: structure.ribs.thickness, capOverhang })
   let bays = bayLayouts(ctx, hosts, placement())
   // The servos hang where they are placed, whichever ribs their trays end up between
@@ -1807,8 +1821,15 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       // Roughly the cap thickness that would give a margin of zero at this width
       const ratio = Math.max((sigC * sf) / sp.mat.compression, (sigT * sf) / sp.mat.tension)
       row.capThicknessNeeded = structure.spar.capThickness * ratio
-      // An open structure leaves the compressed cap free to buckle sideways between ribs
-      if (cov.type === 'open') row.limit = Math.min(row.limit, eulerSpacing(sp.mat.E, sp.b, sigC * sf))
+      // A compressed cap with no sheeting over it is free to buckle sideways between ribs: the top
+      // cap under positive g, the bottom under negative g, wherever that side's sheeting is
+      // missing or stops ahead of the spar (an open wing, or a D-box sheeted short of it)
+      const unsheeted = (side) => {
+        const ext = sheetExtent(structure, side, sparXi)
+        return !ext || ext.to < sparXi - 1e-9
+      }
+      const capC = { top: Math.max(0, (Es * M * (zTop - zbar)) / EI), bottom: Math.max(0, (Es * Mn * (zbar - zBot)) / EI) }
+      for (const side of ['top', 'bottom']) if (capC[side] > 0 && unsheeted(side)) row.limit = Math.min(row.limit, eulerSpacing(sp.mat.E, sp.b, capC[side] * sf))
       // The web buckles in shear more readily the further apart the ribs are
       row.limit = Math.min(row.limit, webSpacing(sp, tau * sf))
     }
@@ -1897,7 +1918,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     if (Number.isFinite(r.limit) && a > 0) r.ms.spacing = r.limit / a - 1
     if ((r.spar === 'caps' || r.spar === 'box') && a > 0 && r.tau > 0) {
       // Web shear buckling: a panel between ribs (a) by the web height
-      const sp = sparSection(structure, r.h, r.d, r.s)
+      const sp = sparSection(structure, r.h, r.d, r.s, r.sparXi)
       r.ms.webBuckling = webBuckling(sp, a) / (r.tau * sf) - 1
     }
   }
@@ -1913,9 +1934,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const m = summary.modes[k]
     if (!m || m.ms >= 0) continue
     const row = stations.find((r) => r.s === m.s)
-    const remedy = foam
-      ? `thicker caps (about ${(Math.ceil((row?.capThicknessNeeded ?? 0) * 20000) / 20).toFixed(2)} mm there), wider caps, or a stiffer, stronger cap material`
-      : sp.type === 'tube'
+    // A foam wing has no spar (foamStructure), so these are a built-up wing's
+    const remedy =
+      sp.type === 'tube'
         ? 'a larger tube or a thicker wall'
         : sp.type === 'solid'
           ? 'a deeper or wider spar, or a stronger wood'
@@ -1923,18 +1944,17 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     warnings.push({
       id: `short-${k}`,
       mode: k,
-      message: foam
-        ? `The spar caps are ${short(k)} short of strength in ${k} ${where(m.d)}. Try ${remedy}.`
-        : `The spar is ${short(k)} short of strength in ${k} ${where(m.d)}. Closer ribs won't help: try ${remedy}.`,
+      message: `The spar is ${short(k)} short of strength in ${k} ${where(m.d)}. Closer ribs won't help: try ${remedy}.`,
     })
   }
   if (summary.modes.webShear?.ms < 0) {
+    // A second web on whichever face of the caps has none
+    const webs = sp.type === 'caps' || sp.type === 'box' ? websSetting(sp) : null
+    const second = webs === 'front' ? ", or a second web on the caps' trailing-edge face" : webs === 'back' ? ", or a second web on the caps' leading-edge face" : ''
     warnings.push({
       id: 'short-webShear',
       mode: 'webShear',
-      message: foam
-        ? `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Try a thicker web or a stronger web material.`
-        : `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${sp.type === 'caps' ? ", or a second web on the caps' trailing-edge face" : ''}.`,
+      message: `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${second}.`,
     })
   }
   if (summary.modes.sheet?.ms < 0) {
@@ -1966,7 +1986,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     warnings.push({
       id: `short-${k}`,
       mode: k,
-      message: `The ribs are too far apart for the ${k === 'webBuckling' ? 'shear web' : 'spar or sheeting'} ${where(m.d)} (${short(k)} short). Put ribs closer there, or set the spacing to From loads.`,
+      message: `The ribs are too far apart for the ${k === 'webBuckling' ? 'shear web' : 'spar or sheeting'} ${where(m.d)} (${short(k)} short). Put ribs closer there${structure.ribs.spacing === 'suggested' ? '' : ', or set the spacing to From loads'}.`,
     })
   }
   const misfit = stations.find((r) => r.spar !== 'none' && !r.fits)
@@ -2023,16 +2043,20 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   // A covering that wants closer ribs than they're set to be apart (tissue)
   const want = finishOf(cov).ribPitch
   const r = structure.ribs
-  if (want && !foam && (r.spacing === 'suggested' || r.spacing === 'uniform') && (r.pitch || 0.075) > want + 1e-9) {
+  // The widest pitch the spacing allows: the pitch, or on tapered spacing the wider of its root
+  // and tip pitches (each falling back to the pitch, as ribStations does)
+  const pitch = r.pitch || 0.075
+  const widest = r.spacing === 'tapered' ? Math.max(r.rootPitch || pitch, r.tipPitch || pitch) : r.spacing === 'suggested' || r.spacing === 'uniform' ? pitch : 0
+  if (want && !foam && widest > want + 1e-9) {
     warnings.push({
       id: 'rib-pitch-covering',
-      message: `${finishOf(cov).short.replace(/^./, (c) => c.toUpperCase())} wants ribs no more than ${(want * 1000).toFixed(0)} mm apart, and they may be up to ${((r.pitch || 0.075) * 1000).toFixed(0)} mm. Set the ribs closer.`,
+      message: `${finishOf(cov).short.replace(/^./, (c) => c.toUpperCase())} wants ribs no more than ${(want * 1000).toFixed(0)} mm apart, and they may be up to ${(widest * 1000).toFixed(0)} mm. Set the ribs closer.`,
     })
   }
   if (finishOf(cov).sheetedOnly && cov.type === 'open') {
     warnings.push({
       id: 'finish-open',
-      message: "Glass cloth and epoxy goes over sheeting, and this wing has none, so it's weighed as lightweight film. Choose a film, fabric film or tissue, or sheet the wing.",
+      message: `${finishOf(cov).short.replace(/^./, (c) => c.toUpperCase())} goes over sheeting, and this wing has none, so it's weighed as lightweight film. Choose a film, fabric film or tissue, or sheet the wing.`,
     })
   }
   if (le.none && cov.type === 'open') {

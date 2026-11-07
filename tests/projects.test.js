@@ -116,6 +116,22 @@ describe('migration', () => {
     expect(s.airfoil.custom.camberPct).toBe(4)
   })
 
+  it('turns a retired flat leading-edge code into its symmetrical stock', () => {
+    const s = migrate({ input: { structure: { le: { stock: 'L320', width: 0.0065 } } } })
+    expect(s.input.structure.le.stock).toBe('L325')
+    // Current codes are kept as they are
+    expect(migrate({ input: { structure: { le: { stock: 'L242' } } } }).input.structure.le.stock).toBe('L242')
+  })
+
+  it('turns an older box spar into caps with a web on both faces', () => {
+    const s = migrate({ input: { structure: { spar: { type: 'box', capWidth: 0.008 } } } })
+    expect(s.input.structure.spar.type).toBe('caps')
+    expect(s.input.structure.spar.webs).toBe('both')
+    expect(s.input.structure.spar.capWidth).toBe(0.008)
+    // A caps spar keeps its own webs
+    expect(migrate({ input: { structure: { spar: { type: 'caps', webs: 'back' } } } }).input.structure.spar.webs).toBe('back')
+  })
+
   it('survives rubbish', () => {
     expect(migrate(null).input.panels).toHaveLength(1)
     expect(migrate({ input: { panels: 'nope' } }).input.panels).toHaveLength(1)

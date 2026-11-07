@@ -33,6 +33,9 @@ const props = defineProps({
   analysis: { type: Object, default: null },
   // bayLinkage.js bayLinkages for the analysis, when the caller has them; else worked out here
   linkages: { type: Map, default: null },
+  // Structure warnings placed with the surfaces (warnings.js bySection's 'surfaces'): each
+  // surface's servo bay problems are shown in its own section
+  warnings: { type: Array, default: () => [] },
 })
 const controls = defineModel('controls', { type: Object, required: true })
 // The surface whose bay the servo configurator is open on, or null (the plan opens it too)
@@ -85,7 +88,7 @@ function linkText(s) {
   return `${sum}: ${r.achieved.up.toFixed(0)}° up, ${r.achieved.down.toFixed(0)}° down, using ±${r.travelNeeded.toFixed(0)}° of ±${l.c.travel}° servo travel.`
 }
 const linkWarn = (s) => !!linked.value.get(s.id)?.warnings.length
-// A surface's heading, closed: its gap and its servo; and its linkage's warnings, listed in it and
+// A surface's heading, closed: its gap and its servo; and its bay's and linkage's warnings, listed in it and
 // counted on the heading (warnings.js keeps them out of the Control surfaces section's own list)
 function surfaceSummary(s) {
   const b = bayFor(s)
@@ -95,7 +98,9 @@ function surfaceSummary(s) {
   const v = l?.bay.servo ?? installedServo(b.class, props.mass, { rotate: b.rotate, flip: b.flip })
   return `${gap}, ${l ? `${l.bay.name} ` : ''}${v.label}`
 }
-const surfaceWarnings = (s) => linked.value.get(s.id)?.warnings ?? []
+// Its bay's own problems (structure.js: bay-<id> and bay-<id>-<k>) and its linkage's
+const bayWarnings = (s) => props.warnings.filter((w) => w.id === `bay-${s.id}` || w.id.startsWith(`bay-${s.id}-`))
+const surfaceWarnings = (s) => [...bayWarnings(s), ...(linked.value.get(s.id)?.warnings ?? [])]
 const squareOptions = [
   { value: 'chord', label: 'Chord', title: "The servo's length along the chord" },
   { value: 'hinge', label: 'Hinge', title: "The servo's length square to the hinge line, so the pushrod meets the horn square" },
@@ -210,7 +215,7 @@ function cancel() {
           />
           <button v-if="Number.isFinite(linkOf(bayFor(s)).hornAngle)" type="button" class="wc-button wc-button--small" @click="setLink(s, { hornAngle: null })">Line it up with the pushrod</button>
         </template>
-        <p v-else-if="analysis" class="wc-field__hint">The linkage can be set once the bay is built.</p>
+        <p v-else-if="analysis" class="wc-field__hint">The linkage can be set once the bay is built.{{ bayWarnings(s).length ? ' The warning in this section says why not.' : '' }}</p>
       </template>
     </InspectorSection>
     <Teleport v-if="open && opened" :to="dialogueTarget">

@@ -11,6 +11,7 @@ import {
   sheetSpacing,
   spacedRibs,
   hardPoints,
+  movedEnd,
   ribStations,
   bendingProps,
   analyseStructure,
@@ -108,6 +109,23 @@ describe('rib spacing', () => {
     const two = hardPoints(sampler, st).map((p) => Math.round(p.s * 1000))
     expect(two[0]).toBe(50)
     expect(two).toContain(350) // the hard point is measured from the root rib
+  })
+
+  it("tags a spanning hard point's two ribs with the end each comes from", () => {
+    const sampler = wingSampler(rectWing, 0.12)
+    const st = defaultStructure()
+    st.ribs.hardPoints = [{ id: 7, d: 0.1, to: 0.2, sheet: 'both' }]
+    const hard = hardPoints(sampler, st).filter((p) => p.kind === 'hard')
+    expect(hard.map((p) => [p.id, p.end])).toEqual([
+      [7, 'd'],
+      [7, 'to'],
+    ])
+    // Moving the far rib moves `to`, and neither end can pass the other
+    const h = st.ribs.hardPoints[0]
+    expect(movedEnd(h, 'to', 0.25)).toMatchObject({ d: 0.1, to: 0.25 })
+    expect(movedEnd(h, 'to', 0.05).to).toBeCloseTo(0.103, 9)
+    expect(movedEnd(h, 'd', 0.3).d).toBeCloseTo(0.197, 9)
+    expect(movedEnd({ id: 1, d: 0.1 }, 'd', 0.3)).toEqual({ id: 1, d: 0.3 })
   })
 
   it('uses manual positions as given, plus the hard points', () => {

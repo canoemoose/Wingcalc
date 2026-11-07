@@ -51,8 +51,8 @@ export const MIN_CORE = 0.0005
 // is the usual design value, covering imperfect bonds and core variation.
 export const WRINKLE_Q = 0.5
 
-// A new foam wing's settings: EPS 20, 0.6 mm obechi, a 6 × 0.5 mm carbon strip under each skin,
-// no shear web, 100 g/m² of epoxy per square metre of skin.
+// A new foam wing's settings: EPS 20, 0.6 mm obechi skins and 100 g/m² of epoxy bonding them
+// to the core. No spar caps or shear web: the skins carry the bending (foamStructure).
 export function defaultFoam() {
   return {
     core: 'eps-20',

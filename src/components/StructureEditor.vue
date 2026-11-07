@@ -14,7 +14,7 @@ import InspectorSection from './InspectorSection.vue'
 import EdgeFit from './EdgeFit.vue'
 import EdgeStockPicker from './EdgeStockPicker.vue'
 import { format, defaultUnit } from '../lib/units.js'
-import { MATERIALS, gussetLayer, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer, websSetting, thinRibsOf } from '../lib/structure.js'
+import { MATERIALS, gussetLayer, gussetEdges, FINISHES, finishOf, STRINGER_PROFILES, isRoundStringer, websSetting, thinRibsOf } from '../lib/structure.js'
 import { FOAMS, SKIN_MATERIALS, SKIN_SHEETS, defaultFoam } from '../lib/foam.js'
 import { LE_STOCK, TE_STOCK, KIND_LABELS, LE_TYPES, isRound, roundDiameter, customLe } from '../lib/edgeStock.js'
 
@@ -63,13 +63,23 @@ const HINGE_TYPES = [
   { value: 'pinned', label: 'Pinned', title: 'Pin hinges in holes drilled into both hinge spars at the centre line' },
   { value: 'live', label: 'Live', title: 'The top skin or covering runs over the hinge and flexes' },
 ]
-// The covering; one that wants closer ribs (tissue) brings the most the ribs may be apart down to
-// its own, in the same step
+// The covering; one that wants closer ribs (tissue) brings the spacing shown down to its own, in
+// the same step: the most the ribs may be apart (uniform or suggested), or the root and tip
+// spacing (tapered). Manual ribs and a foam wing's (hidden) spacing are left alone.
 function setFinish(v) {
   const want = FINISHES[v]?.ribPitch
   const r = structure.value.ribs
-  const pitch = want && (r.pitch || 0.075) > want + 1e-9 ? want : r.pitch
-  structure.value = { ...structure.value, covering: { ...structure.value.covering, finish: v }, ribs: { ...r, pitch } }
+  const pitch = r.pitch || 0.075
+  const clamp = (x) => (want && x > want + 1e-9 ? want : null)
+  const ribs = { ...r }
+  if (want && !foam.value) {
+    if (r.spacing === 'suggested' || r.spacing === 'uniform') ribs.pitch = clamp(pitch) ?? r.pitch
+    else if (r.spacing === 'tapered') {
+      ribs.rootPitch = clamp(r.rootPitch || pitch) ?? r.rootPitch
+      ribs.tipPitch = clamp(r.tipPitch || pitch) ?? r.tipPitch
+    }
+  }
+  structure.value = { ...structure.value, covering: { ...structure.value.covering, finish: v }, ribs }
 }
 // A caps spar's shear webs: on the caps' front face, their back face or both (an older save's
 // box spar becomes caps with both)
@@ -131,6 +141,13 @@ const LAYS = [
 ]
 // The trailing edge isn't let into the ribs
 const TE_FITS = EDGE_FITS.filter((f) => f.value !== 'inset')
+// The same on a foam wing, where the stock goes on the core rather than the ribs
+const FOAM_EDGE_FITS = [
+  { value: 'square', label: 'Square to the core', title: 'Its back face square to the chord, glued flat on the square-cut core face' },
+  { value: 'rotated', label: 'Turned to the camber', title: 'Turned to follow the section, so less is carved away; the core face is cut to its angle' },
+  { value: 'inset', label: 'Let into the core', title: "A strip in a notch in the core's corner, its bottom along the lower surface, the core over it and behind it" },
+]
+const FOAM_TE_FITS = FOAM_EDGE_FITS.filter((f) => f.value !== 'inset')
 const COVERINGS = [
   { value: 'open', label: 'Open', title: 'Ribs only, covered over the open bays' },
   { value: 'dbox', label: 'D-box', title: 'Sheeted from the leading edge back to the spar' },
@@ -308,11 +325,11 @@ const summaries = computed(() => {
       : `${cov.type === 'dbox' ? 'D-box' : 'Fully sheeted'}, ${mm(cov.sheetThickness)} ${mat(cov.sheetMaterial)}`
   }`
   const spacing = r.spacing === 'manual' ? `manual, ${(r.manual ?? []).length} ribs` : SPACING_SUMS[r.spacing]
-  const gussets = !(g.le || g.te)
+  // Only the edges that get them (no LE gussets unless the leading edge is balsa stock)
+  const ge = gussetEdges(x)
+  const gussets = !ge.length
     ? 'None'
-    : `${[g.le && 'LE', g.te && 'TE'].filter(Boolean).join(' and ')}, ${g.where === 'all' ? 'every rib' : 'ends'}, ${[...new Set(
-        ['le', 'te'].filter((e) => g[e]).map((e) => LAYER_SUMS[gussetLayer(g, e)]),
-      )].join(' / ')}`
+    : `${ge.map((e) => e.toUpperCase()).join(' and ')}, ${g.where === 'all' ? 'every rib' : 'ends'}, ${[...new Set(ge.map((e) => LAYER_SUMS[gussetLayer(g, e)]))].join(' / ')}`
   const f = x.foam ?? defaultFoam()
   return {
     construction: x.construction === 'foam' ? 'Foam core' : 'Built-up',
@@ -455,7 +472,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
       <p class="wc-field__hint">
         {{
           foam
-            ? 'A hot-wire cut foam core for each panel, skinned top and bottom, with spar caps let in under the skins and no ribs. The built-up settings are kept for switching back.'
+            ? 'A hot-wire cut foam core for each panel, skinned top and bottom, with no spar or ribs: the skins carry the bending. The built-up settings are kept for switching back.'
             : 'Ribs on a spar, with sheeting, cap strips and covering as set below.'
         }}
       </p>
@@ -831,7 +848,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           @update:model-value="set('le.height', $event)"
         />
         <SelectField :id="id('lem')" :model-value="st.le.material" label="Leading edge material" :options="WOOD" @update:model-value="set('le.material', $event)" />
-        <SegmentedField :model-value="st.le.fit ?? 'square'" label="Leading edge stock fitted" :options="EDGE_FITS" @update:model-value="set('le.fit', $event)" />
+        <SegmentedField :model-value="st.le.fit ?? 'square'" label="Leading edge stock fitted" :options="foam ? FOAM_EDGE_FITS : EDGE_FITS" @update:model-value="set('le.fit', $event)" />
         <SegmentedField v-if="st.le.fit === 'inset'" :model-value="st.le.lay ?? 'best'" label="Strip laid" :options="LAYS" @update:model-value="set('le.lay', $event)" />
       </template>
       <SelectField
@@ -844,7 +861,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         @update:model-value="set('le.diameter', Number($event))"
       />
       <EdgeFit v-if="edges?.le.drawing" :drawing="edges.le.drawing" name="Leading edge" :round="!!edges.le.round" :system="system" />
-      <p v-if="st.le.type === 'none'" class="wc-field__hint">
+      <p v-if="st.le.type === 'none' && foam" class="wc-field__hint">The core runs forward to the nose and the skins are bent round it, so there's no separate stock.</p>
+      <p v-else-if="st.le.type === 'none'" class="wc-field__hint">
         The ribs run forward to the nose and the sheeting is bent round it, so there's no separate stock. Needs a D-box
         or fully sheeted wing.
       </p>
@@ -877,7 +895,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         />
       </template>
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />
-      <SegmentedField v-if="edges?.te.item" :model-value="st.te.fit === 'rotated' ? 'rotated' : 'square'" label="Trailing edge stock fitted" :options="TE_FITS" @update:model-value="set('te.fit', $event)" />
+      <SegmentedField v-if="edges?.te.item" :model-value="st.te.fit === 'rotated' ? 'rotated' : 'square'" label="Trailing edge stock fitted" :options="foam ? FOAM_TE_FITS : TE_FITS" @update:model-value="set('te.fit', $event)" />
       <EdgeFit v-if="edges?.te.drawing" :drawing="edges.te.drawing" name="Trailing edge" :system="system" />
     </InspectorSection>
 
@@ -995,8 +1013,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         @update:model-value="set('ribs.pitch', $event)"
       />
       <div v-else-if="st.ribs.spacing === 'tapered'" class="wc-structure-editor__pair">
-        <UnitInput :id="id('rootp')" :model-value="st.ribs.rootPitch" quantity="length" :system="system" label="At the root" @update:model-value="set('ribs.rootPitch', $event)" />
-        <UnitInput :id="id('tipp')" :model-value="st.ribs.tipPitch" quantity="length" :system="system" label="At the tip" @update:model-value="set('ribs.tipPitch', $event)" />
+        <UnitInput :id="id('rootp')" :model-value="st.ribs.rootPitch" quantity="length" :system="system" label="At the root" :placeholder="lengthText(st.ribs.pitch || 0.075)" @update:model-value="set('ribs.rootPitch', $event)" />
+        <UnitInput :id="id('tipp')" :model-value="st.ribs.tipPitch" quantity="length" :system="system" label="At the tip" :placeholder="lengthText(st.ribs.pitch || 0.075)" @update:model-value="set('ribs.tipPitch', $event)" />
       </div>
       <template v-else-if="st.ribs.spacing === 'manual'">
         <p class="wc-field__hint">
@@ -1145,13 +1163,14 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
     </InspectorSection>
 
     <InspectorSection v-if="!foam" title="Corner gussets" fold-key="structure:gussets" :warnings="warnIn('gussets')" :summary="summaries.gussets">
-      <label class="wc-check wc-structure-editor__check">
+      <label v-if="!st.le.type || st.le.type === 'balsa'" class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.gussets.le" @change="set('gussets.le', $event.target.checked)" /> Where ribs meet the leading edge
       </label>
+      <p v-else class="wc-field__hint">Gussets at the leading edge need balsa leading edge stock to glue to.</p>
       <label class="wc-check wc-structure-editor__check">
         <input type="checkbox" :checked="st.gussets.te" @change="set('gussets.te', $event.target.checked)" /> Where ribs meet the trailing edge
       </label>
-      <template v-if="st.gussets.le || st.gussets.te">
+      <template v-if="gussetEdges(st).length">
         <SegmentedField
           :model-value="st.gussets.where"
           label="On"
@@ -1162,7 +1181,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           @update:model-value="set('gussets.where', $event)"
         />
         <SegmentedField
-          v-for="e in ['le', 'te'].filter((k) => st.gussets[k])"
+          v-for="e in gussetEdges(st)"
           :key="e"
           :model-value="gussetLayer(st.gussets, e)"
           :label="`${e === 'le' ? 'At the leading edge' : 'At the trailing edge'}, flush with the rib's`"
@@ -1193,14 +1212,13 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
     <InspectorSection title="Control surfaces" fold-key="structure:hinges" :warnings="warnIn('hinges')" :summary="summaries.hinges">
       <p v-if="foam" class="wc-field__hint">
         For the ailerons and flaps set in the wing editor. The core is cut and skinned whole, then each surface is sawn off
-        along its hinge line, and both cut faces are capped with a hinge spar: the surface's bevelled to a point at the
-        centre line so it can swing through its throws. Mylar tabs are slotted into both at the centre line.
+        along its hinge line, and both cut faces are capped with a hinge spar, the surface's bevelled so it can swing
+        through its throws.
       </p>
       <p v-else class="wc-field__hint">
         For the ailerons and flaps drawn in the wing editor. A hinge spar each side of the hinge line: the fixed part's ribs
-        stop at the front of one, and the surface's own ribs start at the back of the other, which is bevelled to a point
-        at the centre line so the surface can swing through its throws. Mylar tabs are slotted into both at the centre
-        line.
+        stop at the front of one, and the surface's own ribs start at the back of the other, which is bevelled so the
+        surface can swing through its throws.
       </p>
       <slot name="surfaces" />
       <InspectorSection title="Hinges, on every surface" fold-key="structure:hinge-settings" :summary="summaries.hinges">
@@ -1240,8 +1258,8 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         <input type="checkbox" :checked="st.braces.enabled" @change="set('braces.enabled', $event.target.checked)" />
         Brace plates on the spar at each dihedral break
       </label>
-      <template v-if="st.braces.enabled">
-        <p v-if="st.spar.type === 'tube'" class="wc-field__hint">A tube spar joins with a bent joiner or sleeve instead, so no plates are drawn.</p>
+      <p v-if="st.braces.enabled && st.spar.type === 'tube'" class="wc-field__hint">A tube spar joins with a bent joiner or sleeve instead, so no plates are drawn.</p>
+      <template v-else-if="st.braces.enabled">
         <SelectField :id="id('bm')" :model-value="st.braces.material" label="Material" :options="PLY" @update:model-value="set('braces.material', $event)" />
         <p v-if="!braceNeeds.length" class="wc-field__hint">No dihedral breaks to brace.</p>
         <UnitInput

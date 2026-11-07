@@ -3,7 +3,7 @@ import { defaultState, fillDefaults } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
-import { analyseStructure, defaultStructure, sheetThicknessAt, skinAt, hardPatches, patchThicknessAt } from '../src/lib/structure.js'
+import { analyseStructure, defaultStructure, sheetThicknessAt, skinAt, skinAtSpar, hardPatches, patchThicknessAt } from '../src/lib/structure.js'
 import { buildParts, buildRib } from '../src/lib/ribs.js'
 import { patchSection, surfaceHeight, insetHeight, sectionAt, wing3d, partFor } from '../src/lib/wing3d.js'
 import { planDxf, parseDxf, defaultExportOptions, planEntities } from '../src/lib/dxf.js'
@@ -28,6 +28,24 @@ const outer = (a) => a.ribs.find((r) => r.s > a.sampler.ends[0].outer.s + 0.05)
 const inner = (a) => a.ribs.find((r) => r.s > a.rootS + 0.05)
 
 describe('sheeting thickness per panel', () => {
+  it("takes a hard point's D-box thickness on a D-box only", () => {
+    const st = (type) => ({ covering: { type, sheetThickness: 0.0015 }, hardBays: [{ s0: 0.1, s1: 0.2, dboxThickness: 0.003 }] })
+    expect(sheetThicknessAt(st('dbox'), 0.15)).toBeCloseTo(0.003, 9)
+    // Left over from D-box mode, it doesn't change a fully sheeted wing
+    expect(sheetThicknessAt(st('sheeted'), 0.15)).toBeCloseTo(0.0015, 9)
+    expect(sheetThicknessAt(st('dbox'), 0.25)).toBeCloseTo(0.0015, 9)
+  })
+
+  it("tests the skin at the spar's own chord fraction where the caller has it", () => {
+    // D-box top sheeting stops at 32%, between the fallback 28% and a spar at 35%
+    const st = { ...defaultStructure() }
+    st.spar = { ...st.spar, position: null }
+    st.covering = { ...st.covering, type: 'dbox', sheetThickness: 0.0015, capStrips: true, capStripThickness: 0.0008, dbox: { top: true, bottom: true, topTo: 0.32, bottomTo: null } }
+    expect(skinAtSpar(st, 'top')).toBeCloseTo(0.0015, 9)
+    expect(skinAtSpar(st, 'top', null, 0.35)).toBeCloseTo(0.0008, 9)
+    expect(skinAtSpar(st, 'bottom', null, 0.35)).toBeCloseTo(0.0015, 9)
+  })
+
   it('defaults to the wing thickness everywhere, and migrates older saves to an empty map', () => {
     expect(defaultStructure().covering.panelThickness).toEqual({})
     expect(fillDefaults(defaultStructure(), { covering: { sheetThickness: 0.002 } }).covering.panelThickness).toEqual({})

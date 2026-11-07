@@ -4,6 +4,7 @@
 
 import { normalisePanels } from './wing.js'
 import { defaultStructure } from './structure.js'
+import { migrateLeStockId } from './edgeStock.js'
 import { defaultExportOptions } from './dxf.js'
 import { normaliseUnits } from './units.js'
 import { defaultControls } from './controlSurfaces.js'
@@ -75,6 +76,15 @@ export function migrate(state) {
     const saved = s.input?.structure?.[k]
     if (saved && typeof saved === 'object' && !('stock' in saved)) input.structure[k] = { ...input.structure[k], stock: 'custom' }
   }
+  // A retired flat leading-edge code becomes the symmetrical strip of the same size, so the
+  // picker and summary show what the analysis uses
+  const le = input.structure.le
+  if (le && typeof le.stock === 'string') {
+    const id = migrateLeStockId(le.stock)
+    if (id !== le.stock) input.structure.le = { ...le, stock: id }
+  }
+  // An older save's box spar is caps with a web on both faces
+  if (input.structure.spar?.type === 'box') input.structure.spar = { ...input.structure.spar, type: 'caps', webs: 'both' }
   input.exportOptions = fillDefaults(d.input.exportOptions, s.input?.exportOptions)
   const airfoil = { ...d.airfoil, ...(s.airfoil ?? {}) }
   airfoil.custom = { ...d.airfoil.custom, ...(s.airfoil?.custom ?? {}) }

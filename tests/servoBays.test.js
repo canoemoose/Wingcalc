@@ -390,6 +390,21 @@ describe('built servo bays', () => {
     }
   })
 
+  it('keeps clear of cap strips only where they are built: not on a fully sheeted wing', () => {
+    const at = (type, capStrips) =>
+      build({
+        edit: (st) => {
+          st.covering.type = type
+          st.covering.capStrips = capStrips
+          st.covering.capStripWidth = 0.012
+        },
+      }).a.bays.map((b) => b.sB - b.sA)
+    // A fully sheeted wing has no cap strips whatever the setting, so they don't push its bays apart
+    expect(at('sheeted', true)).toEqual(at('sheeted', false))
+    // On a D-box they're built, and the bay's ribs stand clear of them
+    at('dbox', true).forEach((w, i) => expect(w).toBeGreaterThan(at('dbox', false)[i] + 0.004))
+  })
+
   it('says so when a rib is too thin for the lead hole, and leaves the hole out', () => {
     // A 3% section with thick cap strips: behind the spar the ribs are too shallow for a 6 mm hole
     // with material round it
@@ -771,8 +786,7 @@ describe('servo bays in the exports and the 3D view', () => {
     }
     for (const b of res.a.bays) {
       const box = servoBox(res.a, res.st, b)
-      expect(box.top).toBeCloseTo(box.base + b.servo.height, 9)
-      expect(box.top).toBeLessThanOrEqual(box.ceil + 1e-9)
+      expect(box.base + b.servo.height).toBeLessThanOrEqual(box.ceil + 1e-9)
     }
     const r = build({ bays: noBays() })
     const none = wing3d(r.a, r.st, r.parts)

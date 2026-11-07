@@ -3,14 +3,14 @@
 
 // The structure editor section (its fold key, less the 'structure:' prefix) whose settings fix a
 // structure warning, from the warning's id (structure.js analyseStructure). Null for warnings set
-// elsewhere (control surfaces, servo bays and air brakes live in the wing editor), which stay in
-// the list under the editor. A foam wing has its own sections for the spar caps and the skins.
+// elsewhere (air brakes and their servo bays live in the wing editor), which stay in the list
+// under the editor. A foam wing has its own section for the core and skins.
 export function structureSection(id, foam = false) {
   if (!id) return null
   const spar = 'spar'
   if (/^short-(compression|tension|webShear|webBuckling)$/.test(id) || id === 'spar-fit' || id === 'tube-short') return spar
   if (id === 'short-sheet') return foam ? 'foamcore' : 'covering'
-  if (/^short-(wrinkling|core|coreShear)$/.test(id)) return 'foamcore'
+  if (/^short-(wrinkling|coreShear)$/.test(id)) return 'foamcore'
   if (id === 'short-spacing' || id === 'too-close' || id === 'ribs-skipped' || id === 'rib-pitch-covering') return 'ribs'
   if (/^(le|te)-/.test(id) || id === 'thin-te') return 'edges'
   if (id === 'finish-open') return 'finish'
@@ -20,6 +20,9 @@ export function structureSection(id, foam = false) {
   if (id.startsWith('surface-')) return 'hinges'
   // Each surface's linkage, in that surface's own section (SurfaceStructure.vue)
   if (id.startsWith('linkage-')) return 'surfaces'
+  // A control surface's servo bay (its id is the surface's, a number), in that surface's section
+  // too; an air brake's (bay-b…) stays in the list
+  if (/^bay-\d+(-|$)/.test(id)) return 'surfaces'
   return null
 }
 

@@ -314,7 +314,8 @@ describe('round and no leading edge', () => {
     old.input.structure.le = { stock: 'L340', width: 0.0125, material: 'balsa-hard' }
     const m = migrate(JSON.parse(JSON.stringify(old)))
     expect(m.input.structure.le.type).toBe('balsa')
-    expect(m.input.structure.le.stock).toBe('L340')
+    // A retired flat code becomes the symmetrical stock of the same size
+    expect(m.input.structure.le.stock).toBe('L345')
   })
 })
 

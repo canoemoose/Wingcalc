@@ -1,6 +1,5 @@
 // The parts of a foam-core wing (foam.js), from the structure analysis: hot-wire templates for
-// each panel's core, the skins and the sheets to cut them from, a shear web per panel, routing
-// templates for the servo and air brake pockets, the foam blocks, and the core's weight.
+// each panel's core, the skins and the sheets to cut them from, routing templates for the servo and air brake pockets, the foam blocks, and the core's weight.
 //
 // Hot-wire templates. Each panel's core is cut in one piece between a template at each end:
 // the core's section at that end (between the skins, from the back of the leading edge stock
@@ -258,8 +257,8 @@ export function coreVolume(a, structure, n = 20) {
   return v
 }
 
-// Everything else to cut for a foam wing: the templates, the skins, a shear web per core, the
-// pockets' routing templates; cut list lines for the foam blocks and the skin sheets; and the
+// Everything else to cut for a foam wing: the templates, the skins, the pockets'
+// routing templates; cut list lines for the foam blocks and the skin sheets; and the
 // core's and the skin glue's weight on one half wing. both: a pair is being made.
 export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn = LEAD_IN } = {}) {
   const f = structure.foam

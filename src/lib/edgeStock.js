@@ -728,7 +728,8 @@ export function resolveEdges(structure, section, stations) {
       const xiOf = (v) => Math.min(1, Math.max(0, k === 'le' ? v / rootSec.c : 1 - v / rootSec.c))
       // Where the face meets the surface and the rib's surface under any cap strips, the more
       // forward of the two: from there the rib is under a strip, its end cut along the face
-      const tCap = structure.covering?.capStrips ? structure.covering.capStripThickness || 0 : 0
+      // Cap strips are only built where the wing isn't fully sheeted
+      const tCap = structure.covering?.capStrips && structure.covering.type !== 'sheeted' ? structure.covering.capStripThickness || 0 : 0
       const meetAt = (which, off) => {
         let v = F.depth
         for (let i = 0; i < 8; i++) v = F.at(rootSec.surf(xiOf(v))[which] + off)

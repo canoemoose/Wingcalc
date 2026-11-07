@@ -26,6 +26,24 @@ const dboxEdit = (top, bottom, topTo = null, bottomTo = null) => (st) => {
 }
 
 describe('D-box sheeting per surface', () => {
+  it('limits rib spacing for the compressed cap wherever no sheeting covers it, as on an open wing', () => {
+    const open = build((st) => (st.covering.type = 'open')).a
+    const limits = (a) => a.stations.map((r) => r.limit)
+    // Neither side sheeted: exactly the open wing's limit
+    expect(limits(build(dboxEdit(false, false)).a)).toEqual(limits(open))
+    // Top (compressed under positive g) unsheeted: the cap's limit, near the open wing's (the
+    // bottom sheeting stiffens the section a little)
+    const top = build(dboxEdit(false, true)).a
+    const root = top.stations[0]
+    expect(Number.isFinite(root.limit)).toBe(true)
+    expect(root.limit / open.stations[0].limit).toBeGreaterThan(0.95)
+    expect(root.limit / open.stations[0].limit).toBeLessThan(1.1)
+    // Top sheeting stopping ahead of the spar leaves the cap free too
+    expect(Number.isFinite(build(dboxEdit(true, true, 0.15)).a.stations[0].limit)).toBe(true)
+    // Sheeted back to the spar on both sides, the cap is held
+    expect(build(dboxEdit(true, true)).a.stations[0].limit).toBe(Infinity)
+  })
+
   it('default dbox matches explicit both-to-spar exactly', () => {
     const def = build()
     const exp = build(dboxEdit(true, true, null, null))
@@ -149,5 +167,22 @@ describe('sheeted hard points', () => {
   })
   it('ignore sheeting on a hard point without a second distance', () => {
     expect(hardPatches({ ribs: { hardPoints: [{ id: 1, d: 0.1, sheet: 'both' }] } }, 0)).toEqual([])
+  })
+})
+
+describe('D-box sheeting parts per surface', () => {
+  const sheets = (res, surface) => res.parts.filter((p) => p.group === 'sheeting' && p.surface === surface)
+  const widest = (p) => Math.max(...p.outline.map(([, w]) => w))
+  it('makes no bottom sheets when the bottom D-box is off', () => {
+    const res = build(dboxEdit(true, false))
+    expect(sheets(res, 'upper').length).toBeGreaterThan(0)
+    expect(sheets(res, 'lower')).toEqual([])
+  })
+  it('cuts the top sheet to the set stop when topTo is set', () => {
+    const def = build(dboxEdit(true, true))
+    const set = build(dboxEdit(true, true, 0.5))
+    expect(widest(sheets(set, 'upper')[0])).toBeGreaterThan(widest(sheets(def, 'upper')[0]) + 0.01)
+    // The bottom one is unchanged
+    expect(widest(sheets(set, 'lower')[0])).toBeCloseTo(widest(sheets(def, 'lower')[0]), 6)
   })
 })
