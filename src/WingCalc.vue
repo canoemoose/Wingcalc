@@ -695,10 +695,20 @@ function toggleExpand(card) {
 const LOGO_MARK = iconSvg(40)
 
 // The card's thumbnails of the plan and the wing in 3D
+// A thumbnail that can't be drawn is left out rather than taking the page down with it: the
+// error goes to the console (a thumbnail failing has blanked the whole page before now).
 const thumbs = computed(() => {
   const r = structureResult.value
   if (!r || input.geometryMode !== 'panels') return null
-  return { plan: planThumb(r.a, r.a.structure, r.parts), iso: isoThumb(r.a, r.a.structure, r.parts) }
+  const draw = (what, f) => {
+    try {
+      return f()
+    } catch (err) {
+      console.error(`Wingcalc: the ${what} thumbnail couldn't be drawn -`, err)
+      return null
+    }
+  }
+  return { plan: draw('plan', () => planThumb(r.a, r.a.structure, r.parts)), iso: draw('3D', () => isoThumb(r.a, r.a.structure, r.parts)) }
 })
 const ribParts = computed(() => structureResult.value?.parts.filter((p) => p.group === 'ribs' && !p.of) ?? [])
 const autoSpar = computed(() => sparFraction({ spar: { position: null } }, airfoil.value?.params))
