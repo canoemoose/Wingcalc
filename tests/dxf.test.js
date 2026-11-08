@@ -283,6 +283,33 @@ function inside(poly, [x, y], tol) {
   return c
 }
 
+describe('the plan with stringers', () => {
+  // The stringer's faces are found from the slope of its line, sampled a little either side of
+  // each point: at the root and the tip that lands off the wing, where there is no section
+  for (const [what, tip] of [['a square tip', null], ['a rounded tip', { extension: 0.03, peak: 0.5 }]]) {
+    it(`draws a stringer to both ends of the wing with ${what}`, () => {
+      const s = defaultState()
+      s.input.tip = tip
+      const st = defaultStructure()
+      st.stringers = [{ id: 1, position: 0.6, surface: 'upper', width: 0.005, height: 0.003, material: 'balsa-medium' }]
+      const airfoil = resolveAirfoil(s.airfoil)
+      const g = wingGeometry({ ...s.input, mode: 'panels' })
+      const planform = projectedSampler(wingSampler(s.input, airfoil.params.thickness))
+      const perf = airfoilPerformance(airfoil, { mass: s.input.mass, area: g.projectedArea, chord: g.mac, wing: { planform, span: g.span, sweepCos: 1 } })
+      const a = analyseStructure({ wing: s.input, airfoil, structure: st, mass: s.input.mass, spanwise: perf.spanwise })
+      const { parts } = buildParts(a, a.structure)
+      const ents = planEntities(a, a.structure, parts, { handedness: 'right' })
+      const str = ents.filter((e) => e.layer === 'STRINGERS')
+      expect(str.length).toBeGreaterThan(0)
+      // Closed at both ends, every point finite, and it reaches from the root to the tip
+      const ss = str[0].pts.map((q) => q[0])
+      expect(str[0].pts.every((q) => Number.isFinite(q[0]) && Number.isFinite(q[1]))).toBe(true)
+      expect(Math.min(...ss)).toBeCloseTo(a.rootS * 1000, 3)
+      expect(Math.max(...ss)).toBeCloseTo((a.stringerEnd ?? a.tipS) * 1000, 0)
+    })
+  }
+})
+
 describe('the plan on a swept wing', () => {
   it('draws the spar as wide along the chord as the ribs notch for it', () => {
     const s = defaultState()

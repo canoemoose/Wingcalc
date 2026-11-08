@@ -707,8 +707,13 @@ export function insideCentre(st, lo, hi) {
 // faces sit w / 2 · √(1 + slope²) either side in x. Returns [front(s), rear(s)].
 export function lineFaces(line, w) {
   const h = 1e-4
+  // The slope from a central difference, or a one-sided one at an end the line doesn't reach
+  // past (it gives NaN there); flat if neither side is there
   const halfAt = (s) => {
-    const slope = (line(s + h) - line(s - h)) / (2 * h)
+    const here = line(s)
+    const before = line(s - h)
+    const after = line(s + h)
+    const slope = Number.isFinite(before) && Number.isFinite(after) ? (after - before) / (2 * h) : Number.isFinite(after) ? (after - here) / h : Number.isFinite(before) ? (here - before) / h : 0
     return (w / 2) * Math.sqrt(1 + slope * slope)
   }
   return [(s) => line(s) - halfAt(s), (s) => line(s) + halfAt(s)]

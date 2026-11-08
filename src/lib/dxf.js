@@ -675,7 +675,12 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   // Stringers and reinforcement at their width: both faces, closed at the ends
   for (const st of structure.stringers ?? []) {
     if (!stringerOk(st)) continue
-    const [front, rear] = lineFaces((s) => sec(s).xl + st.position * sec(s).c, stringerSize(st).w)
+    // NaN off the wing: the faces' slope is sampled a little either side of each point
+    const along = (s) => {
+      const c = sec(s)
+      return c ? c.xl + st.position * c.c : NaN
+    }
+    const [front, rear] = lineFaces(along, stringerSize(st).w)
     const f = line(front)
     const r = line(rear)
     if (f.length > 1 && r.length > 1) add('STRINGERS', [...f, ...r.reverse()], true)
