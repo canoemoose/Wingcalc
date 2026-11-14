@@ -196,7 +196,7 @@ const sectionSummary = computed(() => {
         </div>
       </InspectorSection>
       <p v-if="!shown.length" class="wc-field__hint">
-        None. Add one to the selected panel here or from the plan's bar along the top: blades rise vertically out of a box in the wing, a spoiler is a plate hinged on the top surface.
+        None. Add one to the selected panel here or from the plan's bar along the bottom: blades rise vertically out of a box in the wing, a spoiler is a plate hinged on the top surface.
       </p>
       <div class="wc-structure-editor__actions">
         <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd.blade" :title="canAdd.blade ? '' : 'No room left on that panel'" @click="add('blade')">

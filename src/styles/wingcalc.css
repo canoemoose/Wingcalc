@@ -3047,14 +3047,15 @@
   vector-effect: none;
 }
 
-/* Actions on the selection, along the top of a drawing, after Screenvision's command bar */
+/* Actions on the selection, along the bottom of a drawing, after Screenvision's command bar */
 .wc-cmd {
   position: absolute;
   z-index: 4;
-  /* Centred along the top, clear of the corner controls */
-  top: 8px;
-  left: 120px;
-  right: 120px;
+  /* Centred along the bottom, clear of the zoom controls in the corner (and so of the view
+     toggles along the top) */
+  bottom: 8px;
+  left: 190px;
+  right: 190px;
   width: fit-content;
   margin: 0 auto;
   display: flex;
@@ -3123,7 +3124,6 @@
 }
 @media (max-width: 560px) {
   .wc-cmd {
-    top: auto;
     bottom: 44px;
     left: 8px;
     right: 8px;

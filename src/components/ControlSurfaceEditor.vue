@@ -170,7 +170,7 @@ function setLanding(v) {
         <p class="wc-field__hint">The hinge gap and the servo bay are set in the structure editor, under Control surfaces.</p>
       </InspectorSection>
       <p v-if="!shown.length" class="wc-field__hint">
-        None. Add one to the selected panel here or from the plan's bar along the top: the first is an aileron, later ones flaps.
+        None. Add one to the selected panel here or from the plan's bar along the bottom: the first is an aileron, later ones flaps.
       </p>
       <button type="button" class="wc-button wc-button--small wc-structure-editor__add" :disabled="!canAdd" :title="canAdd ? '' : 'No room left on that panel'" @click="add">
         Add control surface to panel {{ addTo + 1 }}

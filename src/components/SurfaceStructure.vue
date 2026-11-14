@@ -11,7 +11,6 @@ import { computed, ref, watch } from 'vue'
 import UnitInput from './UnitInput.vue'
 import SelectField from './SelectField.vue'
 import SegmentedField from './SegmentedField.vue'
-import ParamInput from './ParamInput.vue'
 import InspectorSection from './InspectorSection.vue'
 import { wingSampler } from '../lib/wing.js'
 import { resolveSurfaces } from '../lib/controlSurfaces.js'
@@ -101,22 +100,6 @@ function surfaceSummary(s) {
 // Its bay's own problems (structure.js: bay-<id> and bay-<id>-<k>) and its linkage's
 const bayWarnings = (s) => props.warnings.filter((w) => w.id === `bay-${s.id}` || w.id.startsWith(`bay-${s.id}-`))
 const surfaceWarnings = (s) => [...bayWarnings(s), ...(linked.value.get(s.id)?.warnings ?? [])]
-const squareOptions = [
-  { value: 'chord', label: 'Chord', title: "The servo's length along the chord" },
-  { value: 'hinge', label: 'Hinge', title: "The servo's length square to the hinge line, so the pushrod meets the horn square" },
-]
-const setLink = (s, patch) => setBayFor(s, { link: savedLink({ ...linkOf(bayFor(s)), ...patch }) })
-const hornAt = (s) => linkOf(bayFor(s)).hornAt
-// The horn's turn as set, or as lined up with the pushrod (rounded to the degree)
-const hornAngle = (s) => {
-  const v = linkOf(bayFor(s)).hornAngle
-  return Number.isFinite(v) ? v : Math.round(linked.value.get(s.id)?.frame.hornAngle ?? 0)
-}
-const hornHint = (s) =>
-  `Where the horn is, from the surface's inner end along it (or drag it on the plan); empty puts it in line with the servo, where its arm's plane meets the hinge. ${
-    Number.isFinite(linkOf(bayFor(s)).hornAngle) ? 'Its turn is set by hand.' : "Its turn lines it up with the pushrod (and with the servo, when it's in line with it)."
-  }`
-
 // The configurator, open on one surface's bay. It's teleported to the nearest .wingcalc (the
 // structure editor's window), since the side panel it's opened from would trap a fixed dialogue.
 const rootEl = ref(null)
@@ -136,7 +119,7 @@ const open = computed(() => {
   if (!shown) return null
   return { sid, l: shown, problem: l ? '' : bay && !bay.ok ? bayProblem(bay) : '', title: shown.bay.label }
 })
-const draftOf = (b) => ({ class: b.class ?? null, rotate: !!b.rotate, flip: !!b.flip, fore: b.fore, inset: b.inset, link: linkOf(b) })
+const draftOf = (b) => ({ class: b.class ?? null, rotate: !!b.rotate, flip: !!b.flip, square: b.square ?? 'chord', fore: b.fore, inset: b.inset, link: linkOf(b) })
 function startConfiguring() {
   const sid = configuring.value
   opened.value = sid == null ? null : draftOf(bayFor({ id: sid }))
@@ -144,7 +127,7 @@ function startConfiguring() {
   if (sid == null) preview.value = null
 }
 watch(configuring, startConfiguring, { immediate: true })
-const withDraft = (sid, d) => setBay(controls.value, sid, { class: d.class, rotate: d.rotate, flip: d.flip, fore: d.fore, inset: d.inset, link: savedLink(d.link) })
+const withDraft = (sid, d) => setBay(controls.value, sid, { class: d.class, rotate: d.rotate, flip: d.flip, square: d.square, fore: d.fore, inset: d.inset, link: savedLink(d.link) })
 function change(sid, d) {
   preview.value = withDraft(sid, d)
 }
@@ -182,7 +165,6 @@ function cancel() {
         <p class="wc-field__hint">
           Measured from the surface's inner end, along the surface; leave it empty for a third of the way along. {{ servoText(s) }}
         </p>
-        <SegmentedField :model-value="bayFor(s).square ?? 'chord'" label="Servo square to" :options="squareOptions" @update:model-value="setBayFor(s, { square: $event })" />
         <label class="wc-check wc-structure-editor__check">
           <input type="checkbox" :checked="bayFor(s).hatch !== false" @change="setBayFor(s, { hatch: $event.target.checked })" />
           A hatch to reach the servo
@@ -193,27 +175,7 @@ function cancel() {
         <template v-if="linked.get(s.id)">
           <p :class="linkWarn(s) ? 'wc-field__warn' : 'wc-field__hint'">Linkage: {{ linkText(s) }}</p>
           <button type="button" class="wc-button" @click="configuring = s.id">Servo and linkage…</button>
-          <UnitInput
-            :id="id(`${s.id}-horn`)"
-            :model-value="hornAt(s)"
-            quantity="length"
-            :system="system"
-            label="Horn"
-            placeholder="In line with the servo"
-            @update:model-value="setLink(s, { hornAt: $event })"
-          />
-          <ParamInput
-            :id="id(`${s.id}-horn-angle`)"
-            :model-value="hornAngle(s)"
-            label="Horn turned from square to the hinge"
-            suffix="°"
-            :min="-45"
-            :max="45"
-            :step="1"
-            :hint="hornHint(s)"
-            @update:model-value="setLink(s, { hornAngle: $event })"
-          />
-          <button v-if="Number.isFinite(linkOf(bayFor(s)).hornAngle)" type="button" class="wc-button wc-button--small" @click="setLink(s, { hornAngle: null })">Line it up with the pushrod</button>
+          <p class="wc-field__hint">The servo, what it's square to, its arm and the horn (where it is along the hinge and how it's turned) are set there; the horn drags on the plan too.</p>
         </template>
         <p v-else-if="analysis" class="wc-field__hint">The linkage can be set once the bay is built.{{ bayWarnings(s).length ? ' The warning in this section says why not.' : '' }}</p>
       </template>

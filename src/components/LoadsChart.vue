@@ -141,6 +141,8 @@ function onWheel(e, k) {
 let drag = null
 function onDown(e, k) {
   if (!zoomed.value || e.button !== 0) return
+  // No native text selection or text drag when the press lands on an axis label
+  e.preventDefault()
   const r = e.currentTarget.getBoundingClientRect()
   drag = {
     k,
@@ -183,7 +185,7 @@ function onZoomKey(e) {
 // Each chart's pointer handlers: hover in the card; zoom and pan as well expanded
 const handlers = (k) =>
   props.expanded
-    ? { onPointermove: onMove, onPointerdown: (e) => onDown(e, k), onPointerup: onUp, onPointercancel: onUp, onWheel: (e) => onWheel(e, k) }
+    ? { onPointermove: onMove, onPointerdown: (e) => onDown(e, k), onPointerup: onUp, onPointercancel: onUp, onWheel: (e) => onWheel(e, k), onDragstart: (e) => e.preventDefault(), onSelectstart: (e) => e.preventDefault() }
     : { onPointermove: onHover }
 const svgOnM = computed(() => handlers('m'))
 const svgOnS = computed(() => handlers('s'))

@@ -13,6 +13,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted, useId } from 'vue'
 import SegmentedField from './SegmentedField.vue'
 import UnitInput from './UnitInput.vue'
+import ParamInput from './ParamInput.vue'
 import { servoOptions, servoById, servoFrame, servoParts, placeServo, planCorners, SERVOS } from '../lib/servos.js'
 import { HORNS, linkage, splineError } from '../lib/linkage.js'
 import { assemblyGeometry, servoChoices, linkSummary, hornOutline, TRAVELS, HORN_EDGE, PART_SIZES, armOutline } from '../lib/bayLinkage.js'
@@ -27,8 +28,8 @@ const props = defineProps({
   problem: { type: String, default: '' },
   // The bay's name, e.g. "Servo bay SB1"
   title: { type: String, required: true },
-  // The bay as saved when it opened: { class (null for automatic), rotate, flip, fore, inset,
-  // link (resolved, linkOf) }
+  // The bay as saved when it opened: { class (null for automatic), rotate, flip, square, fore,
+  // inset, link (resolved, linkOf) }
   bay: { type: Object, required: true },
   // The class a bay takes automatically, for this weight
   autoClass: { type: String, required: true },
@@ -42,11 +43,12 @@ const draft = reactive({
   cls: props.bay.class ?? '',
   rotate: !!props.bay.rotate,
   flip: !!props.bay.flip,
+  square: props.bay.square ?? 'chord',
   fore: props.bay.fore ?? null,
   inset: props.bay.inset ?? null,
   link: { ...props.bay.link },
 })
-const asBay = () => ({ class: draft.cls || null, rotate: draft.rotate, flip: draft.flip, fore: draft.fore, inset: draft.inset, link: { ...draft.link } })
+const asBay = () => ({ class: draft.cls || null, rotate: draft.rotate, flip: draft.flip, square: draft.square, fore: draft.fore, inset: draft.inset, link: { ...draft.link } })
 watch(draft, () => emit('change', asBay()), { deep: true })
 
 const frame = computed(() => props.linkage.frame)
@@ -123,6 +125,15 @@ const pickArm = (it) => (draft.link = { ...draft.link, arm: it.arm.id, armRow: i
 const pickHorn = (h) => (draft.link = { ...draft.link, horn: h.id, hornHole: null })
 const pickPair = (i, j) => (draft.link = { ...draft.link, armHole: i, hornHole: j })
 const setLink = (patch) => (draft.link = { ...draft.link, ...patch })
+// What the servo's length is square to, and where the horn is and how it's turned: the settings
+// the linkage's warnings ask for
+const squareOptions = [
+  { value: 'chord', label: 'Chord', title: "The servo's length along the chord" },
+  { value: 'hinge', label: 'Hinge', title: "The servo's length square to the hinge line, so the pushrod meets the horn square" },
+]
+const hornTurnSet = computed(() => Number.isFinite(draft.link.hornAngle))
+// The horn's turn as set, or as lined up with the pushrod (rounded to the degree)
+const hornTurn = computed(() => (hornTurnSet.value ? draft.link.hornAngle : Math.round(frame.value.hornAngle ?? 0)))
 
 const columns = { servo: ref(null), arm: ref(null), horn: ref(null) }
 onMounted(() => nextTick(() => ['servo', 'arm', 'horn'].forEach((k) => columns[k].value?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }))))
@@ -463,6 +474,21 @@ function onKey(e) {
           @update:model-value="setFore($event)"
         />
         <UnitInput :id="`${id}-inset`" :model-value="draft.inset" quantity="thin" :system="system" :label="`Inset from the ${skinName(config.face)} skin`" :placeholder="insetPlaceholder" @update:model-value="draft.inset = $event" />
+        <SegmentedField :model-value="draft.square" label="Servo square to" :options="squareOptions" @update:model-value="draft.square = $event" />
+        <UnitInput
+          :id="`${id}-horn`"
+          :model-value="draft.link.hornAt ?? null"
+          quantity="length"
+          :system="system"
+          label="Horn along the hinge"
+          placeholder="In line with the servo"
+          title="From the surface's inner end along it; empty puts it in line with the servo, where its arm's plane meets the hinge"
+          @update:model-value="setLink({ hornAt: $event })"
+        />
+        <div>
+          <ParamInput :id="`${id}-horn-turn`" :model-value="hornTurn" label="Horn turned from square to the hinge" suffix="°" :min="-45" :max="45" :step="1" @update:model-value="setLink({ hornAngle: $event })" />
+          <button v-if="hornTurnSet" type="button" class="wc-button wc-button--small" @click="setLink({ hornAngle: null })">Line it up with the pushrod</button>
+        </div>
       </div>
 
       <div class="wc-config__body">

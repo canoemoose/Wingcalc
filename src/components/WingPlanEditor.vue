@@ -213,7 +213,7 @@ function bounds() {
   return { sMin: -0.08 * sMax, sMax, xMin, xMax }
 }
 
-// Space kept clear of the command bar and Measure (top) and the corner controls (bottom), in
+// Space kept clear of Measure (top) and the command bar and corner controls (bottom), in
 // pixels
 const INSET = { left: 12, top: 44, right: 12, bottom: 44 }
 function fit() {
@@ -450,7 +450,22 @@ function endHandle() {
   const d = drag.value
   drag.value = null
   if (!d) return
-  if (d.kind === 'pan') return
+  if (d.kind === 'pan') {
+    if (d.tap && !d.moved) {
+      if (d.tap.select !== null) {
+        selected.value = d.tap.select
+        selectedDim.value = null
+        selectedSurface.value = d.tap.surface
+        selectedBrake.value = d.tap.brake
+      } else if (d.tap.deselect) {
+        selected.value = null
+        selectedDim.value = null
+        selectedSurface.value = null
+        selectedBrake.value = null
+      }
+    }
+    return
+  }
   if (d.kind === 'click') {
     if (!d.moved && d.deselect) {
       selected.value = null
@@ -490,9 +505,12 @@ function startPan(e, { deselect = false, select = null, surface = null, brake = 
   if (e.button !== 0 && e.button !== 1 && e.button !== 2) return
   wrapEl.value?.focus({ preventScroll: true })
   e.currentTarget.setPointerCapture?.(e.pointerId)
-  if (e.button !== 0 || e.pointerType === 'touch') {
+  // A finger on the surface that's already selected moves it, as the mouse does; anywhere else
+  // it pans, and a tap (no movement) selects what's under it
+  const touch = e.pointerType === 'touch'
+  if (e.button !== 0 || (touch && !(surface !== null && surface === selectedSurface.value))) {
     e.preventDefault()
-    drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false }
+    drag.value = { kind: 'pan', cx: e.clientX, cy: e.clientY, ox: view.ox, oy: view.oy, moved: false, tap: touch ? { deselect, select, surface, brake } : null }
     return
   }
   if (select !== null) {
@@ -823,7 +841,7 @@ const hint = computed(() => {
   if (tool.value === 'measure')
     return 'Measure: drag between two points. Ends snap to wing corners and stations (and follow them); Shift for a spanwise or chordwise dimension, Alt to ignore snapping. Esc to finish.'
   if (selectedDim.value !== null) return 'Dimension selected. Delete removes it.'
-  if (selSurface.value) return `${selSurface.value.label} selected: drag it along the span (or use the arrow keys), its ends along the span and chord, or the middle of the hinge line for its depth (Shift: span only). Delete removes it.`
+  if (selSurface.value) return `${selSurface.value.label} selected: drag it along the span (or use the arrow keys; on a touch screen, tap it first), its ends along the span and chord, or the middle of the hinge line for its depth (Shift: span only). Delete removes it.`
   if (selBrake.value) return `${selBrake.value.label} selected. Edit its numbers under Air brakes; Delete removes it.`
   if (selected.value !== null) {
     const mode = selShape.value?.mode
