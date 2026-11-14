@@ -14,6 +14,7 @@
 import { coreProfile, BLOCK_MARGIN } from './foamParts.js'
 import { servoFrame, servoParts } from './servos.js'
 import { bounds } from './ribs.js'
+import { hingeOutline } from './hingeCatalogue.js'
 
 const rect = (u0, z0, u1, z1) => [
   [u0, z0],
@@ -27,7 +28,28 @@ export function pieceDrawing(a, structure, piece) {
   if (piece.section?.outline?.length > 2) return sectionDrawing(piece.section)
   if (Number.isFinite(piece.coreAt)) return blockDrawing(a, structure, piece.coreAt)
   if (piece.servo) return servoSide(piece.servo)
+  if (piece.hinge) return hingeDrawing(piece.hinge)
   return null
+}
+
+// A bought hinge or a hinge point from above, as it lies in the wing: across the hinge line
+// (dashed, down the middle) left to right, with its length across the hinge and its width (or a
+// hinge point's diameter) along it
+function hingeDrawing(h) {
+  const e = h.kind === 'pin' ? h.along * 0.35 : h.kind === 'leaf' ? h.along * 0.08 : 0
+  const what = h.kind === 'pin' ? 'Hinge point' : h.kind === 'leaf' ? 'Nylon pin hinge' : 'Flat hinge'
+  const guess = h.estimated?.includes('across') ? '; its length is a typical figure, not a published one' : h.estimated?.includes('thickness') ? `; about ${Number((h.thickness * 1000).toFixed(2))} mm thick, a typical figure, not a published one` : ''
+  return {
+    shapes: [
+      { pts: hingeOutline(h), kind: 'cut' },
+      { pts: [[h.across / 2, -e - h.along * 0.25], [h.across / 2, h.along + e + h.along * 0.25]], kind: 'dash' },
+    ],
+    dims: [
+      { from: [0, 0], to: [h.across, 0], side: 'below' },
+      { from: [0, 0], to: [0, h.along], side: 'left' },
+    ],
+    caption: `${what} from above, the hinge line dashed: half goes into each hinge spar${h.kind === 'pin' ? ', in a hole drilled its diameter' : ', in a slot'}${guess}`,
+  }
 }
 
 // Along the rib, from where it starts to where it stops: its length and its depth

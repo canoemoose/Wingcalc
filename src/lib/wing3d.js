@@ -17,7 +17,6 @@ import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
 import { placeServo, partSlice, partSpan, xRangeAt } from './servos.js'
-import { hingeTabOutline } from './controlSurfaces.js'
 
 const RAD = Math.PI / 180
 
@@ -1040,25 +1039,50 @@ export function gussetPrisms(a, structure, parts) {
   return out
 }
 
-// The Mylar hinge tabs as thin flat plates, each tabWidth along the hinge by tabLength square
-// across it, centred on the hinge line at its centre line (midway between the skins), half into each
-// hinge spar.
+// The hinges, each centred on the hinge line at its centre line (midway between the skins), half
+// into each hinge spar: a flat hinge or Mylar tab as a thin plate, its width along the hinge by
+// its length square across it; a nylon pin hinge as that plate with its knuckle, a barrel along
+// the hinge line; a hinge point as a round shank across the hinge with its knuckle in the
+// middle. Each solid carries `tab`, which hinge along its surface it belongs to.
 function hingeTabPlates(a, structure) {
   const h = structure.hinges
-  const t = h?.tabThickness || 0.0002
-  if (!(h?.tabWidth > 0) || !(h?.tabLength > 0)) return []
   const out = []
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
-    // A pin hinge is drawn as a square bar its diameter across
-    const pin = sf.hingeType === 'pinned'
-    const thick = pin ? sf.tabAlong : sf.hingeType === 'part' && sf.hinge ? sf.hinge.thickness : t
-    for (const s of sf.tabs ?? []) {
+    const kind = sf.hingeType === 'pinned' ? 'pin' : (sf.hinge?.kind ?? 'flat')
+    const along = sf.tabAlong ?? h?.tabWidth
+    const across = sf.tabAcross ?? h?.tabLength
+    if (!(along > 0) || !(across > 0)) continue
+    const thick = kind === 'pin' ? along : (sf.hinge?.thickness ?? (h?.tabThickness || 0.0002))
+    const k = Math.hypot(1, sf.slope)
+    // In plan, [s, x]: along the hinge line and square across it
+    const eAlong = [1 / k, sf.slope / k]
+    const eAcross = [-sf.slope / k, 1 / k]
+    ;(sf.tabs ?? []).forEach((s, i) => {
       const x = sf.hingeX(s)
       const mid = (insetHeight(a, structure, s, x, 'upper', false) + insetHeight(a, structure, s, x, 'lower', false)) / 2
-      const corners = hingeTabOutline(sf, s, sf.tabAlong ?? h.tabWidth, sf.tabAcross ?? h.tabLength)
-      const ring = (hh) => corners.map(([cs, cx]) => worldPoint(a, Math.min(a.tipS, Math.max(a.rootS, cs)), cx, hh))
-      out.push({ kind: 'tab', surface: sf.id, ...loft([ring(mid - thick / 2), ring(mid + thick / 2)], { closed: true, caps: 'fan' }) })
-    }
+      // p along the hinge, q across it, hh above the centre line
+      const at = (p, q, hh) => worldPoint(a, Math.min(a.tipS, Math.max(a.rootS, s + eAlong[0] * p + eAcross[0] * q)), x + eAlong[1] * p + eAcross[1] * q, mid + hh)
+      const add = (mesh) => out.push({ kind: 'tab', surface: sf.id, tab: i, ...mesh })
+      // A round bar of radius r from `from` to `to` along one of the plan axes
+      const rod = (axis, from, to, r, n = 14) =>
+        loft(
+          [from, to].map((v) =>
+            Array.from({ length: n }, (_, j) => {
+              const th = (2 * Math.PI * j) / n
+              return axis === 'across' ? at(r * Math.cos(th), v, r * Math.sin(th)) : at(v, r * Math.cos(th), r * Math.sin(th))
+            }),
+          ),
+          { closed: true, caps: 'fan' },
+        )
+      if (kind === 'pin') {
+        add(rod('across', -across / 2, across / 2, along / 2))
+        add(rod('across', -along * 0.8, along * 0.8, along * 0.8))
+        return
+      }
+      const ring = (hh) => [at(-along / 2, -across / 2, hh), at(along / 2, -across / 2, hh), at(along / 2, across / 2, hh), at(-along / 2, across / 2, hh)]
+      add(loft([ring(-thick / 2), ring(thick / 2)], { closed: true, caps: 'fan' }))
+      if (kind === 'leaf') add(rod('along', -along / 2, along / 2, thick))
+    })
   }
   return out
 }
@@ -1526,18 +1550,19 @@ export function wing3d(a, structure, parts, linkages = null) {
     const across = sf?.tabAcross ?? st.hinges.tabLength
     return tabParts.find((p) => Math.round(acrossOf(p) * 2000) === Math.round(across * 2000))?.id ?? null
   }
-  const tabsOn = {}
   for (const t of hingeTabPlates(a, st)) {
-    const k = (tabsOn[t.surface] = (tabsOn[t.surface] ?? 0) + 1)
+    // Each hinge is one piece, whatever it's drawn from (a plate and its knuckle, say)
+    const k = t.tab + 1
     const sf = surfaces.find((x) => x.id === t.surface)
     const label = sf?.label ?? 'control surface'
+    // What a bought hinge or a hinge point is, for its own drawing (it's no part)
+    const hinge = sf ? { kind: sf.hingeType === 'pinned' ? 'pin' : (sf.hinge?.kind ?? 'flat'), across: sf.tabAcross, along: sf.tabAlong, thickness: sf.hinge?.thickness ?? null, estimated: sf.hinge?.estimated ?? [] } : null
     if (sf?.hingeType === 'pinned') {
-      solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `Pin hinge ${k}, ${label}`, material: 'nylon' } })
+      solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `${sf.hinge ? `${sf.hinge.maker} hinge point` : 'Pin hinge'} ${k}, ${label}`, material: 'nylon', hinge } })
       continue
     }
-    // A bought hinge is no part either
     if (sf?.hingeType === 'part' && sf.hinge) {
-      solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `${sf.hinge.maker} ${sf.hinge.name.toLowerCase()} ${k}, ${label}`, material: sf.hinge.kind === 'leaf' ? 'nylon' : 'mylar' } })
+      solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `${sf.hinge.maker} ${sf.hinge.name.toLowerCase()} ${k}, ${label}`, material: sf.hinge.kind === 'leaf' ? 'nylon' : 'mylar', hinge } })
       continue
     }
     const id = tabPart(sf)
@@ -1602,7 +1627,7 @@ export function wingPieces(model, parts) {
     let p = byId.get(s.piece.id)
     if (!p) {
       const part = s.pick ? partFor(parts, s.pick, s.piece.at ?? 0) : null
-      p = { id: s.piece.id, name: s.piece.name, kind: s.kind, material: s.piece.material ?? null, part, solids: [], section: s.piece.section ?? null, coreAt: s.piece.coreAt ?? null, servo: s.piece.servo ?? null }
+      p = { id: s.piece.id, name: s.piece.name, kind: s.kind, material: s.piece.material ?? null, part, solids: [], section: s.piece.section ?? null, coreAt: s.piece.coreAt ?? null, servo: s.piece.servo ?? null, hinge: s.piece.hinge ?? null }
       byId.set(p.id, p)
       out.push(p)
     }

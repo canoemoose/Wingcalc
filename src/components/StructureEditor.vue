@@ -146,10 +146,10 @@ const pinItems = computed(() => ({
 const tabChoice = computed(() => (st.value.hinges.type === 'part' ? boughtHinge.value.id : 'custom'))
 const pinChoice = computed(() => pinById(st.value.hinges.pin)?.id ?? 'custom')
 const setHinges = (patch) => (structure.value = { ...structure.value, hinges: { ...structure.value.hinges, ...patch } })
-// Tabs opens on Custom (Mylar from roll); Pinned keeps the hinge point last chosen
-const setHingeKind = (k) => setHinges({ type: k === 'tabs' ? 'mylar' : k })
+// Tabs and Pinned each come back to what was last chosen there
+const setHingeKind = (k) => setHinges({ type: k === 'tabs' ? (st.value.hinges.tabsBought ? 'part' : 'mylar') : k })
 // One change (one undo step) for the type and which part
-const setTab = (v) => setHinges(v === 'custom' ? { type: 'mylar' } : { type: 'part', part: v })
+const setTab = (v) => setHinges(v === 'custom' ? { type: 'mylar', tabsBought: false } : { type: 'part', part: v, tabsBought: true })
 const setPin = (v) => setHinges({ pin: v === 'custom' ? null : v })
 // What the chosen hinge is, in a line
 const hingeFacts = computed(() => {

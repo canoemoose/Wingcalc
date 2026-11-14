@@ -166,9 +166,16 @@ const sizeText = (p) => {
   const b = bounds(p.outline)
   return `${len(b.w)} × ${len(b.h)}`
 }
+// A servo and a hinge are listed by their own drawing (the Part card's), each shape a ring of
+// its own; other pieces by their silhouette
+const drawnRings = (p) => {
+  if (!(p.servo || p.hinge) || !props.analysis) return null
+  const d = pieceDrawing(props.analysis, props.analysis.structure, p)
+  return d ? d.shapes.filter((s) => s.kind === 'cut' || s.kind === 'section').map((s) => s.pts) : null
+}
 const entries = computed(() => [
   ...props.parts.map((p) => ({ id: p.id, name: p.name, group: GROUPS[p.group] ?? p.group, outline: p.outline, holes: p.holes ?? [], detail: `${sizeText(p)}, ${p.qty} off` })),
-  ...(props.model ? props.pieces.filter((p) => !p.part) : []).map((p) => ({ id: p.id, name: p.name, group: PIECE_GROUPS[p.kind] ?? 'Other pieces', outline: pieceOutline(props.model, p), holes: [], detail: material(p.material) })),
+  ...(props.model ? props.pieces.filter((p) => !p.part) : []).map((p) => ({ id: p.id, name: p.name, group: PIECE_GROUPS[p.kind] ?? 'Other pieces', outline: pieceOutline(props.model, p), holes: [], rings: drawnRings(p), detail: material(p.material) })),
 ])
 // The list entry for the selection: its part, or the piece itself
 const index = computed(() => Math.max(0, entries.value.findIndex((e) => e.id === (part.value?.id ?? selPiece.value?.id))))
@@ -192,13 +199,21 @@ const step = (k) => {
 const TW = 56
 const TH = 30
 function thumb(p) {
+  if (p.rings?.length) {
+    const b = bounds(p.rings.flat())
+    const k = Math.min((TW - 4) / Math.max(b.w, 1e-6), (TH - 4) / Math.max(b.h, 1e-6))
+    const x0 = (TW - b.w * k) / 2
+    const y0 = (TH - b.h * k) / 2
+    // One closed path per shape, so shapes that overlap don't cut holes in each other
+    return p.rings.map((list) => 'M' + list.map(([u, z]) => `${(x0 + (u - b.x0) * k).toFixed(1)},${(y0 + (b.y1 - z) * k).toFixed(1)}`).join('L') + 'Z')
+  }
   if (!p.outline?.length) return ''
   const b = bounds(p.outline)
   const k = Math.min((TW - 4) / Math.max(b.w, 1e-6), (TH - 4) / Math.max(b.h, 1e-6))
   const x0 = (TW - b.w * k) / 2
   const y0 = (TH - b.h * k) / 2
   const ring = (list) => 'M' + list.map(([u, z]) => `${(x0 + (u - b.x0) * k).toFixed(1)},${(y0 + (b.y1 - z) * k).toFixed(1)}`).join('L') + 'Z'
-  return [p.outline, ...p.holes].map(ring).join('')
+  return [[p.outline, ...p.holes].map(ring).join('')]
 }
 
 const open = ref(false)
@@ -325,7 +340,7 @@ const uid = `wc-part-${Math.random().toString(36).slice(2, 8)}`
               @pointerenter="active = i"
               @click="choose(i)"
             >
-              <svg class="wc-part__thumb" :viewBox="`0 0 ${TW} ${TH}`" aria-hidden="true"><path :d="thumb(p)" /></svg>
+              <svg class="wc-part__thumb" :viewBox="`0 0 ${TW} ${TH}`" aria-hidden="true"><path v-for="(d, j) in thumb(p)" :key="j" :d="d" /></svg>
               <span class="wc-part__opt-text">
                 <span>{{ p.name }}</span>
                 <span v-if="p.detail" class="wc-part__opt-size">{{ p.detail }}</span>

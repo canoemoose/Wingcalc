@@ -259,6 +259,8 @@ export function defaultStructure() {
       type: 'mylar',
       // The bought hinge, by id (hingeCatalogue.js)
       part: DEFAULT_HINGE,
+      // Whether Tabs was last a bought hinge, so coming back from Pinned or Live returns to it
+      tabsBought: false,
       // The bought hinge point for 'pinned', by id (hingeCatalogue.js PIN_HINGES), or null for
       // one sized by hand (pinDiameter, pinLength)
       pin: null,

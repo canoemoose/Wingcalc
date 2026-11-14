@@ -9,6 +9,7 @@ import { analyseStructure, defaultStructure, hardPatches, sparSection } from '..
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
 import { buildParts, bounds } from '../src/lib/ribs.js'
 import { wing3d, wingPieces } from '../src/lib/wing3d.js'
+import { pieceDrawing } from '../src/lib/pieceDrawing.js'
 
 function analyse(edit = () => {}, controls = defaultControls()) {
   const s = defaultState()
@@ -151,5 +152,45 @@ describe('skins round control surfaces and servo hatches', () => {
     const plain = built((st) => { st.covering.type = 'open' })
     expect(plain.parts.some((p) => p.id.endsWith('-H'))).toBe(false)
     expect(plain.pieces.some((p) => p.kind === 'hatch')).toBe(false)
+  })
+})
+
+describe('hinges as pieces of the wing', () => {
+  const aileron = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.35, 0.65, 1)], bays: [] }
+  const hinges = (edit) => {
+    const a = analyse(edit, aileron)
+    const parts = buildParts(a, a.structure, {}).parts
+    const model = wing3d(a, a.structure, parts)
+    const pieces = wingPieces(model, parts).filter((p) => p.kind === 'tab')
+    return { a, model, pieces, n: a.surfaces.find((x) => x.ok).tabs.length }
+  }
+
+  it('draws a hinge point as a round shank with its knuckle, one piece each, with a drawing of its own', () => {
+    const { a, model, pieces, n } = hinges((st) => { st.hinges.type = 'pinned'; st.hinges.pin = 'robart-308' })
+    expect(pieces.length).toBe(n)
+    for (const p of pieces) {
+      expect(p.solids.length).toBe(2)
+      // Round: 14 points to a ring, two rings and a cap centre at each end
+      for (const i of p.solids) expect(model.solids[i].positions.length / 3).toBeGreaterThanOrEqual(28)
+      expect(p.hinge).toMatchObject({ kind: 'pin' })
+      const d = pieceDrawing(a, a.structure, p)
+      expect(d.shapes[0].pts.length).toBe(12)
+      expect(d.dims.length).toBe(2)
+      expect(d.caption).toContain('typical figure')
+    }
+  })
+
+  it('draws a nylon pin hinge as a plate with a barrel along the hinge, and a flat one as a plate', () => {
+    const leaf = hinges((st) => { st.hinges.type = 'part'; st.hinges.part = 'kavan-sl070b'; st.hinges.fixedWidth = 0.016; st.hinges.movingWidth = 0.016 })
+    for (const p of leaf.pieces) {
+      expect(p.solids.length).toBe(2)
+      expect(p.part).toBeNull()
+      expect(pieceDrawing(leaf.a, leaf.a.structure, p).caption).toContain('Nylon pin hinge')
+    }
+    const flat = hinges((st) => { st.hinges.type = 'part'; st.hinges.part = 'slec-sl037a'; st.hinges.fixedWidth = 0.016; st.hinges.movingWidth = 0.016 })
+    for (const p of flat.pieces) expect(p.solids.length).toBe(1)
+    // Mylar cut from roll stays a part, drawn as its part
+    const mylar = hinges(() => {})
+    for (const p of mylar.pieces) expect(p.part).toMatch(/^H\d+$/)
   })
 })
