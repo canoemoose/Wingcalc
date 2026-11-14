@@ -427,14 +427,43 @@ export function patchSpan(a, structure, s, side = null) {
 // Where a hard point's sheet steps along the span: a station either side of each control
 // surface's end inside it, where its rear edge jumps between the trailing edge stock and the
 // fixed hinge spar. For drawing it with the step square (its part's outline, the 3D solid).
-export function patchSteps(a, patch) {
+export const patchSteps = (a, patch) => surfaceSteps(a, patch.s0, patch.s1)
+// The same between any two stations: where a sheet that stops at the fixed hinge spar beside a
+// control surface steps
+export function surfaceSteps(a, s0, s1) {
   const out = []
   const d = 1e-6
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
-    if (sf.s0 > patch.s0 + 1e-5 && sf.s0 < patch.s1 - 1e-5) out.push(sf.s0 - d, sf.s0)
-    if (sf.s1 > patch.s0 + 1e-5 && sf.s1 < patch.s1 - 1e-5) out.push(sf.s1, sf.s1 + d)
+    if (sf.s0 > s0 + 1e-5 && sf.s0 < s1 - 1e-5) out.push(sf.s0 - d, sf.s0)
+    if (sf.s1 > s0 + 1e-5 && sf.s1 < s1 - 1e-5) out.push(sf.s1, sf.s1 + d)
   }
   return out.sort((p, q) => p - q)
+}
+// Where a fully sheeted wing's own sheeting ends at s, in plan: the front of the trailing edge
+// stock, or beside a control surface the fixed hinge spar's rear face (the surface has sheeting
+// of its own behind its hinge spar)
+export function sheetRearX(a, structure, s) {
+  const sec = a.section(s)
+  if (!sec) return 0
+  const sf = (a.surfaces ?? []).find((x) => x.ok && s >= x.s0 - 1e-9 && s <= x.s1 + 1e-9)
+  return sf ? sf.faces.fixedRear(s) : sec.xl + sec.c - Math.min(structure.te.width || 0, sec.c / 2)
+}
+// The skin a built bay's hatch is cut in, or null where there's only covering over the bay: a
+// hard point's sheet over it ({ kind: 'patch', patch, part }), or a fully sheeted (or foam)
+// wing's own ({ kind: 'sheet' }), each with its material and thickness there
+export function hatchSkin(a, structure, bay) {
+  const h = bay?.hatch
+  if (!h) return null
+  const sm = (h.s0 + h.s1) / 2
+  const xm = (h.x0 + h.x1) / 2
+  for (const p of hardPatches(structure, a.rootS)) {
+    if (!p.sides.includes(h.side) || sm < p.s0 || sm > p.s1) continue
+    const span = patchSpan(a, structure, sm, h.side)
+    if (span && xm >= span[0] && xm <= span[1]) return { kind: 'patch', patch: p, part: `HP${p.id}${h.side === 'top' ? 'T' : 'B'}`, material: p.material, thickness: p.thickness }
+  }
+  const cov = structure.covering
+  if (cov.type === 'sheeted' && cov.sheetThickness > 0) return { kind: 'sheet', material: cov.sheetMaterial, thickness: sheetThicknessAt(structure, sm) }
+  return null
 }
 // A hard point's sheet: its thickness and material (patch from hardPatches; without one, the
 // covering's, as every hard point had before they had their own)
@@ -1119,7 +1148,7 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, patchTeXi 
         const end = Math.min(e.to, Math.max(e.from, patchTeXi))
         sheetStrips(surface, e.from, end, h.thickness, material(h.material).E, h)
         sheetStrips(surface, end, e.to, t, E)
-      } else sheetStrips(surface, e.from, e.to, t, E)
+      } else sheetStrips(surface, e.from, cov.type === 'sheeted' ? Math.min(e.to, Math.max(e.from, patchTeXi)) : e.to, t, E)
     }
     // Glass and epoxy laid over the sheeting, outside it
     const lam = finishOf(cov).laminate

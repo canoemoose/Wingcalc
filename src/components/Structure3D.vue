@@ -261,6 +261,8 @@ const COLOURS = {
   tab: 0x8fa3ad,
   core: 0xe9e5d8,
   coreMoving: 0xe9e5d8,
+  sheetMoving: 0xecd9b0,
+  hatch: 0xdcc493,
 }
 // Each moving surface (its ribs, hinge spar and trailing edge) is one layer, so it can be
 // hidden to see the fixed part's hinge spar
@@ -272,6 +274,8 @@ const LAYER_OF = {
   hingeMoving: 'surfaces',
   teMoving: 'surfaces',
   coreMoving: 'surfaces',
+  sheetMoving: 'surfaces',
+  hatch: 'servoPlates',
   core: 'core',
   servo: 'servos',
   servoOutput: 'servos',

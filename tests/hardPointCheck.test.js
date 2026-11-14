@@ -7,7 +7,8 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure, hardPatches, sparSection } from '../src/lib/structure.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
-import { buildParts } from '../src/lib/ribs.js'
+import { buildParts, bounds } from '../src/lib/ribs.js'
+import { wing3d, wingPieces } from '../src/lib/wing3d.js'
 
 function analyse(edit = () => {}, controls = defaultControls()) {
   const s = defaultState()
@@ -96,5 +97,59 @@ describe("a sheeted hard point's part", () => {
     expect(atStep.length).toBe(2)
     expect(Math.abs(atStep[0][1] - atStep[1][1])).toBeGreaterThan(0.02)
     expect(depthAt(pts, 0.3)).toBeLessThan(depthAt(pts, 0) - 0.02)
+  })
+})
+
+describe('skins round control surfaces and servo hatches', () => {
+  const aileron = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.35, 0.65, 1)], bays: [] }
+  const built = (edit) => {
+    const a = analyse(edit, aileron)
+    const parts = buildParts(a, a.structure, {}).parts
+    const model = wing3d(a, a.structure, parts)
+    return { a, parts, model, pieces: wingPieces(model, parts) }
+  }
+
+  it("stops a fully sheeted wing's sheeting at the fixed hinge spar, and sheets the surface itself", () => {
+    const { a, parts, pieces } = built((st) => { st.covering.type = 'sheeted' })
+    const sf = a.surfaces.find((x) => x.ok)
+    for (const surface of ['upper', 'lower']) {
+      const sheet = parts.find((p) => p.group === 'sheeting' && p.surface === surface && p.span)
+      // Two points at each end of the surface: the sheet steps in there
+      for (const s of [sf.s0, sf.s1]) {
+        const at = sheet.outline.filter(([u, v]) => v > 1e-6 && Math.abs(u - (s - sheet.span[0])) < 1e-4)
+        expect(at.length, surface).toBe(2)
+        expect(Math.abs(at[0][1] - at[1][1]), surface).toBeGreaterThan(0.02)
+      }
+    }
+    // The surface's own sheeting, top and bottom, each a part and a piece of the 3D model
+    for (const id of [`${sf.name}-T`, `${sf.name}-B`]) {
+      const part = parts.find((p) => p.id === id)
+      expect(part.group).toBe('sheeting')
+      expect(bounds(part.outline).w).toBeCloseTo(sf.moving[1] - sf.moving[0], 6)
+      expect(pieces.some((p) => p.kind === 'sheetMoving' && p.part === id)).toBe(true)
+    }
+  })
+
+  it("cuts the hatch in a hard point's sheet over the bay, on an open wing too, and shows it in 3D", () => {
+    // The hard point covers the aileron's servo bay (a third of the way along the surface)
+    const over = (st) => { st.covering.type = 'open'; st.ribs.hardPoints = [hp({ d: 0.36, to: 0.56, thickness: 0.002 })] }
+    const { a, parts, model, pieces } = built(over)
+    const bay = a.bays.find((b) => b.ok)
+    expect(bay.hatch).toBeTruthy()
+    const hatch = parts.find((p) => p.id === `${bay.name}-H`)
+    expect(hatch.thickness).toBeCloseTo(0.002, 9)
+    const sheet = parts.find((p) => p.id === `HP1${bay.hatch.side === 'top' ? 'T' : 'B'}`)
+    expect(sheet.holes.length).toBe(1)
+    expect(sheet.notes.some((n) => n.includes(`Opening for ${bay.name}'s hatch`))).toBe(true)
+    // In 3D: the hatch is a piece with its part, and the sheet round it is in several solids
+    const piece = pieces.find((p) => p.kind === 'hatch')
+    expect(piece.part).toBe(hatch.id)
+    const patch = pieces.find((p) => p.id === `patch-1-${bay.hatch.side}`)
+    expect(patch.solids.length).toBeGreaterThanOrEqual(3)
+    expect(model.solids.every((q) => q.positions.length > 0)).toBe(true)
+    // No hard point over it: covering only, so no hatch part
+    const plain = built((st) => { st.covering.type = 'open' })
+    expect(plain.parts.some((p) => p.id.endsWith('-H'))).toBe(false)
+    expect(plain.pieces.some((p) => p.kind === 'hatch')).toBe(false)
   })
 })

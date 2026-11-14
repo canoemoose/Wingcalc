@@ -22,7 +22,8 @@ Requested in the 17 October feedback: a complete downloadable design booklet for
 - **The loads chart** keeps its left-drag pan (it has nothing to select).
 - **Pinch to zoom** is in the wing editor, the section editor, the structure plan and the expanded loads chart. The servo configurator's drawing has none; the Part card's flat drawing doesn't zoom at all.
 - **Bought hinges**: thicknesses are typical figures, not published ones; a nylon pin hinge's knuckle isn't drawn or notched for; one hinge type serves every surface on the wing.
-- **Servo hatches** aren't drawn in the 3D view (the opening or the hatch); an air brake's servo bay takes the default hatch (a new piece), with no setting of its own.
+- **Servo hatches**: an air brake's servo bay takes the default hatch (a new piece), with no setting of its own; the section cut in 3D doesn't show the opening; the plan still hatches a fully sheeted wing's sheeting across its control surfaces.
+- **A control surface's own sheeting** (fully sheeted wings) runs from the hinge line, not from the bevelled spar's top edge: cut oversize and trim, as its note says.
 
 ## From the 17 October feedback round
 

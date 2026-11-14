@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sheetGaps, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, patchSteps, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sheetGaps, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, patchSteps, surfaceSteps, sheetRearX, hatchSkin, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -204,7 +204,8 @@ function sweep(a, s0, s1, section, n = 40, { extend = [0, 0], caps = 'fan', also
 // The rings a sweep lofts through, in world coordinates, or null.
 function sweepRings(a, s0, s1, section, n, extend, also = []) {
   const rings = []
-  const at = also.length ? [...new Set([...stations(a, s0, s1, n), ...also])].sort((p, q) => p - q) : stations(a, s0, s1, n)
+  const more = also.filter((s) => s > s0 + 1e-9 && s < s1 - 1e-9)
+  const at = more.length ? [...new Set([...stations(a, s0, s1, n), ...more])].sort((p, q) => p - q) : stations(a, s0, s1, n)
   for (const s of at) {
     const pts = section(s)
     if (pts) rings.push(pts.map(([x, h]) => worldPoint(a, s, x, h)))
@@ -398,9 +399,10 @@ export function tubeBore(a, structure, s) {
 }
 
 // Sheeting at s on one surface: from the LE stock back to the spar's rear face (D-box) or
-// the TE stock (fully sheeted), between the outer surface and the ribs' inset surface. As a
-// shell: the outer surface out, the inset surface back.
-export function sheetSection(a, structure, s, which) {
+// the TE stock (fully sheeted; the fixed hinge spar's rear face beside a control surface),
+// between the outer surface and the ribs' inset surface. As a shell: the outer surface out, the
+// inset surface back. clip: [from, to] plan positions to keep (round a hatch opening), or null.
+export function sheetSection(a, structure, s, which, clip = null) {
   const sec = a.section(s)
   if (!sec || !(sec.c > 1e-4)) return null
   const [, sparRear] = lineFaces(a.sparX, sparWidth(structure.spar))
@@ -413,18 +415,32 @@ export function sheetSection(a, structure, s, which) {
   const rearXi = (sparRear(s) - sec.xl) / sec.c
   const ext = sheetExtent(structure, side, rearXi)
   if (!ext) return null
-  const x1 = structure.covering.type === 'sheeted' ? sec.xl + sec.c - structure.te.width : sec.xl + ext.to * sec.c
+  const x1 = structure.covering.type === 'sheeted' ? sheetRearX(a, structure, s) : sec.xl + ext.to * sec.c
+  return shell(a, structure, s, which, clip ? Math.max(x0, clip[0]) : x0, clip ? Math.min(x1, clip[1]) : x1)
+}
+// A skin from x0 to x1 at s on one surface: the outer surface out, the ribs' inset surface back
+function shell(a, structure, s, which, x0, x1) {
+  if (!(x1 > x0 + 1e-5)) return null
   const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
   return [...xs.map((x) => [x, surfaceHeight(a, s, x, which)]), ...[...xs].reverse().map((x) => [x, insetHeight(a, structure, s, x, which)])]
+}
+// A fully sheeted (or foam) wing's control surface has a skin of its own: from the hinge back to
+// the trailing edge stock
+export function surfaceSheetSection(a, structure, sf, s, which) {
+  const sec = a.section(s)
+  if (!sec || !(sec.c > 1e-4)) return null
+  return shell(a, structure, s, which, sf.faces.apex(s), sec.xl + sec.c - (structure.te.width || 0))
 }
 
 // A sheeted hard point's sheet at s on one surface: over the chord it covers (patchSpan: behind
 // any D-box sheeting on that side), its own thickness in from the outer surface, measured square
 // to it. patch from hardPatches.
-export function patchSection(a, structure, s, which, patch = null) {
+export function patchSection(a, structure, s, which, patch = null, clip = null) {
   const span = patchSpan(a, structure, s, which === 'upper' ? 'top' : 'bottom')
   if (!span) return null
-  const [x0, x1] = span
+  const x0 = clip ? Math.max(span[0], clip[0]) : span[0]
+  const x1 = clip ? Math.min(span[1], clip[1]) : span[1]
+  if (!(x1 > x0 + 1e-5)) return null
   const t = patchSheet(structure, patch).thickness
   const d = 1e-4
   const xs = Array.from({ length: 17 }, (_, i) => x0 + ((x1 - x0) * (1 - Math.cos((Math.PI * i) / 16))) / 2)
@@ -824,6 +840,10 @@ export function sectionAt(a, structure, parts, s) {
       add('sheet', sheetSection(a, st, s, w))
     }
   }
+  if (st.covering.type === 'sheeted' && st.covering.sheetThickness > 0) {
+    const mv = (a.surfaces ?? []).find((x) => x.ok && !x.stock && s >= x.moving[0] && s <= x.moving[1])
+    if (mv) for (const w of ['upper', 'lower']) add('sheetMoving', surfaceSheetSection(a, st, mv, s, w))
+  }
   // Sheeted hard points the cut passes through
   for (const h of hardPatches(st, a.rootS)) {
     if (s < h.s0 - 1e-9 || s > h.s1 + 1e-9) continue
@@ -1209,6 +1229,24 @@ export function wing3d(a, structure, parts, linkages = null) {
 
   // Sheeting, then the leading and trailing edge stock
   const cov = st.covering
+  // The servo hatches (where a skin covers the bay) and their openings in it
+  const hatches = (a.bays ?? []).filter((b) => b.ok && b.hatch).map((b) => ({ bay: b, h: b.hatch, skin: hatchSkin(a, st, b) })).filter((x) => x.skin)
+  // A skin swept from f to t with openings cut in it: whole either side of each along the span,
+  // and ahead of and behind it across the chord. section(s, clip) is the skin's, kept to clip.
+  const holed = (f, t, section, n, ext, holes) => {
+    const also = surfaceSteps(a, f, t)
+    const out = []
+    let at = f
+    for (const h of [...holes].sort((p, q) => p.s0 - q.s0)) {
+      if (h.s0 < at - 1e-6 || h.s1 > t + 1e-6) continue
+      if (h.s0 - at > 1e-5) out.push(sweep(a, at, h.s0, (s) => section(s, null), n, { extend: [at === f ? ext[0] : 0, 0], caps: 'strip', also }))
+      out.push(sweep(a, h.s0, h.s1, (s) => section(s, [-Infinity, h.x0]), 4, { caps: 'strip', also }))
+      out.push(sweep(a, h.s0, h.s1, (s) => section(s, [h.x1, Infinity]), 4, { caps: 'strip', also }))
+      at = h.s1
+    }
+    if (t - at > 1e-5) out.push(sweep(a, at, t, (s) => section(s, null), n, { extend: [at === f ? ext[0] : 0, ext[1]], caps: 'strip', also }))
+    return out.filter(Boolean)
+  }
   if (cov.type !== 'open' && cov.sheetThickness > 0) {
     // A sheet per panel, as each is cut
     const runs = panelRuns(a)
@@ -1231,7 +1269,8 @@ export function wing3d(a, structure, parts, linkages = null) {
           const over = cov.type === 'dbox' ? (st.hardBays ?? []).find((h) => h.sides?.includes(side) && Math.abs(h.s0 - f) < 1e-4 && Math.abs(h.s1 - t) < 1e-4) : null
           const top = which === 'upper' ? 'Top' : 'Bottom'
           const piece = { id: `sheet-${which}-${k}${j ? `-${j}` : ''}`, name: over ? `${top} D-box sheeting over ${over.label}` : `${top} ${isFoam(st) ? 'skin' : 'sheeting'}, ${r.name}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial, at: (f + t) / 2 }
-          add('sheet', sweep(a, f, t, (s) => sheetSection(a, st, s, which), 20, { extend: ext, caps: 'strip' }), { groups: ['sheeting', 'skins'], surface: which }, piece)
+          const holes = hatches.filter((x) => x.skin.kind === 'sheet' && x.h.side === side).map((x) => x.h)
+          for (const mesh of holed(f, t, (s, clip) => sheetSection(a, st, s, which, clip), 20, ext, holes)) add('sheet', mesh, { groups: ['sheeting', 'skins'], surface: which }, piece)
         })
       })
     }
@@ -1240,8 +1279,29 @@ export function wing3d(a, structure, parts, linkages = null) {
   for (const h of hardPatches(st, a.rootS)) {
     for (const side of h.sides) {
       const which = side === 'top' ? 'upper' : 'lower'
-      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which, h), 12, { caps: 'strip', also: patchSteps(a, h) }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st, h).material })
+      const name = `HP${h.id}${side === 'top' ? 'T' : 'B'}`
+      const holes = hatches.filter((x) => x.skin.part === name).map((x) => x.h)
+      for (const mesh of holed(h.s0, h.s1, (s, clip) => patchSection(a, st, s, which, h, clip), 12, [0, 0], holes)) add('sheet', mesh, { ids: [name] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st, h).material })
     }
+  }
+  // Each control surface's own skin on a fully sheeted or foam wing (its parts A1-T, A1-B on a
+  // built-up wing; a foam wing's is the skin it was sawn off with)
+  if (cov.type === 'sheeted' && cov.sheetThickness > 0) {
+    for (const sf of (a.surfaces ?? []).filter((x) => x.ok && !x.stock)) {
+      for (const which of ['upper', 'lower']) {
+        const top = which === 'upper' ? 'Top' : 'Bottom'
+        const id = `${sf.name}-${which === 'upper' ? 'T' : 'B'}`
+        add('sheetMoving', sweep(a, sf.moving[0], sf.moving[1], (s) => surfaceSheetSection(a, st, sf, s, which), 12, { caps: 'strip' }), isFoam(st) ? null : { ids: [id] }, { id: `sheetMoving-${sf.id}-${which}`, name: `${top} ${isFoam(st) ? 'skin' : 'sheeting'}, ${sf.label}`, material: isFoam(st) ? st.foam?.skin?.material : cov.sheetMaterial })
+      }
+    }
+  }
+  // The servo hatches, each in its opening
+  for (const x of hatches) {
+    const which = x.h.side === 'top' ? 'upper' : 'lower'
+    const clip = [x.h.x0, x.h.x1]
+    const section = x.skin.kind === 'patch' ? (s) => patchSection(a, st, s, which, x.skin.patch, clip) : (s) => sheetSection(a, st, s, which, clip)
+    const part = parts.find((p) => p.id === `${x.bay.name}-H`)
+    add('hatch', sweep(a, x.h.s0, x.h.s1, section, 4, { caps: 'strip' }), { ids: [`${x.bay.name}-H`] }, { id: `hatch-${x.bay.id}`, name: `${x.bay.label} hatch`, material: part?.material ?? x.skin.material })
   }
   add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), null, { id: 'le', name: 'Leading edge', material: st.le.material, section: { outline: leSection(a, st, (s0 + s1) / 2) } })
   // The trailing edge: the wing's, broken where each control surface's own runs, between the
@@ -1504,7 +1564,7 @@ export function partFor(parts, pick, s, { mirrored = false } = {}) {
   let best = null
   let bestD = [Infinity, Infinity]
   for (const p of parts) {
-    if (!pick.groups?.includes(p.group)) continue
+    if (!pick.groups?.includes(p.group) || p.moving != null) continue
     if (pick.surface && p.surface && p.surface !== pick.surface) continue
     const [lo, hi] = p.span ?? (Number.isFinite(p.s) ? [p.s, p.s] : [-Infinity, Infinity])
     const d = [s < lo ? lo - s : s > hi ? s - hi : 0, Number.isFinite(p.s) ? Math.abs(s - p.s) : 0]

@@ -15,7 +15,7 @@ import InspectorSection from './InspectorSection.vue'
 import { wingSampler } from '../lib/wing.js'
 import { resolveSurfaces } from '../lib/controlSurfaces.js'
 import { SERVOS, bayOf, setBay, servoOptions, servoById, installedServo, defaultServoClass, HATCH_OTHER } from '../lib/servos.js'
-import { bayProblem, MATERIALS } from '../lib/structure.js'
+import { bayProblem, MATERIALS, hatchSkin } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { bayLinkages, linkOf, savedLink, linkSummary } from '../lib/bayLinkage.js'
 import ServoConfigurator from './ServoConfigurator.vue'
@@ -37,12 +37,16 @@ const props = defineProps({
   warnings: { type: Array, default: () => [] },
 })
 const controls = defineModel('controls', { type: Object, required: true })
-// A hatch is a part only where there's a skin to cut it from: a fully sheeted wing or a foam one
+// A hatch is a part only where there's a skin over the bay to cut it from: a fully sheeted or
+// foam wing's, or a hard point's sheet (structure.js hatchSkin)
 const foamWing = computed(() => props.analysis?.construction === 'foam')
-const skinned = computed(() => foamWing.value || (props.analysis?.structure?.covering?.type === 'sheeted' && props.analysis.structure.covering.sheetThickness > 0))
+const skinOver = (s) => {
+  const b = props.analysis?.bays?.find((x) => x.ok && x.surface === s.id)
+  return b ? hatchSkin(props.analysis, props.analysis.structure, b) : null
+}
 const hatchOptions = computed(() => [
-  { value: 'new', label: `A new piece of the ${foamWing.value ? "skin's" : "sheeting's"} sheet` },
-  ...(foamWing.value ? [] : [{ value: 'offcut', label: 'The piece cut out of the sheeting' }]),
+  { value: 'new', label: `A new piece of the ${foamWing.value ? "skin's" : 'same'} sheet` },
+  ...(foamWing.value ? [] : [{ value: 'offcut', label: 'The piece cut out' }]),
   { value: 'other', label: 'A new piece of another material' },
 ])
 const HATCH_MATERIALS = ['ply-birch', 'ply-lite', 'balsa-hard', 'balsa-medium', 'balsa-light'].map((k) => ({ value: k, label: MATERIALS[k].label }))
@@ -186,13 +190,13 @@ function cancel() {
         <p class="wc-field__hint">
           In the {{ linkOf(bayFor(s)).hornFace === 'top' ? 'top' : 'bottom' }} skin, the side the servo goes in from (its horn's side). Untick it to seal the servo in.
         </p>
-        <template v-if="skinned && bayFor(s).hatch !== false">
+        <template v-if="bayFor(s).hatch !== false && skinOver(s)">
           <SelectField :id="id(`${s.id}-hatch-from`)" :model-value="hatchFrom(s)" label="Hatch made from" :options="hatchOptions" @update:model-value="setBayFor(s, { hatchFrom: $event === 'new' ? null : $event })" />
           <div v-if="hatchFrom(s) === 'other'" class="wc-structure-editor__pair">
             <SelectField :id="id(`${s.id}-hatch-mat`)" :model-value="bayFor(s).hatchMaterial ?? HATCH_OTHER.material" label="Hatch material" :options="HATCH_MATERIALS" @update:model-value="setBayFor(s, { hatchMaterial: $event })" />
             <UnitInput :id="id(`${s.id}-hatch-t`)" :model-value="bayFor(s).hatchThickness ?? HATCH_OTHER.thickness" quantity="thin" :system="system" label="Hatch thickness" @update:model-value="setBayFor(s, { hatchThickness: $event })" />
           </div>
-          <p class="wc-field__hint">The opening is cut in the {{ foamWing ? 'skin' : 'sheeting' }} either way{{ foamWing ? '; routing the pocket takes the skin over it, so the hatch is always a new piece' : '' }}.</p>
+          <p class="wc-field__hint">The opening is cut in the {{ foamWing ? 'skin' : skinOver(s).kind === 'patch' ? `sheet over ${skinOver(s).patch.label}` : 'sheeting' }} either way{{ foamWing ? '; routing the pocket takes the skin over it, so the hatch is always a new piece' : '' }}.</p>
         </template>
         <template v-if="linked.get(s.id)">
           <p :class="linkWarn(s) ? 'wc-field__warn' : 'wc-field__hint'">Linkage: {{ linkText(s) }}</p>
