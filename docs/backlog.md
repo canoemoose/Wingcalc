@@ -101,5 +101,5 @@ From Sam's feedback on the structure editor (2026-10-16). Each needs his detail 
 - The servo leads run in a channel in the core behind the spar (noted on the pocket templates); the channel isn't drawn or checked.
 - Skins are developed per panel as a strip along the leading edge, with no allowance for sweep in the developed shape beyond the section's own, and their sheet count doesn't nest pieces; the skins' DXF is off by default. No grain-direction or joint-line layout across sheets.
 - Templates are drawn for the panel ends only: a curved (Bézier) leading or trailing edge between them can't be cut with a straight wire, and the core comes out with straight edges between the templates. No warning yet when the planform is curved.
-- The dihedral bevel at a joint is noted on the template, not drawn. No joiner or dihedral brace layout specific to foam (the built-up brace plates are kept).
+- The dihedral bevel at a joint is noted on the template, not drawn. No joiner or dihedral brace layout for foam: a foam wing has no spar, so no brace plates are drawn.
 - Balsa as a skin on foam is checked for wrinkling with its grain-wise modulus, though the cross-grain stiffness of balsa is far lower; a balsa-skinned core should probably be checked more conservatively.
