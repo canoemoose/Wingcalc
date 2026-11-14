@@ -75,6 +75,34 @@ describe('dihedral braces', () => {
     expect(a.warnings.some((w) => String(w.id).startsWith('brace-'))).toBe(false)
   })
 
+  it('shares the web shear with the braces along their arms, and only there', () => {
+    const { a } = analyse((st) => {
+      st.spar.type = 'caps'
+    })
+    const { a: bare } = analyse((st) => {
+      st.spar.type = 'caps'
+      st.braces.enabled = false
+    })
+    const [b1, b2] = a.braces
+    const rows = a.stations.filter((r) => r.tau > 0)
+    const bareAt = (s) => bare.stations.find((r) => Math.abs(r.s - s) < 1e-9)
+    const onArm = (r, b) => r.s >= b.s - (b.geom.centre ? 0 : b.geom.Lin) && r.s <= b.s + b.geom.Lout
+    const covered = rows.filter((r) => onArm(r, b1) || onArm(r, b2))
+    const clear = rows.filter((r) => !onArm(r, b1) && !onArm(r, b2))
+    expect(covered.length).toBeGreaterThan(2)
+    expect(clear.length).toBeGreaterThan(2)
+    for (const r of covered) {
+      expect(r.braceShare).toBeGreaterThan(0)
+      expect(r.braceShare).toBeLessThan(1)
+      expect(r.tau).toBeCloseTo(bareAt(r.s).tau * (1 - r.braceShare), 6)
+      expect(r.ms.webShear).toBeGreaterThan(bareAt(r.s).ms.webShear)
+    }
+    for (const r of clear) {
+      expect(r.braceShare).toBeUndefined()
+      expect(r.tau).toBeCloseTo(bareAt(r.s).tau, 9)
+    }
+  })
+
   it('takes the brace thickness set for it, then the one for all, then the loads', () => {
     const { a, st } = analyse((st) => {
       st.braces.thickness = 0.004

@@ -1844,6 +1844,24 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   const relief = servoMasses(bays)
   const pos = spanLoads(sampler, spanwise.ll, CL, { mass, n: nPos, relief })
   const neg = nNeg > 0 ? spanLoads(sampler, spanwise.ll, (-CL * nNeg) / nPos, { mass, n: nNeg, relief }) : null
+  // Dihedral braces, sized for the bending at each break. Along their arms they are glued to the
+  // spar's faces and share its shear with the web(s).
+  const braces = braceSizing({ sampler, rootS: s0, tipS: sTip, section, sparX, pos, safetyFactor: sf }, structure)
+  const braceE = material(structure.braces?.material).E
+  // The braces beside the spar at s, as shear stiffness E·t·h summed over them (two per break,
+  // one each face, each as tall as it is at s: linear from the break to the end of its arm)
+  const braceStiffness = (s) => {
+    let k = 0
+    for (const b of braces) {
+      if (!b.ok || !(b.chosenT > 0)) continue
+      const { Lin, Lout, centre, h0, hi, ho } = b.geom
+      const x = s - b.s
+      if (x < -(centre ? 0 : Lin) - 1e-9 || x > Lout + 1e-9) continue
+      const h = x >= 0 ? h0 + (ho - h0) * (Lout > 0 ? x / Lout : 0) : h0 + (hi - h0) * (Lin > 0 ? -x / Lin : 0)
+      k += 2 * braceE * b.chosenT * Math.max(0, h)
+    }
+    return k
+  }
 
   const stations = []
   for (let k = 0; k <= steps; k++) {
@@ -1898,9 +1916,16 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     row.ms.compression = ms(sp.mat.compression, sigC)
     row.ms.tension = ms(sp.mat.tension, sigT)
     if (sp.type === 'caps' || sp.type === 'box') {
-      // Shear web(s) between the caps; the D-box's own shear path is ignored (safe side)
-      const tau = V / (sp.webs * sp.tw * Math.max(1e-6, sp.d))
+      // Shear web(s) between the caps; the D-box's own shear path is ignored (safe side). Along a
+      // dihedral brace's arms the braces carry a share of it, in proportion to their shear
+      // stiffness (taken as proportional to E for wood and ply alike)
+      const webArea = sp.webs * sp.tw * Math.max(1e-6, sp.d)
+      const webK = sp.web.E * webArea
+      const braceK = braceStiffness(s)
+      const webShare = braceK > 0 ? webK / (webK + braceK) : 1
+      const tau = (V * webShare) / webArea
       row.tau = tau
+      if (braceK > 0) row.braceShare = 1 - webShare
       row.ms.webShear = ms(sp.web.shear, tau)
       // Roughly the cap thickness that would give a margin of zero at this width
       const ratio = Math.max((sigC * sf) / sp.mat.compression, (sigT * sf) / sp.mat.tension)
@@ -2201,7 +2226,6 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     for (const [k, m] of (b.warnings ?? []).entries()) warnings.push({ id: `bay-${b.id}-${k}`, message: m })
   }
   // Dihedral braces: one warning per brace that is too thin for its bending, or cannot be made
-  const braces = braceSizing({ sampler, rootS: s0, tipS: sTip, section, sparX, pos, safetyFactor: sf }, structure)
   for (const b of braces) {
     const from = Math.round((b.s - s0) * 1000)
     if (!b.ok) warnings.push({ id: `brace-${b.name}`, message: `Dihedral brace ${b.name} (at ${from} mm from the root) isn't built: ${b.reason}.` })
