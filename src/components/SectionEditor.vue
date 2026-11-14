@@ -7,6 +7,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import StageZoom from './StageZoom.vue'
 import { useCmdDock } from '../composables/useCmdDock.js'
+import { usePinch } from '../composables/usePinch.js'
 import {
   sampleSection, analyseSection, leIndex, curvature, naca4Points, SEEDS, yAt,
   applyRadius, bendSegment, moveStraightSegment, clampOrder, NOSE_MIN, NOSE_MAX,
@@ -174,7 +175,9 @@ function setSelection(points, segs) {
 function onWheel(e) {
   const el = stageEl.value
   const active = document.activeElement
-  if (!el || !(active === el || el.contains(active))) return
+  // A trackpad pinch (a wheel event with Ctrl set) always zooms the view: it would zoom the
+  // whole page otherwise
+  if (!el || !(e.ctrlKey || active === el || el.contains(active))) return
   e.preventDefault()
   const p = local(e)
   zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0015))
@@ -282,6 +285,22 @@ function capture(e) {
 function onMouseDown(e) {
   if (e.button === 1) e.preventDefault()
 }
+
+// Two fingers on a touch screen: pinch to zoom about the point between them, and move both to
+// pan. Whatever the first finger had started (a pan) is dropped.
+usePinch(stageEl, {
+  start() {
+    gesture = null
+    panning.value = false
+  },
+  change({ k, x, y, dx: mx, dy: my }) {
+    const r = stageEl.value?.getBoundingClientRect()
+    if (!r) return
+    zoomAt(x - r.left, y - r.top, k)
+    ox.value += mx
+    oy.value += my
+  },
+})
 
 function onDown(e) {
   stageEl.value?.focus({ preventScroll: true })

@@ -98,7 +98,7 @@ On a custom section, **Advanced** opens the section editor: the upper and lower 
 - **Reset** (the menu in the command bar) goes back to the start of this edit, or to a built-in section. Undo brings the shape back.
 - **Trailing edge**: always sharp. The two surfaces end on one point, and dragging either end moves both. Selected, it counts as one point, and its position can be typed in the side panel. The thickness you build comes from the trailing-edge stock in the structure editor.
 - **Drawing in** (side panel): % chord, or **Millimetres**, with the length one unit of the drawing stands for (the root chord to start with). In millimetres the grid and rulers read mm, the selected point's position can be typed in mm as drawn, and the readouts give each size in mm too: useful for tracing a real rib. **Normalise** scales the drawing to a unit chord and goes back to % chord.
-- The grid and rulers have the same spacing on both axes. The wheel zooms once the drawing has been clicked; before that it scrolls the page.
+- The grid and rulers have the same spacing on both axes. The wheel zooms once the drawing has been clicked; before that it scrolls the page. Two fingers on a touch screen pinch to zoom, and a trackpad pinch zooms whether or not it's been clicked.
 - **1×** and **3×** show the drawing at true proportion or with the thickness stretched three times, to see small bumps.
 - **Comb** draws the curvature as a comb along the outline: each tooth is proportional to the curvature, on the side it bends toward. A smooth outline has a comb that varies gently.
 - **Camber and markers** shows the mean line and the thickness and camber positions.

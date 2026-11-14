@@ -3613,6 +3613,8 @@
 /* ---- section editor drawing (the drawn aerofoil outline) ---- */
 .wc-sec {
   position: relative;
+  /* The drawing handles its own fingers (one pans, two pinch): the page mustn't zoom instead */
+  touch-action: none;
   flex: 1;
   min-height: 360px;
   min-width: 0;

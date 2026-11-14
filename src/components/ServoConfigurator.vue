@@ -123,6 +123,7 @@ const pickArm = (it) => (draft.link = { ...draft.link, arm: it.arm.id, armRow: i
 const pickHorn = (h) => (draft.link = { ...draft.link, horn: h.id, hornHole: null })
 const pickPair = (i, j) => (draft.link = { ...draft.link, armHole: i, hornHole: j })
 const setLink = (patch) => (draft.link = { ...draft.link, ...patch })
+const columns = { servo: ref(null), arm: ref(null), horn: ref(null) }
 onMounted(() => nextTick(() => ['servo', 'arm', 'horn'].forEach((k) => columns[k].value?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }))))
 
 // --- Switches and position -----------------------------------------------------------------
