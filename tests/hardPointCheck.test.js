@@ -7,6 +7,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure, hardPatches, sparSection } from '../src/lib/structure.js'
 import { newSurface, defaultControls } from '../src/lib/controlSurfaces.js'
+import { buildParts } from '../src/lib/ribs.js'
 
 function analyse(edit = () => {}, controls = defaultControls()) {
   const s = defaultState()
@@ -63,5 +64,37 @@ describe("the spar's fit inside the skins", () => {
     const short = sparSection(st, 0.03, 0, null, 0.35).inner
     expect(full).toBeCloseTo(0.03 - 0.003, 9)
     expect(short).toBeCloseTo(0.03 - 0.0015, 9)
+  })
+})
+
+describe("a sheeted hard point's part", () => {
+  const sheet = (st) => { st.covering.type = 'open'; st.ribs.hardPoints = [hp({ d: 0.2, to: 0.5, thickness: 0.002, sheet: 'top' })] }
+  const outlineOf = (a) => buildParts(a, a.structure, {}).parts.find((p) => p.id === 'HP1T').outline
+  const depthAt = (pts, u) => {
+    const vs = pts.filter(([x]) => Math.abs(x - u) < 1e-4).map(([, v]) => v)
+    return Math.max(...vs) - Math.min(...vs)
+  }
+
+  it('is its plan shape: a plain quadrilateral where nothing interrupts it', () => {
+    const pts = outlineOf(analyse(sheet))
+    expect(pts.length).toBe(4)
+    expect(depthAt(pts, 0)).toBeGreaterThan(0.1)
+  })
+
+  it('steps in to the fixed hinge spar where a control surface starts part way along it', () => {
+    // The aileron starts 0.35 m out: inside the hard point, which runs from 0.2 to 0.5
+    const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.35, 0.65, 1)], bays: [{ surface: 1, enabled: false }] }
+    const a = analyse(sheet, controls)
+    const pts = outlineOf(a)
+    const sf = a.surfaces.find((x) => x.ok)
+    const step = sf.s0 - a.rootS - 0.2
+    expect(step).toBeGreaterThan(0.05)
+    expect(step).toBeLessThan(0.25)
+    // Two points on the rear edge at the step, one each side of it, and the sheet shallower
+    // outboard of it than inboard
+    const atStep = pts.filter(([u]) => Math.abs(u - step) < 1e-4)
+    expect(atStep.length).toBe(2)
+    expect(Math.abs(atStep[0][1] - atStep[1][1])).toBeGreaterThan(0.02)
+    expect(depthAt(pts, 0.3)).toBeLessThan(depthAt(pts, 0) - 0.02)
   })
 })

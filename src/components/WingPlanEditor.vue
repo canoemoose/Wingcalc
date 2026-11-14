@@ -14,6 +14,8 @@ import { format, defaultUnit, systemOf, inputValue, toBase } from '../lib/units.
 import { evaluate } from '../lib/expr.js'
 import { MEASURE } from '../lib/icons.js'
 import StageZoom from './StageZoom.vue'
+import { useCmdDock } from '../composables/useCmdDock.js'
+import { usePinch } from '../composables/usePinch.js'
 
 const props = defineProps({
   system: { type: [String, Object], required: true }, // a units setting (units.js normaliseUnits) or system name
@@ -40,6 +42,8 @@ const height = ref(FIXED_HEIGHT)
 const HANDLE_PX = 6
 const SNAP_PX = 10
 const wrapEl = ref(null)
+// The command bar drops to the bottom only where it would run into the corner controls
+const cmdBottom = useCmdDock(wrapEl)
 const stageEl = ref(null) // the drawing area, under the corner controls and the command bar
 const svgEl = ref(null)
 const width = ref(600)
@@ -240,8 +244,9 @@ function zoomAt(factor, sx, sy) {
 const zoomBy = (k) => zoomAt(k, width.value / 2, height.value / 2)
 
 function onWheel(e) {
-  // Zoom only while the view has focus; otherwise let the page scroll
-  if (!wrapEl.value?.contains(document.activeElement)) return
+  // Zoom only while the view has focus; otherwise let the page scroll. A trackpad pinch (a
+  // wheel event with Ctrl set) always zooms the view: it would zoom the whole page otherwise.
+  if (!e.ctrlKey && !wrapEl.value?.contains(document.activeElement)) return
   e.preventDefault()
   const r = svgEl.value.getBoundingClientRect()
   zoomAt(Math.exp(-e.deltaY * 0.0015), ((e.clientX - r.left) / r.width) * width.value, ((e.clientY - r.top) / r.height) * height.value)
@@ -528,6 +533,22 @@ function startPan(e, { deselect = false, select = null, surface = null, brake = 
   }
   drag.value = { kind: 'click', cx: e.clientX, cy: e.clientY, moved: false, deselect }
 }
+
+// Two fingers on a touch screen: pinch to zoom about the point between them, and move both to
+// pan. Whatever the first finger had started is finished first (a pan is dropped, an edit kept).
+usePinch(stageEl, {
+  start() {
+    if (drag.value?.kind === 'pan' || drag.value?.kind === 'click') drag.value = null
+    else if (drag.value) endHandle()
+  },
+  change({ k, x, y, dx, dy }) {
+    const r = svgEl.value?.getBoundingClientRect()
+    if (!r || !(r.width > 0)) return
+    zoomAt(k, ((x - r.left) / r.width) * width.value, ((y - r.top) / r.height) * height.value)
+    view.ox -= (dx / r.width) * (width.value / view.scale)
+    view.oy -= (dy / r.height) * (height.value / view.scale)
+  },
+})
 
 function straighten(i, edge) {
   setPanel(i, { [edge]: null })
@@ -1320,7 +1341,7 @@ watch(
             Measure
           </button>
         </div>
-        <div v-if="cmd" class="wc-cmd" role="toolbar" :aria-label="cmd.label || 'Wing'">
+        <div v-if="cmd" class="wc-cmd" :class="{ 'wc-cmd--bottom': cmdBottom }" role="toolbar" :aria-label="cmd.label || 'Wing'">
           <span v-if="cmd.label" class="wc-cmd__label">{{ cmd.label }}</span>
           <template v-if="cmd.kind === 'panel'">
             <button type="button" class="wc-cmd__btn" title="Insert a new panel outboard of this one" @click="insertAfterSelected">Insert after</button>

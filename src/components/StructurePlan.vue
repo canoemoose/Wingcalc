@@ -16,19 +16,20 @@
 // has are listed. The menu closes on Esc, its button, or a press outside it.
 //
 // Servo linkages: each bay's servo (turned as set), its arm at surface neutral, the pushrod and
-// the horn, with two handles. Drag the servo's along the span to move the bay, or the horn's
-// along the hinge to move the horn (both snap to the grid; Alt places freely); click either to
-// open the servo configurator. The pushrod is drawn amber when the linkage has a warning.
+// the horn, with a handle on the servo. Drag it along the span to move the bay, and the horn
+// with it (it snaps to the grid; Alt places freely); click it to open the servo configurator. The pushrod is drawn amber when the linkage has a warning.
 import { computed, ref, reactive, watch, onMounted, onBeforeUnmount, useId } from 'vue'
 import { EYE, EYE_OFF } from '../lib/icons.js'
 import { flatPanels } from '../lib/wing.js'
 import { hingeTabOutline } from '../lib/controlSurfaces.js'
 import { MODES, SPACING_MODES, sheetOutline, hardPatches, patchSpan, sparOuterFaces, stringerOk, movedEnd } from '../lib/structure.js'
-import { setBay, bayOf } from '../lib/servos.js'
+import { setBay } from '../lib/servos.js'
 import { linkage } from '../lib/linkage.js'
-import { assemblyGeometry, linkOf, savedLink, hornOutline } from '../lib/bayLinkage.js'
+import { assemblyGeometry, hornOutline } from '../lib/bayLinkage.js'
 import { format, defaultUnit, systemOf } from '../lib/units.js'
 import StageZoom from './StageZoom.vue'
+import { useCmdDock } from '../composables/useCmdDock.js'
+import { usePinch } from '../composables/usePinch.js'
 
 const props = defineProps({
   analysis: { type: Object, required: true },
@@ -314,6 +315,9 @@ watch(
 )
 
 const svgEl = ref(null)
+const figEl = ref(null)
+// The command bar drops to the bottom only where it would run into the corner controls
+const cmdBottom = useCmdDock(figEl)
 function toWorld(e) {
   const m = svgEl.value.getScreenCTM()
   const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse())
@@ -334,13 +338,18 @@ function zoomBy(f) {
 }
 
 function onWheel(e) {
-  // Zoom only while the view has focus; otherwise let the page scroll
-  if (!svgEl.value?.contains(document.activeElement)) return
+  // Zoom only while the view has focus; otherwise let the page scroll. A trackpad pinch (a
+  // wheel event with Ctrl set) always zooms the view: it would zoom the whole page otherwise.
+  if (!e.ctrlKey && !svgEl.value?.contains(document.activeElement)) return
   e.preventDefault()
+  zoomAbout(Math.exp(-e.deltaY * 0.0015), e)
+}
+// Zoom by f about a point on the screen (anything with clientX and clientY)
+function zoomAbout(by, e) {
   const before = toWorld(e)
   const v = vb.value
   // Zoom out past the fitted view as well as in, like the wing plan editor
-  const k = Math.min(60, Math.max(0.15, zoom.k * Math.exp(-e.deltaY * 0.0015)))
+  const k = Math.min(60, Math.max(0.15, zoom.k * by))
   // Keep the point under the pointer where it is
   const f = k / zoom.k
   const cx = v.x + v.w / 2
@@ -433,6 +442,22 @@ function onRibDown(e, line) {
   const p = partFor(line.id)
   drag.value = { part: p, d: p.s - a.value.rootS, moved: false, startX: e.clientX, startY: e.clientY }
 }
+// Two fingers on a touch screen: pinch to zoom about the point between them, and move both to
+// pan. Whatever the first finger had started is dropped (a rib or servo drag only lands on release).
+const planStageEl = ref(null)
+usePinch(planStageEl, {
+  start() {
+    pan.value = null
+    drag.value = null
+    handleDrag.value = null
+  },
+  change({ k, x, y, dx, dy }) {
+    if (!svgEl.value) return
+    zoomAbout(k, { clientX: x, clientY: y })
+    zoom.cx -= dx / pxPerMetre()
+    zoom.cy -= dy / pxPerMetre()
+  },
+})
 // The middle or right button pans, as does a finger on a touch screen; the left button never does
 function onBackgroundDown(e) {
   svgEl.value.focus({ preventScroll: true })
@@ -539,12 +564,12 @@ const links = computed(() => {
 
 // Dragging a handle: a preview follows the pointer, and the bay or horn moves on release (one
 // change, one undo step); a press without a drag opens the configurator
-const handleDrag = ref(null) // { sid, which: 'servo' | 'horn', s, moved, startX, startY }
+const handleDrag = ref(null) // { sid, s, moved, startX, startY }
 const handleR = computed(() => 6 / pxPerMetre())
-function onHandleDown(e, l, which) {
+function onHandleDown(e, l) {
   e.stopPropagation()
   svgEl.value.focus({ preventScroll: true })
-  handleDrag.value = { sid: l.sid, which, s: which === 'servo' ? l.servoAt[0] : l.hingeAt[0], moved: false, startX: e.clientX, startY: e.clientY, link: l }
+  handleDrag.value = { sid: l.sid, s: l.servoAt[0], moved: false, startX: e.clientX, startY: e.clientY, link: l }
   try {
     svgEl.value.setPointerCapture(e.pointerId)
   } catch {
@@ -557,7 +582,7 @@ function moveHandle(e) {
   if (!d.moved) return
   const sf = d.link.frame.surface
   const s = a.value.rootS + snap(toWorld(e).s - a.value.rootS, e)
-  d.s = d.which === 'horn' ? Math.min(d.link.frame.range[1], Math.max(d.link.frame.range[0], s)) : Math.min(sf.s1, Math.max(sf.s0, s))
+  d.s = Math.min(sf.s1, Math.max(sf.s0, s))
 }
 function releaseHandle() {
   const d = handleDrag.value
@@ -566,8 +591,7 @@ function releaseHandle() {
   if (!d.moved) return emit('configure', d.sid)
   if (!controls.value) return
   const sf = d.link.frame.surface
-  if (d.which === 'servo') controls.value = setBay(controls.value, d.sid, { along: d.s - sf.s0, at: null })
-  else controls.value = setBay(controls.value, d.sid, { link: savedLink({ ...linkOf(bayOf(controls.value, d.sid)), hornAt: d.s - sf.s0 }) })
+  controls.value = setBay(controls.value, d.sid, { along: d.s - sf.s0, at: null })
   emit('commit')
 }
 // Where a dragged handle would land, for the preview: [s, x]
@@ -575,7 +599,6 @@ const handlePreview = computed(() => {
   const d = handleDrag.value
   if (!d?.moved) return null
   const l = d.link
-  if (d.which === 'horn') return { at: [d.s, l.frame.surface.hingeX(d.s)], text: `Horn ${fmt(d.s - l.frame.surface.s0)} from the inner end of ${l.frame.label}` }
   return { at: [d.s, l.servoAt[1]], text: `${l.label}: servo ${fmt(d.s - l.frame.surface.s0)} from the surface's inner end` }
 })
 
@@ -634,8 +657,8 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
 </script>
 
 <template>
-  <figure class="wc-figure wc-structure-plan">
-    <div class="wc-plan__stage">
+  <figure ref="figEl" class="wc-figure wc-structure-plan">
+    <div ref="planStageEl" class="wc-plan__stage">
       <svg
         ref="svgEl"
         :viewBox="`${vb.x} ${vb.y} ${vb.w} ${vb.h}`"
@@ -754,11 +777,8 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           <line :x1="l.pivot[0]" :y1="l.pivot[1]" :x2="l.arm[0]" :y2="l.arm[1]" class="wc-sp__arm" />
           <line :x1="l.arm[0]" :y1="l.arm[1]" :x2="l.horn[0]" :y2="l.horn[1]" class="wc-sp__rod" />
           <line :x1="l.hornLine[0][0]" :y1="l.hornLine[0][1]" :x2="l.hornLine[1][0]" :y2="l.hornLine[1][1]" class="wc-sp__horn" />
-          <circle :cx="l.servoAt[0]" :cy="l.servoAt[1]" :r="handleR" class="wc-sp__handle" @pointerdown="onHandleDown($event, l, 'servo')">
+          <circle :cx="l.servoAt[0]" :cy="l.servoAt[1]" :r="handleR" class="wc-sp__handle" @pointerdown="onHandleDown($event, l)">
             <title>{{ l.label }}: drag along the span to move the servo, click to set the servo and linkage. {{ l.warn ? l.title : '' }}</title>
-          </circle>
-          <circle :cx="l.hingeAt[0]" :cy="l.hingeAt[1]" :r="handleR" class="wc-sp__handle wc-sp__handle--horn" @pointerdown="onHandleDown($event, l, 'horn')">
-            <title>{{ l.label }}: drag along the hinge to move the horn, click to set the servo and linkage. {{ l.warn ? l.title : '' }}</title>
           </circle>
         </g>
         <circle v-if="handlePreview" :cx="handlePreview.at[0]" :cy="handlePreview.at[1]" :r="handleR" class="wc-sp__handle wc-sp__handle--preview" />
@@ -781,7 +801,7 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
           </div>
         </div>
       </div>
-      <div v-if="editable" class="wc-cmd" role="toolbar" :aria-label="readout?.movable ? readout.name : 'Ribs'">
+      <div v-if="editable" class="wc-cmd" :class="{ 'wc-cmd--bottom': cmdBottom }" role="toolbar" :aria-label="readout?.movable ? readout.name : 'Ribs'">
         <template v-if="readout?.movable">
           <span class="wc-cmd__label">{{ readout.name }}</span>
           <button type="button" class="wc-cmd__btn" title="Delete this rib (Delete)" @click="removeSelected">Delete</button>
@@ -804,17 +824,18 @@ const labelEvery = computed(() => Math.max(1, Math.ceil(ribs.value.length / (24 
       <span v-else class="wc-muted">Click a rib to see where it is.</span>
     </p>
     <figcaption class="wc-figure__caption">
-      One side, flat as built, leading edge at the top.{{ analysis.structure?.spar.type === 'none' ? ' No spar' : ' Spar in accent colour' }}<template v-if="geom.sheet">,
+      One side, flat as built, leading edge at the top.{{ a.construction === 'foam' ? ' The skins hatched' : analysis.structure?.spar.type === 'none' ? ' No spar' : ' Spar in accent colour' }}<template v-if="geom.sheet && a.construction !== 'foam'">,
         sheeted area hatched</template
       ><template v-if="geom.hinges.length">, control surfaces shaded behind their hinge spars</template
       ><template v-if="geom.brakes.length">; air brakes outlined, with the slots or opening in the covering</template
-      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root, and its arm, pushrod and horn (amber where the linkage has a warning), with the slot the arm comes out through dashed. Drag a servo's handle along the span to move it, or its horn's along the hinge; click either to set the servo and linkage</template
-      ><template v-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
+      ><template v-if="geom.servos.length">; servo bays with their hatch outlined, the servo filled and its lead's route dashed to the root, and its arm, pushrod and horn (amber where the linkage has a warning), with the slot the arm comes out through dashed. Drag a servo's handle along the span to move it (its horn goes with it); click it to set the servo and linkage</template
+      ><template v-if="weakKinds.has('strength') && a.construction === 'foam'">; red stretches are short of strength in the skins or the core (see the warnings)</template
+      ><template v-else-if="weakKinds.has('strength')">; red bays are short of strength in the spar, web or sheeting, which
         closer ribs won't fix (see the warnings)</template
-      ><template v-if="weakKinds.has('spacing')">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to
+      ><template v-if="weakKinds.has('spacing') && a.construction !== 'foam'">; amber bays have ribs too far apart</template>. Scroll to zoom, drag to
       move around.
-      <template v-if="editable">Double-click the wing to add a rib there; drag a rib to move it, or nudge it with the arrow keys, and Delete removes it.</template>
-      <template v-else-if="a.construction === 'foam'">A foam wing has no ribs: its cores are cut between the panel ends, and the servo and air brake pockets are routed where outlined.</template>
+      <template v-if="a.construction === 'foam'">A foam wing has no ribs: its cores are cut between the panel ends, and the servo and air brake pockets are routed where outlined.</template>
+      <template v-else-if="editable">Double-click the wing to add a rib there; drag a rib to move it, or nudge it with the arrow keys, and Delete removes it.</template>
       <template v-else>Click a rib to see it; set spacing to Manual to move ribs here.</template>
     </figcaption>
   </figure>

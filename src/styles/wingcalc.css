@@ -928,6 +928,8 @@
 }
 .wc-plan__stage {
   position: relative;
+  /* The drawing handles its own fingers (one pans, two pinch): the page mustn't zoom instead */
+  touch-action: none;
 }
 .wc-plan__canvas:focus-visible {
   outline: 2px solid var(--wc-accent);
@@ -2070,6 +2072,8 @@
   background: none;
 }
 .wc-loads--expanded .wc-loads__stage {
+  /* The charts handle their own fingers (pinch to zoom): the page mustn't zoom instead */
+  touch-action: none;
   flex: 1;
   min-height: 360px;
   overflow: hidden;
@@ -3047,15 +3051,14 @@
   vector-effect: none;
 }
 
-/* Actions on the selection, along the bottom of a drawing, after Screenvision's command bar */
+/* Actions on the selection, along the top of a drawing, after Screenvision's command bar */
 .wc-cmd {
   position: absolute;
   z-index: 4;
-  /* Centred along the bottom, clear of the zoom controls in the corner (and so of the view
-     toggles along the top) */
-  bottom: 8px;
-  left: 190px;
-  right: 190px;
+  /* Centred along the top */
+  top: 8px;
+  left: 8px;
+  right: 8px;
   width: fit-content;
   margin: 0 auto;
   display: flex;
@@ -3122,8 +3125,16 @@
   margin: 4px 3px;
   background: var(--wc-border);
 }
+/* Where it would run into the controls in the top corners (useCmdDock), along the bottom
+   instead, clear of the zoom controls in the corner */
+.wc-cmd--bottom {
+  top: auto;
+  bottom: 8px;
+  left: 190px;
+  right: 190px;
+}
 @media (max-width: 560px) {
-  .wc-cmd {
+  .wc-cmd--bottom {
     bottom: 44px;
     left: 8px;
     right: 8px;

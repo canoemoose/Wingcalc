@@ -1428,7 +1428,7 @@ const fmtRe = (re) => (re ? Math.round(re / 1000).toLocaleString('en-GB') + 'k' 
                 :parts="structureResult.parts"
                 :selected="selectedPart"
                 :system="system"
-                :editable="input.structure.ribs.spacing === 'manual'"
+                :editable="!isFoamWing && input.structure.ribs.spacing === 'manual'"
                 @select="selectedPart = $event"
                 @commit="history.commit"
                 @configure="configuringBay = $event"

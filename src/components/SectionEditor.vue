@@ -6,6 +6,7 @@
 // history step for the parent); the selection is emitted as `update:selection`.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import StageZoom from './StageZoom.vue'
+import { useCmdDock } from '../composables/useCmdDock.js'
 import {
   sampleSection, analyseSection, leIndex, curvature, naca4Points, SEEDS, yAt,
   applyRadius, bendSegment, moveStraightSegment, clampOrder, NOSE_MIN, NOSE_MAX,
@@ -49,6 +50,8 @@ const TOL_PT = 8
 const TOL_SEG = 6
 
 const stageEl = ref(null)
+// The command bar drops to the bottom only where it would run into the view toggles
+const cmdBottom = useCmdDock(stageEl)
 const svgEl = ref(null)
 let ro = null
 
@@ -937,7 +940,7 @@ defineExpose({ focusOn, run })
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(ve === 1)" title="True proportions" @click="ve = 1">1×</button>
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(ve === 3)" title="Vertical stretched three times, to see small bumps" @click="ve = 3">3×</button>
     </div>
-    <div v-if="geo" class="wc-cmd" role="toolbar" aria-label="Section actions">
+    <div v-if="geo" class="wc-cmd" :class="{ 'wc-cmd--bottom': cmdBottom }" role="toolbar" aria-label="Section actions">
       <template v-if="barMode === 'points'">
         <span class="wc-cmd__label">{{ segLabel || `${selPts.length} points` }}</span>
         <button type="button" class="wc-cmd__btn" :disabled="!canSmoothSel" title="Fair the selected points together so the curvature varies smoothly. Press again for more." @click="run('smooth')">Smooth</button>

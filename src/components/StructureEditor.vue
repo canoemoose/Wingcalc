@@ -1,10 +1,11 @@
 <script setup>
 // Numeric entry for the wing's structure: how it's built (built-up or a foam core), design
 // loads, spar, covering, edges, stringers, ribs, gussets, dihedral braces and control-surface
-// hinges. A foam wing shows its core, skins and spar caps instead of the spar, covering,
+// hinges. A foam wing shows its core and skins instead of the spar, covering,
 // stringers, ribs and gussets (which are kept, for switching back). Every change replaces the
 // whole structure object, so undo/redo and autosave see it.
 import { TRASH } from '../lib/icons.js'
+import { HINGES, hingeById, hingeLabel } from '../lib/hingeCatalogue.js'
 import { computed, ref } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
@@ -59,7 +60,8 @@ function set(path, value) {
 }
 const st = computed(() => structure.value)
 const HINGE_TYPES = [
-  { value: 'mylar', label: 'Mylar tabs', title: 'Mylar tabs slotted into both hinge spars at the centre line' },
+  { value: 'mylar', label: 'Mylar tabs', title: 'Mylar tabs cut from roll, slotted into both hinge spars at the centre line' },
+  { value: 'part', label: 'Bought', title: 'A bought hinge from the list, slotted into both hinge spars at the centre line' },
   { value: 'pinned', label: 'Pinned', title: 'Pin hinges in holes drilled into both hinge spars at the centre line' },
   { value: 'live', label: 'Live', title: 'The top skin or covering runs over the hinge and flexes' },
 ]
@@ -116,6 +118,9 @@ const CONSTRUCTIONS = [
   { value: 'foam', label: 'Foam core', title: 'A hot-wire cut foam core, skinned with veneer or balsa' },
 ]
 const foam = computed(() => st.value.construction === 'foam')
+// The bought hinge chosen, and the list to choose from
+const boughtHinge = computed(() => hingeById(st.value.hinges.part))
+const HINGE_OPTIONS = HINGES.map((h) => ({ value: h.id, label: `${hingeLabel(h)}, ${Math.round(h.across * 1000)} × ${Math.round(h.along * 1000)} mm` }))
 // The foam settings, filled in for a structure saved before them
 const fm = computed(() => st.value.foam ?? defaultFoam())
 const sheetSize = computed(() => SKIN_SHEETS[fm.value.skin.material] ?? SKIN_SHEETS.default)
@@ -348,6 +353,8 @@ const summaries = computed(() => {
         ? 'Live hinges, the top skin'
         : x.hinges.type === 'pinned'
           ? `Pin hinges, ${mm(x.hinges.pinDiameter)} × ${mm(x.hinges.pinLength)}, ${len(x.hinges.tabSpacing)} apart at most`
+          : x.hinges.type === 'part'
+            ? `${hingeLabel(hingeById(x.hinges.part))}, ${len(x.hinges.tabSpacing)} apart at most`
           : `Mylar tabs, ${size(x.hinges.tabWidth, x.hinges.tabLength)}, ${len(x.hinges.tabSpacing)} apart at most`,
   }
 })
@@ -1264,6 +1271,14 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           <p class="wc-field__hint">Mylar hinge tabs cut from roll stock (25 mm wide, 0.2 mm thick as standard): the roll's width goes across the hinge, half of it (less half the gap) into each spar, trimmed to fit where the spars are narrower, and each tab is cut this long along the hinge.</p>
           <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
         </template>
+        <template v-else-if="st.hinges.type === 'part'">
+          <SelectField :id="id('hpart')" :model-value="boughtHinge.id" label="Hinge" :options="HINGE_OPTIONS" @update:model-value="set('hinges.part', $event)" />
+          <p class="wc-field__hint">
+            {{ mm(boughtHinge.across) }} across the hinge, half (less half the gap) into each spar, by {{ mm(boughtHinge.along) }} along it, in packets of {{ boughtHinge.pack }}{{ boughtHinge.glue ? `; fitted with ${boughtHinge.glue}` : '' }}.
+            {{ boughtHinge.kind === 'leaf' ? 'Two nylon leaves on a steel pin, which lies along the hinge line in the gap.' : 'A flat strip that flexes at the hinge line.' }}
+            Its thickness (about {{ mm(boughtHinge.thickness) }}) isn't published: measure it before cutting the slots. A warning says if the spars are too narrow for it.
+          </p>
+        </template>
         <template v-else-if="st.hinges.type === 'pinned'">
           <div class="wc-structure-editor__pair">
             <UnitInput :id="id('hpd')" :model-value="st.hinges.pinDiameter" quantity="thin" :system="system" label="Pin diameter" @update:model-value="set('hinges.pinDiameter', $event ?? 0.0032)" />
@@ -1276,7 +1291,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" @update:model-value="set('hinges.tabSpacing', $event)" />
           <UnitInput :id="id('hti')" :model-value="st.hinges.tabInset" quantity="length" :system="system" label="In from the ends" @update:model-value="set('hinges.tabInset', $event)" />
         </div>
-        <p v-if="st.hinges.type !== 'live'" class="wc-field__hint">{{ st.hinges.type === 'pinned' ? 'Pins' : 'Tabs' }} are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
+        <p v-if="st.hinges.type !== 'live'" class="wc-field__hint">{{ st.hinges.type === 'pinned' ? 'Pins' : st.hinges.type === 'part' ? 'Hinges' : 'Tabs' }} are spaced evenly along each hinge, the end ones' nearer edges this far in from the surface's ends.</p>
       </InspectorSection>
     </InspectorSection>
 

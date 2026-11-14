@@ -12,6 +12,7 @@
 // pans, and − + Fit (bottom right) or F, + and − do the same. The moment axis fits what's in
 // view; the margins keep their scale.
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { usePinch } from '../composables/usePinch.js'
 import { MODES, MODE_SLOTS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { EXPAND, SHRINK, INFO } from '../lib/icons.js'
@@ -113,10 +114,10 @@ const fitSpan = () => {
   yView.value = null
 }
 // The span position under a pointer event on either chart, or null off the plot
-function spanAt(e) {
-  const r = e.currentTarget.getBoundingClientRect()
+const spanAt = (e) => spanAtX(e.clientX, e.currentTarget.getBoundingClientRect())
+function spanAtX(clientX, r) {
   if (!(r.width > 0)) return null
-  const vx = ((e.clientX - r.left) / r.width) * W.value
+  const vx = ((clientX - r.left) / r.width) * W.value
   const f = (vx - M.l) / (W.value - M.l - M.r)
   if (f < 0 || f > 1) return null
   const { d0, d1 } = win.value
@@ -173,6 +174,27 @@ function onMove(e) {
 function onUp() {
   drag = null
 }
+// Expanded, two fingers on a touch screen: pinch to zoom both charts about the span position
+// between them, and move both along to pan
+usePinch(stageEl, {
+  start() {
+    drag = null
+  },
+  change({ k, x, dx }) {
+    const r = stageEl.value?.querySelector('svg')?.getBoundingClientRect()
+    if (!props.expanded || !r || !(r.width > 0)) return
+    zoomBy(k, spanAtX(x, r))
+    const { d0, d1 } = win.value
+    if (d1 - d0 < span.value - 1e-9) {
+      const dd = (-dx / Math.max(1, (r.width * (W.value - M.l - M.r)) / W.value)) * (d1 - d0)
+      setView(d0 + dd, d1 + dd)
+    }
+  },
+})
+// A trackpad pinch (a wheel event with Ctrl set) between or beside the charts mustn't zoom the page
+const stopPageZoom = (e) => e.ctrlKey && e.preventDefault()
+onMounted(() => props.expanded && stageEl.value?.addEventListener('wheel', stopPageZoom, { passive: false }))
+onBeforeUnmount(() => stageEl.value?.removeEventListener('wheel', stopPageZoom))
 // F, + and − while expanded (the overlay is modal, so the window's keys are the chart's)
 function onZoomKey(e) {
   if (e.ctrlKey || e.metaKey || e.altKey || e.target?.closest?.('input, select, textarea')) return
@@ -295,6 +317,7 @@ function valueAt(get, d) {
 // mode's margin. Not pointing: the same entries with no values, so the lines keep their shape
 // and the page doesn't move.
 const hasNeg = computed(() => props.analysis.stations.some((r) => r.Mneg > 0))
+const hasBreaks = computed(() => (props.analysis.braces ?? []).some((b) => b.ok))
 const readout = computed(() => {
   const d = hoverD.value
   const signed = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
@@ -437,7 +460,9 @@ function nm(v) {
         {{ format(chart.worst.d, 'length', defaultUnit(system, 'length')) }} from the root rib (the dot; its line is drawn
         heavier). Margins above +3 are drawn at +3.
       </span>
-      <span v-if="chart.breakX.length">
+      <!-- Whether the wing has any, not whether one is in view: a note that came and went with
+           the zoom would resize the charts above it -->
+      <span v-if="hasBreaks">
         Dashed verticals on the moment chart are the dihedral breaks. Brace markers (B1, B2...) sit at their margin; a
         triangle means the margin is off scale (drawn at the edge of the chart).
       </span>

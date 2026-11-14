@@ -7,7 +7,7 @@ import { wingGeometry, G } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure, spanLoads, MIN_MATERIAL, leadHoleFor, LEAD_EXTRA } from '../src/lib/structure.js'
 import { buildParts, bounds, polygonArea } from '../src/lib/ribs.js'
-import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions } from '../src/lib/dxf.js'
+import { partsDxf, planDxf, parseDxf, cutListCsv, defaultExportOptions, layoutParts } from '../src/lib/dxf.js'
 import { wing3d, servoBox, servoBayParts, sectionAt, insetHeight, stringerBox, plateSolid } from '../src/lib/wing3d.js'
 import { newSurface, defaultControls, resolveSurfaces } from '../src/lib/controlSurfaces.js'
 import { SERVOS, SERVO_CLASSES, SERVO_CLEARANCE, ARM_ROOM, PLATE_EDGE, defaultServoClass, bayOf, setBay, TRAY_SLACK, dropBay, placeBays, servoMasses, placeServo, partsExtent, partSlice, installedServo, HITEC, xRangeAt, cutBands, MIN_PLY, SCREW_ROOM } from '../src/lib/servos.js'
@@ -103,7 +103,7 @@ describe('servo bay settings', () => {
   it('gives every surface a bay unless it is removed, and saves only what differs', () => {
     const c = defaultControls()
     expect(c.bays).toEqual([])
-    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, hatch: true })
+    expect(bayOf(c, 7)).toEqual({ surface: 7, enabled: true, class: null, rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, hatch: true, hatchFrom: null, hatchMaterial: null, hatchThickness: null })
     const a = setBay(c, 1, { class: 'mini' })
     expect(a.bays).toEqual([{ surface: 1, class: 'mini' }])
     expect(bayOf(a, 1).class).toBe('mini')
@@ -453,6 +453,52 @@ describe('built servo bays', () => {
     expect(none.parts.filter((p) => p.group === 'ribs').every((p) => p.holes.length === 0)).toBe(true)
     expect(none.weight.servos).toBe(0)
     expect(none.a.relief).toEqual([])
+  })
+
+  it('makes the hatch from a new piece, the piece cut out or another material, with the opening in the sheeting each time', () => {
+    const sheet = (st) => (st.covering.type = 'sheeted')
+    const made = (bay) => build({ edit: sheet, bays: [{ surface: aileron.id, ...bay }, { surface: flap.id, enabled: false }] })
+    const plain = made({})
+    const hatchOf = (r) => r.parts.find((p) => p.name === 'SB1-H')
+    const b = plain.a.bays.find((x) => x.ok)
+    // A new piece of the sheeting's sheet unless set, and its opening a hole in the sheeting on
+    // the hatch's side
+    expect(hatchOf(plain).offcut).toBeUndefined()
+    expect(hatchOf(plain).material).toBe(plain.st.covering.sheetMaterial)
+    expect(hatchOf(plain).notes[0]).toContain('a new piece')
+    const sheetWith = (r) => r.parts.filter((p) => p.group === 'sheeting' && p.notes.some((n) => n.includes("Opening for SB1's hatch")))
+    expect(sheetWith(plain).length).toBe(1)
+    expect(sheetWith(plain)[0].surface).toBe(b.hatch.side === 'top' ? 'upper' : 'lower')
+    const hole = sheetWith(plain)[0].holes.at(-1)
+    expect(Math.abs(polygonArea(hole))).toBeGreaterThan(0.8 * (b.hatch.s1 - b.hatch.s0) * (b.hatch.x1 - b.hatch.x0))
+    // The piece cut out: still drawn (and weighed once, the sheet having the hole), but kept
+    // out of the cut files
+    const offcut = made({ hatchFrom: 'offcut' })
+    expect(hatchOf(offcut).offcut).toBe(true)
+    expect(sheetWith(offcut)[0].notes.some((n) => n.includes('keep the piece cut out'))).toBe(true)
+    expect(offcut.weight.total).toBeCloseTo(plain.weight.total, 9)
+    const laidOut = (r) => layoutParts(r.parts, defaultExportOptions()).groups.reduce((n, g) => n + g.count, 0)
+    expect(laidOut(plain) - laidOut(offcut)).toBe(hatchOf(plain).qty)
+    // Another material: ply 0.8 mm unless set
+    const other = made({ hatchFrom: 'other' })
+    expect(hatchOf(other).material).toBe('ply-birch')
+    expect(hatchOf(other).thickness).toBeCloseTo(0.0008, 9)
+    const lite = made({ hatchFrom: 'other', hatchMaterial: 'ply-lite', hatchThickness: 0.0015 })
+    expect([hatchOf(lite).material, hatchOf(lite).thickness]).toEqual(['ply-lite', 0.0015])
+    // Saved only where it differs from a new piece
+    expect(setBay(defaultControls(), 1, { hatchFrom: 'new' }).bays).toEqual([])
+    expect(setBay(defaultControls(), 1, { hatchFrom: 'other', hatchMaterial: 'ply-lite' }).bays).toEqual([{ surface: 1, hatchFrom: 'other', hatchMaterial: 'ply-lite' }])
+  })
+
+  it('gives a foam wing a new piece for its hatch whatever is asked, and the opening in its skin', () => {
+    const r = build({ edit: (st) => (st.construction = 'foam'), bays: [{ surface: aileron.id, hatchFrom: 'offcut' }, { surface: flap.id, enabled: false }] })
+    const hatch = r.parts.find((p) => p.name.endsWith('-H'))
+    expect(hatch).toBeTruthy()
+    expect(hatch.offcut).toBeUndefined()
+    expect(hatch.notes[0]).toContain("a new piece of the skin's sheet")
+    const skins = r.parts.filter((p) => p.group === 'skins' && p.holes.length)
+    expect(skins.length).toBe(1)
+    expect(skins[0].notes.some((n) => n.includes('Opening for'))).toBe(true)
   })
 
   it('adds a hatch part and two rails on a sheeted wing, and only then', () => {
@@ -851,7 +897,9 @@ describe('a Hitec servo in its bay, drawn from its drawing', () => {
       expect(b.servo, tag).toMatchObject(pose)
       // The same room, so the same width of bay (on the other side where the output's turned
       // inboard, so the case can move a whisker along the chord with the ribs' depth there)
-      expect(b.width, tag).toBeCloseTo(b0.width, 9)
+      // (square to a hinge that isn't square to the ribs, the turned case's reach along the span
+      // shifts by a millimetre or so with the pose)
+      expect(Math.abs(b.width - b0.width), tag).toBeLessThan(0.002)
       expect(b.case.x0, tag).toBeCloseTo(b0.case.x0, 4)
       const parts = placeServo(b.servo, at(b))
       const out = parts.find((p) => p.kind === 'servoOutput').cylinder
@@ -1003,7 +1051,7 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
   // each kind, square to the hinge, turned round or over too
   const raked = { ...aileron, hingeIn: 0.65, hingeOut: 0.85 }
   const someIds = ['micro', 'standard', 'hitec-hs-645mg', 'hitec-hs-85mg', 'hitec-hs-125mg', 'hitec-d89mw']
-  for (const turn of [{ square: 'hinge' }, { square: 'hinge', rotate: true }, { square: 'hinge', flip: true }]) {
+  for (const turn of [{}, { rotate: true }, { flip: true }]) {
     it(`fits a servo square to the hinge${turn.rotate ? ', turned round' : turn.flip ? ', upside down' : ''}`, () => {
       for (const id of someIds) {
         const res = build({ surfaces: [raked, flap], bays: [{ surface: aileron.id, class: id, ...turn }, { surface: flap.id, enabled: false }], wingEdit: big, airfoilThickness: 16, edit: withStringers })
@@ -1052,7 +1100,7 @@ describe('every servo fits its bay, nothing through anything, and the plate keep
     expect(at('hitec-hs-85mg').screws).toEqual([])
   })
 
-  for (const [label, turn] of [['', {}], [', turned square to a raked hinge', { square: 'hinge' }], [', turned round and over', { rotate: true, flip: true }]]) it(`draws the servos and plates as closed solids, and fills them in the section cut${label}`, () => {
+  for (const [label, turn] of [['', {}], [', turned round and over', { rotate: true, flip: true }]]) it(`draws the servos and plates as closed solids, and fills them in the section cut${label}`, () => {
     const surfaces = [{ ...aileron, hingeIn: 0.65, hingeOut: 0.85 }, flap]
     const res = build({ surfaces, bays: [{ surface: aileron.id, class: 'hitec-hs-645mg', ...turn }, { surface: flap.id, class: 'hitec-hs-125mg', ...turn }], wingEdit: big, airfoilThickness: 16 })
     const m = wing3d(res.a, res.st, res.parts)

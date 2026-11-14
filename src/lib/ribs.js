@@ -15,7 +15,9 @@
 // metres. qty is per the handedness asked for (a pair doubles everything except parts on
 // the centreline).
 
-import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
+import { HATCH_OTHER } from './servos.js'
+import { hingeLabel, hingePacks } from './hingeCatalogue.js'
+import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchSteps, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -1359,6 +1361,16 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     }
     return null
   }
+  // What a bay's hatch is made of: the piece cut out of the sheeting (built-up wings only: routing
+  // a foam wing's pocket destroys the skin over it), a new piece of the skin's sheet (the
+  // default) or a new piece of another material
+  const hatchMade = (bay) => {
+    const from = bay.hatch.from === 'other' ? 'other' : bay.hatch.from === 'offcut' && !foam ? 'offcut' : 'new'
+    const skinT = sheetThicknessAt(structure, (bay.hatch.s0 + bay.hatch.s1) / 2)
+    return from === 'other'
+      ? { from, material: bay.hatch.material || HATCH_OTHER.material, thickness: bay.hatch.thickness > 0 ? bay.hatch.thickness : HATCH_OTHER.thickness }
+      : { from, material: structure.covering.sheetMaterial, thickness: skinT }
+  }
   // Where an arm's slot is cut: in the hatch (a sheeted wing's), a hard point's sheet, the
   // sheeting (named once the sheeting parts are made, below) or the covering
   const slotIn = (q) => {
@@ -1423,13 +1435,16 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       ],
     })
     if (sheeted && bay.hatch) {
-      const th = sheetThicknessAt(structure, (bay.hatch.s0 + bay.hatch.s1) / 2)
+      const made = hatchMade(bay)
+      const skin = `${bay.hatch.side === 'top' ? 'upper' : 'lower'} ${foam ? 'skin' : 'sheeting'}`
       parts.push({
         id: `${bay.name}-H`,
         name: `${bay.name}-H`,
         group: 'servos',
-        material: structure.covering.sheetMaterial,
-        thickness: th,
+        material: made.material,
+        thickness: made.thickness,
+        // The piece cut out of the sheeting: drawn for its size and slot, never cut again
+        ...(made.from === 'offcut' ? { offcut: true } : {}),
         qty: both ? 2 : 1,
         outline: rect(0, 0, bay.hatch.s1 - bay.hatch.s0, bay.hatch.x1 - bay.hatch.x0),
         // The arm's slot, where it comes out through the hatch
@@ -1442,7 +1457,13 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           ),
         etch: [],
         label: null,
-        notes: [`${bay.label} hatch: cut from the ${bay.hatch.side === 'top' ? 'upper' : 'lower'} sheeting over the bay, screwed to the two hatch rails (see the cut list)`],
+        notes: [
+          made.from === 'offcut'
+            ? `${bay.label} hatch: the piece cut out of the ${skin} over the bay, kept and screwed back to the two hatch rails (see the cut list). It isn't cut again, so it's left out of the cut files`
+            : made.from === 'other'
+              ? `${bay.label} hatch: a new piece of ${(made.thickness * 1000).toFixed(1)} mm ${material(made.material).short}, cut to the opening in the ${skin} over the bay and screwed to the two hatch rails (see the cut list)`
+              : `${bay.label} hatch: a new piece of the ${foam ? "skin's" : "sheeting's"} sheet, cut to the opening in the ${skin} over the bay and screwed to the two hatch rails (see the cut list)`,
+        ],
       })
     }
   }
@@ -1665,6 +1686,12 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       const sm = (q.s0 + q.s1) / 2
       return rect(q.s0 - s0, sheetWidth(a, structure, sm, surface, q.x0), q.s1 - s0, sheetWidth(a, structure, sm, surface, q.x1))
     })
+    // The openings for the servo hatches in this sheet, developed as the slots are
+    const openings = sheeted ? (a.bays ?? []).filter((b) => b.ok && b.hatch && b.hatch.side === side && b.hatch.s0 >= s0 - 1e-6 && b.hatch.s1 <= widths.at(-1).s + 1e-6) : []
+    for (const b of openings) {
+      const sm = (b.hatch.s0 + b.hatch.s1) / 2
+      slotHoles.push(rect(b.hatch.s0 - s0, sheetWidth(a, structure, sm, surface, b.hatch.x0), b.hatch.s1 - s0, sheetWidth(a, structure, sm, surface, b.hatch.x1)))
+    }
     const where = (surface === 'upper' ? 'Top' : 'Bottom')
     parts.push({
       id: `S${k}`,
@@ -1685,6 +1712,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
           ? `${where} D-box sheeting over ${h.label} (${ribs[0].name} to ${ribs.at(-1).name}), ${(t * 1000).toFixed(1)} mm, its own piece; the panel's sheeting either side is cut to clear it. Developed from the ribs; approximate, cut oversize and trim`
           : `${where} sheeting, ${key}${ribs.length < 2 ? '' : `, ${ribs[0].name} to ${ribs.at(-1).name}`}, developed from the ribs; approximate, cut oversize and trim`,
         ...cuts.map((q) => `Slot for ${q.bay}'s servo arm; cut it once the sheet is trimmed to the wing`),
+        ...openings.map((b) => `Opening for ${b.name}'s hatch (${b.name}-H)${hatchMade(b).from === 'offcut' ? ': keep the piece cut out, it is the hatch' : ''}; cut it once the sheet is trimmed to the wing`),
       ],
     })
     return k + 1
@@ -1781,26 +1809,31 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     }
   }
 
-  // Sheeted hard points: one template per surface, developed approximately as its plan shape
+  // Sheeted hard points: one template per surface, its plan shape (flat along the span, so
+  // approximate across the chord's curve)
   for (const h of hardPatches(structure, a.rootS)) {
     const ps = patchSheet(structure, h)
-    const L = h.s1 - h.s0
+    // Along the span: evenly, at the panel ends, and either side of each step where a control
+    // surface starts or stops (the rear edge jumps from the trailing edge stock to the hinge spar)
+    const at = [...new Set([...Array.from({ length: 13 }, (_, i) => h.s0 + ((h.s1 - h.s0) * i) / 12), ...a.sampler.ends.map((e) => e.outer.s).filter((s) => s > h.s0 && s < h.s1), ...patchSteps(a, h)])].sort((p, q) => p - q)
     for (const side of h.sides) {
-      // Behind any D-box sheeting on this side
-      const widthAt = (s) => {
-        const span = patchSpan(a, structure, s, side)
-        return span ? span[1] - span[0] : 0
-      }
+      // Behind any D-box sheeting on this side: its front and rear edges in plan, as they lie
+      const edges = at.map((s) => ({ s, span: patchSpan(a, structure, s, side) })).filter((e) => e.span)
+      if (edges.length < 2) continue
+      const xMin = Math.min(...edges.map((e) => e.span[0]))
+      // Points on a straight run between their neighbours are left out
+      const tidy = (pts) => pts.filter(([u, v], i) => {
+        if (i === 0 || i === pts.length - 1) return true
+        const [u0, v0] = pts[i - 1]
+        const [u1, v1] = pts[i + 1]
+        return Math.abs((u1 - u0) * (v - v0) - (v1 - v0) * (u - u0)) > 1e-5 * Math.hypot(u1 - u0, v1 - v0)
+      })
+      const outline = [...tidy(edges.map((e) => [e.s - h.s0, e.span[0] - xMin])), ...tidy(edges.map((e) => [e.s - h.s0, e.span[1] - xMin]).reverse())]
       const name = `HP${h.id}${side === 'top' ? 'T' : 'B'}`
       // The arms' slots through it (not those in a sheeted wing's hatch), in its plan frame:
-      // across the span from its inner end, along the chord from its front edge
-      const front = (s) => patchSpan(a, structure, s, side)?.[0] ?? 0
+      // across the span from its inner end, along the chord from its foremost point
       const cuts = slots.filter((q) => !(q.hatch && sheeted) && hardPointAt(q)?.name === name)
-      const slotHoles = cuts.map((q) => {
-        if (q.corners) return q.corners.map(([x, s]) => [s - h.s0, x - front(s)])
-        const x0 = front((q.s0 + q.s1) / 2)
-        return rect(q.s0 - h.s0, q.x0 - x0, q.s1 - h.s0, q.x1 - x0)
-      })
+      const slotHoles = cuts.map((q) => (q.corners ? q.corners.map(([x, s]) => [s - h.s0, x - xMin]) : rect(q.s0 - h.s0, q.x0 - xMin, q.s1 - h.s0, q.x1 - xMin)))
       parts.push({
         id: name,
         name,
@@ -1808,12 +1841,7 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
         material: ps.material,
         thickness: ps.thickness,
         qty: both ? 2 : 1,
-        outline: [
-          [0, 0],
-          [L, 0],
-          [L, widthAt(h.s1)],
-          [0, widthAt(h.s0)],
-        ],
+        outline,
         holes: slotHoles,
         etch: [],
         label: null,
@@ -2110,6 +2138,8 @@ function stripCutList(a, structure, parts, both) {
         ? 'a live hinge: the top skin or covering runs over the hinge, so leave it whole there and cut only through the bottom'
         : type === 'pinned'
           ? `${sf.tabs.length} pin hole${sf.tabs.length === 1 ? '' : 's'}, ${pinD} mm, ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line`
+          : type === 'part' && sf.hinge
+            ? `${sf.tabs.length} hinge slot${sf.tabs.length === 1 ? '' : 's'}, ${Math.round(sf.tabAlong * 1000)} mm long and ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line, as wide as the hinge is thick (about ${sf.hinge.thickness * 1000} mm: measure it)`
           : `${sf.tabs.length} tab slot${sf.tabs.length === 1 ? '' : 's'}, ${Math.round(sf.slot * 2000) / 2} mm deep at the centre line`
     // Where the bevel comes to its point: the centre line, or the top for a live hinge
     const point = type === 'live' ? 'the top, square at the top and bevelled' : 'a point at the centre line,'
@@ -2152,6 +2182,21 @@ function stripCutList(a, structure, parts, both) {
       length: h.pinLength || 0.032,
       qty: pins * sides,
       note: `${((h.pinDiameter || 0.0032) * 1000).toFixed(1)} mm pin hinges, ${((h.pinLength || 0.032) * 1000).toFixed(0)} mm long, glued half into each hinge spar at the centre line`,
+    })
+  }
+  // Bought hinges: how many, and the packets that is
+  const boughtOn = (a.surfaces ?? []).filter((sf) => sf.ok && sf.hingeType === 'part' && sf.hinge && sf.tabs.length)
+  if (boughtOn.length) {
+    const hg = boughtOn[0].hinge
+    const n = boughtOn.reduce((t, sf) => t + sf.tabs.length, 0) * sides
+    const packs = hingePacks(hg, n)
+    out.push({
+      item: hingeLabel(hg),
+      material: hg.kind === 'leaf' ? 'nylon' : 'mylar',
+      size: [hg.along, hg.thickness],
+      length: hg.across,
+      qty: n,
+      note: `${Math.round(hg.across * 1000)} mm across the hinge by ${Math.round(hg.along * 1000)} mm along it, slotted half into each hinge spar at the centre line${hg.glue ? `; fit with ${hg.glue}` : ''}. ${packs} packet${packs === 1 ? '' : 's'} of ${hg.pack}`,
     })
   }
   // A spoiler's hinge: a strip of hinge tape along its front edge

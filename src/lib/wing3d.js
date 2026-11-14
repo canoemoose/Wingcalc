@@ -12,7 +12,7 @@
 // are its sheeting, and its core is a solid between them (coreSection).
 
 import { MIN_CORE, isFoam } from './foam.js'
-import { skinAt, sheetExtent, sheetGaps, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, sheetThicknessAt } from './structure.js'
+import { skinAt, sheetExtent, sheetGaps, sparWidth, sparOuterFaces, websOf, capThicknessAt, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, lineFaces, gussetLayer, gussetEdges, hardPatches, patchSheet, patchSpan, patchSteps, sheetThicknessAt } from './structure.js'
 import { gussetsAt } from './ribs.js'
 import { isRound, roundFitAt, edgeFace, insetPlacement, insetSheetStarts } from './edgeStock.js'
 import { BRAKE, bladeXs } from './airBrakes.js'
@@ -195,15 +195,17 @@ function skin(a, structure, n = 60, chordPts = 36) {
 // (the same number at every station), or null where it stops.
 // extend: [inboard, outboard] distances to carry the end sections on, square to them, so a
 // part runs to the outer face of the rib it ends at rather than that rib's centre plane.
-function sweep(a, s0, s1, section, n = 40, { extend = [0, 0], caps = 'fan' } = {}) {
-  const rings = sweepRings(a, s0, s1, section, n, extend)
+// also: more stations to cut at (either side of a step in the section, say).
+function sweep(a, s0, s1, section, n = 40, { extend = [0, 0], caps = 'fan', also = [] } = {}) {
+  const rings = sweepRings(a, s0, s1, section, n, extend, also)
   return rings ? loft(rings, { closed: true, caps }) : null
 }
 
 // The rings a sweep lofts through, in world coordinates, or null.
-function sweepRings(a, s0, s1, section, n, extend) {
+function sweepRings(a, s0, s1, section, n, extend, also = []) {
   const rings = []
-  for (const s of stations(a, s0, s1, n)) {
+  const at = also.length ? [...new Set([...stations(a, s0, s1, n), ...also])].sort((p, q) => p - q) : stations(a, s0, s1, n)
+  for (const s of at) {
     const pts = section(s)
     if (pts) rings.push(pts.map(([x, h]) => worldPoint(a, s, x, h)))
   }
@@ -1029,7 +1031,7 @@ function hingeTabPlates(a, structure) {
   for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
     // A pin hinge is drawn as a square bar its diameter across
     const pin = sf.hingeType === 'pinned'
-    const thick = pin ? sf.tabAlong : t
+    const thick = pin ? sf.tabAlong : sf.hingeType === 'part' && sf.hinge ? sf.hinge.thickness : t
     for (const s of sf.tabs ?? []) {
       const x = sf.hingeX(s)
       const mid = (insetHeight(a, structure, s, x, 'upper', false) + insetHeight(a, structure, s, x, 'lower', false)) / 2
@@ -1238,7 +1240,7 @@ export function wing3d(a, structure, parts, linkages = null) {
   for (const h of hardPatches(st, a.rootS)) {
     for (const side of h.sides) {
       const which = side === 'top' ? 'upper' : 'lower'
-      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which, h), 12, { caps: 'strip' }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st, h).material })
+      add('sheet', sweep(a, h.s0, h.s1, (s) => patchSection(a, st, s, which, h), 12, { caps: 'strip', also: patchSteps(a, h) }), { ids: [`HP${h.id}${side === 'top' ? 'T' : 'B'}`] }, { id: `patch-${h.id}-${side}`, name: `${side === 'top' ? 'Top' : 'Bottom'} sheeting over ${h.label}`, material: patchSheet(st, h).material })
     }
   }
   add('le', sweep(a, s0, s1, (s) => leSection(a, st, s), 40, { extend: ends }), null, { id: 'le', name: 'Leading edge', material: st.le.material, section: { outline: leSection(a, st, (s0 + s1) / 2) } })
@@ -1471,6 +1473,11 @@ export function wing3d(a, structure, parts, linkages = null) {
     const label = sf?.label ?? 'control surface'
     if (sf?.hingeType === 'pinned') {
       solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `Pin hinge ${k}, ${label}`, material: 'nylon' } })
+      continue
+    }
+    // A bought hinge is no part either
+    if (sf?.hingeType === 'part' && sf.hinge) {
+      solids.push({ ...t, piece: { id: `tab-${t.surface}-${k}`, name: `${sf.hinge.maker} ${sf.hinge.name.toLowerCase()} ${k}, ${label}`, material: sf.hinge.kind === 'leaf' ? 'nylon' : 'mylar' } })
       continue
     }
     const id = tabPart(sf)

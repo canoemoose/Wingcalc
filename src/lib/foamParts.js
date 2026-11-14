@@ -220,12 +220,13 @@ function dihedralBreaks(a) {
   return out
 }
 // Developed width of a skin at s: the surface's length from the back of the leading edge
-// stock to the front of the trailing edge stock.
-export function skinWidth(a, structure, s, surface) {
+// stock to the front of the trailing edge stock, or as far as plan position x.
+export function skinWidth(a, structure, s, surface, x = null) {
   const sec = a.section(s)
   if (!sec || !(sec.c > 1e-4)) return 0
   const q0 = Math.min(0.5, (structure.le.width || 0) / sec.c)
-  const q1 = Math.max(0.5, 1 - (structure.te.width || 0) / sec.c)
+  const end = Math.max(0.5, 1 - (structure.te.width || 0) / sec.c)
+  const q1 = x == null ? end : Math.min(end, Math.max(q0, (x - sec.xl) / sec.c))
   let len = 0
   let prev = null
   for (let i = 0; i <= 60; i++) {
@@ -281,6 +282,10 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
       const along = Math.ceil(b.w / sheet.length - 1e-9)
       sheets += across * along * sides
       const name = `K${k++}`
+      // The openings for the servo hatches in this skin, developed as the skin is
+      const side = surface === 'upper' ? 'top' : 'bottom'
+      const openings = (a.bays ?? []).filter((b) => b.ok && b.hatch && b.hatch.side === side && b.hatch.s0 >= c.from - 1e-6 && b.hatch.s1 <= c.to + 1e-6)
+      const at = (b, x) => skinWidth(a, structure, (b.hatch.s0 + b.hatch.s1) / 2, surface, x)
       parts.push({
         id: name,
         name,
@@ -289,7 +294,12 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
         thickness: f.skin.thickness,
         qty: sides,
         outline,
-        holes: [],
+        holes: openings.map((b) => [
+          [b.hatch.s0 - c.from, at(b, b.hatch.x0)],
+          [b.hatch.s1 - c.from, at(b, b.hatch.x0)],
+          [b.hatch.s1 - c.from, at(b, b.hatch.x1)],
+          [b.hatch.s0 - c.from, at(b, b.hatch.x1)],
+        ]),
         etch: [],
         label: null,
         // Where it goes, for picking it in the 3D view
@@ -297,6 +307,7 @@ export function foamParts(a, structure, { both = true, kerf = WIRE_KERF, leadIn 
         surface,
         notes: [
           `${surface === 'upper' ? 'Top' : 'Bottom'} skin, ${c.name}, developed from the section, the straight edge at the leading edge: approximate, cut oversize and trim`,
+          ...openings.map((b) => `Opening for ${b.name}'s hatch (${b.name}-H), a new piece: routing the pocket takes the skin over it. Cut it once the skin is on and trimmed`),
           `${across > 1 ? `${across} sheets joined edge to edge across the width` : 'One sheet wide'}${along > 1 ? `, ${along} lengths joined end to end` : ''} (${mmText(sheet.width, 0)} × ${mmText(sheet.length, 0)} sheets)`,
         ],
       })

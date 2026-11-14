@@ -1080,7 +1080,7 @@ watch(projection, setProjection)
     <figcaption class="wc-figure__caption">
       Drag to turn, right-drag to move, scroll to zoom; click a piece to select it, or a face of
       the cube to see the wing from that side. Twist and dihedral are true to scale.<template v-if="foam">
-        The foam core hides the spar caps let into it: turn its layer off to see them.</template>
+        The foam core hides the servos and whatever else is let into it: turn Foam core off under Layers to see them.</template>
     </figcaption>
   </figure>
 </template>

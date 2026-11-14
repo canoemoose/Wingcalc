@@ -304,7 +304,8 @@ const materialLabel = (id) => MATERIALS[id]?.label ?? id
 // Lay the parts out in rows, grouped by material and thickness (one sheet of stock each).
 // Returns { groups: [{ key, title, material, thickness, entities, height, count }] } in mm.
 export function layoutParts(parts, opts) {
-  const chosen = parts.filter((p) => opts.parts[p.group] !== false)
+  // Not a hatch that's the piece cut out of the sheeting: it's cut with its sheet
+  const chosen = parts.filter((p) => opts.parts[p.group] !== false && !p.offcut)
   const byStock = new Map()
   for (const p of chosen) {
     const key = `${p.material}|${p.thickness.toFixed(5)}`

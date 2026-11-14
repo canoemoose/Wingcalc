@@ -20,6 +20,9 @@ Requested in the 17 October feedback: a complete downloadable design booklet for
 - **Curved leading edges.** A panel with a curved (Bézier) leading edge can't take straight stock: it's built from a laminated curved blank, profiled by hand (Matt). None of the stock options (balsa section, rod, dowel) makes sense there, and the round leading edge's "largest rod that fits" is worked out at the panel ends only, which is right for a straight panel and wrong for a curved one. Wants a "laminated blank" leading edge type for curved panels, with the laminations in the cut list, rather than a fix to the rod's recommendation.
 - **Touch screens.** Dragging handles, panning with one finger and (after a tap to select it) dragging a surface work; phones aren't a target, and the command bar at phone width hasn't been looked at.
 - **The loads chart** keeps its left-drag pan (it has nothing to select).
+- **Pinch to zoom** is in the wing editor, the structure plan and the expanded loads chart. The section editor and the servo configurator's drawing have none; the Part card's flat drawing doesn't zoom at all.
+- **Bought hinges**: thicknesses are typical figures, not published ones; a nylon pin hinge's knuckle isn't drawn or notched for; one hinge type serves every surface on the wing.
+- **Servo hatches** aren't drawn in the 3D view (the opening or the hatch); an air brake's servo bay takes the default hatch (a new piece), with no setting of its own.
 
 ## From the 17 October feedback round
 

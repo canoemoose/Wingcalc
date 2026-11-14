@@ -40,10 +40,9 @@ describe('a bay\'s frame', () => {
     expect(f.bayS).toBe(b.s)
     expect(f.s).toBe(f.inline)
     expect(f.s).toBeGreaterThan(b.s)
-    const at = bayFrame(a, b, { ...DEFAULT_LINK, hornAt: 0.1 })
-    expect(at.s).toBeCloseTo(f.surface.s0 + 0.1, 9)
-    // Kept on the surface, clear of its ends
-    expect(bayFrame(a, b, { ...DEFAULT_LINK, hornAt: -1 }).s).toBeCloseTo(f.range[0], 9)
+    // An older save's horn position and turn are dropped: the horn has the one place
+    expect(linkOf({ link: { hornAt: 0.1, hornAngle: 12, travel: 60 } })).toEqual({ ...DEFAULT_LINK, travel: 60 })
+    expect(f.s).toBeGreaterThanOrEqual(f.range[0])
     expect(f.hinge.point[0]).toBeCloseTo(f.surface.hingeX(f.s), 9)
     expect(f.faces.top).toBeGreaterThan(0.002)
     expect(f.faces.top).toBeCloseTo(f.faces.bottom, 9)
@@ -154,10 +153,11 @@ describe('a servo turned round or over', () => {
 const yawOf = (l) => l.bay.servo.yaw ?? 0
 
 describe("every bay's linkage, and its warnings", () => {
-  it('lines the horn up with the servo by default, on a raked hinge too, so the pushrod runs in both their planes', () => {
+  it('lines the horn up with the servo, square to the hinge, on a raked hinge too, so the pushrod runs in both their planes', () => {
     // An aileron whose hinge runs from 65% to 85% of the chord: about 12° to the span
     const raked = { ...newSurface('aileron', 1, 0.45, 0.85, 1), hingeIn: 0.65, hingeOut: 0.85 }
-    for (const square of ['chord', 'hinge']) {
+    // An older save's 'square to the chord' is ignored: every servo is square to its hinge
+    for (const square of [undefined, 'chord']) {
       const bay = { surface: 1, square }
       const s = defaultState()
       s.input.rootChord = 0.45
@@ -181,31 +181,21 @@ describe("every bay's linkage, and its warnings", () => {
       const yaw = l.bay.servo.yaw
       const rod = [l.c.result.points.horn[0] - l.c.result.points.arm[0], l.c.result.points.horn[1] - l.c.result.points.arm[1]]
       expect(Math.abs(Math.atan2(rod[1], rod[0]) - yaw), square).toBeLessThan(0.035)
-      // Square to the chord, the horn is turned off square to the hinge by the rake; square to
-      // the hinge, it isn't turned at all
-      if (square === 'chord') expect(Math.abs(l.frame.hornAngle)).toBeGreaterThan(5)
-      else expect(Math.abs(l.frame.hornAngle)).toBeLessThan(0.01)
+      // The servo turned with the hinge's rake, and the horn square to the hinge
+      expect(Math.abs(yaw)).toBeGreaterThan(0.1)
+      const n = Math.hypot(1, l.frame.surface.slope)
+      expect(l.frame.hornDir[0]).toBeCloseTo(1 / n, 9)
+      expect(l.frame.hornDir[1]).toBeCloseTo(-l.frame.surface.slope / n, 9)
       expect(l.warnings.map((w) => w.id)).not.toContain('linkage-square-1')
     }
   })
 
-  it('runs the pushrod square to the horn by default, and warns when the horn is moved off it', () => {
-    const controls = (link) => ({ ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1, link }] })
+  it('runs the pushrod square to the horn, with no warning', () => {
+    const controls = { ...defaultControls(), surfaces: [newSurface('aileron', 1, 0.45, 0.85, 1)], bays: [{ surface: 1 }] }
     const a = build([{ surface: 1 }])
-    const l = bayLinkages(a, controls(null)).get(1)
+    const l = bayLinkages(a, controls).get(1)
     expect(l.c.rodAngle).toBeLessThan(0.5)
     expect(l.warnings).toEqual([])
-    // 60 mm along the hinge from in line, its turn left to line up: still in the horn's plane
-    const lined = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06 })).get(1)
-    expect(lined.c.rodAngle).toBeLessThan(2)
-    // The horn kept square to the hinge: well off its plane
-    const moved = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06, hornAngle: 0 })).get(1)
-    expect(moved.c.rodAngle).toBeGreaterThan(ROD_OFF_SQUARE)
-    expect(moved.warnings.map((w) => w.id)).toContain('linkage-square-1')
-    // Turning the horn to meet it clears it
-    const turned = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06, hornAngle: -moved.c.rodAngle })).get(1)
-    const turnedOther = bayLinkages(a, controls({ hornAt: l.frame.inline - l.frame.surface.s0 + 0.06, hornAngle: moved.c.rodAngle })).get(1)
-    expect(Math.min(turned.c.rodAngle, turnedOther.c.rodAngle)).toBeLessThan(1)
   })
 
   it('warns when the holes need more travel than the servo has', () => {
@@ -471,8 +461,8 @@ describe('the hatch', () => {
 })
 
 describe("the arm's slot turned with the servo", () => {
-  it('runs square to a servo set square to its hinge', () => {
-    const bay = { surface: 1, square: 'hinge' }
+  it('runs square to the servo, which is square to its hinge', () => {
+    const bay = { surface: 1 }
     const a = build([bay])
     const b = a.bays[0]
     const yaw = b.servo.yaw

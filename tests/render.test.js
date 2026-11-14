@@ -408,7 +408,7 @@ describe('app render', () => {
       expect(warn).not.toHaveBeenCalled()
     })
 
-    it('draws each linkage on the plan, turned and with its horn moved', async () => {
+    it('draws each linkage on the plan, turned, and from an older save with its horn moved', async () => {
       for (const bay of [{ surface: 1 }, { surface: 1, square: 'hinge', rotate: true, link: { hornAt: 0.05, hornAngle: 10, hornFace: 'top' } }]) {
         const { a, controls } = analysed([bay])
         const parts = buildParts(a, a.structure, {}).parts
@@ -416,7 +416,8 @@ describe('app render', () => {
           createSSRApp({ render: () => h(StructurePlan, { analysis: a, parts, structure: a.structure, controls, linkages: bayLinkages(a, controls), 'onUpdate:structure': () => {}, 'onUpdate:controls': () => {} }) }),
         )
         expect(html).toContain('wc-sp__rod')
-        expect(html).toContain('drag along the hinge to move the horn')
+        expect(html).toContain('drag along the span to move the servo')
+        expect(html).not.toContain('move the horn')
       }
       expect(warn).not.toHaveBeenCalled()
     })

@@ -14,8 +14,8 @@ import SegmentedField from './SegmentedField.vue'
 import InspectorSection from './InspectorSection.vue'
 import { wingSampler } from '../lib/wing.js'
 import { resolveSurfaces } from '../lib/controlSurfaces.js'
-import { SERVOS, bayOf, setBay, servoOptions, servoById, installedServo, defaultServoClass } from '../lib/servos.js'
-import { bayProblem } from '../lib/structure.js'
+import { SERVOS, bayOf, setBay, servoOptions, servoById, installedServo, defaultServoClass, HATCH_OTHER } from '../lib/servos.js'
+import { bayProblem, MATERIALS } from '../lib/structure.js'
 import { format, defaultUnit } from '../lib/units.js'
 import { bayLinkages, linkOf, savedLink, linkSummary } from '../lib/bayLinkage.js'
 import ServoConfigurator from './ServoConfigurator.vue'
@@ -37,6 +37,15 @@ const props = defineProps({
   warnings: { type: Array, default: () => [] },
 })
 const controls = defineModel('controls', { type: Object, required: true })
+// A hatch is a part only where there's a skin to cut it from: a fully sheeted wing or a foam one
+const foamWing = computed(() => props.analysis?.construction === 'foam')
+const skinned = computed(() => foamWing.value || (props.analysis?.structure?.covering?.type === 'sheeted' && props.analysis.structure.covering.sheetThickness > 0))
+const hatchOptions = computed(() => [
+  { value: 'new', label: `A new piece of the ${foamWing.value ? "skin's" : "sheeting's"} sheet` },
+  ...(foamWing.value ? [] : [{ value: 'offcut', label: 'The piece cut out of the sheeting' }]),
+  { value: 'other', label: 'A new piece of another material' },
+])
+const HATCH_MATERIALS = ['ply-birch', 'ply-lite', 'balsa-hard', 'balsa-medium', 'balsa-light'].map((k) => ({ value: k, label: MATERIALS[k].label }))
 // The surface whose bay the servo configurator is open on, or null (the plan opens it too)
 const configuring = defineModel('configuring', { type: [Number, String], default: null })
 // The controls with the configurator's draft bay, while it's open; null otherwise
@@ -56,6 +65,11 @@ function update(sid, patch) {
 }
 const bayFor = (s) => bayOf(controls.value, s.id)
 const setBayFor = (s, patch) => (controls.value = setBay(controls.value, s.id, patch))
+// What the bay's hatch is made from, as it's built: a foam wing can't keep the piece cut out
+const hatchFrom = (s) => {
+  const f = bayFor(s).hatchFrom
+  return f === 'other' ? 'other' : f === 'offcut' && !foamWing.value ? 'offcut' : 'new'
+}
 
 const autoClass = computed(() => defaultServoClass(props.mass))
 const SERVO_OPTIONS = computed(() => [
@@ -119,7 +133,7 @@ const open = computed(() => {
   if (!shown) return null
   return { sid, l: shown, problem: l ? '' : bay && !bay.ok ? bayProblem(bay) : '', title: shown.bay.label }
 })
-const draftOf = (b) => ({ class: b.class ?? null, rotate: !!b.rotate, flip: !!b.flip, square: b.square ?? 'chord', fore: b.fore, inset: b.inset, link: linkOf(b) })
+const draftOf = (b) => ({ class: b.class ?? null, rotate: !!b.rotate, flip: !!b.flip, fore: b.fore, inset: b.inset, link: linkOf(b) })
 function startConfiguring() {
   const sid = configuring.value
   opened.value = sid == null ? null : draftOf(bayFor({ id: sid }))
@@ -127,7 +141,7 @@ function startConfiguring() {
   if (sid == null) preview.value = null
 }
 watch(configuring, startConfiguring, { immediate: true })
-const withDraft = (sid, d) => setBay(controls.value, sid, { class: d.class, rotate: d.rotate, flip: d.flip, square: d.square, fore: d.fore, inset: d.inset, link: savedLink(d.link) })
+const withDraft = (sid, d) => setBay(controls.value, sid, { class: d.class, rotate: d.rotate, flip: d.flip, fore: d.fore, inset: d.inset, link: savedLink(d.link) })
 function change(sid, d) {
   preview.value = withDraft(sid, d)
 }
@@ -172,10 +186,18 @@ function cancel() {
         <p class="wc-field__hint">
           In the {{ linkOf(bayFor(s)).hornFace === 'top' ? 'top' : 'bottom' }} skin, the side the servo goes in from (its horn's side). Untick it to seal the servo in.
         </p>
+        <template v-if="skinned && bayFor(s).hatch !== false">
+          <SelectField :id="id(`${s.id}-hatch-from`)" :model-value="hatchFrom(s)" label="Hatch made from" :options="hatchOptions" @update:model-value="setBayFor(s, { hatchFrom: $event === 'new' ? null : $event })" />
+          <div v-if="hatchFrom(s) === 'other'" class="wc-structure-editor__pair">
+            <SelectField :id="id(`${s.id}-hatch-mat`)" :model-value="bayFor(s).hatchMaterial ?? HATCH_OTHER.material" label="Hatch material" :options="HATCH_MATERIALS" @update:model-value="setBayFor(s, { hatchMaterial: $event })" />
+            <UnitInput :id="id(`${s.id}-hatch-t`)" :model-value="bayFor(s).hatchThickness ?? HATCH_OTHER.thickness" quantity="thin" :system="system" label="Hatch thickness" @update:model-value="setBayFor(s, { hatchThickness: $event })" />
+          </div>
+          <p class="wc-field__hint">The opening is cut in the {{ foamWing ? 'skin' : 'sheeting' }} either way{{ foamWing ? '; routing the pocket takes the skin over it, so the hatch is always a new piece' : '' }}.</p>
+        </template>
         <template v-if="linked.get(s.id)">
           <p :class="linkWarn(s) ? 'wc-field__warn' : 'wc-field__hint'">Linkage: {{ linkText(s) }}</p>
           <button type="button" class="wc-button" @click="configuring = s.id">Servo and linkage…</button>
-          <p class="wc-field__hint">The servo, what it's square to, its arm and the horn (where it is along the hinge and how it's turned) are set there; the horn drags on the plan too.</p>
+          <p class="wc-field__hint">The servo, its arm and the horn are set there. The servo lies square to the hinge, with the horn in line with its arm.</p>
         </template>
         <p v-else-if="analysis" class="wc-field__hint">The linkage can be set once the bay is built.{{ bayWarnings(s).length ? ' The warning in this section says why not.' : '' }}</p>
       </template>

@@ -23,10 +23,9 @@
 //             surface; null for a third of the way out along it
 //   at        the older panel-relative position, m from the panel's inner end; used only when
 //             along is not set (saves from before along)
-//   square    'chord' (default) or 'hinge': the servo's length square to the chord (along it) or
-//             square to the surface's hinge line in plan, so the pushrod meets the horn square
-// An older save's mounting ('upright', 'flat') and quarterTurn are ignored: every servo lies on
-// its side, square to the chord or the hinge.
+// Every servo lies on its side with its length square to its surface's hinge line in plan, so
+// the pushrod meets the horn square. An older save's mounting ('upright', 'flat'), quarterTurn
+// and square ('chord' or 'hinge') are ignored.
 //   link      the servo's linkage to its surface, as differs from the defaults (bayLinkage.js
 //             DEFAULT_LINK): arm, horn, holes, travel; null for the defaults
 
@@ -914,9 +913,12 @@ export function partSpan(p) {
 // The settings for a surface's bay: the saved ones over the defaults.
 export function bayOf(controls, surfaceId) {
   const saved = (controls?.bays ?? []).find((b) => b.surface === surfaceId)
-  const { mounting, quarterTurn, ...rest } = saved ?? {}
-  // hatch: false where the servo is sealed in, with no hatch to reach it by
-  const b = { surface: surfaceId, enabled: true, class: null, square: 'chord', rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, hatch: true, ...rest }
+  const { mounting, quarterTurn, square, ...rest } = saved ?? {}
+  // hatch: false where the servo is sealed in, with no hatch to reach it by. hatchFrom: what a
+  // sheeted or foam wing's hatch is made from: null or 'new' (a new piece of the skin's sheet),
+  // 'offcut' (the piece cut out of the sheeting; built-up wings only) or 'other' (a new piece
+  // of hatchMaterial, hatchThickness thick)
+  const b = { surface: surfaceId, enabled: true, class: null, rotate: false, flip: false, fore: null, inset: null, along: null, at: null, link: null, hatch: true, hatchFrom: null, hatchMaterial: null, hatchThickness: null, ...rest }
   return { ...b, fore: foreOf(b.fore) }
 }
 
@@ -926,14 +928,13 @@ export function setBay(controls, surfaceId, patch) {
   const next = { ...bayOf(controls, surfaceId), ...patch }
   const rest = (controls.bays ?? []).filter((b) => b.surface !== surfaceId)
   const link = next.link && Object.keys(next.link).length ? next.link : null
-  const hinge = next.square === 'hinge'
   const fore = foreOf(next.fore)
   const inset = next.inset > 0 ? next.inset : null
-  const same = next.enabled && !next.class && !hinge && !next.rotate && !next.flip && !fore && !inset && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link && next.hatch !== false
+  const hatchFrom = next.hatchFrom === 'offcut' || next.hatchFrom === 'other' ? next.hatchFrom : null
+  const same = next.enabled && !next.class && !next.rotate && !next.flip && !fore && !inset && !Number.isFinite(next.along) && !Number.isFinite(next.at) && !link && next.hatch !== false && !hatchFrom
   const entry = { surface: surfaceId }
   if (!next.enabled) entry.enabled = false
   if (next.class) entry.class = next.class
-  if (hinge) entry.square = 'hinge'
   if (next.rotate) entry.rotate = true
   if (next.flip) entry.flip = true
   if (fore) entry.fore = fore
@@ -942,6 +943,11 @@ export function setBay(controls, surfaceId, patch) {
   if (Number.isFinite(next.at)) entry.at = next.at
   if (link) entry.link = link
   if (next.hatch === false) entry.hatch = false
+  if (hatchFrom) entry.hatchFrom = hatchFrom
+  if (hatchFrom === 'other') {
+    if (next.hatchMaterial) entry.hatchMaterial = next.hatchMaterial
+    if (next.hatchThickness > 0) entry.hatchThickness = next.hatchThickness
+  }
   return { ...controls, bays: same ? rest : [...rest, entry] }
 }
 
@@ -980,12 +986,12 @@ export function placeBays({ sampler, surfaces, controls, mass, ribThickness = 0.
     const chosen = servoById(cfg.class)
     const cls = chosen ? cfg.class : defaultServoClass(mass)
     // Square to the hinge: its length turned from the chord by the hinge line's angle in plan
-    const yaw = cfg.square === 'hinge' && Number.isFinite(r.slope) ? -Math.atan(r.slope) : 0
+    const yaw = Number.isFinite(r.slope) ? -Math.atan(r.slope) : 0
     // The face its horn and arm are on (bayLinkage.js DEFAULT_LINK), which its servo sits against
     // and goes into its plate from
     const face = cfg.link?.hornFace === 'top' ? 'top' : 'bottom'
     const servo = installedServo(cls, mass, { rotate: cfg.rotate, flip: cfg.flip, yaw, face })
-    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, face, link: r.beside ? null : cfg.link, fore: r.beside ? null : cfg.fore, inset: r.beside ? 0 : cfg.inset ?? 0, hasHatch: cfg.hatch !== false, ok: false, problem: null }
+    const bay = { id: r.id, surface: r.id, hostLabel: r.label ?? '', brake: !!r.beside, label: '', name: '', class: cls, auto: !chosen, servo, mass: servo.mass, face, link: r.beside ? null : cfg.link, fore: r.beside ? null : cfg.fore, inset: r.beside ? 0 : cfg.inset ?? 0, hasHatch: cfg.hatch !== false, hatchFrom: cfg.hatchFrom ?? 'new', hatchMaterial: cfg.hatchMaterial, hatchThickness: cfg.hatchThickness, ok: false, problem: null }
     out.push(bay)
     if (!r.ok) {
       bay.problem = 'surface'
@@ -1064,3 +1070,6 @@ export function fitBaysToRibs(bays, ribs, ribThickness = 0, capOverhang = 0) {
 // The servos' masses and where they hang along the half wing, for the bending check:
 // [{ s, mass, name }] for the bays that are built (ok).
 export const servoMasses = (bays) => (bays ?? []).filter((b) => b.ok).map((b) => ({ s: b.s, mass: b.mass, name: b.name }))
+
+// What a hatch made from another material is, unless set
+export const HATCH_OTHER = { material: 'ply-birch', thickness: 0.0008 }

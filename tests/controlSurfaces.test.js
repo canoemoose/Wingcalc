@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { HINGES, hingeById, DEFAULT_HINGE } from '../src/lib/hingeCatalogue.js'
 import { defaultState, migrate } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
@@ -400,6 +401,31 @@ describe('hinge tabs on a raked hinge', () => {
 })
 
 describe('hinge types', () => {
+  it('a bought hinge is the size it comes: no Mylar parts, counted in packets, warned if too long for the spars', () => {
+    const { a } = build({ edit: (st) => { st.hinges.type = 'part'; st.hinges.part = 'kavan-sl070b' } })
+    const r = a.surfaces.find((x) => x.ok)
+    expect(r.hingeType).toBe('part')
+    expect(r.hinge.part).toBe('SL070B-S')
+    // 26 mm across the hinge by 11 mm along it, untrimmed
+    expect(r.tabAcross).toBeCloseTo(0.026, 9)
+    expect(r.tabAlong).toBeCloseTo(0.011, 9)
+    expect(r.slot).toBeCloseTo((0.026 - r.gap) / 2, 9)
+    const res = buildParts(a, a.structure)
+    expect(res.parts.some((p) => p.group === 'hinges')).toBe(false)
+    const row = res.cutList.find((c) => c.item.includes('SL070B-S'))
+    expect(row.qty).toBe(a.surfaces.filter((x) => x.ok).reduce((n, x) => n + x.tabs.length, 0) * 2)
+    expect(row.note).toMatch(/packets? of 10/)
+    // 13 mm less half the gap into an 8 mm spar: too deep
+    expect(r.warnings.some((w) => w.includes('SL070B-S') && w.includes('deeper than the narrower spar'))).toBe(true)
+    const wide = build({ edit: (st) => { st.hinges.type = 'part'; st.hinges.part = 'kavan-sl070b'; st.hinges.fixedWidth = 0.016; st.hinges.movingWidth = 0.016 } }).a
+    expect(wide.surfaces.find((x) => x.ok).warnings.some((w) => w.includes('deeper'))).toBe(false)
+  })
+
+  it('falls back to the first hinge in the list for one it does not know', () => {
+    expect(hingeById('nothing').id).toBe(DEFAULT_HINGE)
+    expect(HINGES.every((h) => h.across > h.along && h.estimated.includes('thickness'))).toBe(true)
+  })
+
   it('pins at the centre line: no Mylar parts, the pins in the cut list, warned if too long for the spars', () => {
     const { a } = build({ edit: (st) => (st.hinges.type = 'pinned') })
     const r = a.surfaces.find((x) => x.ok)

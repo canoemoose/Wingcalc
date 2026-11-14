@@ -24,6 +24,7 @@
 // local crushing at fittings. Material values are typical, not guaranteed: balsa varies two
 // to three times from sheet to sheet, so weigh your wood and pick the grade it matches.
 
+import { hingeById, hingeLabel, DEFAULT_HINGE } from './hingeCatalogue.js'
 import { wingSampler } from './wing.js'
 import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
@@ -251,10 +252,13 @@ export function defaultStructure() {
     // spars are narrower (the spars aren't sized for the Mylar), and each tab is cut 25 mm long
     // along it unless set otherwise.
     hinges: {
-      // 'mylar' (slotted Mylar tabs at the centre line), 'pinned' (pin hinges in holes drilled
+      // 'mylar' (slotted Mylar tabs cut from roll, at the centre line), 'part' (a bought hinge
+      // from hingeCatalogue.js, slotted in the same way), 'pinned' (pin hinges in holes drilled
       // at the centre line) or 'live' (the top skin or covering runs over the hinge and flexes;
       // the surface turns about it, its bottom bevelled for the down throw)
       type: 'mylar',
+      // The bought hinge, by id (hingeCatalogue.js)
+      part: DEFAULT_HINGE,
       // Pin hinges: the pin's diameter and its length across the hinge (1/8 in by 1 1/4 in)
       pinDiameter: 0.0032,
       pinLength: 0.032,
@@ -419,6 +423,18 @@ export function patchSpan(a, structure, s, side = null) {
   const sf = (a.surfaces ?? []).find((x) => x.ok && s >= x.s0 - 1e-9 && s <= x.s1 + 1e-9)
   const x1 = sf ? sf.faces.fixedRear(s) : sec.xl + sec.c - Math.min(structure.te.width || 0, sec.c / 2)
   return x1 > x0 ? [x0, x1] : null
+}
+// Where a hard point's sheet steps along the span: a station either side of each control
+// surface's end inside it, where its rear edge jumps between the trailing edge stock and the
+// fixed hinge spar. For drawing it with the step square (its part's outline, the 3D solid).
+export function patchSteps(a, patch) {
+  const out = []
+  const d = 1e-6
+  for (const sf of (a.surfaces ?? []).filter((x) => x.ok)) {
+    if (sf.s0 > patch.s0 + 1e-5 && sf.s0 < patch.s1 - 1e-5) out.push(sf.s0 - d, sf.s0)
+    if (sf.s1 > patch.s0 + 1e-5 && sf.s1 < patch.s1 - 1e-5) out.push(sf.s1, sf.s1 + d)
+  }
+  return out.sort((p, q) => p - q)
 }
 // A hard point's sheet: its thickness and material (patch from hardPatches; without one, the
 // covering's, as every hard point had before they had their own)
@@ -1293,8 +1309,10 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     const k = Math.sqrt(1 + r.slope * r.slope)
     // Pins are spaced as tabs are, each pinDiameter wide along the hinge; a live hinge has none
     const pinned = h.type === 'pinned'
-    const along = pinned ? h.pinDiameter || 0.0032 : h.tabWidth
-    const across = pinned ? h.pinLength || 0.032 : h.tabLength
+    // A bought hinge is the size it comes
+    const bought = h.type === 'part' ? hingeById(h.part) : null
+    const along = pinned ? h.pinDiameter || 0.0032 : bought ? bought.along : h.tabWidth
+    const across = pinned ? h.pinLength || 0.032 : bought ? bought.across : h.tabLength
     const reach = along / 2 + (across / 2) * Math.abs(r.slope)
     const tabs = live ? [] : hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: Math.max(0, h.tabInset) + reach, width: 2 * reach }).map((d) => moving[0] + d / k)
     // The tabs go into each hinge spar up to TAB_CLEAR short of its far face: the roll's width
@@ -1302,16 +1320,26 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     const narrow = stock ? Math.min(h.fixedWidth, structure.te.width || h.fixedWidth) : Math.min(h.fixedWidth, h.movingWidth)
     // A pin can't be trimmed: its holes go half its length (less half the gap) into each spar,
     // and a warning says if that's deeper than the narrower spar is wide
-    const slot = pinned ? Math.max(0, (across - g) / 2) : Math.max(0, Math.min((h.tabLength - g) / 2, narrow - TAB_CLEAR))
-    const tabAcross = pinned ? across : 2 * slot + g
-    if (pinned && slot > narrow - TAB_CLEAR + 1e-9) {
-      r.warnings.push(`The pin hinges on ${r.label} go ${mm(slot)} into each hinge spar, deeper than the narrower spar takes (${mm(narrow)} wide): use shorter pins or wider hinge spars.`)
+    // A bought hinge isn't trimmed either, and is warned about in the same way
+    const whole = pinned || !!bought
+    const slot = whole ? Math.max(0, (across - g) / 2) : Math.max(0, Math.min((h.tabLength - g) / 2, narrow - TAB_CLEAR))
+    const tabAcross = whole ? across : 2 * slot + g
+    if (whole && slot > narrow - TAB_CLEAR + 1e-9) {
+      r.warnings.push(
+        pinned
+          ? `The pin hinges on ${r.label} go ${mm(slot)} into each hinge spar, deeper than the narrower spar takes (${mm(narrow)} wide): use shorter pins or wider hinge spars.`
+          : `The hinges on ${r.label} (${hingeLabel(bought)}) go ${mm(slot)} into each hinge spar, deeper than the narrower spar takes (${mm(narrow)} wide): use a shorter hinge or wider hinge spars.`,
+      )
+    }
+    // A leaf hinge's pin lies in the gap, along the hinge line: the gap has to take it
+    if (bought?.kind === 'leaf' && g < bought.thickness * 2 - 1e-9) {
+      r.warnings.push(`The gap on ${r.label} (${mm(g)}) is tight for a ${bought.name.toLowerCase()}'s knuckle, about ${mm(bought.thickness * 2)} across: open the gap, or notch both spars for it at each hinge.`)
     }
     const run = (movingDepth / 2) * Math.tan(Math.max(bevel.top, bevel.bottom) * (Math.PI / 180))
     if (!stock && run > h.movingWidth - 0.001) {
       r.warnings.push(`The bevel on ${r.label}'s hinge spar runs ${mm(run)} back, nearly all of its ${mm(h.movingWidth)} width: use a wider hinge spar on the moving side, or less throw.`)
     }
-    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross, hingeType: h.type ?? 'mylar', pivot, tabAlong: along })
+    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross, hingeType: h.type ?? 'mylar', hinge: bought, pivot, tabAlong: along })
   }
   return list
 }
@@ -1620,7 +1648,7 @@ export function bayLayouts({ sampler, section, sparX, structure, rootS, tipS }, 
       })),
       // The opening it's reached by, the plate's size, in the skin on the side it goes in from
       // (its horn's face); none where it's sealed in
-      hatch: b.hasHatch === false ? null : { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1], side: b.face === 'top' ? 'top' : 'bottom' },
+      hatch: b.hasHatch === false ? null : { x0: xc + pf, x1: xc + pr, s0: inner[0], s1: inner[1], side: b.face === 'top' ? 'top' : 'bottom', from: b.hatchFrom ?? 'new', material: b.hatchMaterial ?? null, thickness: b.hatchThickness ?? null },
       room,
       need,
     })
