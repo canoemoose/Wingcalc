@@ -24,7 +24,7 @@
 // local crushing at fittings. Material values are typical, not guaranteed: balsa varies two
 // to three times from sheet to sheet, so weigh your wood and pick the grade it matches.
 
-import { hingeById, hingeLabel, DEFAULT_HINGE } from './hingeCatalogue.js'
+import { hingeById, hingeLabel, DEFAULT_HINGE, pinById } from './hingeCatalogue.js'
 import { wingSampler } from './wing.js'
 import { surfaceFns } from './airfoilGeom.js'
 import { G } from './calc.js'
@@ -259,6 +259,9 @@ export function defaultStructure() {
       type: 'mylar',
       // The bought hinge, by id (hingeCatalogue.js)
       part: DEFAULT_HINGE,
+      // The bought hinge point for 'pinned', by id (hingeCatalogue.js PIN_HINGES), or null for
+      // one sized by hand (pinDiameter, pinLength)
+      pin: null,
       // Pin hinges: the pin's diameter and its length across the hinge (1/8 in by 1 1/4 in)
       pinDiameter: 0.0032,
       pinLength: 0.032,
@@ -1340,8 +1343,9 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     const pinned = h.type === 'pinned'
     // A bought hinge is the size it comes
     const bought = h.type === 'part' ? hingeById(h.part) : null
-    const along = pinned ? h.pinDiameter || 0.0032 : bought ? bought.along : h.tabWidth
-    const across = pinned ? h.pinLength || 0.032 : bought ? bought.across : h.tabLength
+    const point = pinned ? pinById(h.pin) : null
+    const along = pinned ? (point?.along ?? (h.pinDiameter || 0.0032)) : bought ? bought.along : h.tabWidth
+    const across = pinned ? (point?.across ?? (h.pinLength || 0.032)) : bought ? bought.across : h.tabLength
     const reach = along / 2 + (across / 2) * Math.abs(r.slope)
     const tabs = live ? [] : hingeTabs((moving[1] - moving[0]) * k, { spacing: h.tabSpacing, inset: Math.max(0, h.tabInset) + reach, width: 2 * reach }).map((d) => moving[0] + d / k)
     // The tabs go into each hinge spar up to TAB_CLEAR short of its far face: the roll's width
@@ -1368,7 +1372,7 @@ export function surfaceLayouts({ sampler, section, sparX, structure, rootS, tipS
     if (!stock && run > h.movingWidth - 0.001) {
       r.warnings.push(`The bevel on ${r.label}'s hinge spar runs ${mm(run)} back, nearly all of its ${mm(h.movingWidth)} width: use a wider hinge spar on the moving side, or less throw.`)
     }
-    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross, hingeType: h.type ?? 'mylar', hinge: bought, pivot, tabAlong: along })
+    Object.assign(r, { faces, fixed, moving, stock, endRibs: stock ? [] : [moving[0] + t / 2, moving[1] - t / 2], depth: { fixed: fixedDepth, moving: movingDepth }, bevel, tabs, slot, tabAcross, hingeType: h.type ?? 'mylar', hinge: bought ?? point, pivot, tabAlong: along })
   }
   return list
 }

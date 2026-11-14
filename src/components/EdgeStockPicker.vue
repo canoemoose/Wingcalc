@@ -1,8 +1,9 @@
 <script setup>
-// A drop-down for leading or trailing edge stock that shows each size's cross-section. All the
-// thumbnails are drawn at one scale, so the sizes compare at a glance. Takes the same options as
-// SelectField ({ value, label, title?, group? }) plus items: value -> catalogue item (or null for
-// one without a drawing, such as Custom).
+// A drop-down that shows a small drawing of each choice: leading or trailing edge stock by its
+// cross-section, hinges from above. All the thumbnails are drawn at one scale, so the sizes
+// compare at a glance. Takes the same options as SelectField ({ value, label, title?, group? })
+// plus items: value -> { width, height } and either an edge stock catalogue item or its own
+// outline ([u, z] points, u from 0 to width), or null for one without a drawing.
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { profileOutline } from '../lib/edgeStock.js'
 
@@ -51,7 +52,7 @@ function thumb(value) {
   const it = props.items[value]
   if (!it) return null
   const k = scale.value, x0 = (BOX_W - it.width * k) / 2
-  const out = profileOutline(it)
+  const out = it.outline ?? profileOutline(it)
   const zs = out.map(([, z]) => z), zMid = (Math.min(...zs) + Math.max(...zs)) / 2
   return out.map(([u, z]) => `${(x0 + u * k).toFixed(2)},${(BOX_H / 2 - (z - zMid) * k).toFixed(2)}`).join(' ')
 }

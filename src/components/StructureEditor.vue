@@ -5,7 +5,7 @@
 // stringers, ribs and gussets (which are kept, for switching back). Every change replaces the
 // whole structure object, so undo/redo and autosave see it.
 import { TRASH } from '../lib/icons.js'
-import { HINGES, hingeById, hingeLabel } from '../lib/hingeCatalogue.js'
+import { HINGES, PIN_HINGES, hingeById, pinById, hingeLabel, hingeOutline } from '../lib/hingeCatalogue.js'
 import { computed, ref } from 'vue'
 import UnitInput from './UnitInput.vue'
 import ParamInput from './ParamInput.vue'
@@ -114,28 +114,50 @@ const CONSTRUCTIONS = [
 const foam = computed(() => st.value.construction === 'foam')
 // The bought hinge chosen, and the list to choose from
 const boughtHinge = computed(() => hingeById(st.value.hinges.part))
-// One list for every kind of hinge: the bought ones by name, then the ones made or sized by hand
-const HINGE_OPTIONS = [
-  ...HINGES.map((h) => ({ value: `part:${h.id}`, group: 'Bought', label: `${hingeLabel(h)}, ${Math.round(h.across * 1000)} × ${Math.round(h.along * 1000)} mm` })),
-  { value: 'mylar', group: 'Other', label: 'Mylar tabs cut from roll' },
-  { value: 'pinned', group: 'Other', label: 'Round pin hinges, by size' },
-  { value: 'live', group: 'Other', label: 'Live hinge (the top skin or covering)' },
+// Hinges: Tabs, Pinned or Live, and in the first two a bought part from the list or Custom
+const HINGE_KINDS = [
+  { value: 'tabs', label: 'Tabs', title: 'Flat hinges slotted into both hinge spars at the centre line' },
+  { value: 'pinned', label: 'Pinned', title: 'Hinge points in holes drilled into both hinge spars at the centre line' },
+  { value: 'live', label: 'Live', title: 'The top skin or covering runs over the hinge and flexes' },
 ]
-const hingeChoice = computed(() => {
+const hingeKind = computed(() => {
   const t = st.value.hinges.type ?? 'mylar'
-  return t === 'part' ? `part:${boughtHinge.value.id}` : t
+  return t === 'pinned' || t === 'live' ? t : 'tabs'
 })
-// One change (one undo step) for the type and, for a bought hinge, which one
-function setHinge(v) {
-  const part = v.startsWith('part:') ? v.slice(5) : null
-  structure.value = { ...structure.value, hinges: { ...structure.value.hinges, type: part ? 'part' : v, ...(part ? { part } : {}) } }
-}
+const sizeOf = (h) => `${Math.round(h.across * 1000)} × ${Number((h.along * 1000).toFixed(1))} mm`
+const TAB_OPTIONS = [
+  ...HINGES.map((h) => ({ value: h.id, group: 'Bought', label: hingeLabel(h), title: `${sizeOf(h)}, packets of ${h.pack}` })),
+  { value: 'custom', label: 'Custom', title: 'Mylar tabs cut from roll' },
+]
+const PIN_OPTIONS = [
+  ...PIN_HINGES.map((h) => ({ value: h.id, group: 'Bought', label: hingeLabel(h), title: `${sizeOf(h)}, packets of ${h.pack}` })),
+  { value: 'custom', label: 'Custom', title: 'A hinge point by diameter and length' },
+]
+// Each choice's drawing, from above: the hinge line runs up the middle
+const drawn = (h) => ({ width: h.across, height: h.along, outline: hingeOutline(h) })
+const tabItems = computed(() => ({
+  ...Object.fromEntries(HINGES.map((h) => [h.id, drawn(h)])),
+  custom: drawn({ kind: 'flat', across: st.value.hinges.tabLength || 0.025, along: st.value.hinges.tabWidth || 0.025 }),
+}))
+const pinItems = computed(() => ({
+  ...Object.fromEntries(PIN_HINGES.map((h) => [h.id, drawn(h)])),
+  custom: drawn({ kind: 'pin', across: st.value.hinges.pinLength || 0.032, along: st.value.hinges.pinDiameter || 0.0032 }),
+}))
+const tabChoice = computed(() => (st.value.hinges.type === 'part' ? boughtHinge.value.id : 'custom'))
+const pinChoice = computed(() => pinById(st.value.hinges.pin)?.id ?? 'custom')
+const setHinges = (patch) => (structure.value = { ...structure.value, hinges: { ...structure.value.hinges, ...patch } })
+// Tabs opens on Custom (Mylar from roll); Pinned keeps the hinge point last chosen
+const setHingeKind = (k) => setHinges({ type: k === 'tabs' ? 'mylar' : k })
+// One change (one undo step) for the type and which part
+const setTab = (v) => setHinges(v === 'custom' ? { type: 'mylar' } : { type: 'part', part: v })
+const setPin = (v) => setHinges({ pin: v === 'custom' ? null : v })
 // What the chosen hinge is, in a line
 const hingeFacts = computed(() => {
   const t = st.value.hinges.type ?? 'mylar'
   const h = boughtHinge.value
-  if (t === 'part') return `${mm(h.across)} across the hinge by ${mm(h.along)} along it, slotted half into each spar; packets of ${h.pack}${h.glue ? `, fitted with ${h.glue}` : ''}. Slot width about ${mm(h.thickness)} (not published: measure it).`
-  if (t === 'pinned') return 'Glued half into each hinge spar at the centre line, in drilled holes.'
+  const point = pinById(st.value.hinges.pin)
+  if (t === 'part') return `${mm(h.across)} across the hinge by ${mm(h.along)} along it, slotted half into each spar${h.glue ? `; fitted with ${h.glue}` : ''}. Slot width about ${mm(h.thickness)} (not published: measure it).`
+  if (t === 'pinned') return point ? `Drill ${mm(point.along)}, half its length into each spar at the centre line. About ${mm(point.across)} long (not published: measure it).` : 'Glued half into each hinge spar at the centre line, in drilled holes.'
   if (t === 'live') return 'The surface turns about the top skin: only its bottom is bevelled, for the down throw.'
   return "The roll's width goes across the hinge, half into each spar, trimmed where the spars are narrower."
 })
@@ -370,7 +392,7 @@ const summaries = computed(() => {
       x.hinges.type === 'live'
         ? 'Live hinges, the top skin'
         : x.hinges.type === 'pinned'
-          ? `Pin hinges, ${mm(x.hinges.pinDiameter)} × ${mm(x.hinges.pinLength)}, ${len(x.hinges.tabSpacing)} apart at most`
+          ? `${pinById(x.hinges.pin) ? hingeLabel(pinById(x.hinges.pin)) : `Pin hinges, ${mm(x.hinges.pinDiameter)} × ${mm(x.hinges.pinLength)}`}, ${len(x.hinges.tabSpacing)} apart at most`
           : x.hinges.type === 'part'
             ? `${hingeLabel(hingeById(x.hinges.part))}, ${len(x.hinges.tabSpacing)} apart at most`
           : `Mylar tabs, ${size(x.hinges.tabWidth, x.hinges.tabLength)}, ${len(x.hinges.tabSpacing)} apart at most`,
@@ -1280,18 +1302,24 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
         </div>
         <p class="wc-field__hint">Widths across the hinge line; the depth follows the section.</p>
         <SelectField :id="id('hm')" :model-value="st.hinges.material" label="Hinge spar material" :options="WOOD" @update:model-value="set('hinges.material', $event)" />
-        <SelectField :id="id('hkind')" :model-value="hingeChoice" label="Hinges" :options="HINGE_OPTIONS" @update:model-value="setHinge" />
-        <template v-if="(st.hinges.type ?? 'mylar') === 'mylar'">
-          <div class="wc-structure-editor__pair">
-            <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
-            <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
-          </div>
-          <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
+        <SegmentedField :model-value="hingeKind" label="Hinges" :options="HINGE_KINDS" @update:model-value="setHingeKind" />
+        <template v-if="hingeKind === 'tabs'">
+          <EdgeStockPicker :id="id('htab')" :model-value="tabChoice" label="Hinge" :options="TAB_OPTIONS" :items="tabItems" @update:model-value="setTab" />
+          <template v-if="tabChoice === 'custom'">
+            <div class="wc-structure-editor__pair">
+              <UnitInput :id="id('htl')" :model-value="st.hinges.tabLength" quantity="thin" :system="system" label="Mylar roll width" @update:model-value="set('hinges.tabLength', $event)" />
+              <UnitInput :id="id('htw')" :model-value="st.hinges.tabWidth" quantity="thin" :system="system" label="Tab length" @update:model-value="set('hinges.tabWidth', $event)" />
+            </div>
+            <UnitInput :id="id('htt')" :model-value="st.hinges.tabThickness" quantity="thin" :system="system" label="Mylar thickness" @update:model-value="set('hinges.tabThickness', $event)" />
+          </template>
         </template>
-        <div v-else-if="st.hinges.type === 'pinned'" class="wc-structure-editor__pair">
-          <UnitInput :id="id('hpd')" :model-value="st.hinges.pinDiameter" quantity="thin" :system="system" label="Pin diameter" @update:model-value="set('hinges.pinDiameter', $event ?? 0.0032)" />
-          <UnitInput :id="id('hpl')" :model-value="st.hinges.pinLength" quantity="thin" :system="system" label="Pin length" @update:model-value="set('hinges.pinLength', $event ?? 0.032)" />
-        </div>
+        <template v-else-if="hingeKind === 'pinned'">
+          <EdgeStockPicker :id="id('hpin')" :model-value="pinChoice" label="Hinge point" :options="PIN_OPTIONS" :items="pinItems" @update:model-value="setPin" />
+          <div v-if="pinChoice === 'custom'" class="wc-structure-editor__pair">
+            <UnitInput :id="id('hpd')" :model-value="st.hinges.pinDiameter" quantity="thin" :system="system" label="Pin diameter" @update:model-value="set('hinges.pinDiameter', $event ?? 0.0032)" />
+            <UnitInput :id="id('hpl')" :model-value="st.hinges.pinLength" quantity="thin" :system="system" label="Pin length" @update:model-value="set('hinges.pinLength', $event ?? 0.032)" />
+          </div>
+        </template>
         <p class="wc-field__hint">{{ hingeFacts }}</p>
         <div v-if="st.hinges.type !== 'live'" class="wc-structure-editor__pair">
           <UnitInput :id="id('hts')" :model-value="st.hinges.tabSpacing" quantity="length" :system="system" label="Most apart" hint="Spaced evenly along each hinge." @update:model-value="set('hinges.tabSpacing', $event)" />

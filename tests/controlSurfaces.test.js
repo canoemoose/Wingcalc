@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { HINGES, hingeById, DEFAULT_HINGE } from '../src/lib/hingeCatalogue.js'
+import { HINGES, PIN_HINGES, hingeById, hingeOutline, DEFAULT_HINGE } from '../src/lib/hingeCatalogue.js'
 import { defaultState, migrate } from '../src/lib/projects.js'
 import { resolveAirfoil, airfoilPerformance } from '../src/lib/airfoils.js'
 import { wingGeometry } from '../src/lib/calc.js'
@@ -419,6 +419,32 @@ describe('hinge types', () => {
     expect(r.warnings.some((w) => w.includes('SL070B-S') && w.includes('deeper than the narrower spar'))).toBe(true)
     const wide = build({ edit: (st) => { st.hinges.type = 'part'; st.hinges.part = 'kavan-sl070b'; st.hinges.fixedWidth = 0.016; st.hinges.movingWidth = 0.016 } }).a
     expect(wide.surfaces.find((x) => x.ok).warnings.some((w) => w.includes('deeper'))).toBe(false)
+  })
+
+  it('a bought hinge point is its own size, counted in packets by name; one sized by hand stays "Pin hinges"', () => {
+    const { a } = build({ edit: (st) => { st.hinges.type = 'pinned'; st.hinges.pin = 'robart-308' } })
+    const r = a.surfaces.find((x) => x.ok)
+    expect(r.hinge.part).toBe('308')
+    expect(r.tabAlong).toBeCloseTo(0.003175, 9)
+    expect(r.tabAcross).toBeCloseTo(0.028, 9)
+    const row = buildParts(a, a.structure).cutList.find((c) => c.item.includes('Robart'))
+    expect(row.note).toMatch(/packets? of 15/)
+    expect(row.size[0]).toBeCloseTo(0.003175, 9)
+    // An id it doesn't know, or none: sized by hand
+    const custom = build({ edit: (st) => { st.hinges.type = 'pinned'; st.hinges.pin = 'nothing' } }).a
+    expect(custom.surfaces.find((x) => x.ok).hinge).toBeNull()
+    expect(buildParts(custom, custom.structure).cutList.some((c) => c.item === 'Pin hinges')).toBe(true)
+    expect(PIN_HINGES.every((h) => h.estimated.includes('across'))).toBe(true)
+  })
+
+  it('draws each hinge for its thumbnail within its own size, the knuckle standing proud', () => {
+    for (const h of [...HINGES, ...PIN_HINGES]) {
+      const pts = hingeOutline(h)
+      const us = pts.map((q) => q[0])
+      expect(Math.min(...us)).toBeCloseTo(0, 9)
+      expect(Math.max(...us)).toBeCloseTo(h.across, 9)
+      expect(pts.length).toBe(h.kind === 'flat' ? 4 : 12)
+    }
   })
 
   it('falls back to the first hinge in the list for one it does not know', () => {

@@ -2177,7 +2177,7 @@ function stripCutList(a, structure, parts, both) {
     const k = Math.sqrt(1 + sf.slope * sf.slope)
     const up = (v) => Math.ceil(v * 2000 - 1e-6) / 2000
     const type = sf.hingeType ?? 'mylar'
-    const pinD = Math.round((h.pinDiameter || 0.0032) * 10000) / 10
+    const pinD = Math.round(sf.tabAlong * 10000) / 10
     const slots =
       type === 'live'
         ? 'a live hinge: the top skin or covering runs over the hinge, so leave it whole there and cut only through the bottom'
@@ -2218,15 +2218,21 @@ function stripCutList(a, structure, parts, both) {
     })
   }
   // Pin hinges, bought: one per hole pair
-  const pins = (a.surfaces ?? []).filter((sf) => sf.ok && sf.hingeType === 'pinned').reduce((n, sf) => n + sf.tabs.length, 0)
+  const pinnedOn = (a.surfaces ?? []).filter((sf) => sf.ok && sf.hingeType === 'pinned' && sf.tabs.length)
+  const pins = pinnedOn.reduce((n, sf) => n + sf.tabs.length, 0)
   if (pins) {
+    // A bought hinge point by name and in packets; one sized by hand as it's set
+    const point = pinnedOn[0].hinge
+    const d = pinnedOn[0].tabAlong
+    const len = pinnedOn[0].tabAcross
+    const packs = point ? hingePacks(point, pins * sides) : 0
     out.push({
-      item: 'Pin hinges',
+      item: point ? hingeLabel(point) : 'Pin hinges',
       material: 'nylon',
-      size: [h.pinDiameter || 0.0032, h.pinDiameter || 0.0032],
-      length: h.pinLength || 0.032,
+      size: [d, d],
+      length: len,
       qty: pins * sides,
-      note: `${((h.pinDiameter || 0.0032) * 1000).toFixed(1)} mm pin hinges, ${((h.pinLength || 0.032) * 1000).toFixed(0)} mm long, glued half into each hinge spar at the centre line`,
+      note: `${(d * 1000).toFixed(1)} mm pin hinges, ${(len * 1000).toFixed(0)} mm long, glued half into each hinge spar at the centre line${point ? `. ${packs} packet${packs === 1 ? '' : 's'} of ${point.pack}` : ''}`,
     })
   }
   // Bought hinges: how many, and the packets that is
