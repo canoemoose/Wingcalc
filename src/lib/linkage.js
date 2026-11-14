@@ -482,6 +482,7 @@ function assemblyAt(geom, { tm, dm, L, td }, { travel, depth }) {
 // The same assembly on the other half: every point and direction reflected across the wing's
 // centre plane (s to -s). The servo is the same model turned over (docs/scope-servo.md,
 // decision 8), so its throws match; only its turning direction reverses.
+// Used by the tests only.
 export function mirrorGeometry(geom) {
   const m = (p) => [p[0], -p[1], p[2]]
   return {

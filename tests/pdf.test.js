@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { unzlibSync, strFromU8 } from 'fflate'
-import { readFileSync } from 'node:fs'
 import { drawingPdf, tiling, LAYER_STYLE } from '../src/lib/pdf.js'
+import { PLAN_LAYERS } from '../src/lib/dxf.js'
 
 const latin1 = (u8) => strFromU8(u8, true)
 
@@ -89,11 +89,8 @@ describe('PDF file', () => {
 
 describe('PDF plan layers', () => {
   it('styles every layer the plan DXF declares, so none falls back to the grey guide style', () => {
-    // The layer map in planDxf (dxf.js), read from the source so a new layer there is caught here
-    const src = readFileSync(new URL('../src/lib/dxf.js', import.meta.url), 'utf8')
-    const body = src.slice(src.indexOf('export function planDxf'))
-    const map = body.slice(body.indexOf('{', body.indexOf('extraLayers')), body.indexOf('}', body.indexOf('extraLayers')))
-    const layers = [...map.matchAll(/^\s*'?([A-Z][A-Z-]*)'?\s*:/gm)].map((m) => m[1])
+    // The plan layer map that planDxf uses, so a new layer there is caught here
+    const layers = Object.keys(PLAN_LAYERS)
     expect(layers.length).toBeGreaterThan(15)
     expect(layers).toContain('SERVO-LEAD')
     for (const name of layers) expect(LAYER_STYLE[name], name).toBeDefined()

@@ -216,6 +216,11 @@ describe('ribs', () => {
       )
       for (const p of ribsOf(res)) {
         const l = p.label
+        // A rib with no room for its label carries the text only (it goes in the waste); one
+        // that's placed is 2 to 4 mm tall, as on every other part
+        if (!Number.isFinite(l.h)) continue
+        expect(l.h).toBeGreaterThanOrEqual(0.002 - 1e-9)
+        expect(l.h).toBeLessThanOrEqual(0.004 + 1e-9)
         const box = { x0: l.u, x1: l.u + textWidth(l.text, l.h), y0: l.z, y1: l.z + l.h }
         for (const corner of [
           [box.x0, box.y0],

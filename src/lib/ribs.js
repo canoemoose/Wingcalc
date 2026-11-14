@@ -633,6 +633,8 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
     const zc = roundFitAt(structure.le.diameter, sec).centre + lift
     const notched = notchFront(outline, uA, zc, ru + 0.0001, r + 0.0001)
     if (notched) outline = notched
+    // No label in the notch
+    if (notched) keepClear.push([uA, uA + ru + 0.0001])
     if (!notched) notes.push('The leading-edge rod is deeper than the rib at its notch')
   }
 
@@ -746,9 +748,10 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const labelIn = (text, from, to, pref, blocks) => {
     let best = null
     for (let u0 = from; u0 < to; u0 += 0.001) {
-      // The tallest label (up to 5 mm) whose box fits clear from here
-      let h = 0.005
-      for (let it = 0; it < 4 && h >= 0.0015; it++) {
+      // The tallest label whose box fits clear from here: 4 mm at most and 2 mm at least, as on
+      // every other part (dxf.js), below which an engraving is hard to read
+      let h = 0.004
+      for (let it = 0; it < 4 && h >= 0.002; it++) {
         const u1 = u0 + textWidth(text, h)
         if (u1 > to) {
           h *= (to - u0) / (u1 - u0)
@@ -759,7 +762,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
         if (fit >= h - 1e-6) break
         h = fit
       }
-      if (h < 0.0015) continue
+      if (h < 0.002 - 1e-9) continue
       const u1 = u0 + textWidth(text, h)
       if (u1 > to) continue
       if ([...blocks, ...keepClear].some(([b0, b1]) => u0 < b1 + edge && u1 > b0 - edge)) continue
@@ -860,7 +863,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   const text = splitAtSpar || rearOutline ? `${name}A` : name
   const label = best
     ? { text, u: best.u0, z: best.z, h: best.h }
-    : { text, u: uSolid + 0.004, z: (top(uSolid + 0.004) + bot(uSolid + 0.004)) / 2 - 0.00075, h: 0.0015 }
+    : { text } // no room on the rib: the export puts it in the waste beside the part
   const labelBoxes = boxesOf(placedLabel)
 
   if (lightening) for (const h of placeLightening([...labelBoxes, ...leadBlocks])) holes.push(circle(h.u, h.z, h.D / 2))
@@ -894,7 +897,7 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
       outline: p.pts,
       holes: holes.filter((h) => h.every((q) => inPiece(p, q[0]))),
       etch: etch.filter((e) => inPiece(p, e[0][0])),
-      label: own ? { text: `${name}${letter}`, u: best.u0, z: best.z, h: best.h } : { text: `${name}${letter}`, u: Math.min(...us) + 0.002, z: (top(um) + bot(um)) / 2 - 0.00075, h: 0.0015 },
+      label: own ? { text: `${name}${letter}`, u: best.u0, z: best.z, h: best.h } : { text: `${name}${letter}` },
     }
   }
   return {

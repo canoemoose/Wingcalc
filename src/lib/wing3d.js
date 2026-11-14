@@ -1580,6 +1580,7 @@ export function pieceOutline(model, piece) {
 
 // The flat span station s of a point in the half wing's world coordinates: where the span
 // plane through it is (bisection on spanPlane between the root and the wing's reach).
+// Used by the tests only.
 export function spanOf(a, point) {
   const side = (s) => {
     const { point: q, normal: n } = spanPlane(a, s)

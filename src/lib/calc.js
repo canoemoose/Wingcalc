@@ -30,6 +30,7 @@ const SPAN_MAX = 3.0 // m
 // supports the weight (each panel's lift tilts inwards by its dihedral angle), so it is
 // used for stall speed. `span` is the projected tip-to-tip span.
 export function wingGeometry({ mode, span, rootChord, tipChord, meanChord, area, panels, fuselageWidth = 0, tip = null }) {
+  // Used by the tests only: the app offers panels, mean and area.
   if (mode === 'chords') {
     return wingGeometry({
       mode: 'panels',

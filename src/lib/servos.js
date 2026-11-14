@@ -328,6 +328,7 @@ export const CATALOGUE = [...HITEC, ...FUTABA]
 // swings fore and aft and comes out through a skin. There's no upright (its arm would swing into
 // the bay's ribs) and no flat (its shaft would run along the chord). The envelope it takes up:
 // chord (along the chord), span (across the span) and depth (from the skin inward).
+// Used by the tests only.
 export function servoEnvelope(servo) {
   const [l, w, h] = servo.body ?? [servo.length, servo.width, servo.height]
   return { chord: l, span: h, depth: w }

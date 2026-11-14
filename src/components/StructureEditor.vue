@@ -498,6 +498,18 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           hint="Obechi veneer is usually 0.6 mm; balsa sheet 1, 1.5 or 2 mm."
           @update:model-value="set('foam.skin.thickness', $event)"
         />
+        <UnitInput
+          :id="id('fref')"
+          :model-value="st.spar.position"
+          quantity="percent"
+          :chord="rootChord"
+          chord-name="root chord"
+          :system="system"
+          label="Reference line along the chord"
+          :placeholder="autoSparText"
+          hint="A foam wing has no spar, but hinges, servo bays and air brakes are placed behind this line, where a spar would be. Blank puts it at the section's thickest point."
+          @update:model-value="set('spar.position', $event)"
+        />
         <div class="wc-structure-editor__pair">
           <UnitInput
             :id="id('fshw')"
@@ -786,6 +798,13 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
             label="Cap strip thickness"
             @update:model-value="set('covering.capStripThickness', $event)"
           />
+          <SelectField
+            :id="id('csm')"
+            :model-value="st.covering.capStripMaterial"
+            label="Cap strip material"
+            :options="SHEET"
+            @update:model-value="set('covering.capStripMaterial', $event)"
+          />
         </template>
         <UnitInput
           v-if="st.covering.capStrips && st.covering.type === 'open'"
@@ -843,7 +862,7 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
           :model-value="st.le.height ?? st.le.width"
           quantity="thin"
           :system="system"
-          label="Leading edge stock, height at the rib face"
+          :label="foam ? 'Leading edge stock, height at the core\'s face' : 'Leading edge stock, height at the rib face'"
           hint="Checked as a plain block of this depth and height, carved to the section."
           @update:model-value="set('le.height', $event)"
         />
@@ -1110,6 +1129,14 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
                 @update:model-value="updateIn('ribs.hardPoints', h.id, 'dboxThickness', $event)"
               />
             </div>
+            <SelectField
+              v-if="Number.isFinite(h.to) && h.to > (h.d ?? 0) && (h.sheet ?? 'none') !== 'none'"
+              :id="id(`hp${h.id}m`)"
+              :model-value="h.material ?? st.covering.sheetMaterial"
+              label="Sheet material"
+              :options="SHEET"
+              @update:model-value="updateIn('ribs.hardPoints', h.id, 'material', $event)"
+            />
           </div>
         </div>
         <button type="button" class="wc-button wc-button--small wc-structure-editor__add" @click="addTo('ribs.hardPoints', { d: null, label: '', sheet: 'both', thickness: st.covering.sheetThickness || 0.0015, dboxThickness: null })">

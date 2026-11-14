@@ -16,6 +16,7 @@ import { quantiseRe, polarSegments, COMPARE_THRESHOLDS } from './xfoil.js'
 import { liftingLine, firstStall, clDistribution, progressiveStall } from './liftingLine.js'
 import { isDrawnSection, sectionCoords, analyseSection } from './sectionSpline.js'
 
+// Used by the tests only.
 export const LIBRARY = data
 export const FAMILIES = {
   naca: { label: 'NACA' },

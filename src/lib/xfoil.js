@@ -164,6 +164,7 @@ function peak({ alpha, cl }) {
 
 // Compares a computed polar against a reference one ({ alpha, cl }): Clmax, alpha at Clmax,
 // lift-curve slope (-2° to 4°) and RMS Cl difference over 0° to 8° at shared alphas.
+// Used by the tests only.
 export function comparePolars(ref, calc, t = COMPARE_THRESHOLDS) {
   const r = peak(ref)
   const c = peak(calc)

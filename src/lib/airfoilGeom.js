@@ -4,6 +4,7 @@
 // All lengths are fractions of chord (0..1) unless the name says "pct".
 
 // Leading-edge radius of a standard NACA four-digit thickness form: r = 1.1019 t².
+// Used by the tests only.
 export function nacaLeRadius(thickness) {
   return 1.1019 * thickness * thickness
 }

@@ -396,7 +396,7 @@ export function hardPatches(structure, rootS) {
       to: 1,
       sides,
       thickness: h.thickness > 0 ? h.thickness : cov.sheetThickness || 0.0015,
-      material: cov.sheetMaterial || 'balsa-medium',
+      material: h.material || cov.sheetMaterial || 'balsa-medium',
       dboxThickness: h.dboxThickness > 0 ? h.dboxThickness : null,
     })
   }
@@ -939,8 +939,8 @@ export function solidTaper(structure, ribs, section, sparX) {
 // for the sheet thickness there; xi, the spar's chord fraction there (skinAtSpar).
 export function sparSection(structure, h, dFromRoot = 0, s = null, xi = undefined) {
   const sp = structure.spar
-  const skin = skinAtSpar(structure, undefined, s, xi)
-  const inner = h - 2 * skin
+  // Each side's own skin: a D-box may sheet one side only, or stop short of the spar on one
+  const inner = h - skinAtSpar(structure, 'top', s, xi) - skinAtSpar(structure, 'bottom', s, xi)
   // No spar at all (a foam wing): the skins carry the bending
   if (sp.type === 'none') return { type: 'none', inner }
   if (sp.type === 'tube') {
@@ -1039,7 +1039,9 @@ export function sheetSpacing(E, t, b, sigma) {
 // are any, as elements { part, E, A, z, I0, top, bottom } (z the height of the centroid,
 // top and bottom its extreme fibres). Sheeting is split into strips across the chord so it
 // follows the section's curve. sec comes from sectionAt; xi values are chord fractions.
-export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot = 0, strips = 12 }) {
+// patchTeXi: where a hard point's sheet ends (the fixed hinge spar's rear face beside a control
+// surface), teXi without one.
+export function sectionElements(structure, sec, { sparXi, leXi, teXi, patchTeXi = teXi, dFromRoot = 0, strips = 12 }) {
   const els = []
   const cov = structure.covering
   const sp = sparSection(structure, sec.depth(sparXi), dFromRoot, sec.s, sparXi)
@@ -1069,15 +1071,17 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
     lower: cov.type !== 'open' && cov.sheetThickness > 0 ? sheetExtent(structure, 'bottom', sparXi, { leXi, teXi }) : null,
   }
   // A sheet's strips over chord fractions from..to on one surface, t thick
-  const sheetStrips = (surface, from, to, t, E, part = 'sheet') => {
+  // patch: the hard point whose sheet this is (checked at its own thickness and material)
+  const sheetStrips = (surface, from, to, t, E, patch = null) => {
     if (!(to > from) || !(t > 0)) return
     const dx = (to - from) / strips
+    const extra = patch ? { patch, t, from, to } : {}
     for (let i = 0; i < strips; i++) {
       const xm = from + dx * (i + 0.5)
       const f = sec.surf(xm)
       const A = t * dx * sec.c
-      if (surface === 'upper') els.push({ part, surface, x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t })
-      else els.push({ part, surface, x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower })
+      if (surface === 'upper') els.push({ part: 'sheet', surface, x: xm, E, A, z: f.upper - t / 2, I0: 0, top: f.upper, bottom: f.upper - t, ...extra })
+      else els.push({ part: 'sheet', surface, x: xm, E, A, z: f.lower + t / 2, I0: 0, top: f.lower + t, bottom: f.lower, ...extra })
     }
   }
   // Sheeted hard points over this station: each side's sheet behind any D-box sheeting (on a
@@ -1094,7 +1098,12 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
       const e = ext[surface]
       if (!e || !(e.to > e.from)) continue
       const h = cov.type === 'sheeted' ? patchOn[surface] : null
-      sheetStrips(surface, e.from, e.to, h ? h.thickness : t, h ? material(h.material).E : E)
+      if (h) {
+        // The hard point's sheet as far as it's built, the wing's own sheeting behind that
+        const end = Math.min(e.to, Math.max(e.from, patchTeXi))
+        sheetStrips(surface, e.from, end, h.thickness, material(h.material).E, h)
+        sheetStrips(surface, end, e.to, t, E)
+      } else sheetStrips(surface, e.from, e.to, t, E)
     }
     // Glass and epoxy laid over the sheeting, outside it
     const lam = finishOf(cov).laminate
@@ -1119,7 +1128,7 @@ export function sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot 
       const h = patchOn[surface]
       if (!h) continue
       const e = ext[surface]
-      sheetStrips(surface, e && e.to > e.from ? e.to : leXi, teXi, h.thickness, material(h.material).E)
+      sheetStrips(surface, e && e.to > e.from ? e.to : leXi, patchTeXi, h.thickness, material(h.material).E, h)
     }
   }
   const rear = sparXi + sparWidth(structure.spar) / 2 / sec.c
@@ -1698,7 +1707,11 @@ export function recutPlate(b, phis) {
 }
 
 // Why a bay isn't built, with the bay's name.
-export const bayProblem = (b) => `${b.label} isn't built: ${BAY_PROBLEMS[b.problem] ?? b.problem}.`
+const FOAM_FORWARD = {
+  bay: "there's no room between the reference line and the hinge for the servo and its lead: use a smaller servo, move the hinge back or the reference line forward (Foam core and skins)",
+  surface: 'its hinge line is too far forward: the hinge spar on the fixed side would cross the reference line. Move the hinge line back, or the reference line forward (Foam core and skins)',
+}
+export const bayProblem = (b, foam = false) => `${b.label} isn't built: ${foam && b.problem === 'forward' ? FOAM_FORWARD.bay : (BAY_PROBLEMS[b.problem] ?? b.problem)}.`
 
 // Why a surface couldn't be built, in a builder's words.
 const SURFACE_PROBLEMS = {
@@ -1781,7 +1794,10 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const M = loadAt(pos.rows, s, 'M')
     const V = loadAt(pos.rows, s, 'V')
     const Mn = neg ? Math.abs(loadAt(neg.rows, s, 'M')) : 0
-    const { els, spar: sp } = sectionElements(structure, sec, { sparXi, leXi, teXi, dFromRoot: s - s0 })
+    // A hard point's sheet stops at the fixed hinge spar beside a control surface
+    const beside = surfaces.find((r) => r.ok && s >= r.s0 - 1e-9 && s <= r.s1 + 1e-9)
+    const patchTeXi = beside ? Math.min(teXi, Math.max(leXi, (beside.faces.fixedRear(s) - sec.xl) / sec.c)) : teXi
+    const { els, spar: sp } = sectionElements(structure, sec, { sparXi, leXi, teXi, patchTeXi, dFromRoot: s - s0 })
     const tSheet = sheetThicknessAt(structure, s)
     const row = { s, d: s - s0, c: sec.c, h, sparXi, M, V, Mneg: Mn, spar: sp.type, fits: sp.fits ?? false, ms: {}, limit: Infinity }
     stations.push(row)
@@ -1839,12 +1855,34 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       row.limit = Math.min(row.limit, webSpacing(sp, tau * sf))
     }
     }
+    // Sheeted hard points' own sheets, wherever they're counted in the bending: crushing in their
+    // own material, and buckling between ribs at their own thickness, panel by panel between
+    // the sheet's ends, the spar and any stringers on that surface
+    const patchStrips = foam ? [] : els.filter((e) => e.part === 'sheet' && e.patch)
+    if (patchStrips.length) {
+      let worst = Infinity
+      for (const e of patchStrips) worst = Math.min(worst, ms(material(e.patch.material).compression, Math.max(comp(e.E, e.top), comp(e.E, e.bottom))))
+      row.ms.sheet = worst
+      for (const surface of ['upper', 'lower']) {
+        const mine = patchStrips.filter((e) => e.surface === surface)
+        if (!mine.length) continue
+        const { from, to, t, patch } = mine[0]
+        const supports = [from, to, sparXi, ...(structure.stringers ?? []).filter((st) => Number.isFinite(st.position) && (st.surface === 'both' || st.surface === surface)).map((st) => st.position)]
+        const xs = [...new Set(supports)].filter((x) => x >= from - 1e-9 && x <= to + 1e-9).sort((a, b) => a - b)
+        for (let i = 1; i < xs.length; i++) {
+          const inPanel = mine.filter((e) => e.x >= xs[i - 1] && e.x <= xs[i])
+          if (!inPanel.length) continue
+          const avg = inPanel.reduce((acc, e) => acc + comp(e.E, e.z), 0) / inPanel.length
+          row.limit = Math.min(row.limit, sheetSpacing(material(patch.material).E, t, (xs[i] - xs[i - 1]) * sec.c, avg * sf))
+        }
+      }
+    }
     // Sheeting: crushing, and buckling between ribs panel by panel
     if (cov.type !== 'open' && tSheet > 0) {
-      const strips = els.filter((e) => e.part === 'sheet')
+      const strips = els.filter((e) => e.part === 'sheet' && !e.patch)
       const sheetC = strips.reduce((m, e) => Math.max(m, comp(e.E, e.top), comp(e.E, e.bottom)), 0)
       row.sheetStress = sheetC
-      row.ms.sheet = ms(sheet.compression, sheetC)
+      row.ms.sheet = Math.min(row.ms.sheet ?? Infinity, ms(sheet.compression, sheetC))
       if (foam) {
         row.sigma = sheetC
         // A skin on a foam core doesn't buckle between supports: it wrinkles into the core
@@ -2088,7 +2126,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     })
   }
   for (const r of surfaces) {
-    if (!r.ok) warnings.push({ id: `surface-${r.id}`, message: `${r.label} isn't built: ${SURFACE_PROBLEMS[r.problem] ?? r.problem}.` })
+    if (!r.ok) warnings.push({ id: `surface-${r.id}`, message: `${r.label} isn't built: ${foam && r.problem === 'forward' ? FOAM_FORWARD.surface : (SURFACE_PROBLEMS[r.problem] ?? r.problem)}.` })
     for (const [k, m] of (r.warnings ?? []).entries()) warnings.push({ id: `surface-${r.id}-${k}`, message: m })
   }
   for (const r of brakes) {
@@ -2096,7 +2134,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     for (const [k, m] of (r.warnings ?? []).entries()) warnings.push({ id: `brake-${r.id}-${k}`, message: m })
   }
   for (const b of bays) {
-    if (!b.ok && b.problem !== 'surface') warnings.push({ id: `bay-${b.id}`, message: bayProblem(b) })
+    if (!b.ok && b.problem !== 'surface') warnings.push({ id: `bay-${b.id}`, message: bayProblem(b, foam) })
     for (const [k, m] of (b.warnings ?? []).entries()) warnings.push({ id: `bay-${b.id}-${k}`, message: m })
   }
   // Dihedral braces: one warning per brace that is too thin for its bending, or cannot be made

@@ -248,11 +248,10 @@ export function partEntities(part, opts) {
   let label = null
   let waste = null
   if (opts.labels) {
-    label =
-      part.label?.text && part.group !== 'webs'
-        ? { ...part.label, u: part.label.u * MM, z: part.label.z * MM, h: part.label.h * MM }
-        : labelOnPart(part.name, outline, holes)
-    if (!label) waste = part.name
+    // A rib's label with no place on it has its text only
+    const own = part.group !== 'webs' && part.label?.text ? part.label : null
+    label = own ? (Number.isFinite(own.h) ? { ...own, u: own.u * MM, z: own.z * MM, h: own.h * MM } : null) : labelOnPart(part.name, outline, holes)
+    if (!label) waste = own?.text ?? part.name
   }
   // Dogbones and offsets on the cut only
   let cutOuter = outline
@@ -807,31 +806,33 @@ export function planEntities(a, structure, parts, { handedness = 'right' } = {})
   return ents
 }
 
+// Plan layer names and their ACI colours, used by planDxf and read by the PDF layer styles.
+export const PLAN_LAYERS = {
+  OUTLINE: 7,
+  EDGES: 3,
+  STRINGERS: 30,
+  SPAR: 1,
+  RIBS: 5,
+  TEXT: 8,
+  'SHEETING-TOP': 9,
+  'SHEETING-BOTTOM': 8,
+  'SHEET-NAMES': 8,
+  'HARDPOINT-TOP': 252,
+  'HARDPOINT-BOTTOM': 253,
+  HINGE: 6,
+  TABS: 216,
+  SURFACE: 200,
+  SERVO: 4,
+  'SERVO-HATCH': 140,
+  'SERVO-SLOT': 160,
+  'SERVO-LEAD': 150,
+  BRAKE: 2,
+  'BRAKE-OPENING': 50,
+}
+
 export function planDxf(a, structure, parts, opts, baseName = 'wing') {
   const ents = planEntities(a, structure, parts, { handedness: opts.handedness })
-  const extraLayers = {
-    OUTLINE: 7,
-    EDGES: 3,
-    STRINGERS: 30,
-    SPAR: 1,
-    RIBS: 5,
-    TEXT: 8,
-    'SHEETING-TOP': 9,
-    'SHEETING-BOTTOM': 8,
-    'SHEET-NAMES': 8,
-    'HARDPOINT-TOP': 252,
-    'HARDPOINT-BOTTOM': 253,
-    HINGE: 6,
-    TABS: 216,
-    SURFACE: 200,
-    SERVO: 4,
-    'SERVO-HATCH': 140,
-    'SERVO-SLOT': 160,
-    'SERVO-LEAD': 150,
-    BRAKE: 2,
-    'BRAKE-OPENING': 50,
-  }
-  return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf2000(ents, extraLayers) }
+  return { name: `${baseName}-plan.dxf`, title: 'Plan', text: toDxf2000(ents, PLAN_LAYERS) }
 }
 
 // --- Cut list ---------------------------------------------------------------------------------------
