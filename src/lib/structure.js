@@ -1923,7 +1923,8 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       const webK = sp.web.E * webArea
       const braceK = braceStiffness(s)
       const webShare = braceK > 0 ? webK / (webK + braceK) : 1
-      const tau = (V * webShare) / webArea
+      // A web left at no thickness can't carry its share at all (rather than 0 / 0 over a brace)
+      const tau = webArea > 0 ? (V * webShare) / webArea : V > 0 ? Infinity : 0
       row.tau = tau
       if (braceK > 0) row.braceShare = 1 - webShare
       row.ms.webShear = ms(sp.web.shear, tau)
@@ -1941,6 +1942,26 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       for (const side of ['top', 'bottom']) if (capC[side] > 0 && unsheeted(side)) row.limit = Math.min(row.limit, eulerSpacing(sp.mat.E, sp.b, capC[side] * sf))
       // The web buckles in shear more readily the further apart the ribs are
       row.limit = Math.min(row.limit, webSpacing(sp, tau * sf))
+    } else if (sp.type === 'solid') {
+      // A solid spar in shear along its grain, peak 1.5 V / (b d) at the neutral axis, sharing V
+      // with any dihedral braces beside it as the web does
+      const area = sp.b * sp.d
+      const sparK = sp.mat.E * area
+      const braceK = braceStiffness(s)
+      const share = braceK > 0 ? sparK / (sparK + braceK) : 1
+      const tau = area > 0 ? (1.5 * V * share) / area : V > 0 ? Infinity : 0
+      row.tau = tau
+      if (braceK > 0) row.braceShare = 1 - share
+      row.ms.sparShear = ms(sp.mat.shear, tau)
+    } else if (sp.type === 'tube') {
+      // A round tube (or rod) in shear, peak V Q / (I b) at the neutral axis: Q = (D³ − Di³) / 12
+      // about it, b = D − Di across the two walls (2 V / A for a thin wall, 4 V / 3A for a rod)
+      const D = structure.spar.tubeDiameter
+      const Di = Math.max(0, D - 2 * structure.spar.tubeWall)
+      const Q = (D ** 3 - Di ** 3) / 12
+      const tau = sp.I > 0 && D > Di ? (V * Q) / (sp.I * (D - Di)) : V > 0 ? Infinity : 0
+      row.tau = tau
+      row.ms.sparShear = ms(sp.mat.shear, tau)
     }
     }
     // Sheeted hard points' own sheets, wherever they're counted in the bending: crushing in their
@@ -2086,6 +2107,13 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       id: 'short-webShear',
       mode: 'webShear',
       message: `The shear web is ${short('webShear')} short of strength ${where(summary.modes.webShear.d)}. Closer ribs won't help: try a thicker web, a stronger web material${second}.`,
+    })
+  }
+  if (summary.modes.sparShear?.ms < 0) {
+    warnings.push({
+      id: 'short-sparShear',
+      mode: 'sparShear',
+      message: `The spar is ${short('sparShear')} short of strength in shear ${where(summary.modes.sparShear.d)}. Closer ribs won't help: try ${sp.type === 'tube' ? 'a larger tube or a thicker wall' : 'a deeper or wider spar, or a stronger wood'}.`,
     })
   }
   if (summary.modes.sheet?.ms < 0) {
@@ -2289,6 +2317,7 @@ export const MODES = {
   tension: 'Spar in tension',
   sheet: 'Sheeting crushing',
   webShear: 'Shear web',
+  sparShear: 'Spar in shear',
   webBuckling: 'Shear web buckling',
   spacing: 'Buckling between ribs',
   wrinkling: 'Skin wrinkling',
@@ -2297,8 +2326,9 @@ export const MODES = {
 // A foam wing's names for the modes it shares with a built-up one
 const FOAM_MODE_LABELS = { sheet: 'Skin crushing' }
 // The chart colour slot of each mode (1 to 6). A foam wing's own two never appear with the
-// two rib-spacing modes, so they take those slots.
-export const MODE_SLOTS = { compression: 1, tension: 2, sheet: 3, webShear: 4, webBuckling: 5, spacing: 6, coreShear: 5, wrinkling: 6 }
+// two rib-spacing modes, so they take those slots, and a solid or tube spar's shear never appears
+// with a caps spar's web, so it takes the web's.
+export const MODE_SLOTS = { compression: 1, tension: 2, sheet: 3, webShear: 4, sparShear: 4, webBuckling: 5, spacing: 6, coreShear: 5, wrinkling: 6 }
 
 // Lowest margin per mode, and where.
 function summarise(stations) {

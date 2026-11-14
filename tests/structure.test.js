@@ -200,6 +200,50 @@ describe('structure analysis', () => {
     expect(arm).toBeLessThan(0.46)
   })
 
+  it('checks a solid spar in shear, 1.5 V / (b d) clear of the braces', () => {
+    const r = run((st) => {
+      st.spar.type = 'solid'
+      st.braces.enabled = false
+    })
+    const rows = r.stations.filter((x) => x.V > 0 && Number.isFinite(x.ms.sparShear))
+    expect(rows.length).toBeGreaterThan(10)
+    for (const x of rows) expect(x.ms.webShear).toBeUndefined()
+    const root = rows[0]
+    const st = r.structure.spar
+    expect(root.tau).toBeGreaterThan(0)
+    // The spar's depth there is the analysis's own; b is the set width
+    const d = (1.5 * root.V) / (root.tau * st.solidWidth)
+    expect(d).toBeGreaterThan(0.002)
+    expect(d).toBeLessThanOrEqual(st.solidDepth + 1e-9)
+    expect(r.summary.modes.sparShear.ms).toBeGreaterThan(0)
+  })
+
+  it('checks a tube spar in shear, 2 V / A for a thin wall', () => {
+    const r = run((st) => {
+      st.spar.type = 'tube'
+      st.spar.tubeLength = null
+    })
+    const st = r.structure.spar
+    const x = r.stations.find((y) => y.V > 0 && Number.isFinite(y.ms.sparShear))
+    const D = st.tubeDiameter
+    const Di = D - 2 * st.tubeWall
+    const A = (Math.PI / 4) * (D ** 2 - Di ** 2)
+    // Exact for a thick wall, within a few percent of 2 V / A for the usual thin one
+    expect(x.tau / ((2 * x.V) / A)).toBeGreaterThan(0.9)
+    expect(x.tau / ((2 * x.V) / A)).toBeLessThan(1.1)
+  })
+
+  it('warns when a solid spar is short of strength in shear', () => {
+    const r = run((st) => {
+      st.spar.type = 'solid'
+      st.spar.solidMaterial = 'balsa-light'
+      st.spar.solidWidth = 0.0003
+    })
+    expect(r.summary.modes.sparShear.ms).toBeLessThan(0)
+    const w = r.warnings.find((x) => x.id === 'short-sparShear')
+    expect(w?.message).toMatch(/short of strength in shear/)
+  })
+
   it('finds a D-box stronger than an open structure with the same caps', () => {
     const dbox = run()
     const open = run((st) => (st.covering.type = 'open'))

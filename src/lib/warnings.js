@@ -8,7 +8,7 @@
 export function structureSection(id, foam = false) {
   if (!id) return null
   const spar = 'spar'
-  if (/^short-(compression|tension|webShear|webBuckling)$/.test(id) || id === 'spar-fit' || id === 'tube-short') return spar
+  if (/^short-(compression|tension|webShear|sparShear|webBuckling)$/.test(id) || id === 'spar-fit' || id === 'tube-short') return spar
   if (id === 'short-sheet') return foam ? 'foamcore' : 'covering'
   if (/^short-(wrinkling|coreShear)$/.test(id)) return 'foamcore'
   if (id === 'short-spacing' || id === 'too-close' || id === 'ribs-skipped' || id === 'rib-pitch-covering') return 'ribs'

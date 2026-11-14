@@ -103,6 +103,18 @@ describe('dihedral braces', () => {
     }
   })
 
+  it('shares a solid spar\'s shear with the braces too', () => {
+    const { a } = analyse((st) => (st.spar.type = 'solid'))
+    const { a: bare } = analyse((st) => {
+      st.spar.type = 'solid'
+      st.braces.enabled = false
+    })
+    const r = a.stations.find((x) => x.braceShare > 0 && x.tau > 0)
+    const b = bare.stations.find((x) => Math.abs(x.s - r.s) < 1e-9)
+    expect(r.tau).toBeCloseTo(b.tau * (1 - r.braceShare), 6)
+    expect(r.ms.sparShear).toBeGreaterThan(b.ms.sparShear)
+  })
+
   it('takes the brace thickness set for it, then the one for all, then the loads', () => {
     const { a, st } = analyse((st) => {
       st.braces.thickness = 0.004
