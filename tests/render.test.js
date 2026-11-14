@@ -125,7 +125,7 @@ describe('app render', () => {
     expect(parts2).toContain('Mini (the 17 g class)')
     expect(parts2).toContain('HS-65MG, 12 g')
     // What the servo is square to, and the horn, are set in the dialogue the button opens
-    expect(parts2).toContain('Servo and linkage')
+    expect(parts2).toContain('A hatch to reach the servo')
     expect(parts2).not.toContain('Servo square to')
     expect(parts2).toContain('wc-sp__servo')
     // The sheeting hatch's pattern lines have a class of their own: the servo hatch outline once
