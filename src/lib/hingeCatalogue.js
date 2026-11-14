@@ -28,7 +28,8 @@ export const DEFAULT_HINGE = 'slec-sl037a'
 export const hingeById = (id) => HINGES.find((h) => h.id === id) ?? HINGES.find((h) => h.id === DEFAULT_HINGE)
 
 // "Kavan small nylon pin hinge (SL070B-S)"
-export const hingeLabel = (h) => `${h.maker} ${h.name.charAt(0).toLowerCase()}${h.name.slice(1)} (${h.part})`
+// (Mylar keeps its capital)
+export const hingeLabel = (h) => `${h.maker} ${h.name.startsWith('Mylar') ? h.name : h.name.charAt(0).toLowerCase() + h.name.slice(1)} (${h.part})`
 
 // Packets to buy for n hinges
 export const hingePacks = (h, n) => Math.ceil(n / h.pack)
