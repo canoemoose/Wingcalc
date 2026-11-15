@@ -1132,8 +1132,18 @@ function braceGeometry(a, structure, p) {
       const xs = [x0(s), x1(s)]
       const hi = Math.min(...xs.map((x) => insetHeight(a, structure, s, x, 'upper')))
       const lo = Math.max(...xs.map((x) => insetHeight(a, structure, s, x, 'lower')))
-      const m = (hi + lo) / 2
       const half = Math.max(0, Math.min(depthAt(s), hi - lo) / 2)
+      // Centred between the inset surfaces, then moved to cover a solid spar wherever it's seated
+      // (a brace set shorter than the depth sits over the spar, not in the middle of the wing)
+      let m = (hi + lo) / 2
+      const box = sp.type === 'solid' ? sparBoxes(a, structure, s)[0] : null
+      if (box) {
+        const top = Math.max(...box.map((q) => q[1]))
+        const bottom = Math.min(...box.map((q) => q[1]))
+        if (m - half > bottom) m = bottom + half
+        if (m + half < top) m = top - half
+        m = Math.min(hi - half, Math.max(lo + half, m))
+      }
       return { s, top: m + half, bottom: m - half }
     },
   })

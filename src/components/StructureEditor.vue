@@ -510,6 +510,11 @@ function setPanelThickness(panelId, v) {
   set('covering.panelThickness', Number.isFinite(v) && v > 0 ? { ...rest, [panelId]: v } : rest)
 }
 const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000).toFixed(1)} mm` : 'Too shallow to brace')
+// A brace's height on a solid spar: blank fills the depth inside the wing; the hint gives the range
+const braceH = (name) => st.value.braces.heights?.[name] ?? null
+const mm1 = (v) => `${(v * 1000).toFixed(1)} mm`
+const braceHeightText = (b) => (b.range ? `Fills the wing (${mm1(b.range[1])})` : '')
+const braceHeightHint = (b) => (b.range ? `From ${mm1(b.range[0])} (the spar) to ${mm1(b.range[1])} (the depth inside the wing).` : '')
 </script>
 
 <template>
@@ -1337,18 +1342,31 @@ const braceNeedText = (b) => (Number.isFinite(b.need) ? `Needs ${(b.need * 1000)
       <template v-else-if="st.braces.enabled">
         <SelectField :id="id('bm')" :model-value="st.braces.material" label="Material" :options="PLY" @update:model-value="set('braces.material', $event)" />
         <p v-if="!braceNeeds.length" class="wc-field__hint">No dihedral breaks to brace.</p>
-        <UnitInput
-          v-for="b in braceNeeds"
-          :key="b.name"
-          :id="id(`bt-${b.name}`)"
-          :model-value="braceT(b.name)"
-          quantity="thin"
-          :system="system"
-          :label="`${b.name} thickness`"
-          :placeholder="braceNeedText(b)"
-          @update:model-value="set('braces.thicknesses', { ...(st.braces.thicknesses ?? {}), [b.name]: $event })"
-        />
-        <p v-if="braceNeeds.length" class="wc-field__hint">Blank takes the next standard ply above what the loads need.</p>
+        <template v-for="b in braceNeeds" :key="b.name">
+          <UnitInput
+            :id="id(`bt-${b.name}`)"
+            :model-value="braceT(b.name)"
+            quantity="thin"
+            :system="system"
+            :label="`${b.name} thickness`"
+            :placeholder="braceNeedText(b)"
+            @update:model-value="set('braces.thicknesses', { ...(st.braces.thicknesses ?? {}), [b.name]: $event })"
+          />
+          <UnitInput
+            v-if="b.range"
+            :id="id(`bh-${b.name}`)"
+            :model-value="braceH(b.name)"
+            quantity="thin"
+            :system="system"
+            :label="`${b.name} height`"
+            :placeholder="braceHeightText(b)"
+            :hint="braceHeightHint(b)"
+            @update:model-value="set('braces.heights', { ...(st.braces.heights ?? {}), [b.name]: $event })"
+          />
+        </template>
+        <p v-if="braceNeeds.length" class="wc-field__hint">
+          Blank thickness takes the next standard ply above what the loads need<template v-if="st.spar.type === 'solid'">; blank height fills the depth inside the wing, and a shorter brace needs thicker ply</template><template v-else>. On a caps spar a brace fills the depth between the skins, as the spar does</template>.
+        </p>
         <UnitInput
           :id="id('bl')"
           :model-value="st.braces.length"

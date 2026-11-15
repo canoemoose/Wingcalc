@@ -17,7 +17,7 @@
 
 import { HATCH_OTHER } from './servos.js'
 import { hingeLabel, hingePacks } from './hingeCatalogue.js'
-import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchSteps, surfaceSteps, sheetRearX, hatchSkin, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
+import { websOf, sheetGaps, patchOver, material, MATERIALS, sparSection, MIN_MATERIAL, skinAt, capStripStart, capStripSet, sheetExtent, hardPatches, patchSheet, patchSpan, patchSteps, surfaceSteps, sheetRearX, hatchSkin, patchThicknessAt, sheetThicknessAt, lineFaces, sparWidth, sparOuterFaces, webThicknessOf, stringerOk, stringerSize, stringerPlaces, insideCentre, STRINGER_PROFILES, solidDepthAt, skinAtSpar, ribMarginOf, isPlainRib, gussetLayer, gussetEdges, finishes, surfaceAt, leadHoleFor } from './structure.js'
 import { flatPanels } from './wing.js'
 import { textWidth } from './strokeFont.js'
 import { BRAKE, bladeSlots } from './airBrakes.js'
@@ -1019,8 +1019,9 @@ export function notchFront(outline0, uc, zc, ru, rz) {
 // --- All parts -------------------------------------------------------------------------------
 
 const PLY = [0.0004, 0.0006, 0.0008, 0.001, 0.0015, 0.002, 0.0025, 0.003, 0.004, 0.005, 0.006]
-// A brace shallower than this (m) cannot be made from ply, so it is reported rather than sized
-const MIN_BRACE_DEPTH = 0.01
+// A brace is glued to the spar's faces: a spar shallower than this (m) at the break has nothing to
+// take one (where a solid spar tapers away), so it's reported rather than sized
+const MIN_BRACE_DEPTH = 0.001
 
 // Dihedral angle (degrees) of the wing either side of each rib on a break, keyed by s.
 function dihedralAt(a) {
@@ -1039,8 +1040,9 @@ function dihedralAt(a) {
 const BRACE_REACH = 0.004
 
 // Dihedral braces: one per dihedral break (sized here, drawn by buildParts). Two plates, one each
-// side of the spar, share the bending moment at the break: t = 6 M SF / (2 σ h²), h being the depth
-// between the spar caps (or skins) there. Each entry gives the break, the moment, the brace height,
+// side of the spar, share the bending moment at the break: t = 6 M SF / (2 σ h²), h being the
+// brace's height there: the whole depth inside the wing, never less than the spar it's glued to.
+// Each entry gives the break, the moment, the brace height,
 // the thickness needed, the thickness chosen (entered, else the next standard ply) and the margin
 // (chosen / needed - 1). A brace that can't be made (no depth at the break) has ok false and a reason.
 // The centreline break has one plate each side; a polyhedral break has two. Pure: no Vue imports.
@@ -1052,10 +1054,28 @@ export function braceSizing(a, structure, { both = true } = {}) {
   const sigma = Math.min(m.compression, m.tension)
   const out = []
   let k = 1
-  // The room for a brace at s: the depth inside the skins there (each side's own, hard points'
-  // sheeting included), the least of it at the spar and at the brace's faces either side
+  // A brace's height at s: at most the depth inside the skins there (each side's own, hard points'
+  // sheeting included, the least of it at the spar and at the brace's faces either side), never
+  // less than a solid spar it's glued to (a caps spar fills that depth already, so its braces
+  // always do). target: the height set for the brace at the break, null to fill the depth.
   const [oF, oR] = sparOuterFaces(a.sparX, structure.spar)
-  const roomAt = (s) => {
+  const solid = structure.spar.type === 'solid'
+  const heightAt = (s, target = null) => {
+    const room = skinRoomAt(s)
+    if (!solid) return room
+    return Math.max(sparDepthAt(s), target === null ? room : Math.min(target, room))
+  }
+  // The spar's depth at s: a solid spar's own, else the room there
+  const sparDepthAt = (s) => {
+    if (!solid) return skinRoomAt(s)
+    const c = Math.min(a.tipS, Math.max(a.rootS, s))
+    const sec = a.section(c)
+    if (!sec) return 0
+    const xi = Math.min(0.95, Math.max(0.02, (a.sparX(c) - sec.xl) / sec.c))
+    const inner = Math.max(0, sec.depth(xi) - skinAtSpar(structure, 'top', c, xi) - skinAtSpar(structure, 'bottom', c, xi))
+    return solidDepthAt(structure.spar, c, inner)
+  }
+  const skinRoomAt = (s) => {
     const c = Math.min(a.tipS, Math.max(a.rootS, s))
     const sec = a.section(c)
     if (!sec) return 0
@@ -1073,7 +1093,13 @@ export function braceSizing(a, structure, { both = true } = {}) {
     if (Math.abs(delta) < 0.05) continue
     // A two-piece wing's root is a joiner, not a brace
     if (r.rootJoint === 'two-piece' && brk.s <= a.rootS + 1e-6) continue
-    const at = roomAt
+    // The height set for this brace (a solid spar's only), held between the spar and the room
+    const setH = solid ? br.heights?.[`B${k}`] : null
+    const room0 = skinRoomAt(brk.s)
+    const minH = sparDepthAt(brk.s)
+    const heightSet = Number.isFinite(setH) && setH > 0 ? setH : null
+    const target = heightSet === null ? null : Math.min(Math.max(heightSet, minH), Math.max(room0, minH))
+    const at = (s) => heightAt(s, target)
     const Lb = br.length || 0.08
     const centre = brk.s < 1e-6 && r.rootJoint !== 'two-piece'
     // Each arm stops where the wing does: inboard at the centreline (or a two-piece root),
@@ -1097,7 +1123,9 @@ export function braceSizing(a, structure, { both = true } = {}) {
     // The engraved line marks the break, where it meets the break rib
     const fold = [raw[5], raw[2]]
     const M = interpRows(a.pos.rows, brk.s)
-    const ok = h0 >= MIN_BRACE_DEPTH
+    // Glued to the spar, so the spar must be there at the break (a solid spar can taper away)
+    const sparH = minH
+    const ok = sparH >= MIN_BRACE_DEPTH
     // This brace's own thickness, else the one for all braces (older saves), else from the loads
     const own = br.thicknesses?.[`B${k}`]
     const entered = Number.isFinite(own) && own > 0 ? own : Number.isFinite(br.thickness) && br.thickness > 0 ? br.thickness : null
@@ -1110,6 +1138,11 @@ export function braceSizing(a, structure, { both = true } = {}) {
       dihedralDeg: delta / 1,
       moment: M,
       height: h0,
+      // The heights it may be set to at the break (a solid spar's only; a caps spar's fill the
+      // depth), the height set (null for the full depth) and whether that had to be held in range
+      heightRange: solid ? [minH, Math.max(room0, minH)] : null,
+      heightSet,
+      heightHeld: heightSet !== null && Math.abs(heightSet - target) > 1e-6,
       needT,
       chosenT,
       entered: entered !== null,
@@ -1117,7 +1150,7 @@ export function braceSizing(a, structure, { both = true } = {}) {
       margin,
       qty: 2 * (centre || !both ? 1 : 2),
       ok,
-      reason: ok ? null : `the spar has only ${Math.round(h0 * 1000)} mm of depth at the break`,
+      reason: ok ? null : `the spar is only ${(sparH * 1000).toFixed(1)} mm deep at the break, too little to glue a brace to`,
       geom: { raw, fold, Lin, Lout, centre, hi, ho, h0 },
     })
     k++
@@ -1624,8 +1657,8 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
       notes: [
         `${b.name}, one each side of the spar, ${Math.round((b.s - a.rootS) * 1000)} mm from the root rib, face grain along it, half way between its arms`,
         `Dihedral angle at the break: ${Math.abs(b.dihedralDeg).toFixed(1)}°`,
-        `Bending moment at the break: ${b.moment.toFixed(1)} N·m`,
-        `Brace height between the spar caps: ${mm(h0)}`,
+        `Bending moment at the break: ${b.moment >= 1 ? b.moment.toFixed(1) : b.moment.toPrecision(2)} N·m`,
+        `Brace height at the break${b.heightSet !== null ? ' (set)' : ', the depth inside the wing'}: ${mm(h0)}`,
         `Thickness needed in ${material(b.material).label.toLowerCase()} at safety factor ${a.safetyFactor}: ${mm(b.needT)}`,
         `Thickness chosen: ${mm(b.chosenT)}${b.entered ? ' (entered)' : ' (next standard ply)'}`,
       ],

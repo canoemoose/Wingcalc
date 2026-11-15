@@ -5,6 +5,7 @@ import { wingGeometry } from '../src/lib/calc.js'
 import { wingSampler, projectedSampler, normalisePanels } from '../src/lib/wing.js'
 import { analyseStructure, defaultStructure } from '../src/lib/structure.js'
 import { braceSizing, buildParts } from '../src/lib/ribs.js'
+import { sectionAt, sparBoxes } from '../src/lib/wing3d.js'
 
 // A swept, polyhedral wing: two dihedral breaks (the centreline and the panel joint) to brace
 const swept = (input) => {
@@ -113,6 +114,82 @@ describe('dihedral braces', () => {
     const b = bare.stations.find((x) => Math.abs(x.s - r.s) < 1e-9)
     expect(r.tau).toBeCloseTo(b.tau * (1 - r.braceShare), 6)
     expect(r.ms.sparShear).toBeGreaterThan(b.ms.sparShear)
+  })
+
+  it('fills the depth inside the wing, never less than the spar, on a shallow solid spar too', () => {
+    const { a: caps, st } = analyse((st) => (st.spar.type = 'caps'))
+    const { a: solid, st: ss } = analyse((st) => {
+      st.spar.type = 'solid'
+      st.spar.solidDepth = 0.004
+    })
+    const [c1] = braceSizing(caps, st)
+    const [s1] = braceSizing(solid, ss)
+    // A 4 mm spar still takes a brace, as tall as the wing is deep there, whatever the spar
+    expect(s1.ok).toBe(true)
+    expect(s1.height).toBeGreaterThan(0.004)
+    // (measured beside each spar's own faces, so within a little of the caps spar's)
+    expect(Math.abs(s1.height / c1.height - 1)).toBeLessThan(0.03)
+    expect(Math.abs(s1.needT / c1.needT - 1)).toBeLessThan(0.07)
+  })
+
+  it('reports a brace where the solid spar has tapered away at the break', () => {
+    const { a, st } = analyse((st) => {
+      st.spar.type = 'solid'
+      st.spar.solidDepth = 0.0005
+    })
+    const b = braceSizing(a, st).find((x) => !x.ok)
+    expect(b).toBeTruthy()
+    expect(b.reason).toMatch(/only 0\.5 mm deep at the break/)
+  })
+
+  it('takes a height set for a brace on a solid spar, held between the spar and the wing', () => {
+    const solid = (h) =>
+      analyse((st) => {
+        st.spar.type = 'solid'
+        st.spar.solidDepth = 0.004
+        st.spar.solidMount = 'bottom'
+        if (h !== undefined) st.braces.heights = { B2: h }
+      })
+    const { a: full, st: sf } = solid()
+    const fb = braceSizing(full, sf)[1]
+    expect(fb.heightSet).toBeNull()
+    const [lo, hi] = fb.heightRange
+    expect(lo).toBeGreaterThan(0.001)
+    expect(hi).toBeCloseTo(fb.height, 9)
+    // In range: made that tall, and a shorter brace needs thicker ply
+    const mid = (lo + hi) / 2
+    const { a, st } = solid(mid)
+    const b = braceSizing(a, st)[1]
+    expect(b.height).toBeCloseTo(mid, 9)
+    expect(b.heightHeld).toBe(false)
+    expect(b.needT).toBeGreaterThan(fb.needT)
+    expect(Math.max(b.geom.hi, b.geom.ho)).toBeLessThanOrEqual(mid + 1e-9)
+    expect(a.warnings.some((w) => w.id === 'brace-B2-height')).toBe(false)
+    // Out of range: held to the spar, with a warning
+    const { a: low, st: sl } = solid(0.0005)
+    const bl = braceSizing(low, sl)[1]
+    expect(bl.height).toBeCloseTo(lo, 9)
+    expect(bl.heightHeld).toBe(true)
+    expect(low.warnings.find((w) => w.id === 'brace-B2-height')?.message).toMatch(/can only be from/)
+    // In 3D the short brace still covers the spar, which sits on the bottom of the ribs
+    const parts = buildParts(a, a.structure).parts
+    const p = parts.find((q) => q.group === 'braces' && q.id === 'B2')
+    const cutAt = p.at.s + p.at.outer / 2
+    const zs = sectionAt(a, a.structure, parts, cutAt).pieces.filter((q) => q.kind === 'brace').flatMap((q) => q.pts.map(([, z]) => z))
+    const box = sparBoxes(a, a.structure, cutAt)[0].map(([, z]) => z)
+    expect(Math.min(...zs)).toBeLessThanOrEqual(Math.min(...box) + 1e-6)
+    expect(Math.max(...zs)).toBeGreaterThanOrEqual(Math.max(...box) - 1e-6)
+  })
+
+  it('ignores a height on a caps spar, whose braces fill the depth as the spar does', () => {
+    const { a, st } = analyse((st) => {
+      st.spar.type = 'caps'
+      st.braces.heights = { B1: 0.003 }
+    })
+    const b = braceSizing(a, st)[0]
+    expect(b.heightRange).toBeNull()
+    expect(b.heightSet).toBeNull()
+    expect(b.height).toBeGreaterThan(0.01)
   })
 
   it('takes the brace thickness set for it, then the one for all, then the loads', () => {

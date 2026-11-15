@@ -241,8 +241,10 @@ export function defaultStructure() {
     // edge, null to follow layer (as saves from before it did)
     gussets: { le: false, te: false, where: 'ends', size: 0.01, thickness: 0.0015, material: 'balsa-medium', sides: 'both', layer: 'top', teLayer: null },
     // thicknesses: each brace's ply, by name ({ B1: 0.003 }); a brace not listed takes thickness
-    // (as older saves set one for all), and with neither, the next standard ply the loads need
-    braces: { enabled: true, material: 'ply-birch', thickness: null, thicknesses: {}, length: 0.08 },
+    // (as older saves set one for all), and with neither, the next standard ply the loads need.
+    // heights: each brace's height at the break on a solid spar, by name ({ B1: 0.006 }), between
+    // the spar's depth and the depth inside the wing; a brace not listed fills that depth.
+    braces: { enabled: true, material: 'ply-birch', thickness: null, thicknesses: {}, heights: {}, length: 0.08 },
     // Control-surface hinges: a bevelled hinge line with Mylar tabs slotted into a hinge spar
     // on each side at its centre line. fixedWidth and movingWidth are the hinge spars' widths
     // across the hinge (the fixed part's, square; the moving surface's, bevelled); tabs are
@@ -2257,6 +2259,10 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
   for (const b of braces) {
     const from = Math.round((b.s - s0) * 1000)
     if (!b.ok) warnings.push({ id: `brace-${b.name}`, message: `Dihedral brace ${b.name} (at ${from} mm from the root) isn't built: ${b.reason}.` })
+    else if (b.heightHeld) {
+      const [lo, hi] = b.heightRange.map((v) => (v * 1000).toFixed(1))
+      warnings.push({ id: `brace-${b.name}-height`, message: `Dihedral brace ${b.name} is set ${(b.heightSet * 1000).toFixed(1)} mm tall, but it can only be from ${lo} mm (the spar) to ${hi} mm (the depth inside the wing) there, so it's made ${(b.height * 1000).toFixed(1)} mm.` })
+    }
     else if (b.margin < 0) {
       const need = (Math.ceil(b.needT * 10000) / 10).toFixed(1)
       const have = (b.chosenT * 1000).toFixed(1)
