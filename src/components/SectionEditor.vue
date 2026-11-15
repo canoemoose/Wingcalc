@@ -6,6 +6,9 @@
 // history step for the parent); the selection is emitted as `update:selection`.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import StageZoom from './StageZoom.vue'
+import TraceImport from './TraceImport.vue'
+import { trace, traceOpacity, traceVisible, setTrace, clearTrace } from '../composables/useTraceImage.js'
+import { placeTrace, traceMatrix, renormalised } from '../lib/traceImage.js'
 import { useCmdDock } from '../composables/useCmdDock.js'
 import { usePinch } from '../composables/usePinch.js'
 import {
@@ -185,6 +188,8 @@ function onWheel(e) {
 
 onMounted(() => {
   measure()
+  // The trace dialogue goes in the workspace, outside the stage, so the stage's keys and fingers don't see it
+  dialogTarget.value = stageEl.value?.closest('.wingcalc') ?? null
   if (typeof ResizeObserver !== 'undefined' && stageEl.value) {
     ro = new ResizeObserver(measure)
     ro.observe(stageEl.value)
@@ -694,7 +699,11 @@ function mirrorSel() {
   emit('commit', `Mirrored the ${from} surface to the other side`)
 }
 function normaliseSection() {
-  pts.value = normalise(pts.value).pts
+  const n = normalise(pts.value)
+  // The trace image moves with the outline
+  const t = trace.value
+  if (t) setTrace({ ...t, place: renormalised(t.place, pts.value[leIndex(pts.value)], n) })
+  pts.value = n.pts
   emit('commit', 'Normalised to a unit chord')
   emit('normalised')
   fit()
@@ -747,6 +756,67 @@ function resetToSeed(sd) {
     setSelection([], [])
     emit('commit', `Reset to ${sd.name}`)
   })
+}
+
+/* ------------------------------ trace image ------------------------------ */
+
+// A picture to trace over, behind the grid (session only: useTraceImage.js). Choosing a file opens the dialogue that
+// crops, turns and marks it (TraceImport.vue); Adjust opens it again on the same picture.
+const fileEl = ref(null)
+const dialogTarget = ref(null)
+// What the dialogue is open on ({ url, w, h, and deg, crop, le, te when adjusting }), and whether its url is a new
+// file's (freed if the dialogue is cancelled)
+const importing = ref(null)
+let importingNew = false
+const traceTransform = computed(() => {
+  const t = trace.value
+  if (!t) return ''
+  return `matrix(${traceMatrix(t.place, { S: S.value, ox: ox.value, oy: oy.value, ve: ve.value }).map((n) => n.toFixed(4)).join(' ')})`
+})
+function chooseTrace() {
+  popOpen.value = ''
+  fileEl.value?.click()
+}
+function onTraceFile(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file) return
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  img.onload = () => {
+    importingNew = true
+    importing.value = { url, w: img.naturalWidth, h: img.naturalHeight }
+  }
+  img.onerror = () => {
+    URL.revokeObjectURL(url)
+    notice.value = `${file.name} couldn't be opened as a picture. Try a PNG, JPEG or WebP.`
+  }
+  img.src = url
+}
+function adjustTrace() {
+  popOpen.value = ''
+  if (!trace.value) return
+  importingNew = false
+  importing.value = { ...trace.value.source }
+}
+function cancelTrace() {
+  if (importingNew) URL.revokeObjectURL(importing.value.url)
+  importing.value = null
+}
+function acceptTrace(r) {
+  const place = placeTrace(r.le, r.te, frame(pts.value))
+  importing.value = null
+  if (!place) {
+    URL.revokeObjectURL(r.url)
+    return
+  }
+  setTrace({ url: r.url, w: r.w, h: r.h, place, source: r.source })
+  notice.value = ''
+  stageEl.value?.focus({ preventScroll: true })
+}
+function removeTrace() {
+  popOpen.value = ''
+  clearTrace()
 }
 
 // Runs a side-panel action on the selection (the same actions as the bar)
@@ -949,6 +1019,16 @@ defineExpose({ focusOn, run })
       @mousedown="onMouseDown"
       @dblclick="onDbl"
     >
+      <image
+        v-if="trace && traceVisible"
+        class="wc-sec__trace"
+        :href="trace.url"
+        :width="trace.w"
+        :height="trace.h"
+        :transform="traceTransform"
+        :opacity="traceOpacity"
+        preserveAspectRatio="none"
+      />
       <g v-html="body" />
       <rect v-if="boxRect" class="wc-sec__box" :x="boxRect.x" :y="boxRect.y" :width="boxRect.w" :height="boxRect.h" />
     </svg>
@@ -956,6 +1036,7 @@ defineExpose({ focusOn, run })
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(showComb)" title="Curvature comb along the outline" @click="showComb = !showComb">Comb</button>
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(showCamber)" title="Camber line and the thickness and camber markers" @click="showCamber = !showCamber">Camber and markers</button>
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(showSeed)" :disabled="!seedD" :title="seedD ? 'The outline the drawing started from' : 'The drawing did not start from a named seed'" @click="showSeed = !showSeed">Seed outline</button>
+      <button v-if="trace" type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(traceVisible)" title="The picture to trace over, behind the grid" @click="traceVisible = !traceVisible">Image</button>
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(ve === 1)" title="True proportions" @click="ve = 1">1×</button>
       <button type="button" class="wc-button wc-stage__btn wc-sec__view" :aria-pressed="String(ve === 3)" title="Vertical stretched three times, to see small bumps" @click="ve = 3">3×</button>
     </div>
@@ -984,10 +1065,35 @@ defineExpose({ focusOn, run })
         <button type="button" class="wc-cmd__btn" title="Fair every free point on both surfaces so the curvature varies smoothly. Press again for more." @click="smoothIdx(pts.map((_, i) => i), 'the whole section')">Smooth all</button>
         <button type="button" class="wc-cmd__btn" :aria-expanded="String(popOpen === 'smooth')" title="Fair the upper surface, the lower surface or both" @click="popOpen = popOpen === 'smooth' ? '' : 'smooth'">Smooth surface…</button>
         <label class="wc-cmd__check" title="Fairing shrinks the section a little. Tick this to rescale the thickness afterwards so the maximum thickness stays what it was."><input v-model="keepThick" type="checkbox" />Keep max thickness</label>
+        <span class="wc-cmd__sep"></span>
+        <button
+          type="button"
+          class="wc-cmd__btn"
+          :aria-expanded="trace ? String(popOpen === 'trace') : undefined"
+          :title="trace ? 'Fade, adjust, replace or remove the picture behind the grid' : 'Put a picture of a section behind the grid to trace over (not saved with the project)'"
+          @click="trace ? (popOpen = popOpen === 'trace' ? '' : 'trace') : chooseTrace()"
+        >
+          Trace image…
+        </button>
       </template>
     </div>
-    <div v-if="popOpen" class="wc-pop" role="dialog" :aria-label="popOpen === 'smooth' ? 'Smooth surface' : 'Reset'">
-      <template v-if="popOpen === 'reset'">
+    <input ref="fileEl" class="wc-sr-only" type="file" accept="image/*" tabindex="-1" aria-hidden="true" @change="onTraceFile" />
+    <div v-if="popOpen" class="wc-pop" role="dialog" :aria-label="{ smooth: 'Smooth surface', trace: 'Trace image' }[popOpen] ?? 'Reset'">
+      <template v-if="popOpen === 'trace' && trace">
+        <p class="wc-pop__title">Trace image</p>
+        <label class="wc-pop__slider">
+          <span>Opacity</span>
+          <input v-model.number="traceOpacity" class="wc-range" type="range" min="0.1" max="1" step="0.05" aria-label="Opacity of the picture" />
+          <output>{{ Math.round(traceOpacity * 100) }} %</output>
+        </label>
+        <div class="wc-pop__list">
+          <button type="button" class="wc-button wc-pop__item" @click="adjustTrace">Adjust…<small>Crop, turn or move the LE and TE markers again</small></button>
+          <button type="button" class="wc-button wc-pop__item" @click="chooseTrace">Replace…<small>Choose another picture</small></button>
+          <button type="button" class="wc-button wc-pop__item" @click="removeTrace">Remove<small>Take the picture away</small></button>
+        </div>
+        <p class="wc-muted wc-pop__note">The picture is kept while the app is open but isn't saved with the project.</p>
+      </template>
+      <template v-else-if="popOpen === 'reset'">
         <p class="wc-pop__title">Reset</p>
         <div class="wc-pop__list">
           <button type="button" class="wc-button wc-pop__item" :disabled="unchangedFromStart" @click="resetToStart">Back to the start of this edit<small>{{ unchangedFromStart ? 'Nothing has changed since you opened the editor' : 'The shape as it was when you opened the editor' }}</small></button>
@@ -1017,5 +1123,8 @@ defineExpose({ focusOn, run })
     </p>
     <p v-if="notice" class="wc-sec__caption wc-sec__caption--notice">{{ notice }}</p>
     <StageZoom fit-title="Fit the drawing to the view (F)" @zoom-in="zoom(1.25)" @zoom-out="zoom(1 / 1.25)" @fit="fit" />
+    <Teleport v-if="importing && dialogTarget" :to="dialogTarget">
+      <TraceImport :source="importing" @accept="acceptTrace" @cancel="cancelTrace" />
+    </Teleport>
   </div>
 </template>

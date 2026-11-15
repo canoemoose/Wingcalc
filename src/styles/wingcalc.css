@@ -4042,3 +4042,141 @@
   padding: 3px 0 6px;
   font-size: 0.85rem;
 }
+
+/* Trace image: the dialogue that crops, turns and marks a picture (TraceImport.vue), and the picture behind the
+   section editor's grid */
+.wc-trace {
+  width: min(1100px, 100%);
+}
+.wc-trace__stage {
+  position: relative;
+  /* The stage handles its own fingers (one drags a handle or pans, two pinch) */
+  touch-action: none;
+  height: min(60vh, 560px);
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid var(--wc-border);
+  border-radius: 6px;
+  background: var(--wc-surface);
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.wc-trace__stage:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--wc-accent);
+}
+.wc-trace__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.wc-trace__svg--panning {
+  cursor: grabbing;
+}
+.wc-trace__shade {
+  fill: color-mix(in srgb, #000 50%, transparent);
+  pointer-events: none;
+}
+.wc-trace__crop {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+.wc-trace__handle {
+  fill: #fff;
+  stroke: color-mix(in srgb, #000 60%, transparent);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.wc-trace__level {
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.wc-trace__chord {
+  stroke: var(--wc-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 8 4;
+  pointer-events: none;
+}
+.wc-trace__mark {
+  pointer-events: none;
+}
+.wc-trace__mark circle {
+  fill: color-mix(in srgb, var(--wc-accent) 20%, transparent);
+  stroke: var(--wc-accent);
+  stroke-width: 2;
+}
+.wc-trace__mark line {
+  stroke: var(--wc-accent);
+  stroke-width: 1;
+}
+.wc-trace__mark text {
+  fill: var(--wc-accent);
+  font-size: 12px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: var(--wc-bg);
+  stroke-width: 3px;
+}
+.wc-trace__mark--active circle {
+  stroke-width: 3;
+}
+.wc-trace__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.wc-trace__fine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 160px;
+  max-width: 320px;
+}
+.wc-trace__fine .wc-field__label {
+  margin: 0;
+}
+.wc-trace__fine .wc-range {
+  flex: 1;
+}
+.wc-trace__angle {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.wc-trace__angle .wc-input {
+  width: 4.5em;
+}
+.wc-trace__tilt {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.wc-trace__spacer {
+  flex: 1;
+}
+.wc-sec__trace {
+  pointer-events: none;
+}
+.wc-pop__slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+.wc-pop__slider .wc-range {
+  flex: 1;
+}
+.wc-pop__slider output {
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
