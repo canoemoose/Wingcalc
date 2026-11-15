@@ -98,6 +98,81 @@ describe('edge stock', () => {
     expect(flat.fits).toBe(false)
   })
 
+  it('checks a custom trailing edge at its depth and thickness, and draws its fit', () => {
+    const custom = (type, height) =>
+      build((st) => {
+        st.te.stock = 'custom'
+        st.te.type = type
+        st.te.width = 0.015
+        st.te.height = height
+      }).a
+    // Thick enough: fits, drawn, and the warning-free fit choice shows
+    const thick = custom('flat', 0.008)
+    expect(thick.edges.te.item).toMatchObject({ kind: 'flat', width: 0.015, height: 0.008, custom: true })
+    expect(thick.edges.te.fits).toBe(true)
+    expect(thick.edges.te.drawing?.stock.length).toBeGreaterThan(4)
+    expect(thick.structure.te.type).toBe('flat')
+    // Too thin: flagged, with the custom fix
+    const thin = custom('flat', 0.0015)
+    expect(thin.edges.te.fits).toBe(false)
+    expect(thin.warnings.find((w) => w.id === 'te-stock')?.message).toMatch(/leave the thickness blank/)
+  })
+
+  it('turns a roomy custom trailing edge to the camber when that is chosen', () => {
+    const at = (fit, height) =>
+      build((st) => {
+        st.te.stock = 'custom'
+        st.te.type = 'flat'
+        st.te.width = 0.015
+        st.te.height = height
+        st.te.fit = fit
+      }).a
+    // Thicker than it needs: square fits, and turned it's still turned (and drawn turned)
+    const turned = at('rotated', 0.008)
+    expect(turned.edges.te.fits).toBe(true)
+    expect(Math.abs(turned.edges.te.angle)).toBeGreaterThan(0.005)
+    expect(turned.edges.te.drawing.angle).toBeCloseTo(turned.edges.te.angle, 9)
+    expect(turned.structure.te.face).toBeTruthy()
+    expect(at('square', 0.008).edges.te.angle).toBe(0)
+    // Left blank, it's the thinnest that fits turned at the edge
+    const auto = at('rotated', null)
+    expect(auto.edges.te.fits).toBe(true)
+    expect(auto.edges.te.offset).toBe(0)
+    expect(Math.abs(auto.edges.te.angle)).toBeGreaterThan(0.005)
+  })
+
+  it('makes a custom trailing edge with no thickness the thinnest that fits', () => {
+    for (const type of ['triangular', 'flat']) {
+      const a = build((st) => {
+        st.te.stock = 'custom'
+        st.te.type = type
+        st.te.width = 0.019
+        st.te.height = null
+      }).a
+      const it = a.edges.te.item
+      expect(it.heightAuto).toBe(true)
+      expect(it.kind).toBe(type)
+      expect(a.edges.te.fits).toBe(true)
+      // 0.2 mm thinner doesn't fit
+      const thinner = build((st) => {
+        st.te.stock = 'custom'
+        st.te.type = type
+        st.te.width = 0.019
+        st.te.height = it.height - 0.0002
+      }).a
+      expect(thinner.edges.te.fits).toBe(false)
+    }
+  })
+
+  it('has no trailing edge stock for a custom one with no depth', () => {
+    const a = build((st) => {
+      st.te.stock = 'custom'
+      st.te.width = 0
+    }).a
+    expect(a.edges.te.item).toBeNull()
+    expect(a.edges.te.width).toBe(0)
+  })
+
   it('cuts the ribs back by the chosen stock', () => {
     const res = build((st) => {
       st.le.stock = 'L345'
@@ -386,10 +461,15 @@ describe('square and rotated edge stock', () => {
     expect(sq.fits).toBe(false)
     expect(rot.at[0].theta).toBeGreaterThan(0)
     expect(rot.shortfall).toBeLessThan(sq.shortfall)
-    // Stock that already fits square isn't turned: turning it would only carve more away
+    // Stock that already fits square is still turned when turned to the camber is chosen: to the
+    // camber's angle (nose-up here), as near as it fits, wasting no more than square
     const roomy = LE_STOCK.find((x) => x.kind === 'symmetrical' && fitOver(x, cambered(), [0], 'le', { mode: 'square', d: 0 }).fits)
     expect(roomy).toBeTruthy()
-    expect(fitOver(roomy, cambered(), [0], 'le', { mode: 'rotated', d: 0 }).at[0].theta).toBe(0)
+    const turned = fitOver(roomy, cambered(), [0], 'le', { mode: 'rotated', d: 0 })
+    const square = fitOver(roomy, cambered(), [0], 'le', { mode: 'square', d: 0 })
+    expect(turned.fits).toBe(true)
+    expect(turned.at[0].theta).toBeGreaterThan(0)
+    expect(turned.waste).toBeLessThanOrEqual(square.waste + 0.01 * roomy.width * roomy.height)
     // The drawing's face leans with it
     const d = fitDrawing(small, cambered()(), 'le', { mode: 'rotated' })
     expect(Math.abs(d.face[1][0] - d.face[0][0])).toBeGreaterThan(1e-4)

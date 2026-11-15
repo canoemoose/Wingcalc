@@ -434,7 +434,14 @@ function setStock(k, v) {
   const next = { ...e, stock: v }
   if (v === 'custom' && e.stock !== 'custom' && from?.width > 0) {
     next.width = from.width
-    if (k === 'te') next.type = 'triangular'
+    // A trailing edge starts as the stock it was: its depth, thickness and shape
+    if (k === 'te') {
+      next.type = from.item?.kind === 'triangular' || !from.item ? 'triangular' : 'flat'
+      if (from.item) {
+        next.width = from.item.width
+        next.height = from.item.height
+      }
+    }
   }
   set(k, next)
 }
@@ -963,6 +970,16 @@ const braceHeightHint = (b) => (b.range ? `From ${mm1(b.range[0])} (the spar) to
           :system="system"
           label="Trailing edge stock, depth along the chord"
           @update:model-value="set('te.width', $event)"
+        />
+        <UnitInput
+          :id="id('teh')"
+          :model-value="st.te.height ?? null"
+          quantity="thin"
+          :system="system"
+          label="Trailing edge stock, thickness"
+          :placeholder="edges?.te.item?.heightAuto ? `Thinnest that fits (${(edges.te.item.height * 1000).toFixed(1)} mm)` : ''"
+          :hint="st.te.type === 'flat' ? 'The strip as bought, carved to the section once glued on.' : 'At its thick end, as bought; carved to the section once glued on.'"
+          @update:model-value="set('te.height', $event)"
         />
       </template>
       <SelectField :id="id('tem')" :model-value="st.te.material" label="Trailing edge material" :options="WOOD" @update:model-value="set('te.material', $event)" />

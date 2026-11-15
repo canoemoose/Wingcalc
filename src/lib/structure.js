@@ -208,7 +208,9 @@ export function defaultStructure() {
     // only, 'inset' (let into the ribs); lay: a let-in strip on 'edge', 'flat' or the 'best' way
     // up. See edgeStock.js
     le: { type: 'balsa', stock: 'auto', width: 0.006, height: null, material: 'balsa-hard', diameter: null, fit: 'square', lay: 'best' }, // height: custom stock only (null: as deep)
-    te: { stock: 'auto', width: 0.015, type: 'triangular', material: 'balsa-medium', fit: 'square' }, // 'triangular' | 'flat' (custom only)
+    // A custom trailing edge (stock 'custom'): width deep, height thick (null: the thinnest that
+    // fits), type 'triangular' | 'flat'
+    te: { stock: 'auto', width: 0.015, height: null, type: 'triangular', material: 'balsa-medium', fit: 'square' },
     // Stringers and carbon reinforcement: { id, position (chord fraction), surface, profile, width,
     // height, wall, depth, material }. See STRINGER_PROFILES and stringerPlaces.
     stringers: [],
@@ -2226,7 +2228,7 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
       message: 'With no leading edge stock the sheeting forms the nose, but this wing has no sheeting. Choose D-box or Fully sheeted, or a leading edge stock.',
     })
   }
-  // Catalogue edge stock too small to carve the section from, where it's worst and what to do
+  // Edge stock (catalogue or custom) too small to carve the section from, where it's worst and what to do
   for (const [k, name, part] of [
     ['le', 'leading edge', "the wing's nose"],
     ['te', 'trailing edge', "the wing's trailing edge"],
@@ -2234,8 +2236,9 @@ export function analyseStructure({ wing, airfoil, structure, mass, spanwise, con
     const e = edges[k]
     if (e.fits || !e.item) continue
     const it = e.item
-    const fix =
-      e.auto.id !== it.id && e.autoFits
+    const fix = it.custom && k === 'te'
+      ? 'Use thicker stock, or leave the thickness blank for the thinnest that fits.'
+      : e.auto.id !== it.id && e.autoFits
         ? `Use ${e.auto.code} ${KIND_LABELS[e.auto.kind]}${structure[k].stock === 'auto' ? '' : ' (what Auto picks)'}, or a bigger custom size.`
         : "None of the standard sizes is big enough there: use a custom size at least that much bigger."
     warnings.push({

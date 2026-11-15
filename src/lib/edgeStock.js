@@ -83,7 +83,7 @@ export const TE_STOCK = [
   // picked by Auto.
   .concat(STRIPS.filter(([, d, h]) => d === h).map(([code, d, , di]) => ({ id: `${code}-te`, code, kind: 'square', width: mm(d), height: mm(d), inch: `${di} × ${di}` })))
 
-export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular', square: 'square', block: 'block' }
+export const KIND_LABELS = { symmetrical: 'symmetrical', strip: 'strip on edge', triangular: 'triangular', square: 'square', block: 'block', flat: 'flat strip' }
 
 // What the leading edge is made of: balsa stock (the catalogue above, or a custom size),
 // round stock (carbon rod or hardwood dowel, by diameter) or nothing, the sheeting itself
@@ -161,9 +161,10 @@ function stockArea(item) {
 // (u, z) of its profile sits at A + u e + (z + n) m, A = (-d, the edge's own height).
 // It fits when every point of the section ahead of its back face (u <= its width) is inside it:
 // shortfall is how much taller (along its normal) it would need to be; 0 or less fits.
-// +-15 degrees in half degrees, the smallest first: a turn has to earn its place
+// +-15 degrees in half degrees, the smallest first
 const ROTATIONS = Array.from({ length: 61 }, (_, i) => (((i - 30) / 2) * Math.PI) / 180).sort((p, q) => Math.abs(p) - Math.abs(q) || p - q)
-// Turning stock is worth it only if it saves at least this share of the stock as sold
+// Angles whose waste is within this share of the stock as sold of the least are as good as each
+// other: of them, stock turned to the camber takes the one nearest the camber's angle (chooseTurn)
 const TURN_GAIN = 0.01
 const SECTION_SAMPLES = 40
 
@@ -367,14 +368,32 @@ function stationFit(item, shape, d, mode, theta = null) {
     const f = placeInset(item, shape)
     return { ...f, waste: Math.max(0, stockArea(item) - f.used) }
   }
-  let best = null
-  for (const t of theta != null ? [theta] : mode === 'rotated' ? ROTATIONS : [0]) {
+  const tries = (theta != null ? [theta] : mode === 'rotated' ? ROTATIONS : [0]).map((t) => {
     const f = placeAt(item, shape, d, t)
-    const fits = f.shortfall <= TOLERANCE
-    const gain = TURN_GAIN * stockArea(item)
-    if (!best || (fits && (!best.fits || f.used > best.used + gain)) || (!fits && !best.fits && f.shortfall < best.shortfall)) best = { ...f, fits }
+    return { ...f, fits: f.shortfall <= TOLERANCE, waste: Math.max(0, stockArea(item) - f.used), theta: t }
+  })
+  return chooseTurn(tries, TURN_GAIN * stockArea(item), camberAngle(item, shape))
+}
+
+// The angle (radians) stock turned to the camber lies at in a station's shape: along the mean
+// line over its depth, or for triangular stock along the lower surface its flat face sits on
+function camberAngle(item, shape) {
+  const y = (v) => {
+    const f = shape.surf(v)
+    return item.kind === 'triangular' ? f.lower : (f.upper + f.lower) / 2
   }
-  return { ...best, waste: Math.max(0, stockArea(item) - best.used) }
+  return Math.atan2(y(shape.W) - y(0), shape.W)
+}
+
+// Of the angles tried ([{ fits, waste, shortfall, theta }]), the one to use: of those that fit,
+// the ones within gain of the least waste, and of them the nearest the camber's angle (so stock
+// turned to the camber is turned whenever it fits that way, even where turning saves no wood);
+// if none fits, the one that falls least short
+function chooseTurn(tries, gain, camber) {
+  const fit = tries.filter((t) => t.fits)
+  if (!fit.length) return tries.reduce((p, q) => (q.shortfall < p.shortfall ? q : p))
+  const least = Math.min(...fit.map((t) => t.waste))
+  return fit.filter((t) => t.waste <= least + gain).reduce((p, q) => (Math.abs(q.theta - camber) < Math.abs(p.theta - camber) ? q : p))
 }
 
 // How well a rod or dowel of diameter D fits the nose of the section at s. It sits with its
@@ -423,14 +442,11 @@ export function roundFitAt(D, sec) {
 // asks for the same stations many times).
 export function fitOver(item, section, stations, edge, { d = 0, mode = 'square', theta = null } = {}, shapes = new Map()) {
   if (item.kind !== 'round' && mode === 'rotated' && theta == null) {
-    let best = null
-    for (const t of ROTATIONS) {
-      const f = fitOver(item, section, stations, edge, { d, mode, theta: t }, shapes)
-      // Turned only where it saves a worthwhile share of the stock at every station together
-      const gain = TURN_GAIN * stockArea(item) * Math.max(1, f.at.length)
-      if (!best || (f.fits && (!best.fits || f.waste < best.waste - gain)) || (!f.fits && !best.fits && f.shortfall < best.shortfall)) best = f
-    }
-    return best
+    const tries = ROTATIONS.map((t) => fitOver(item, section, stations, edge, { d, mode, theta: t }, shapes))
+    // The camber's angle over the stations checked
+    const angles = stations.filter((s) => shapes.has(s)).map((s) => camberAngle(item, shapes.get(s)))
+    const camber = angles.length ? angles.reduce((m, v) => m + v, 0) / angles.length : 0
+    return chooseTurn(tries, TURN_GAIN * stockArea(item) * Math.max(1, tries[0].at.length), camber)
   }
   let shortfall = -Infinity
   let waste = 0
@@ -661,8 +677,9 @@ export function fitDrawing(item, sec, edge, { d = 0, mode = 'square', theta = nu
 
 // The stock to use for each edge, and how well it fits. structure.le.stock and
 // structure.te.stock are 'auto' (picked to suit), 'custom' (as entered: a custom leading edge is
-// a block le.width deep by le.height tall, checked like catalogue stock; a
-// custom trailing edge is width only, unchecked) or a catalogue id (a retired flat leading-edge
+// a block le.width deep by le.height tall; a custom trailing edge te.width deep by te.height
+// thick, triangular or a flat strip (te.type), as thick as the section needs when te.height is
+// blank; both checked and drawn like catalogue stock) or a catalogue id (a retired flat leading-edge
 // code reads as the symmetrical stock of the same size). stations: the span positions to check (root, panel ends, tip).
 // A round leading edge (structure.le.type 'rod' or 'dowel') is checked at its diameter, and
 // one of type 'none' has no stock at all.
@@ -698,8 +715,14 @@ export function resolveEdges(structure, section, stations) {
     // Auto picks from the shaped stock; square trailing-edge strip is a deliberate choice
     const auto = pick(list.filter((x) => x.kind !== 'square').flatMap(ways), section, stations, k, min, mode)
     const id = k === 'le' ? migrateLeStockId(e.stock) : e.stock
-    const custom = id === 'custom' && k === 'le' ? customLe(e) : null
     const floor = Math.max(min.depth, min.chord * (section(stations[0])?.c ?? 0))
+    const custom = id !== 'custom' ? null : k === 'le' ? customLe(e) : customTe(
+            e,
+            (x) => fitOver(x, section, stations, k, { mode }),
+            // Turned to the camber, the thinnest that fits turned at the edge (set ahead of the
+            // edge instead, it would never need turning); square, wherever it fits best
+            (x) => (mode === 'rotated' ? fitOver(x, section, stations, k, { mode }) : bestPlacement(x, section, stations, k, { mode, floor })).fits,
+          )
     const chosen = id === 'custom' ? custom : list.find((x) => x.id === id)
     // A chosen strip let into the ribs goes in whichever of its ways fits with the least waste
     let item = id === 'auto' || !chosen ? (id === 'custom' ? custom : auto) : chosen
@@ -750,6 +773,39 @@ export const customLe = (e) => {
   const H = e.height || W
   const r = (v) => Math.round(v * 10000) / 10
   return { id: 'custom', code: `${r(W)} × ${r(H)} mm custom`, kind: 'block', custom: true, width: W, height: H }
+}
+
+// A custom trailing edge: triangular or a flat strip (e.type) at the entered depth and thickness.
+// With no thickness entered it's the thinnest (to 0.1 mm) that fits by fits (square: as
+// catalogue stock would, set ahead of the edge if that helps; turned: turned at the edge): at the edge (atEdge, the fit of a trial item flush with
+// the edge, whose shortfall is how much thicker it would need to be) gives the most it needs;
+// fits says whether a trial item fits wherever it's best placed.
+export function customTe(e, atEdge, fits) {
+  // No depth: no stock at all (the ribs or core run to the trailing edge)
+  if (!(e.width > 0)) return null
+  const W = e.width
+  const kind = e.type === 'flat' ? 'flat' : 'triangular'
+  const r = (v) => Math.round(v * 10000) / 10
+  const make = (H) => ({ id: 'custom', code: `${r(H)} × ${r(W)} mm custom`, kind, custom: true, width: W, height: H })
+  if (e.height > 0) return make(e.height)
+  // Flush with the edge: thicken by the shortfall until it fits
+  let hi = Math.max(0.001, W * 0.3)
+  for (let i = 0; i < 8; i++) {
+    const f = atEdge(make(hi))
+    if (!(f.shortfall > 1e-6)) break
+    hi += f.shortfall
+  }
+  // Then the thinnest that still fits, set ahead of the edge as far as it may be
+  let lo = TE_EDGE + 0.0005
+  if (lo < hi && !fits(make(lo))) {
+    for (let i = 0; i < 12 && hi - lo > 0.00005; i++) {
+      const m = (lo + hi) / 2
+      if (fits(make(m))) hi = m
+      else lo = m
+    }
+  } else if (lo < hi) hi = lo
+  const H = Math.ceil(hi * 10000 - 1e-6) / 10000
+  return { ...make(H), heightAuto: true }
 }
 
 // A rod or dowel as a fit-check item
