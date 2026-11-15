@@ -40,8 +40,8 @@ trailing edges, which put it on the drawing's chord.
 
 All four steps done (2026-11-15). Tests: `tests/traceImage.test.js` (the maths), two mounts in `tests/mount.test.js`
 (the dialogue: marker drag, quarter turn, Level chord; the editor: image first in the SVG, Image toggle). Run in the
-dev server with a generated picture: import, Use image, Adjust and Cancel, Normalise, no console errors. Not yet
-checked by eye.
+dev server with a generated picture: import, Use image, Adjust and Cancel, Normalise, no console errors. Used and
+checked in the app by Matt.
 
 ## Known limits
 
