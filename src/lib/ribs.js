@@ -232,8 +232,9 @@ function cutProfile(a, s, { perpendicular = false, points = PROFILE_POINTS } = {
 // How thin a rib runs out to over an inset leading-edge strip, where it feathers out
 const INSET_FEATHER = 0.0005
 
-// braces: the dihedral braces' spans, [{ s0, s1, t, name }]: a rib between s0 and s1 is cut in two
-// round the spar and the brace plates on its faces.
+// braces: the dihedral braces' spans, [{ s0, s1, t, name, heightAt(s) }]: a rib between s0 and s1
+// is notched round a solid spar and the brace plates on its faces where they leave the rib margin,
+// else cut in two round them.
 export function buildRib(a, structure, rib, { board = null, split = null, leads = [], braces = [] } = {}) {
   const r = structure.ribs
   const perpendicular = r.orientation === 'perpendicular' && isPlainRib(rib.kind)
@@ -451,9 +452,32 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   // solidTaper), and whether the rib is split in two at it
   const capsSpar = sp.type === 'caps' || sp.type === 'box'
   const fitHere = (sp.type === 'solid' || capsSpar) && !movingSide ? (sp.taper ?? []).find((t) => Math.abs(t.s - rib.s) < 1e-6) : null
-  // A dihedral brace the rib crosses: the rib is cut in two round the spar and its plates
+  // A dihedral brace the rib crosses: its plates on the spar's faces (outside any webs), with a
+  // little clearance, between braceU0 and braceU1 along the rib. The rib is notched round the
+  // spar and the plates where a brace on a solid spar leaves the rib margin beside it (above it,
+  // below it, or both for a spar through the rib); otherwise it's cut in two round them.
   const braceHere = movingSide ? null : braces.find((b) => rib.s >= b.s0 - 1e-6 && rib.s <= b.s1 + 1e-6) ?? null
-  const splitAtSpar = fitHere?.fit === 'split' || !!braceHere
+  let braceU0 = uSpar0
+  let braceU1 = uSpar1
+  let braceNotch = null
+  if (braceHere) {
+    const [oF, oR] = sparOuterFaces(a.sparX, sp)
+    const k = (s) => lineFaces(a.sparX, 2)[1](s) - a.sparX(s)
+    const t = braceHere.t + 0.0002
+    braceU0 = crossing((s) => oF(s) - t * k(s), uSpar0 - t)
+    braceU1 = crossing((s) => oR(s) + t * k(s), uSpar1 + t)
+    if (sp.type === 'solid' && fitHere?.fit !== 'split') {
+      const h = Math.max(braceHere.heightAt(rib.s), fitHere ? fitHere.depth : solidDepthAt(sp, rib.s))
+      let room = Infinity
+      for (let i = 0; i <= 8; i++) {
+        const u = braceU0 + ((braceU1 - braceU0) * i) / 8
+        room = Math.min(room, top(u) - bot(u))
+      }
+      const margins = sp.solidMount === 'through' ? 2 : 1
+      if (room - h >= margins * ribMarginOf(sp) - 1e-9) braceNotch = { h }
+    }
+  }
+  const splitAtSpar = fitHere?.fit === 'split' || (!!braceHere && !braceNotch)
   // A caps spar's cap thickness at this rib: thinned where the rib keeps its margin between them
   const tcHere = capsSpar ? fitHere?.tc ?? sp.capThickness : 0
   // The moving surface's part is behind the main spar: nothing of it to notch
@@ -483,13 +507,15 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
           : `The spar tapers to ${mm(d)} here, leaving ${mm(ribMarginOf(sp))} of rib ${sp.solidMount === 'through' ? 'above and below it' : sp.solidMount === 'top' ? 'below it' : 'above it'}`,
       )
     }
+    // Notched for the spar, or for the spar and a dihedral brace's plates on its faces together
+    const [n0, n1, nd] = braceNotch ? [braceU0, braceU1, braceNotch.h] : [uSpar0, uSpar1, d]
     if (splitAtSpar) {
       // Cut in two at the spar's faces, below, once the outline is walked
-    } else if (sp.solidMount === 'top') upper.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
-    else if (sp.solidMount === 'bottom') lower.push({ u0: uSpar0, u1: uSpar1, depth: d, what: 'spar' })
+    } else if (sp.solidMount === 'top') upper.push({ u0: n0, u1: n1, depth: nd, what: 'spar' })
+    else if (sp.solidMount === 'bottom') lower.push({ u0: n0, u1: n1, depth: nd, what: 'spar' })
     else {
       const mid = (top(uSpar) + bot(uSpar)) / 2
-      holes.push(rect(uSpar0, mid - d / 2, uSpar1, mid + d / 2))
+      holes.push(rect(n0, mid - nd / 2, n1, mid + nd / 2))
     }
   } else if (sp.type === 'tube' && sparHere.type === 'tube') {
     // Round where the rib is square to the tube, an ellipse where it crosses at an angle
@@ -511,13 +537,13 @@ export function buildRib(a, structure, rib, { board = null, split = null, leads 
   let cutFront = uSpar0
   let cutRear = uSpar1
   if (braceHere) {
-    const [oF, oR] = sparOuterFaces(a.sparX, sp)
-    const k = (s) => lineFaces(a.sparX, 2)[1](s) - a.sparX(s)
-    const t = braceHere.t + 0.0002
-    cutFront = crossing((s) => oF(s) - t * k(s), uSpar0 - t)
-    cutRear = crossing((s) => oR(s) + t * k(s), uSpar1 + t)
-    keepClear.push([cutFront, cutRear])
-    notes.push(`Cut in two round the spar and the dihedral brace ${braceHere.name} on its faces`)
+    keepClear.push([braceU0, braceU1])
+    if (braceNotch) notes.push(`Notched round the spar and the dihedral brace ${braceHere.name} on its faces, ${(braceNotch.h * 1000).toFixed(1)} mm deep`)
+    else {
+      cutFront = braceU0
+      cutRear = braceU1
+      notes.push(`Cut in two round the spar and the dihedral brace ${braceHere.name} on its faces`)
+    }
   }
   for (const st of structure.stringers ?? []) {
     if (!stringerOk(st)) continue
@@ -1176,7 +1202,12 @@ export function buildParts(a, structure, { handedness = 'pair', wireKerf = WIRE_
     ? []
     : braceSizing(a, structure, { both })
         .filter((b) => b.ok && b.chosenT > 0)
-        .map((b) => ({ s0: b.geom.centre ? b.s : b.s - b.geom.Lin, s1: b.s + b.geom.Lout, t: b.chosenT, name: b.name }))
+        .map((b) => {
+          const { Lin, Lout, centre, hi, h0, ho } = b.geom
+          // The plate's height along the span: straight from the break to each arm's end
+          const heightAt = (s) => (s >= b.s ? h0 + (ho - h0) * (Lout > 0 ? Math.min(1, (s - b.s) / Lout) : 0) : h0 + ((centre ? ho : hi) - h0) * (Lin > 0 ? Math.min(1, (b.s - s) / Lin) : 0))
+          return { s0: centre ? b.s : b.s - Lin, s1: b.s + Lout, t: b.chosenT, name: b.name, heightAt }
+        })
 
   // Board datum per panel for jig tabs: below the lowest point of every rib in the panel
   const boards = new Map()

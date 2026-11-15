@@ -181,6 +181,30 @@ describe('dihedral braces', () => {
     expect(Math.max(...zs)).toBeGreaterThanOrEqual(Math.max(...box) - 1e-6)
   })
 
+  it('notches the ribs round a short brace on a solid spar, and cuts them in two round a full one', () => {
+    const ribsAt = (h) => {
+      const { a } = analyse((st) => {
+        st.spar.type = 'solid'
+        st.spar.solidDepth = 0.004
+        st.spar.solidMount = 'bottom'
+        if (h) st.braces.heights = { B1: h, B2: h }
+      })
+      const parts = buildParts(a, a.structure).parts
+      const b = a.braces[1]
+      const lo = b.s - b.geom.Lin - 1e-6
+      const hi = b.s + b.geom.Lout + 1e-6
+      return parts.filter((p) => p.group === 'ribs' && p.s >= lo && p.s <= hi)
+    }
+    const notched = ribsAt(0.004)
+    expect(notched.length).toBeGreaterThan(0)
+    for (const p of notched) {
+      expect(p.notes.some((n) => /Notched round the spar and the dihedral brace B2/.test(n))).toBe(true)
+      expect(p.rib.sparSplit).toBe(false)
+    }
+    const split = ribsAt(null)
+    expect(split.some((p) => p.rib.sparSplit && p.notes.some((n) => /Cut in two round the spar and the dihedral brace B2/.test(n)))).toBe(true)
+  })
+
   it('ignores a height on a caps spar, whose braces fill the depth as the spar does', () => {
     const { a, st } = analyse((st) => {
       st.spar.type = 'caps'
